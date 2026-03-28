@@ -95,6 +95,22 @@ public class FormatDefaultTests
         // Red ANSI code for non-zero exit
         Assert.Contains("\x1b[31m", output);
     }
+
+    [Fact]
+    public void FormatDefault_ZeroPeakMemory_ShowsNotAvailable()
+    {
+        var result = new TimeItResult(
+            WallTime: TimeSpan.FromSeconds(1.0),
+            CpuTime: TimeSpan.FromSeconds(0.5),
+            PeakMemoryBytes: 0,
+            ExitCode: 0
+        );
+
+        string output = Formatting.FormatDefault(result, useColor: false);
+
+        Assert.Contains("N/A", output);
+        Assert.DoesNotContain("0 KB", output);
+    }
 }
 
 public class FormatOneLineTests
@@ -112,6 +128,21 @@ public class FormatOneLineTests
         string output = Formatting.FormatOneLine(result, useColor: false);
 
         Assert.Equal("[timeit] 12.4s wall | 9.1s cpu | 482 MB peak | exit 0", output);
+    }
+
+    [Fact]
+    public void FormatOneLine_ZeroPeakMemory_ShowsNotAvailable()
+    {
+        var result = new TimeItResult(
+            WallTime: TimeSpan.FromSeconds(1.0),
+            CpuTime: TimeSpan.FromSeconds(0.5),
+            PeakMemoryBytes: 0,
+            ExitCode: 0
+        );
+
+        string output = Formatting.FormatOneLine(result, useColor: false);
+
+        Assert.Contains("N/A", output);
     }
 }
 
@@ -133,5 +164,20 @@ public class FormatJsonTests
         Assert.Contains("\"cpu_seconds\":", output);
         Assert.Contains("\"peak_memory_bytes\":505413632", output);
         Assert.Contains("\"exit_code\":0", output);
+    }
+
+    [Fact]
+    public void FormatJson_ZeroPeakMemory_OutputsNull()
+    {
+        var result = new TimeItResult(
+            WallTime: TimeSpan.FromSeconds(1.0),
+            CpuTime: TimeSpan.FromSeconds(0.5),
+            PeakMemoryBytes: 0,
+            ExitCode: 0
+        );
+
+        string output = Formatting.FormatJson(result);
+
+        Assert.Contains("\"peak_memory_bytes\":null", output);
     }
 }

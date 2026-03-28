@@ -74,7 +74,9 @@ public static class Formatting
             ? AnsiColor.Green(useColor)
             : AnsiColor.Red(useColor);
 
-        return $"  {dim}real{reset}  {FormatDuration(result.WallTime)}\n  {dim}cpu{reset}   {FormatDuration(result.CpuTime)}\n  {dim}peak{reset}  {FormatBytes(result.PeakMemoryBytes)}\n  {dim}exit{reset}  {exitColor}{result.ExitCode}{reset}";
+        string peakDisplay = result.PeakMemoryBytes > 0 ? FormatBytes(result.PeakMemoryBytes) : "N/A";
+
+        return $"  {dim}real{reset}  {FormatDuration(result.WallTime)}\n  {dim}cpu{reset}   {FormatDuration(result.CpuTime)}\n  {dim}peak{reset}  {peakDisplay}\n  {dim}exit{reset}  {exitColor}{result.ExitCode}{reset}";
     }
 
     /// <summary>
@@ -87,7 +89,9 @@ public static class Formatting
             : AnsiColor.Red(useColor);
         string reset = AnsiColor.Reset(useColor);
 
-        return $"[timeit] {FormatDuration(result.WallTime)} wall | {FormatDuration(result.CpuTime)} cpu | {FormatBytes(result.PeakMemoryBytes)} peak | exit {exitColor}{result.ExitCode}{reset}";
+        string peakDisplay = result.PeakMemoryBytes > 0 ? FormatBytes(result.PeakMemoryBytes) : "N/A";
+
+        return $"[timeit] {FormatDuration(result.WallTime)} wall | {FormatDuration(result.CpuTime)} cpu | {peakDisplay} peak | exit {exitColor}{result.ExitCode}{reset}";
     }
 
     /// <summary>
@@ -95,12 +99,16 @@ public static class Formatting
     /// </summary>
     public static string FormatJson(TimeItResult result)
     {
+        string peakJson = result.PeakMemoryBytes > 0
+            ? result.PeakMemoryBytes.ToString(CultureInfo.InvariantCulture)
+            : "null";
+
         return string.Format(
             CultureInfo.InvariantCulture,
             "{{\"wall_seconds\":{0:F3},\"cpu_seconds\":{1:F3},\"peak_memory_bytes\":{2},\"exit_code\":{3}}}",
             result.WallTime.TotalSeconds,
             result.CpuTime.TotalSeconds,
-            result.PeakMemoryBytes,
+            peakJson,
             result.ExitCode
         );
     }

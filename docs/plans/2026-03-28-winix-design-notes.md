@@ -362,6 +362,26 @@ Winix's best candidates for this path: `timeit` (build performance measurement i
 
 ---
 
+## Documentation
+
+### Repo README.md
+
+The main `README.md` for the Winix repo includes a table of all tools with:
+- Tool name
+- Brief description of what it does
+- Nearest *nix equivalent(s)
+
+### Per-Tool README.md
+
+Each tool gets its own `README.md` (in its console app directory, e.g. `src/timeit/README.md`) covering:
+- What the tool does
+- Installation (dotnet tool install, standalone binary)
+- Usage and examples
+- Options/flags
+- Comparison with *nix equivalent
+
+---
+
 ## Open Questions
 
 1. **ShellKit repo strategy** — separate repo now, or extract later? (Leaning: start inline, extract after 2-3 tools)

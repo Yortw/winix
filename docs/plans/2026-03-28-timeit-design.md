@@ -55,10 +55,10 @@ Compact, grep-friendly, good for CI logs. Same colour rules apply.
 ### JSON (`--json`, stderr)
 
 ```json
-{"wall_seconds":12.4,"cpu_seconds":9.1,"peak_memory_bytes":505413632,"exit_code":0}
+{"wall_seconds":12.400,"cpu_seconds":9.100,"peak_memory_bytes":505413632,"exit_code":0}
 ```
 
-Raw values: seconds as float, bytes as integer. No colour. Machine-parseable.
+Raw values: seconds as float (3dp fixed), bytes as integer (or `null` if unreadable). No colour. Machine-parseable.
 
 ### `--stdout` flag
 

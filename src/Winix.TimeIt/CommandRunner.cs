@@ -1,5 +1,3 @@
-#nullable enable
-
 using System.ComponentModel;
 using System.Diagnostics;
 
@@ -19,6 +17,24 @@ public sealed class CommandNotFoundException : Exception
 
     /// <summary>
     /// The command name that could not be found.
+    /// </summary>
+    public string Command { get; }
+}
+
+/// <summary>
+/// Thrown when the specified command exists but cannot be executed (e.g. permission denied).
+/// </summary>
+public sealed class CommandNotExecutableException : Exception
+{
+    /// <inheritdoc />
+    public CommandNotExecutableException(string command)
+        : base($"permission denied: {command}")
+    {
+        Command = command;
+    }
+
+    /// <summary>
+    /// The command that could not be executed.
     /// </summary>
     public string Command { get; }
 }
@@ -61,10 +77,17 @@ public static class CommandRunner
             process = Process.Start(startInfo)
                 ?? throw new CommandNotFoundException(command);
         }
-        catch (Win32Exception)
+        catch (Win32Exception ex)
         {
-            // Win32Exception is thrown on all .NET platforms (not just Windows) when the
-            // executable cannot be found — .NET maps POSIX ENOENT to Win32Exception on Linux/macOS too.
+            // Win32Exception is thrown on all .NET platforms (not just Windows).
+            // .NET maps POSIX errors to Win32 error codes on Linux/macOS.
+            // ERROR_ACCESS_DENIED (5) on Windows, EACCES (13) on Linux/macOS → not executable.
+            // ERROR_FILE_NOT_FOUND (2), ERROR_PATH_NOT_FOUND (3), ENOENT (2) → not found.
+            if (ex.NativeErrorCode == 5 || ex.NativeErrorCode == 13)
+            {
+                throw new CommandNotExecutableException(command);
+            }
+
             throw new CommandNotFoundException(command);
         }
 

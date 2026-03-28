@@ -61,7 +61,7 @@ static int Run(string[] args)
     }
 
     string command = args[commandStart];
-    string[] commandArgs = args[(commandStart + 1)..];
+    string[] commandArgs = args.Skip(commandStart + 1).ToArray();
 
     // Resolve colour
     bool noColorEnv = ConsoleEnv.IsNoColorEnvSet();
@@ -73,6 +73,11 @@ static int Run(string[] args)
     try
     {
         result = CommandRunner.Run(command, commandArgs);
+    }
+    catch (CommandNotExecutableException ex)
+    {
+        Console.Error.WriteLine($"timeit: {ex.Message}");
+        return 126;
     }
     catch (CommandNotFoundException ex)
     {
