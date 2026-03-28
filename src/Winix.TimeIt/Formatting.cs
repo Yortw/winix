@@ -74,9 +74,11 @@ public static class Formatting
             ? AnsiColor.Green(useColor)
             : AnsiColor.Red(useColor);
 
-        string peakDisplay = result.PeakMemoryBytes > 0 ? FormatBytes(result.PeakMemoryBytes) : "N/A";
+        string userDisplay = result.UserCpuTime.HasValue ? FormatDuration(result.UserCpuTime.Value) : "N/A";
+        string sysDisplay = result.SystemCpuTime.HasValue ? FormatDuration(result.SystemCpuTime.Value) : "N/A";
+        string peakDisplay = result.PeakMemoryBytes.HasValue ? FormatBytes(result.PeakMemoryBytes.Value) : "N/A";
 
-        return $"  {dim}real{reset}  {FormatDuration(result.WallTime)}\n  {dim}cpu{reset}   {FormatDuration(result.CpuTime)}\n  {dim}peak{reset}  {peakDisplay}\n  {dim}exit{reset}  {exitColor}{result.ExitCode}{reset}";
+        return $"  {dim}real{reset}  {FormatDuration(result.WallTime)}\n  {dim}user{reset}  {userDisplay}\n  {dim}sys{reset}   {sysDisplay}\n  {dim}peak{reset}  {peakDisplay}\n  {dim}exit{reset}  {exitColor}{result.ExitCode}{reset}";
     }
 
     /// <summary>
@@ -89,9 +91,11 @@ public static class Formatting
             : AnsiColor.Red(useColor);
         string reset = AnsiColor.Reset(useColor);
 
-        string peakDisplay = result.PeakMemoryBytes > 0 ? FormatBytes(result.PeakMemoryBytes) : "N/A";
+        string userDisplay = result.UserCpuTime.HasValue ? FormatDuration(result.UserCpuTime.Value) : "N/A";
+        string sysDisplay = result.SystemCpuTime.HasValue ? FormatDuration(result.SystemCpuTime.Value) : "N/A";
+        string peakDisplay = result.PeakMemoryBytes.HasValue ? FormatBytes(result.PeakMemoryBytes.Value) : "N/A";
 
-        return $"[timeit] {FormatDuration(result.WallTime)} wall | {FormatDuration(result.CpuTime)} cpu | {peakDisplay} peak | exit {exitColor}{result.ExitCode}{reset}";
+        return $"[timeit] {FormatDuration(result.WallTime)} wall | {userDisplay} user | {sysDisplay} sys | {peakDisplay} peak | exit {exitColor}{result.ExitCode}{reset}";
     }
 
     /// <summary>
@@ -99,15 +103,26 @@ public static class Formatting
     /// </summary>
     public static string FormatJson(TimeItResult result)
     {
-        string peakJson = result.PeakMemoryBytes > 0
-            ? result.PeakMemoryBytes.ToString(CultureInfo.InvariantCulture)
+        string userJson = result.UserCpuTime.HasValue
+            ? result.UserCpuTime.Value.TotalSeconds.ToString("F3", CultureInfo.InvariantCulture)
+            : "null";
+        string sysJson = result.SystemCpuTime.HasValue
+            ? result.SystemCpuTime.Value.TotalSeconds.ToString("F3", CultureInfo.InvariantCulture)
+            : "null";
+        string cpuJson = result.TotalCpuTime.HasValue
+            ? result.TotalCpuTime.Value.TotalSeconds.ToString("F3", CultureInfo.InvariantCulture)
+            : "null";
+        string peakJson = result.PeakMemoryBytes.HasValue
+            ? result.PeakMemoryBytes.Value.ToString(CultureInfo.InvariantCulture)
             : "null";
 
         return string.Format(
             CultureInfo.InvariantCulture,
-            "{{\"wall_seconds\":{0:F3},\"cpu_seconds\":{1:F3},\"peak_memory_bytes\":{2},\"exit_code\":{3}}}",
+            "{{\"wall_seconds\":{0:F3},\"user_cpu_seconds\":{1},\"sys_cpu_seconds\":{2},\"cpu_seconds\":{3},\"peak_memory_bytes\":{4},\"exit_code\":{5}}}",
             result.WallTime.TotalSeconds,
-            result.CpuTime.TotalSeconds,
+            userJson,
+            sysJson,
+            cpuJson,
             peakJson,
             result.ExitCode
         );
