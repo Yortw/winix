@@ -32,4 +32,13 @@ public class CommandRunnerTests
         Assert.Throws<CommandNotFoundException>(
             () => CommandRunner.Run("this-command-surely-does-not-exist-abcxyz", Array.Empty<string>()));
     }
+
+    [Fact]
+    public void Run_CommandWithArguments_PassesArgsCorrectly()
+    {
+        // dotnet --list-sdks should succeed and produce output
+        var result = CommandRunner.Run("dotnet", new[] { "--list-sdks" });
+
+        Assert.Equal(0, result.ExitCode);
+    }
 }
