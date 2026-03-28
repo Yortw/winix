@@ -34,12 +34,13 @@ The `--` separator is optional. `timeit` stops parsing its own flags at the firs
 
 ```
   real  12.4s
-  cpu    9.1s
+  user   9.1s
+  sys    0.3s
   peak  482 MB
   exit  0
 ```
 
-- Labels (`real`, `cpu`, `peak`, `exit`) in dim/grey
+- Labels (`real`, `user`, `sys`, `peak`, `exit`) in dim/grey
 - Values in normal brightness
 - Exit code: green for 0, red for non-zero
 - Written to stderr so it doesn't pollute piped command output
@@ -47,7 +48,7 @@ The `--` separator is optional. `timeit` stops parsing its own flags at the firs
 ### One-line (`-1` / `--oneline`, stderr)
 
 ```
-[timeit] 12.4s wall | 9.1s cpu | 482 MB peak | exit 0
+[timeit] 12.4s wall | 9.1s user | 0.3s sys | 482 MB peak | exit 0
 ```
 
 Compact, grep-friendly, good for CI logs. Same colour rules apply.
@@ -55,10 +56,10 @@ Compact, grep-friendly, good for CI logs. Same colour rules apply.
 ### JSON (`--json`, stderr)
 
 ```json
-{"wall_seconds":12.400,"cpu_seconds":9.100,"peak_memory_bytes":505413632,"exit_code":0}
+{"wall_seconds":12.400,"user_cpu_seconds":9.100,"sys_cpu_seconds":0.300,"cpu_seconds":9.400,"peak_memory_bytes":505413632,"exit_code":0}
 ```
 
-Raw values: seconds as float (3dp fixed), bytes as integer (or `null` if unreadable). No colour. Machine-parseable.
+Raw values: seconds as float (3dp fixed), bytes as integer. `null` for any metric the OS could not provide. No colour. Machine-parseable.
 
 ### `--stdout` flag
 
@@ -96,7 +97,7 @@ JSON always uses raw bytes (integer) regardless of magnitude.
    - Inherit stdin, stdout, stderr directly (no redirection, no buffering)
    - The child writes to the terminal exactly as if timeit wasn't there
 4. `WaitForExit()` — block until child completes
-5. Read `Process.TotalProcessorTime`, `Process.PeakWorkingSet64`, `Process.ExitCode`
+5. Read metrics via platform-native APIs (`NativeMetrics.GetMetrics`), read `Process.ExitCode`
 6. Write summary to stderr (or stdout with `--stdout`)
 7. Exit with the child's exit code
 
@@ -105,15 +106,19 @@ JSON always uses raw bytes (integer) regardless of magnitude.
 | Metric | Source | Notes |
 |--------|--------|-------|
 | Wall clock | `System.Diagnostics.Stopwatch` | High-resolution timer |
-| CPU time | `Process.TotalProcessorTime` | User + kernel combined (no separate split in v1) |
-| Peak memory | `Process.PeakWorkingSet64` | Peak working set of child process |
+| User CPU time | Platform-native API | `GetProcessTimes` (Windows), `getrusage(RUSAGE_CHILDREN)` (Linux/macOS) |
+| System CPU time | Platform-native API | Same APIs as user CPU |
+| Peak memory | Platform-native API | `GetProcessMemoryInfo` (Windows), `getrusage` `ru_maxrss` (Linux/macOS) |
 | Exit code | `Process.ExitCode` | Passed through as timeit's own exit code |
 
 ### Cross-platform
 
-All metrics come from `System.Diagnostics.Process`, which is cross-platform. No P/Invoke or platform-specific code in v1.
+Platform-native APIs via `LibraryImport` (source-generated P/Invoke, AOT-compatible):
+- **Windows:** `GetProcessTimes` + `GetProcessMemoryInfo` via process handle (reliable after `WaitForExit()`, handle keeps kernel object alive)
+- **Linux:** `getrusage(RUSAGE_CHILDREN)` via `libc` (works post-reap by design, `ru_maxrss` in KB)
+- **macOS:** `getrusage(RUSAGE_CHILDREN)` via `libSystem` (same approach, `ru_maxrss` in bytes)
 
-**Future upgrade path:** Platform P/Invoke (`GetProcessTimes` on Windows, `/proc/[pid]/stat` on Linux) could provide separate user/kernel CPU time. Not needed for v1.
+All metric fields are nullable — `null` means the OS could not provide the value (rare in practice). Human output shows `N/A`, JSON shows `null`. This is distinct from zero, which is a valid measurement.
 
 ## Exit Codes
 
@@ -149,6 +154,10 @@ winix/
 │   ├── Winix.TimeIt/              ← class library (all logic)
 │   │   ├── Winix.TimeIt.csproj
 │   │   ├── CommandRunner.cs        ← spawn process, collect metrics
+│   │   ├── NativeMetrics.cs        ← platform dispatch + shared types
+│   │   ├── NativeMetrics.Windows.cs ← GetProcessTimes / GetProcessMemoryInfo
+│   │   ├── NativeMetrics.Linux.cs  ← getrusage(RUSAGE_CHILDREN) via libc
+│   │   ├── NativeMetrics.MacOS.cs  ← getrusage(RUSAGE_CHILDREN) via libSystem
 │   │   ├── ResultFormatter.cs      ← format output (default/oneline/json)
 │   │   ├── ConsoleEnv.cs           ← color/terminal detection (proto-Yort.ShellKit)
 │   │   └── TimeItResult.cs         ← data record for timing results
@@ -182,7 +191,6 @@ Shared across all projects in the solution:
 
 ## Explicitly Not In v1
 
-- **No user/sys CPU split** — upgrade to platform P/Invoke later if needed
 - **No `--compare` or benchmarking mode** — that's hyperfine's territory
 - **No `--repeat N`** — same reasoning
 - **No shell wrapping** — timeit spawns the process directly via `Process.Start()`, not via `cmd /c` or `bash -c`. Shell features (pipes, redirects) in the timed command require explicit shell invocation: `timeit bash -c "sort file | uniq"`
