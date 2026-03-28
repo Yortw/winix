@@ -46,7 +46,7 @@ public static partial class NativeMetrics
     [LibraryImport("libc", EntryPoint = "getrusage")]
     private static partial int GetRUsageLinux(int who, out RUsageLinux usage);
 
-    private static MetricsBaseline CaptureBaselineLinux()
+    private static partial MetricsBaseline CaptureBaselineLinux()
     {
         if (GetRUsageLinux(RUSAGE_CHILDREN_LINUX, out RUsageLinux usage) != 0)
         {
@@ -63,7 +63,7 @@ public static partial class NativeMetrics
         };
     }
 
-    private static ProcessMetrics GetMetricsLinux(MetricsBaseline baseline)
+    private static partial ProcessMetrics GetMetricsLinux(MetricsBaseline baseline)
     {
         if (GetRUsageLinux(RUSAGE_CHILDREN_LINUX, out RUsageLinux usage) != 0)
         {

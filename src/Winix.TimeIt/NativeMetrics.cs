@@ -86,9 +86,9 @@ public static partial class NativeMetrics
     }
 
     // Platform-specific partial methods — implemented in per-platform files
-    static partial MetricsBaseline CaptureBaselineLinux();
-    static partial MetricsBaseline CaptureBaselineMacOS();
-    static partial ProcessMetrics GetMetricsWindows(Process process);
-    static partial ProcessMetrics GetMetricsLinux(MetricsBaseline baseline);
-    static partial ProcessMetrics GetMetricsMacOS(MetricsBaseline baseline);
+    private static partial MetricsBaseline CaptureBaselineLinux();
+    private static partial MetricsBaseline CaptureBaselineMacOS();
+    private static partial ProcessMetrics GetMetricsWindows(Process process);
+    private static partial ProcessMetrics GetMetricsLinux(MetricsBaseline baseline);
+    private static partial ProcessMetrics GetMetricsMacOS(MetricsBaseline baseline);
 }

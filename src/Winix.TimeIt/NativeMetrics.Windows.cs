@@ -37,7 +37,7 @@ public static partial class NativeMetrics
         out PROCESS_MEMORY_COUNTERS ppsmemCounters,
         uint cb);
 
-    private static ProcessMetrics GetMetricsWindows(Process process)
+    private static partial ProcessMetrics GetMetricsWindows(Process process)
     {
         TimeSpan? userCpu = null;
         TimeSpan? sysCpu = null;

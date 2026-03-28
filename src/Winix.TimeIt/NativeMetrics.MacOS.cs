@@ -45,7 +45,7 @@ public static partial class NativeMetrics
     [LibraryImport("libSystem", EntryPoint = "getrusage")]
     private static partial int GetRUsageMacOS(int who, out RUsageMacOS usage);
 
-    private static MetricsBaseline CaptureBaselineMacOS()
+    private static partial MetricsBaseline CaptureBaselineMacOS()
     {
         if (GetRUsageMacOS(RUSAGE_CHILDREN_MACOS, out RUsageMacOS usage) != 0)
         {
@@ -62,7 +62,7 @@ public static partial class NativeMetrics
         };
     }
 
-    private static ProcessMetrics GetMetricsMacOS(MetricsBaseline baseline)
+    private static partial ProcessMetrics GetMetricsMacOS(MetricsBaseline baseline)
     {
         if (GetRUsageMacOS(RUSAGE_CHILDREN_MACOS, out RUsageMacOS usage) != 0)
         {
