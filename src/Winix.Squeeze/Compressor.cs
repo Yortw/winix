@@ -69,6 +69,71 @@ public static class Compressor
     }
 
     /// <summary>
+    /// Detects the compression format from <paramref name="input"/> (via magic bytes, then
+    /// filename extension, then brute-force brotli/deflate) and decompresses to
+    /// <paramref name="output"/>. Returns the detected format, or null if the data could not
+    /// be decompressed as any known format.
+    /// </summary>
+    /// <param name="input">Compressed input stream.</param>
+    /// <param name="output">Destination stream for decompressed data.</param>
+    /// <param name="filename">Optional filename hint for extension-based detection (e.g. "data.br").</param>
+    /// <returns>The detected format, or null if decompression failed for all formats.</returns>
+    public static async Task<CompressionFormat?> DecompressAutoDetectAsync(
+        Stream input, Stream output, string? filename)
+    {
+        var (format, headerBytes) = await FormatDetector.DetectFromStreamAsync(input, filename);
+
+        if (format.HasValue)
+        {
+            using var combined = new ConcatenatedStream(headerBytes, input);
+            await DecompressAsync(combined, output, format.Value).ConfigureAwait(false);
+            return format.Value;
+        }
+
+        // No magic bytes or extension match — try brotli then raw deflate as fallbacks
+        if (input.CanSeek)
+        {
+            long savedPosition = input.Position;
+
+            if (await TryDecompressBrotliAsync(headerBytes, input, output).ConfigureAwait(false))
+            {
+                return CompressionFormat.Brotli;
+            }
+
+            output.SetLength(0);
+            input.Position = savedPosition;
+
+            if (await TryDecompressRawDeflateAsync(headerBytes, input, output).ConfigureAwait(false))
+            {
+                // Raw deflate is not a named format — return null to indicate unknown wrapper
+                return null;
+            }
+        }
+        else
+        {
+            // Non-seekable: buffer the remainder so we can retry
+            using var buffered = new MemoryStream();
+            await input.CopyToAsync(buffered, BufferSize).ConfigureAwait(false);
+            byte[] remainingBytes = buffered.ToArray();
+
+            using var brotliAttempt = new MemoryStream(remainingBytes);
+            if (await TryDecompressBrotliAsync(headerBytes, brotliAttempt, output).ConfigureAwait(false))
+            {
+                return CompressionFormat.Brotli;
+            }
+
+            output.SetLength(0);
+            using var deflateAttempt = new MemoryStream(remainingBytes);
+            if (await TryDecompressRawDeflateAsync(headerBytes, deflateAttempt, output).ConfigureAwait(false))
+            {
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Attempts to decompress brotli data where the header bytes have already been read.
     /// Returns true if decompression succeeded, false if the data is not valid brotli.
     /// </summary>

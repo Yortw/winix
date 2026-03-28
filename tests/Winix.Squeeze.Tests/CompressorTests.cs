@@ -79,3 +79,93 @@ public class CompressTests
         Assert.Equal(original, decompressed.ToArray());
     }
 }
+
+public class AutoDetectDecompressTests
+{
+    private static byte[] GenerateTestData(int size)
+    {
+        byte[] pattern = "The quick brown fox jumps over the lazy dog. "u8.ToArray();
+        byte[] data = new byte[size];
+        for (int i = 0; i < size; i++)
+        {
+            data[i] = pattern[i % pattern.Length];
+        }
+        return data;
+    }
+
+    [Fact]
+    public async Task DecompressAutoDetect_Gzip_DetectsByMagicBytes()
+    {
+        byte[] original = GenerateTestData(5_000);
+        using var compressed = new MemoryStream();
+        await Compressor.CompressAsync(new MemoryStream(original), compressed, CompressionFormat.Gzip, 6);
+
+        compressed.Position = 0;
+        using var decompressed = new MemoryStream();
+        var result = await Compressor.DecompressAutoDetectAsync(compressed, decompressed, filename: null);
+
+        Assert.Equal(CompressionFormat.Gzip, result);
+        Assert.Equal(original, decompressed.ToArray());
+    }
+
+    [Fact]
+    public async Task DecompressAutoDetect_Zstd_DetectsByMagicBytes()
+    {
+        byte[] original = GenerateTestData(5_000);
+        using var compressed = new MemoryStream();
+        await Compressor.CompressAsync(new MemoryStream(original), compressed, CompressionFormat.Zstd, 3);
+
+        compressed.Position = 0;
+        using var decompressed = new MemoryStream();
+        var result = await Compressor.DecompressAutoDetectAsync(compressed, decompressed, filename: null);
+
+        Assert.Equal(CompressionFormat.Zstd, result);
+        Assert.Equal(original, decompressed.ToArray());
+    }
+
+    [Fact]
+    public async Task DecompressAutoDetect_Brotli_DetectsByExtension()
+    {
+        byte[] original = GenerateTestData(5_000);
+        using var compressed = new MemoryStream();
+        await Compressor.CompressAsync(new MemoryStream(original), compressed, CompressionFormat.Brotli, 6);
+
+        compressed.Position = 0;
+        using var decompressed = new MemoryStream();
+        var result = await Compressor.DecompressAutoDetectAsync(compressed, decompressed, filename: "data.br");
+
+        Assert.Equal(CompressionFormat.Brotli, result);
+        Assert.Equal(original, decompressed.ToArray());
+    }
+
+    [Fact]
+    public async Task DecompressAutoDetect_Brotli_FallbackWithoutExtension()
+    {
+        byte[] original = GenerateTestData(5_000);
+        using var compressed = new MemoryStream();
+        await Compressor.CompressAsync(new MemoryStream(original), compressed, CompressionFormat.Brotli, 6);
+
+        compressed.Position = 0;
+        using var decompressed = new MemoryStream();
+        var result = await Compressor.DecompressAutoDetectAsync(compressed, decompressed, filename: null);
+
+        Assert.Equal(CompressionFormat.Brotli, result);
+        Assert.Equal(original, decompressed.ToArray());
+    }
+
+    [Fact]
+    public async Task DecompressAutoDetect_RandomData_ReturnsNull()
+    {
+        byte[] randomData = new byte[1000];
+        new Random(42).NextBytes(randomData);
+        // Ensure first bytes don't match any magic bytes
+        randomData[0] = 0x00;
+        randomData[1] = 0x00;
+
+        using var input = new MemoryStream(randomData);
+        using var output = new MemoryStream();
+        var result = await Compressor.DecompressAutoDetectAsync(input, output, filename: null);
+
+        Assert.Null(result);
+    }
+}
