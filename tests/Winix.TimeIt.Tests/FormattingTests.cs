@@ -208,7 +208,7 @@ public class FormatOneLineTests
 public class FormatJsonTests
 {
     [Fact]
-    public void FormatJson_ProducesValidJson()
+    public void FormatJson_IncludesStandardFields()
     {
         var result = new TimeItResult(
             WallTime: TimeSpan.FromSeconds(12.4),
@@ -218,14 +218,52 @@ public class FormatJsonTests
             ExitCode: 0
         );
 
-        string output = Formatting.FormatJson(result);
+        string output = Formatting.FormatJson(result, "timeit", "0.1.0");
+
+        Assert.Contains("\"tool\":\"timeit\"", output);
+        Assert.Contains("\"version\":\"0.1.0\"", output);
+        Assert.Contains("\"exit_code\":0", output);
+        Assert.Contains("\"exit_reason\":\"success\"", output);
+        Assert.Contains("\"child_exit_code\":0", output);
+    }
+
+    [Fact]
+    public void FormatJson_IncludesMetrics()
+    {
+        var result = new TimeItResult(
+            WallTime: TimeSpan.FromSeconds(12.4),
+            UserCpuTime: TimeSpan.FromSeconds(9.1),
+            SystemCpuTime: TimeSpan.FromSeconds(0.3),
+            PeakMemoryBytes: 505_413_632,
+            ExitCode: 0
+        );
+
+        string output = Formatting.FormatJson(result, "timeit", "0.1.0");
 
         Assert.Contains("\"wall_seconds\":", output);
         Assert.Contains("\"user_cpu_seconds\":9.100", output);
         Assert.Contains("\"sys_cpu_seconds\":0.300", output);
         Assert.Contains("\"cpu_seconds\":9.400", output);
         Assert.Contains("\"peak_memory_bytes\":505413632", output);
+    }
+
+    [Fact]
+    public void FormatJson_ChildExitCodePassesThrough()
+    {
+        var result = new TimeItResult(
+            WallTime: TimeSpan.FromSeconds(1.0),
+            UserCpuTime: TimeSpan.FromSeconds(0.5),
+            SystemCpuTime: TimeSpan.FromSeconds(0.1),
+            PeakMemoryBytes: 1_048_576,
+            ExitCode: 42
+        );
+
+        string output = Formatting.FormatJson(result, "timeit", "0.1.0");
+
+        // Tool's exit_code is always 0 (success) when formatter is reached
         Assert.Contains("\"exit_code\":0", output);
+        // Child's exit code is separate
+        Assert.Contains("\"child_exit_code\":42", output);
     }
 
     [Fact]
@@ -239,7 +277,7 @@ public class FormatJsonTests
             ExitCode: 0
         );
 
-        string output = Formatting.FormatJson(result);
+        string output = Formatting.FormatJson(result, "timeit", "0.1.0");
 
         Assert.Contains("\"peak_memory_bytes\":null", output);
     }
@@ -255,7 +293,7 @@ public class FormatJsonTests
             ExitCode: 0
         );
 
-        string output = Formatting.FormatJson(result);
+        string output = Formatting.FormatJson(result, "timeit", "0.1.0");
 
         Assert.Contains("\"user_cpu_seconds\":null", output);
         Assert.Contains("\"sys_cpu_seconds\":null", output);
@@ -273,9 +311,42 @@ public class FormatJsonTests
             ExitCode: 0
         );
 
-        string output = Formatting.FormatJson(result);
+        string output = Formatting.FormatJson(result, "timeit", "0.1.0");
 
         Assert.Contains("\"peak_memory_bytes\":0", output);
+    }
+}
+
+public class FormatJsonErrorTests
+{
+    [Fact]
+    public void FormatJsonError_CommandNotFound()
+    {
+        string output = Formatting.FormatJsonError(127, "command_not_found", "timeit", "0.1.0");
+
+        Assert.Contains("\"tool\":\"timeit\"", output);
+        Assert.Contains("\"version\":\"0.1.0\"", output);
+        Assert.Contains("\"exit_code\":127", output);
+        Assert.Contains("\"exit_reason\":\"command_not_found\"", output);
+        Assert.Contains("\"child_exit_code\":null", output);
+    }
+
+    [Fact]
+    public void FormatJsonError_CommandNotExecutable()
+    {
+        string output = Formatting.FormatJsonError(126, "command_not_executable", "timeit", "0.1.0");
+
+        Assert.Contains("\"exit_code\":126", output);
+        Assert.Contains("\"exit_reason\":\"command_not_executable\"", output);
+    }
+
+    [Fact]
+    public void FormatJsonError_UsageError()
+    {
+        string output = Formatting.FormatJsonError(125, "usage_error", "timeit", "0.1.0");
+
+        Assert.Contains("\"exit_code\":125", output);
+        Assert.Contains("\"exit_reason\":\"usage_error\"", output);
     }
 }
 

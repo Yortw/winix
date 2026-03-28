@@ -100,8 +100,13 @@ public static class Formatting
 
     /// <summary>
     /// Formats a <see cref="TimeItResult"/> as a JSON object. No colour, machine-parseable.
+    /// Follows Winix CLI conventions: standard fields (tool, version, exit_code, exit_reason,
+    /// child_exit_code) followed by tool-specific metrics.
     /// </summary>
-    public static string FormatJson(TimeItResult result)
+    /// <param name="result">The timing result to format.</param>
+    /// <param name="toolName">The tool's executable name (e.g. "timeit").</param>
+    /// <param name="version">The tool's version string from assembly metadata.</param>
+    public static string FormatJson(TimeItResult result, string toolName, string version)
     {
         string userJson = result.UserCpuTime.HasValue
             ? result.UserCpuTime.Value.TotalSeconds.ToString("F3", CultureInfo.InvariantCulture)
@@ -118,13 +123,35 @@ public static class Formatting
 
         return string.Format(
             CultureInfo.InvariantCulture,
-            "{{\"wall_seconds\":{0:F3},\"user_cpu_seconds\":{1},\"sys_cpu_seconds\":{2},\"cpu_seconds\":{3},\"peak_memory_bytes\":{4},\"exit_code\":{5}}}",
+            "{{\"tool\":\"{0}\",\"version\":\"{1}\",\"exit_code\":0,\"exit_reason\":\"success\",\"child_exit_code\":{2},\"wall_seconds\":{3:F3},\"user_cpu_seconds\":{4},\"sys_cpu_seconds\":{5},\"cpu_seconds\":{6},\"peak_memory_bytes\":{7}}}",
+            toolName,
+            version,
+            result.ExitCode,
             result.WallTime.TotalSeconds,
             userJson,
             sysJson,
             cpuJson,
-            peakJson,
-            result.ExitCode
+            peakJson
+        );
+    }
+
+    /// <summary>
+    /// Formats an error as a JSON object following Winix CLI conventions.
+    /// Used when timeit itself fails (command not found, not executable, usage error).
+    /// </summary>
+    /// <param name="exitCode">The tool's exit code (125, 126, or 127).</param>
+    /// <param name="exitReason">Machine-readable snake_case reason.</param>
+    /// <param name="toolName">The tool's executable name.</param>
+    /// <param name="version">The tool's version string.</param>
+    public static string FormatJsonError(int exitCode, string exitReason, string toolName, string version)
+    {
+        return string.Format(
+            CultureInfo.InvariantCulture,
+            "{{\"tool\":\"{0}\",\"version\":\"{1}\",\"exit_code\":{2},\"exit_reason\":\"{3}\",\"child_exit_code\":null}}",
+            toolName,
+            version,
+            exitCode,
+            exitReason
         );
     }
 }

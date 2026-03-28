@@ -54,9 +54,19 @@ static int Run(string[] args)
         }
     }
 
+    string version = GetVersion();
+    TextWriter writer = useStdout ? Console.Out : Console.Error;
+
     if (commandStart < 0 || commandStart >= args.Length)
     {
-        Console.Error.WriteLine("timeit: no command specified. Run 'timeit --help' for usage.");
+        if (jsonOutput)
+        {
+            writer.WriteLine(Formatting.FormatJsonError(125, "usage_error", "timeit", version));
+        }
+        else
+        {
+            Console.Error.WriteLine("timeit: no command specified. Run 'timeit --help' for usage.");
+        }
         return 125;
     }
 
@@ -76,12 +86,26 @@ static int Run(string[] args)
     }
     catch (CommandNotExecutableException ex)
     {
-        Console.Error.WriteLine($"timeit: {ex.Message}");
+        if (jsonOutput)
+        {
+            writer.WriteLine(Formatting.FormatJsonError(126, "command_not_executable", "timeit", version));
+        }
+        else
+        {
+            Console.Error.WriteLine($"timeit: {ex.Message}");
+        }
         return 126;
     }
     catch (CommandNotFoundException ex)
     {
-        Console.Error.WriteLine($"timeit: {ex.Message}");
+        if (jsonOutput)
+        {
+            writer.WriteLine(Formatting.FormatJsonError(127, "command_not_found", "timeit", version));
+        }
+        else
+        {
+            Console.Error.WriteLine($"timeit: {ex.Message}");
+        }
         return 127;
     }
 
@@ -89,7 +113,7 @@ static int Run(string[] args)
     string output;
     if (jsonOutput)
     {
-        output = Formatting.FormatJson(result);
+        output = Formatting.FormatJson(result, "timeit", version);
     }
     else if (oneLine)
     {
@@ -100,7 +124,6 @@ static int Run(string[] args)
         output = Formatting.FormatDefault(result, useColor);
     }
 
-    TextWriter writer = useStdout ? Console.Out : Console.Error;
     writer.WriteLine(output);
 
     return result.ExitCode;
@@ -122,6 +145,12 @@ static void PrintHelp()
           --color             Force colored output (even when piped)
           --version           Show version
           -h, --help          Show help
+
+        Exit Codes:
+          <N>                 Child process exit code (pass-through)
+          125                 No command specified or bad timeit arguments
+          126                 Command not executable (permission denied)
+          127                 Command not found
         """);
 }
 
