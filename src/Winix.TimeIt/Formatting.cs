@@ -62,4 +62,46 @@ public static class Formatting
         double gb = (double)bytes / GB;
         return string.Format(CultureInfo.InvariantCulture, "{0:F1} GB", gb);
     }
+
+    /// <summary>
+    /// Formats a <see cref="TimeItResult"/> as a multi-line human-readable summary.
+    /// </summary>
+    public static string FormatDefault(TimeItResult result, bool useColor)
+    {
+        string dim = AnsiColor.Dim(useColor);
+        string reset = AnsiColor.Reset(useColor);
+        string exitColor = result.ExitCode == 0
+            ? AnsiColor.Green(useColor)
+            : AnsiColor.Red(useColor);
+
+        return $"  {dim}real{reset}  {FormatDuration(result.WallTime)}\n  {dim}cpu{reset}   {FormatDuration(result.CpuTime)}\n  {dim}peak{reset}  {FormatBytes(result.PeakMemoryBytes)}\n  {dim}exit{reset}  {exitColor}{result.ExitCode}{reset}";
+    }
+
+    /// <summary>
+    /// Formats a <see cref="TimeItResult"/> as a single compact line.
+    /// </summary>
+    public static string FormatOneLine(TimeItResult result, bool useColor)
+    {
+        string exitColor = result.ExitCode == 0
+            ? AnsiColor.Green(useColor)
+            : AnsiColor.Red(useColor);
+        string reset = AnsiColor.Reset(useColor);
+
+        return $"[timeit] {FormatDuration(result.WallTime)} wall | {FormatDuration(result.CpuTime)} cpu | {FormatBytes(result.PeakMemoryBytes)} peak | exit {exitColor}{result.ExitCode}{reset}";
+    }
+
+    /// <summary>
+    /// Formats a <see cref="TimeItResult"/> as a JSON object. No colour, machine-parseable.
+    /// </summary>
+    public static string FormatJson(TimeItResult result)
+    {
+        return string.Format(
+            CultureInfo.InvariantCulture,
+            "{{\"wall_seconds\":{0:F3},\"cpu_seconds\":{1:F3},\"peak_memory_bytes\":{2},\"exit_code\":{3}}}",
+            result.WallTime.TotalSeconds,
+            result.CpuTime.TotalSeconds,
+            result.PeakMemoryBytes,
+            result.ExitCode
+        );
+    }
 }

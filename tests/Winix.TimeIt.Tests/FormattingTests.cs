@@ -39,3 +39,99 @@ public class FormatBytesTests
         Assert.Equal(expected, Formatting.FormatBytes(bytes));
     }
 }
+
+public class FormatDefaultTests
+{
+    [Fact]
+    public void FormatDefault_WithSuccessExitCode_FormatsCorrectly()
+    {
+        var result = new TimeItResult(
+            WallTime: TimeSpan.FromSeconds(12.4),
+            CpuTime: TimeSpan.FromSeconds(9.1),
+            PeakMemoryBytes: 505_413_632,
+            ExitCode: 0
+        );
+
+        string output = Formatting.FormatDefault(result, useColor: false);
+
+        Assert.Contains("real", output);
+        Assert.Contains("12.4s", output);
+        Assert.Contains("cpu", output);
+        Assert.Contains("9.1s", output);
+        Assert.Contains("peak", output);
+        Assert.Contains("482 MB", output);
+        Assert.Contains("exit", output);
+        Assert.Contains("0", output);
+    }
+
+    [Fact]
+    public void FormatDefault_WithColor_ContainsAnsiSequences()
+    {
+        var result = new TimeItResult(
+            WallTime: TimeSpan.FromSeconds(1.0),
+            CpuTime: TimeSpan.FromSeconds(0.5),
+            PeakMemoryBytes: 1_048_576,
+            ExitCode: 0
+        );
+
+        string output = Formatting.FormatDefault(result, useColor: true);
+
+        // Should contain ANSI escape sequences
+        Assert.Contains("\x1b[", output);
+    }
+
+    [Fact]
+    public void FormatDefault_FailedExitCode_WithColor_ContainsRedAnsi()
+    {
+        var result = new TimeItResult(
+            WallTime: TimeSpan.FromSeconds(1.0),
+            CpuTime: TimeSpan.FromSeconds(0.5),
+            PeakMemoryBytes: 1_048_576,
+            ExitCode: 1
+        );
+
+        string output = Formatting.FormatDefault(result, useColor: true);
+
+        // Red ANSI code for non-zero exit
+        Assert.Contains("\x1b[31m", output);
+    }
+}
+
+public class FormatOneLineTests
+{
+    [Fact]
+    public void FormatOneLine_ProducesExpectedFormat()
+    {
+        var result = new TimeItResult(
+            WallTime: TimeSpan.FromSeconds(12.4),
+            CpuTime: TimeSpan.FromSeconds(9.1),
+            PeakMemoryBytes: 505_413_632,
+            ExitCode: 0
+        );
+
+        string output = Formatting.FormatOneLine(result, useColor: false);
+
+        Assert.Equal("[timeit] 12.4s wall | 9.1s cpu | 482 MB peak | exit 0", output);
+    }
+}
+
+public class FormatJsonTests
+{
+    [Fact]
+    public void FormatJson_ProducesValidJson()
+    {
+        var result = new TimeItResult(
+            WallTime: TimeSpan.FromSeconds(12.4),
+            CpuTime: TimeSpan.FromSeconds(9.1),
+            PeakMemoryBytes: 505_413_632,
+            ExitCode: 0
+        );
+
+        string output = Formatting.FormatJson(result);
+
+        Assert.Contains("\"wall_seconds\":", output);
+        Assert.Contains("\"cpu_seconds\":", output);
+        Assert.Contains("\"peak_memory_bytes\":505413632", output);
+        Assert.Contains("\"exit_code\":0", output);
+    }
+}
