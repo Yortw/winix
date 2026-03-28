@@ -362,6 +362,77 @@ Winix's best candidates for this path: `timeit` (build performance measurement i
 
 ---
 
+## CI & Release Pipelines
+
+### CI Build (every push / PR)
+
+Fast feedback loop — build and test only, no publishing:
+
+```
+dotnet build Winix.sln
+dotnet test Winix.sln
+```
+
+Runs on a single platform (ubuntu-latest is fine — the code is cross-platform and the tests don't exercise platform-specific paths yet). Add Windows runner when platform-specific code (P/Invoke, Task Scheduler) is introduced.
+
+### Release Build (on version tag)
+
+Triggered by tagging a release (e.g. `v0.1.0` or `v0.1.0-beta.1`). Produces three types of artifacts:
+
+**1. Per-tool standalone binaries**
+
+Build matrix: each tool × each platform.
+
+| Tool | win-x64 | linux-x64 | osx-x64 | osx-arm64 |
+|------|---------|-----------|---------|-----------|
+| timeit | timeit.exe | timeit | timeit | timeit |
+| peep | peep.exe | peep | peep | peep |
+| squeeze | squeeze.exe | squeeze | squeeze | squeeze |
+| ... | ... | ... | ... | ... |
+
+Each cell is `dotnet publish <tool>.csproj -c Release -r <rid>`. Output: individual native binaries + SHA256 checksums. Uploaded to GitHub Releases.
+
+**2. Per-tool NuGet packages**
+
+`dotnet pack` each tool's console app project. Publishes to NuGet as `winix.timeit`, `winix.peep`, etc. Users install via `dotnet tool install -g winix.timeit`.
+
+**3. The `winix` multi-call binary**
+
+Same build matrix as #1, but for the `winix` umbrella project (once built). One larger binary per platform. Also published to NuGet as `winix`.
+
+### Tag Conventions
+
+| Tag pattern | Trigger | NuGet version |
+|-------------|---------|---------------|
+| `v0.1.0-beta.1` | Pre-release | `0.1.0-beta.1` (pre-release on NuGet) |
+| `v0.1.0` | Stable release | `0.1.0` (stable on NuGet) |
+
+Version source of truth: `Directory.Build.props` `<Version>`. The CI pipeline should either read from the tag or set the version from the tag — not duplicate it.
+
+### Pipeline Structure
+
+One workflow file with a matrix strategy:
+
+```yaml
+# Pseudocode — actual implementation depends on GitHub Actions vs AzDO
+matrix:
+  tool: [timeit, peep, squeeze, ...]
+  rid: [win-x64, linux-x64, osx-x64, osx-arm64]
+steps:
+  - dotnet publish src/$tool/$tool.csproj -c Release -r $rid
+  - upload artifact
+```
+
+Plus a non-matrix step for `dotnet pack` (NuGet packages are platform-independent for dotnet tools).
+
+### Platform Notes
+
+- GitHub Actions: `ubuntu-latest` for Linux, `macos-latest` for osx-x64/osx-arm64, `windows-latest` for win-x64
+- AzDO Pipelines: equivalent Microsoft-hosted agents
+- AOT cross-compilation is NOT supported by .NET — must build on the target OS (can't build osx-arm64 on Linux)
+
+---
+
 ## Documentation
 
 ### Repo README.md
