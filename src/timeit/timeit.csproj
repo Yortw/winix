@@ -4,6 +4,9 @@
     <TargetFramework>net10.0</TargetFramework>
     <PublishAot>true</PublishAot>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <OptimizationPreference>Size</OptimizationPreference>
+    <StackTraceSupport>false</StackTraceSupport>
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>timeit</ToolCommandName>
   </PropertyGroup>
