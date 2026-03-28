@@ -69,6 +69,7 @@ public static class CommandRunner
             startInfo.ArgumentList.Add(arg);
         }
 
+        var baseline = NativeMetrics.CaptureBaseline();
         var stopwatch = Stopwatch.StartNew();
         Process process;
 
@@ -94,33 +95,13 @@ public static class CommandRunner
         process.WaitForExit();
         stopwatch.Stop();
 
-        TimeSpan cpuTime;
-        long peakMemory;
-
-        try
-        {
-            cpuTime = process.TotalProcessorTime;
-        }
-        catch (InvalidOperationException)
-        {
-            // Process exited and metrics were cleared before we could read them.
-            cpuTime = TimeSpan.Zero;
-        }
-
-        try
-        {
-            peakMemory = process.PeakWorkingSet64;
-        }
-        catch (InvalidOperationException)
-        {
-            // Same race: process gone before peak memory was readable.
-            peakMemory = 0;
-        }
+        var metrics = NativeMetrics.GetMetrics(process, baseline);
 
         return new TimeItResult(
             WallTime: stopwatch.Elapsed,
-            CpuTime: cpuTime,
-            PeakMemoryBytes: peakMemory,
+            UserCpuTime: metrics.UserCpuTime,
+            SystemCpuTime: metrics.SystemCpuTime,
+            PeakMemoryBytes: metrics.PeakMemoryBytes,
             ExitCode: process.ExitCode
         );
     }
