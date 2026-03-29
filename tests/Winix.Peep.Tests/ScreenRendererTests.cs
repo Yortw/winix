@@ -370,7 +370,7 @@ public class DiffHighlightingTests
 
         string output = writer.ToString();
         // The changed line should have the diff highlight escape sequence
-        Assert.Contains("\x1b[48;5;58m", output);
+        Assert.Contains("\x1b[48;5;17m", output);
         // The unchanged lines should not
         Assert.Contains("same", output);
     }
