@@ -97,6 +97,7 @@ public sealed class SnapshotHistory
 
         if (_capacity > 0 && _snapshots.Count == _capacity)
         {
+            // O(n) shift — acceptable at realistic capacities (≤1000); not worth a circular buffer.
             _snapshots.RemoveAt(0);
         }
 
@@ -239,7 +240,16 @@ public sealed class SnapshotHistory
 
         // Normalise CRLF to LF before splitting so Windows output doesn't
         // produce spurious empty lines at the end of each CRLF-terminated line.
-        return text.Replace("\r\n", "\n").Split('\n');
+        // Trim a single trailing empty element: virtually all command output ends
+        // with \n, which causes Split to produce a final "" that inflates line counts.
+        // We only remove the last element — intentional blank lines in the middle are preserved.
+        var parts = text.Replace("\r\n", "\n").Split('\n');
+        if (parts.Length > 0 && parts[parts.Length - 1].Length == 0)
+        {
+            Array.Resize(ref parts, parts.Length - 1);
+        }
+
+        return parts;
     }
 
     private static Dictionary<string, int> BuildLineCounts(string[] lines)

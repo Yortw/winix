@@ -367,6 +367,25 @@ public class SnapshotHistory_CursorTests
     }
 
     [Fact]
+    public void Add_WhileNavigatedToOldest_EvictsAndMovesCursorToNewest()
+    {
+        var history = new SnapshotHistory(capacity: 2);
+        history.Add(Make.Result("A"), Make.Timestamp(0), runNumber: 1);
+        history.Add(Make.Result("B"), Make.Timestamp(1), runNumber: 2);
+        history.MoveToOldest(); // cursor at A (index 0)
+
+        history.Add(Make.Result("C"), Make.Timestamp(2), runNumber: 3);
+
+        // A was evicted, B is now index 0, C is index 1.
+        Assert.Equal(2, history.Count);
+        Assert.Equal("B", history[0].Result.Output);
+        Assert.Equal("C", history[1].Result.Output);
+        // Add always moves cursor to newest.
+        Assert.Equal(1, history.CursorIndex);
+        Assert.Equal("C", history.Current.Result.Output);
+    }
+
+    [Fact]
     public void Add_AfterNavigation_MovesCursorBackToNewest()
     {
         var history = new SnapshotHistory(0);
@@ -516,6 +535,17 @@ public class SnapshotHistory_DiffStatsTests
         var snapshot = history[1];
         Assert.Equal(1, snapshot.LinesAdded);
         Assert.Equal(0, snapshot.LinesRemoved);
+    }
+
+    [Fact]
+    public void DiffStats_OutputEndingWithNewline_TrailingEmptyLineNotCounted()
+    {
+        var history = new SnapshotHistory(capacity: 10);
+
+        // Output ending with \n should NOT count the trailing empty line.
+        history.Add(Make.Result("line1\nline2\n"), DateTime.Now, runNumber: 1);
+
+        Assert.Equal(2, history[0].LinesAdded); // 2, not 3
     }
 
     [Fact]
