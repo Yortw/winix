@@ -362,7 +362,7 @@ static async Task<int> RunLoopAsync(
             // Command not found on initial run -- exit immediately
             return HandleExitFromLoop(
                 sessionStopwatch, runCount, lastResult, commandDisplay,
-                jsonOutput, jsonOutputIncludeOutput, version, exitReason);
+                jsonOutput, jsonOutputIncludeOutput, version, exitReason, history.Count);
         }
 
         // Check initial auto-exit conditions
@@ -372,7 +372,7 @@ static async Task<int> RunLoopAsync(
             exitReason = autoReason!;
             return HandleExitFromLoop(
                 sessionStopwatch, runCount, lastResult, commandDisplay,
-                jsonOutput, jsonOutputIncludeOutput, version, exitReason);
+                jsonOutput, jsonOutputIncludeOutput, version, exitReason, history.Count);
         }
 
         // Main event loop — simple ticker approach.
@@ -832,7 +832,7 @@ static async Task<int> RunLoopAsync(
 
     return HandleExitFromLoop(
         sessionStopwatch, runCount, lastResult, commandDisplay,
-        jsonOutput, jsonOutputIncludeOutput, version, exitReason);
+        jsonOutput, jsonOutputIncludeOutput, version, exitReason, history.Count);
 }
 
 static async Task<PeepResult?> TryRunCommand(
@@ -956,7 +956,7 @@ static void RenderTimeMachineScreen(
 static int HandleExitFromLoop(
     Stopwatch sessionStopwatch, int runCount, PeepResult? lastResult,
     string commandDisplay, bool jsonOutput, bool jsonOutputIncludeOutput,
-    string version, string exitReason)
+    string version, string exitReason, int historyRetained)
 {
     sessionStopwatch.Stop();
 
@@ -979,7 +979,8 @@ static int HandleExitFromLoop(
             command: commandDisplay,
             lastOutput: jsonOutputIncludeOutput ? lastResult?.Output : null,
             toolName: "peep",
-            version: version));
+            version: version,
+            historyRetained: historyRetained));
     }
 
     return exitCode;
