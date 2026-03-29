@@ -302,6 +302,8 @@ static async Task<int> RunLoopAsync(
     int scrollOffset = 0;
     string exitReason = "manual";
     bool running = false;
+    var history = new SnapshotHistory(historyCapacity);
+    bool isTimeMachine = false;
 
     // Set up Ctrl+C handler -- cancel cleanly instead of killing the process
     Console.CancelKeyPress += (_, e) =>
@@ -349,6 +351,7 @@ static async Task<int> RunLoopAsync(
             runCount++;
             lastResult = initialResult;
             previousOutput = initialResult.Output;
+            history.Add(initialResult, DateTime.Now, runCount);
             RenderScreen(lastResult, commandDisplay, intervalSeconds, watchPatterns,
                 runCount, isPaused, noHeader, useColor, scrollOffset);
         }
@@ -404,6 +407,17 @@ static async Task<int> RunLoopAsync(
                         break;
 
                     case ConsoleKey.Spacebar:
+                        if (isTimeMachine)
+                        {
+                            isTimeMachine = false;
+                            isPaused = false;
+                            scrollOffset = 0;
+                            history.MoveToNewest();
+                            RenderScreen(lastResult, commandDisplay, intervalSeconds, watchPatterns,
+                                runCount, isPaused, noHeader, useColor, scrollOffset,
+                                diffEnabled, previousOutput);
+                            break;
+                        }
                         isPaused = !isPaused;
                         if (!isPaused)
                         {
@@ -412,7 +426,7 @@ static async Task<int> RunLoopAsync(
                         }
                         RenderScreen(lastResult, commandDisplay, intervalSeconds, watchPatterns,
                             runCount, isPaused, noHeader, useColor, scrollOffset,
-                        diffEnabled, previousOutput);
+                            diffEnabled, previousOutput);
                         break;
 
                     case ConsoleKey.R:
@@ -428,6 +442,26 @@ static async Task<int> RunLoopAsync(
                             {
                                 runCount++;
                                 lastResult = result;
+
+                                if (isTimeMachine)
+                                {
+                                    int savedCursor = history.CursorIndex;
+                                    history.Add(result, DateTime.Now, runCount);
+                                    if (history.Capacity > 0 && history.Count == history.Capacity && savedCursor > 0)
+                                    {
+                                        savedCursor--;
+                                    }
+                                    else if (history.Capacity > 0 && runCount > history.Capacity)
+                                    {
+                                        savedCursor = Math.Max(0, savedCursor - 1);
+                                    }
+                                    history.MoveToNewest();
+                                    while (history.CursorIndex > savedCursor && history.MoveOlder()) { }
+                                }
+                                else
+                                {
+                                    history.Add(result, DateTime.Now, runCount);
+                                }
                             }
 
                             nextRunTime = DateTime.UtcNow.AddSeconds(intervalSeconds);
@@ -450,44 +484,117 @@ static async Task<int> RunLoopAsync(
                         break;
 
                     case ConsoleKey.UpArrow:
-                        if (isPaused)
+                        if (isPaused || isTimeMachine)
                         {
                             scrollOffset = Math.Max(0, scrollOffset - 1);
-                            RenderScreen(lastResult, commandDisplay, intervalSeconds, watchPatterns,
-                                runCount, isPaused, noHeader, useColor, scrollOffset,
-                        diffEnabled, previousOutput);
+                            if (isTimeMachine)
+                            {
+                                RenderTimeMachineScreen(history, commandDisplay, intervalSeconds,
+                                    watchPatterns, noHeader, useColor, scrollOffset, diffEnabled);
+                            }
+                            else
+                            {
+                                RenderScreen(lastResult, commandDisplay, intervalSeconds, watchPatterns,
+                                    runCount, isPaused, noHeader, useColor, scrollOffset,
+                                    diffEnabled, previousOutput);
+                            }
                         }
                         break;
 
                     case ConsoleKey.DownArrow:
-                        if (isPaused)
+                        if (isPaused || isTimeMachine)
                         {
                             scrollOffset++;
-                            RenderScreen(lastResult, commandDisplay, intervalSeconds, watchPatterns,
-                                runCount, isPaused, noHeader, useColor, scrollOffset,
-                        diffEnabled, previousOutput);
+                            if (isTimeMachine)
+                            {
+                                RenderTimeMachineScreen(history, commandDisplay, intervalSeconds,
+                                    watchPatterns, noHeader, useColor, scrollOffset, diffEnabled);
+                            }
+                            else
+                            {
+                                RenderScreen(lastResult, commandDisplay, intervalSeconds, watchPatterns,
+                                    runCount, isPaused, noHeader, useColor, scrollOffset,
+                                    diffEnabled, previousOutput);
+                            }
                         }
                         break;
 
                     case ConsoleKey.PageUp:
-                        if (isPaused)
+                        if (isPaused || isTimeMachine)
                         {
                             int pageSize = GetTerminalHeight() - 2;
                             scrollOffset = Math.Max(0, scrollOffset - Math.Max(1, pageSize));
-                            RenderScreen(lastResult, commandDisplay, intervalSeconds, watchPatterns,
-                                runCount, isPaused, noHeader, useColor, scrollOffset,
-                        diffEnabled, previousOutput);
+                            if (isTimeMachine)
+                            {
+                                RenderTimeMachineScreen(history, commandDisplay, intervalSeconds,
+                                    watchPatterns, noHeader, useColor, scrollOffset, diffEnabled);
+                            }
+                            else
+                            {
+                                RenderScreen(lastResult, commandDisplay, intervalSeconds, watchPatterns,
+                                    runCount, isPaused, noHeader, useColor, scrollOffset,
+                                    diffEnabled, previousOutput);
+                            }
                         }
                         break;
 
                     case ConsoleKey.PageDown:
-                        if (isPaused)
+                        if (isPaused || isTimeMachine)
                         {
                             int pageSz = GetTerminalHeight() - 2;
                             scrollOffset += Math.Max(1, pageSz);
-                            RenderScreen(lastResult, commandDisplay, intervalSeconds, watchPatterns,
-                                runCount, isPaused, noHeader, useColor, scrollOffset,
-                        diffEnabled, previousOutput);
+                            if (isTimeMachine)
+                            {
+                                RenderTimeMachineScreen(history, commandDisplay, intervalSeconds,
+                                    watchPatterns, noHeader, useColor, scrollOffset, diffEnabled);
+                            }
+                            else
+                            {
+                                RenderScreen(lastResult, commandDisplay, intervalSeconds, watchPatterns,
+                                    runCount, isPaused, noHeader, useColor, scrollOffset,
+                                    diffEnabled, previousOutput);
+                            }
+                        }
+                        break;
+
+                    case ConsoleKey.LeftArrow:
+                        if (history.Count > 1)
+                        {
+                            if (!isTimeMachine)
+                            {
+                                isTimeMachine = true;
+                                isPaused = true;
+                                scrollOffset = 0;
+                                showHelp = false;
+                                history.MoveOlder();
+                            }
+                            else
+                            {
+                                history.MoveOlder();
+                            }
+                            RenderTimeMachineScreen(history, commandDisplay, intervalSeconds,
+                                watchPatterns, noHeader, useColor, scrollOffset, diffEnabled);
+                        }
+                        break;
+
+                    case ConsoleKey.RightArrow:
+                        if (isTimeMachine)
+                        {
+                            history.MoveNewer();
+                            if (history.IsAtNewest)
+                            {
+                                isTimeMachine = false;
+                                isPaused = false;
+                                scrollOffset = 0;
+                                RenderScreen(lastResult, commandDisplay, intervalSeconds, watchPatterns,
+                                    runCount, isPaused, noHeader, useColor, scrollOffset,
+                                    diffEnabled, previousOutput);
+                            }
+                            else
+                            {
+                                RenderTimeMachineScreen(history, commandDisplay, intervalSeconds,
+                                    watchPatterns, noHeader, useColor, scrollOffset, diffEnabled);
+                            }
                         }
                         break;
 
@@ -502,12 +609,22 @@ static async Task<int> RunLoopAsync(
                         break;
 
                     case ConsoleKey.Escape:
-                        if (showHelp)
+                        if (isTimeMachine)
+                        {
+                            isTimeMachine = false;
+                            isPaused = false;
+                            scrollOffset = 0;
+                            history.MoveToNewest();
+                            RenderScreen(lastResult, commandDisplay, intervalSeconds, watchPatterns,
+                                runCount, isPaused, noHeader, useColor, scrollOffset,
+                                diffEnabled, previousOutput);
+                        }
+                        else if (showHelp)
                         {
                             showHelp = false;
                             RenderScreen(lastResult, commandDisplay, intervalSeconds, watchPatterns,
                                 runCount, isPaused, noHeader, useColor, scrollOffset,
-                                    diffEnabled, previousOutput);
+                                diffEnabled, previousOutput);
                         }
                         break;
 
@@ -563,6 +680,26 @@ static async Task<int> RunLoopAsync(
                 {
                     runCount++;
                     lastResult = result;
+
+                    if (isTimeMachine)
+                    {
+                        int savedCursor = history.CursorIndex;
+                        history.Add(result, DateTime.Now, runCount);
+                        if (history.Capacity > 0 && history.Count == history.Capacity && savedCursor > 0)
+                        {
+                            savedCursor--;
+                        }
+                        else if (history.Capacity > 0 && runCount > history.Capacity)
+                        {
+                            savedCursor = Math.Max(0, savedCursor - 1);
+                        }
+                        history.MoveToNewest();
+                        while (history.CursorIndex > savedCursor && history.MoveOlder()) { }
+                    }
+                    else
+                    {
+                        history.Add(result, DateTime.Now, runCount);
+                    }
                 }
 
                 nextRunTime = DateTime.UtcNow.AddSeconds(intervalSeconds);
@@ -697,6 +834,36 @@ static void RenderScreen(
         scrollOffset,
         showHeader: !noHeader,
         previousOutput: diffEnabled ? previousOutput : null,
+        diffEnabled: diffEnabled);
+}
+
+static void RenderTimeMachineScreen(
+    SnapshotHistory history, string commandDisplay,
+    double intervalSeconds, string[] watchPatterns,
+    bool noHeader, bool useColor, int scrollOffset, bool diffEnabled)
+{
+    Snapshot current = history.Current;
+    Snapshot? previous = history.GetPreviousOf(history.CursorIndex);
+
+    string? header = noHeader ? null : ScreenRenderer.FormatHeader(
+        intervalSeconds, commandDisplay, current.Timestamp,
+        current.Result.ExitCode, current.RunNumber, isPaused: true, useColor,
+        isDiffEnabled: diffEnabled,
+        isTimeMachine: true,
+        timeMachinePosition: history.CursorIndex + 1,
+        timeMachineTotal: history.Count);
+
+    string? watchLine = noHeader ? null : ScreenRenderer.FormatWatchLine(watchPatterns, useColor);
+
+    ScreenRenderer.Render(
+        Console.Out,
+        header,
+        watchLine,
+        current.Result.Output,
+        GetTerminalHeight(),
+        scrollOffset,
+        showHeader: !noHeader,
+        previousOutput: diffEnabled ? previous?.Result.Output : null,
         diffEnabled: diffEnabled);
 }
 
