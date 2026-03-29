@@ -469,6 +469,33 @@ public class HistoryOverlayTests
         int pos1 = output.IndexOf("#1");
         Assert.True(pos3 < pos1, "Newest (#3) should appear before oldest (#1)");
     }
+
+    [Fact]
+    public void RenderHistoryOverlay_EmptyHistory_DoesNotThrow()
+    {
+        var history = new SnapshotHistory(capacity: 10);
+        var writer = new StringWriter();
+
+        ScreenRenderer.RenderHistoryOverlay(writer, history, selectedIndex: -1, width: 80, height: 24);
+
+        string output = writer.ToString();
+        Assert.Contains("History", output);
+        Assert.DoesNotContain("#", output); // No run entries
+    }
+
+    [Fact]
+    public void RenderHistoryOverlay_VerySmallTerminal_DoesNotThrow()
+    {
+        var history = new SnapshotHistory(capacity: 10);
+        history.Add(MakeResult("a"), DateTime.Now, runNumber: 1);
+
+        var writer = new StringWriter();
+
+        ScreenRenderer.RenderHistoryOverlay(writer, history, selectedIndex: 0, width: 40, height: 2);
+
+        // Should not throw, should still produce some output
+        Assert.NotEmpty(writer.ToString());
+    }
 }
 
 public class HelpOverlayTimeMachineTests

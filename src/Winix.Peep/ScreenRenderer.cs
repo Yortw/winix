@@ -272,12 +272,25 @@ public static class ScreenRenderer
         TextWriter writer, SnapshotHistory history, int selectedIndex,
         int width, int height)
     {
+        selectedIndex = Math.Clamp(selectedIndex, 0, Math.Max(0, history.Count - 1));
+
         ClearScreen(writer);
 
         // Title bar
         const string title = " History ";
         string titleBar = title.PadLeft((width + title.Length) / 2).PadRight(width);
         writer.WriteLine(titleBar);
+
+        if (history.Count == 0)
+        {
+            writer.WriteLine();
+            writer.Write("  No history yet");
+            writer.WriteLine();
+            writer.WriteLine();
+            writer.Write("  Up/Dn navigate  Enter select  t/Esc close");
+            writer.Flush();
+            return;
+        }
 
         // Reserve rows: 1 title + 1 hint line at bottom
         const int reservedRows = 2;
@@ -342,8 +355,8 @@ public static class ScreenRenderer
     /// <param name="useColor">Whether to apply ANSI colour to the exit code.</param>
     /// <param name="isDiffEnabled">Whether diff highlighting is active.</param>
     /// <param name="isTimeMachine">Whether the user is browsing historical snapshots.</param>
-    /// <param name="timeMachinePosition">1-based position within the history (cursor index + 1).</param>
-    /// <param name="timeMachineTotal">Total number of snapshots in the history.</param>
+    /// <param name="timeMachinePosition">1-based position within the history (cursor index + 1). Only used when <paramref name="isTimeMachine"/> is true.</param>
+    /// <param name="timeMachineTotal">Total number of snapshots in the history. Only used when <paramref name="isTimeMachine"/> is true.</param>
     /// <returns>Formatted header line string.</returns>
     public static string FormatHeader(
         double intervalSeconds,
