@@ -53,7 +53,10 @@ src/Winix.TimeIt/          — class library (timing logic, formatting)
 src/timeit/                — console app entry point
 src/Winix.Squeeze/         — class library (compression, format detection, formatting)
 src/squeeze/               — console app entry point
+src/Winix.Peep/            — class library (command execution, scheduling, file watching, rendering)
+src/peep/                  — console app entry point
 tests/Yort.ShellKit.Tests/ — xUnit tests for shared library
 tests/Winix.TimeIt.Tests/  — xUnit tests
 tests/Winix.Squeeze.Tests/ — xUnit tests
+tests/Winix.Peep.Tests/    — xUnit tests
 ```
