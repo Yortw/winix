@@ -382,3 +382,156 @@ public class SnapshotHistory_CursorTests
         Assert.Equal("c", history.Current.Result.Output);
     }
 }
+
+// ===========================================================================
+// Task 4: diff stats
+// ===========================================================================
+public class SnapshotHistory_DiffStatsTests
+{
+    [Fact]
+    public void FirstSnapshot_LinesAddedEqualsLineCount_LinesRemovedIsZero()
+    {
+        var history = new SnapshotHistory(0);
+
+        history.Add(Make.Result("line1\nline2\nline3"), Make.Timestamp(), 1);
+
+        var snapshot = history[0];
+        // SplitLines produces ["line1","line2","line3"] — 3 lines.
+        Assert.Equal(3, snapshot.LinesAdded);
+        Assert.Equal(0, snapshot.LinesRemoved);
+    }
+
+    [Fact]
+    public void FirstSnapshot_EmptyOutput_ZeroStats()
+    {
+        var history = new SnapshotHistory(0);
+
+        history.Add(Make.Result(""), Make.Timestamp(), 1);
+
+        var snapshot = history[0];
+        Assert.Equal(0, snapshot.LinesAdded);
+        Assert.Equal(0, snapshot.LinesRemoved);
+    }
+
+    [Fact]
+    public void IdenticalOutput_ZeroDiffStats()
+    {
+        var history = new SnapshotHistory(0);
+
+        history.Add(Make.Result("line1\nline2"), Make.Timestamp(0), 1);
+        history.Add(Make.Result("line1\nline2"), Make.Timestamp(1), 2);
+
+        var snapshot = history[1];
+        Assert.Equal(0, snapshot.LinesAdded);
+        Assert.Equal(0, snapshot.LinesRemoved);
+    }
+
+    [Fact]
+    public void ModifiedLine_CountsAsOneAddAndOneRemove()
+    {
+        var history = new SnapshotHistory(0);
+
+        history.Add(Make.Result("unchanged\nold line"), Make.Timestamp(0), 1);
+        history.Add(Make.Result("unchanged\nnew line"), Make.Timestamp(1), 2);
+
+        var snapshot = history[1];
+        Assert.Equal(1, snapshot.LinesAdded);
+        Assert.Equal(1, snapshot.LinesRemoved);
+    }
+
+    [Fact]
+    public void AddedLines_CountedCorrectly()
+    {
+        var history = new SnapshotHistory(0);
+
+        history.Add(Make.Result("a\nb"),         Make.Timestamp(0), 1);
+        history.Add(Make.Result("a\nb\nc\nd"),   Make.Timestamp(1), 2);
+
+        var snapshot = history[1];
+        Assert.Equal(2, snapshot.LinesAdded);
+        Assert.Equal(0, snapshot.LinesRemoved);
+    }
+
+    [Fact]
+    public void RemovedLines_CountedCorrectly()
+    {
+        var history = new SnapshotHistory(0);
+
+        history.Add(Make.Result("a\nb\nc\nd"), Make.Timestamp(0), 1);
+        history.Add(Make.Result("a\nb"),       Make.Timestamp(1), 2);
+
+        var snapshot = history[1];
+        Assert.Equal(0, snapshot.LinesAdded);
+        Assert.Equal(2, snapshot.LinesRemoved);
+    }
+
+    [Fact]
+    public void AnsiDifferencesIgnored_SameTextDifferentColours_ZeroStats()
+    {
+        const string plainOutput = "Build succeeded.\nWarnings: 0";
+
+        // Same text with ANSI colour wrapping around "succeeded" and the number.
+        string ansiOutput = "Build \x1b[32msucceeded.\x1b[0m\nWarnings: \x1b[33m0\x1b[0m";
+
+        var history = new SnapshotHistory(0);
+
+        history.Add(Make.Result(plainOutput), Make.Timestamp(0), 1);
+        history.Add(Make.Result(ansiOutput),  Make.Timestamp(1), 2);
+
+        var snapshot = history[1];
+        Assert.Equal(0, snapshot.LinesAdded);
+        Assert.Equal(0, snapshot.LinesRemoved);
+    }
+
+    [Fact]
+    public void RunNumber_PreservedOnSnapshot()
+    {
+        var history = new SnapshotHistory(0);
+
+        history.Add(Make.Result("x"), Make.Timestamp(), 7);
+
+        Assert.Equal(7, history[0].RunNumber);
+    }
+
+    [Fact]
+    public void Timestamp_PreservedOnSnapshot()
+    {
+        var history = new SnapshotHistory(0);
+        var ts = new DateTime(2026, 6, 15, 12, 30, 45, DateTimeKind.Utc);
+
+        history.Add(Make.Result("x"), ts, 1);
+
+        Assert.Equal(ts, history[0].Timestamp);
+    }
+
+    [Fact]
+    public void DuplicateLines_MultisetDiff_CountsExcessOnly()
+    {
+        // Previous has "a" twice, current has "a" three times — net +1 added.
+        var history = new SnapshotHistory(0);
+
+        history.Add(Make.Result("a\na"),       Make.Timestamp(0), 1);
+        history.Add(Make.Result("a\na\na"),    Make.Timestamp(1), 2);
+
+        var snapshot = history[1];
+        Assert.Equal(1, snapshot.LinesAdded);
+        Assert.Equal(0, snapshot.LinesRemoved);
+    }
+
+    [Fact]
+    public void DiffStats_NotAffectedByEviction()
+    {
+        // Capacity 2: after eviction the diff should still be against the
+        // immediately preceding result, not some older entry.
+        var history = new SnapshotHistory(2);
+
+        history.Add(Make.Result("a\nb\nc"), Make.Timestamp(0), 1);
+        history.Add(Make.Result("a\nb\nc"), Make.Timestamp(1), 2);
+        // "first" gets evicted; diff is against "second" which is identical.
+        history.Add(Make.Result("a\nb\nc"), Make.Timestamp(2), 3);
+
+        var snapshot = history[1]; // newest after eviction
+        Assert.Equal(0, snapshot.LinesAdded);
+        Assert.Equal(0, snapshot.LinesRemoved);
+    }
+}
