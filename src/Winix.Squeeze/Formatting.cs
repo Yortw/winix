@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using Yort.ShellKit;
 
 namespace Winix.Squeeze;
 
@@ -8,61 +9,6 @@ namespace Winix.Squeeze;
 /// </summary>
 public static class Formatting
 {
-    /// <summary>
-    /// Formats a byte count as a human-friendly auto-scaling string.
-    /// Uses "B" for less than 1024, "X.X KB" for less than 1 MB, "X.X MB" for less than 1 GB,
-    /// and "X.X GB" for larger values.
-    /// </summary>
-    public static string FormatBytes(long bytes)
-    {
-        const long KB = 1024;
-        const long MB = 1024 * KB;
-        const long GB = 1024 * MB;
-
-        if (bytes < KB)
-        {
-            return string.Format(CultureInfo.InvariantCulture, "{0} B", bytes);
-        }
-
-        if (bytes < MB)
-        {
-            double kb = (double)bytes / KB;
-            return string.Format(CultureInfo.InvariantCulture, "{0:F1} KB", kb);
-        }
-
-        if (bytes < GB)
-        {
-            double mb = (double)bytes / MB;
-            return string.Format(CultureInfo.InvariantCulture, "{0:F1} MB", mb);
-        }
-
-        double gb = (double)bytes / GB;
-        return string.Format(CultureInfo.InvariantCulture, "{0:F1} GB", gb);
-    }
-
-    /// <summary>
-    /// Formats a duration as a human-friendly auto-scaling string.
-    /// Under 1s: "0.120s". 1-60s: "12.4s". Over 60s: "1m 27.1s".
-    /// </summary>
-    public static string FormatDuration(TimeSpan duration)
-    {
-        double totalSeconds = duration.TotalSeconds;
-
-        if (totalSeconds < 1.0)
-        {
-            return string.Format(CultureInfo.InvariantCulture, "{0:F3}s", totalSeconds);
-        }
-
-        if (totalSeconds < 60.0)
-        {
-            return string.Format(CultureInfo.InvariantCulture, "{0:F1}s", totalSeconds);
-        }
-
-        int minutes = (int)(totalSeconds / 60.0);
-        double remainingSeconds = totalSeconds - (minutes * 60.0);
-        return string.Format(CultureInfo.InvariantCulture, "{0}m {1:00.0}s", minutes, remainingSeconds);
-    }
-
     /// <summary>
     /// Formats a single <see cref="SqueezeResult"/> as a one-line human-readable summary.
     /// Example: <c>filename: 1.0 MB → 512 KB (50.0%, gz, 0.120s)</c>.
@@ -86,13 +32,13 @@ public static class Formatting
             dim,
             filename,
             reset,
-            FormatBytes(result.InputBytes),
-            FormatBytes(result.OutputBytes),
+            DisplayFormat.FormatBytes(result.InputBytes),
+            DisplayFormat.FormatBytes(result.OutputBytes),
             ratioColor,
             ratioPercent,
             ratioReset,
             shortName,
-            FormatDuration(result.Elapsed)
+            DisplayFormat.FormatDuration(result.Elapsed)
         );
     }
 

@@ -3,42 +3,6 @@ using Winix.Squeeze;
 
 namespace Winix.Squeeze.Tests;
 
-public class FormatBytesTests
-{
-    [Theory]
-    [InlineData(0, "0 B")]
-    [InlineData(500, "500 B")]
-    [InlineData(1024, "1.0 KB")]
-    [InlineData(524288, "512.0 KB")]
-    [InlineData(1048576, "1.0 MB")]
-    [InlineData(1073741824, "1.0 GB")]
-    public void FormatBytes_ReturnsExpected(long bytes, string expected)
-    {
-        Assert.Equal(expected, Formatting.FormatBytes(bytes));
-    }
-}
-
-public class FormatDurationTests
-{
-    [Fact]
-    public void SubSecond_ShowsThreeDecimalPlaces()
-    {
-        Assert.Equal("0.120s", Formatting.FormatDuration(TimeSpan.FromSeconds(0.12)));
-    }
-
-    [Fact]
-    public void Seconds_ShowsOneDecimalPlace()
-    {
-        Assert.Equal("12.4s", Formatting.FormatDuration(TimeSpan.FromSeconds(12.4)));
-    }
-
-    [Fact]
-    public void Minutes_ShowsMinutesAndSeconds()
-    {
-        Assert.Equal("1m 27.1s", Formatting.FormatDuration(TimeSpan.FromSeconds(87.1)));
-    }
-}
-
 public class FormatHumanStatsTests
 {
     [Fact]
