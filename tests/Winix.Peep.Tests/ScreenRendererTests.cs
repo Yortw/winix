@@ -291,3 +291,105 @@ public class AlternateBufferTests
         Assert.Contains("\x1b[2J", output);
     }
 }
+
+public class DiffHighlightingTests
+{
+    [Fact]
+    public void ComputeChangedLines_IdenticalOutput_NoChanges()
+    {
+        string[] current = { "line 1", "line 2", "line 3" };
+        string[] previous = { "line 1", "line 2", "line 3" };
+
+        bool[] changed = ScreenRenderer.ComputeChangedLines(current, previous);
+
+        Assert.Equal(3, changed.Length);
+        Assert.False(changed[0]);
+        Assert.False(changed[1]);
+        Assert.False(changed[2]);
+    }
+
+    [Fact]
+    public void ComputeChangedLines_ModifiedLine_MarkedChanged()
+    {
+        string[] current = { "line 1", "MODIFIED", "line 3" };
+        string[] previous = { "line 1", "line 2", "line 3" };
+
+        bool[] changed = ScreenRenderer.ComputeChangedLines(current, previous);
+
+        Assert.False(changed[0]);
+        Assert.True(changed[1]);
+        Assert.False(changed[2]);
+    }
+
+    [Fact]
+    public void ComputeChangedLines_NewLines_MarkedChanged()
+    {
+        string[] current = { "line 1", "line 2", "line 3", "new line" };
+        string[] previous = { "line 1", "line 2", "line 3" };
+
+        bool[] changed = ScreenRenderer.ComputeChangedLines(current, previous);
+
+        Assert.False(changed[0]);
+        Assert.False(changed[1]);
+        Assert.False(changed[2]);
+        Assert.True(changed[3]);
+    }
+
+    [Fact]
+    public void ComputeChangedLines_IgnoresAnsiDifferences()
+    {
+        // Same text but different ANSI colouring — should NOT be marked as changed
+        string[] current = { "\x1b[32mgreen text\x1b[0m" };
+        string[] previous = { "\x1b[31mgreen text\x1b[0m" };
+
+        bool[] changed = ScreenRenderer.ComputeChangedLines(current, previous);
+
+        Assert.False(changed[0]);
+    }
+
+    [Fact]
+    public void ComputeChangedLines_EmptyPrevious_AllChanged()
+    {
+        string[] current = { "line 1", "line 2" };
+        string[] previous = Array.Empty<string>();
+
+        bool[] changed = ScreenRenderer.ComputeChangedLines(current, previous);
+
+        Assert.True(changed[0]);
+        Assert.True(changed[1]);
+    }
+
+    [Fact]
+    public void RenderOutputWithDiff_HighlightsChangedLines()
+    {
+        using var writer = new StringWriter();
+        string current = "same\nchanged\nsame";
+        string previous = "same\noriginal\nsame";
+
+        ScreenRenderer.RenderOutputWithDiff(writer, current, previous, 10, 0);
+
+        string output = writer.ToString();
+        // The changed line should have the diff highlight escape sequence
+        Assert.Contains("\x1b[48;5;236m", output);
+        // The unchanged lines should not
+        Assert.Contains("same", output);
+    }
+
+    [Fact]
+    public void FormatHeader_ShowsDiffIndicator()
+    {
+        string header = ScreenRenderer.FormatHeader(
+            2.0, "git status", DateTime.Now, 0, 1, false, false, isDiffEnabled: true);
+
+        Assert.Contains("[DIFF]", header);
+    }
+
+    [Fact]
+    public void FormatHeader_NoDiffIndicatorWhenDisabled()
+    {
+        string header = ScreenRenderer.FormatHeader(
+            2.0, "git status", DateTime.Now, 0, 1, false, false, isDiffEnabled: false);
+
+        Assert.DoesNotContain("[DIFF]", header);
+    }
+}

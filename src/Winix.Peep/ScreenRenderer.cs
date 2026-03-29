@@ -53,6 +53,13 @@ public static class ScreenRenderer
     }
 
     /// <summary>
+    /// Dark grey background for highlighting changed lines in diff mode.
+    /// Uses 256-colour palette for broad terminal support.
+    /// </summary>
+    private const string DiffHighlightOn = "\x1b[48;5;236m";
+    private const string DiffHighlightOff = "\x1b[49m";
+
+    /// <summary>
     /// Renders the full screen: header, optional watch line, and command output.
     /// </summary>
     /// <param name="writer">Output writer (typically <see cref="Console.Out"/>).</param>
@@ -62,6 +69,8 @@ public static class ScreenRenderer
     /// <param name="terminalHeight">Current terminal height in rows.</param>
     /// <param name="scrollOffset">Number of output lines to skip from the top (scroll position).</param>
     /// <param name="showHeader">Whether to show the header lines.</param>
+    /// <param name="previousOutput">Previous command output for diff highlighting, or null.</param>
+    /// <param name="diffEnabled">Whether diff highlighting is active.</param>
     public static void Render(
         TextWriter writer,
         string? header,
@@ -69,7 +78,9 @@ public static class ScreenRenderer
         string output,
         int terminalHeight,
         int scrollOffset,
-        bool showHeader)
+        bool showHeader,
+        string? previousOutput = null,
+        bool diffEnabled = false)
     {
         ClearScreen(writer);
 
@@ -88,7 +99,15 @@ public static class ScreenRenderer
         }
 
         int availableHeight = GetAvailableHeight(terminalHeight, watchLine is not null, showHeader);
-        RenderOutput(writer, output, availableHeight, scrollOffset);
+
+        if (diffEnabled && previousOutput is not null)
+        {
+            RenderOutputWithDiff(writer, output, previousOutput, availableHeight, scrollOffset);
+        }
+        else
+        {
+            RenderOutput(writer, output, availableHeight, scrollOffset);
+        }
 
         writer.Flush();
     }
@@ -129,6 +148,79 @@ public static class ScreenRenderer
     }
 
     /// <summary>
+    /// Renders command output with diff highlighting. Lines that differ from the previous
+    /// output (or are new) are rendered with a dark grey background.
+    /// Comparison uses ANSI-stripped text so colour changes don't trigger false diffs.
+    /// </summary>
+    public static void RenderOutputWithDiff(
+        TextWriter writer, string output, string previousOutput,
+        int availableHeight, int scrollOffset)
+    {
+        if (availableHeight <= 0 || string.IsNullOrEmpty(output))
+        {
+            return;
+        }
+
+        string[] currentLines = output.Split('\n');
+        string[] previousLines = previousOutput.Split('\n');
+        bool[] changed = ComputeChangedLines(currentLines, previousLines);
+
+        int startLine = Math.Min(scrollOffset, Math.Max(0, currentLines.Length - 1));
+        int endLine = Math.Min(startLine + availableHeight, currentLines.Length);
+
+        for (int i = startLine; i < endLine; i++)
+        {
+            bool isChanged = i < changed.Length && changed[i];
+            bool isLast = (i == endLine - 1);
+
+            if (isChanged)
+            {
+                writer.Write(DiffHighlightOn);
+            }
+
+            if (isLast)
+            {
+                writer.Write(currentLines[i]);
+            }
+            else
+            {
+                writer.WriteLine(currentLines[i]);
+            }
+
+            if (isChanged)
+            {
+                writer.Write(DiffHighlightOff);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Compares current and previous output lines (ANSI-stripped) and returns a boolean array
+    /// indicating which current lines have changed or are new.
+    /// </summary>
+    internal static bool[] ComputeChangedLines(string[] currentLines, string[] previousLines)
+    {
+        bool[] changed = new bool[currentLines.Length];
+
+        for (int i = 0; i < currentLines.Length; i++)
+        {
+            if (i >= previousLines.Length)
+            {
+                // New line (current output is longer than previous)
+                changed[i] = true;
+            }
+            else
+            {
+                string currentStripped = Formatting.StripAnsi(currentLines[i]);
+                string previousStripped = Formatting.StripAnsi(previousLines[i]);
+                changed[i] = !string.Equals(currentStripped, previousStripped, StringComparison.Ordinal);
+            }
+        }
+
+        return changed;
+    }
+
+    /// <summary>
     /// Renders the help overlay centred on the screen.
     /// </summary>
     public static void RenderHelpOverlay(TextWriter writer, int width, int height)
@@ -143,6 +235,7 @@ public static class ScreenRenderer
             "  r / Enter        Force re-run",
             "  Up/Down          Scroll (when paused)",
             "  PgUp/PgDn        Scroll page (when paused)",
+            "  d                Toggle diff highlighting",
             "  ? / Esc          Toggle this help",
             "",
         };
@@ -182,7 +275,8 @@ public static class ScreenRenderer
         int? exitCode,
         int runCount,
         bool isPaused,
-        bool useColor)
+        bool useColor,
+        bool isDiffEnabled = false)
     {
         var sb = new StringBuilder();
 
@@ -208,6 +302,11 @@ public static class ScreenRenderer
         if (isPaused)
         {
             sb.Append(" [PAUSED]");
+        }
+
+        if (isDiffEnabled)
+        {
+            sb.Append(" [DIFF]");
         }
 
         return sb.ToString();

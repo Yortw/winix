@@ -17,6 +17,7 @@ static async Task<int> RunAsync(string[] args)
     bool exitOnSuccess = false;
     bool exitOnError = false;
     List<string> exitOnMatchPatterns = new();
+    bool diffEnabled = false;
     bool once = false;
     bool noHeader = false;
     bool jsonOutput = false;
@@ -74,6 +75,11 @@ static async Task<int> RunAsync(string[] args)
                 }
                 debounceMs = parsedDebounce;
                 i++;
+                break;
+
+            case "-d":
+            case "--differences":
+                diffEnabled = true;
                 break;
 
             case "-g":
@@ -197,7 +203,7 @@ static async Task<int> RunAsync(string[] args)
     return await RunLoopAsync(
         command, commandArgs, commandDisplay,
         intervalSeconds, useInterval, watchPatterns.ToArray(), debounceMs,
-        exitOnChange, exitOnSuccess, exitOnError, exitOnMatchRegexes,
+        exitOnChange, exitOnSuccess, exitOnError, exitOnMatchRegexes, diffEnabled,
         noHeader, jsonOutput, jsonOutputIncludeOutput, useColor, version);
 }
 
@@ -261,6 +267,7 @@ static async Task<int> RunLoopAsync(
     string command, string[] commandArgs, string commandDisplay,
     double intervalSeconds, bool useInterval, string[] watchPatterns, int debounceMs,
     bool exitOnChange, bool exitOnSuccess, bool exitOnError, Regex[] exitOnMatchRegexes,
+    bool diffEnabled,
     bool noHeader, bool jsonOutput, bool jsonOutputIncludeOutput,
     bool useColor, string version)
 {
@@ -378,7 +385,8 @@ static async Task<int> RunLoopAsync(
                             showHelp = false;
                         }
                         RenderScreen(lastResult, commandDisplay, intervalSeconds, watchPatterns,
-                            runCount, isPaused, noHeader, useColor, scrollOffset);
+                            runCount, isPaused, noHeader, useColor, scrollOffset,
+                        diffEnabled, previousOutput);
                         break;
 
                     case ConsoleKey.R:
@@ -402,7 +410,8 @@ static async Task<int> RunLoopAsync(
                             if (!isPaused && !showHelp)
                             {
                                 RenderScreen(lastResult, commandDisplay, intervalSeconds, watchPatterns,
-                                    runCount, isPaused, noHeader, useColor, scrollOffset);
+                                    runCount, isPaused, noHeader, useColor, scrollOffset,
+                        diffEnabled, previousOutput);
                             }
 
                             if (lastResult is not null && CheckAutoExit(lastResult, lastResult.Output, prevOutput,
@@ -419,7 +428,8 @@ static async Task<int> RunLoopAsync(
                         {
                             scrollOffset = Math.Max(0, scrollOffset - 1);
                             RenderScreen(lastResult, commandDisplay, intervalSeconds, watchPatterns,
-                                runCount, isPaused, noHeader, useColor, scrollOffset);
+                                runCount, isPaused, noHeader, useColor, scrollOffset,
+                        diffEnabled, previousOutput);
                         }
                         break;
 
@@ -428,7 +438,8 @@ static async Task<int> RunLoopAsync(
                         {
                             scrollOffset++;
                             RenderScreen(lastResult, commandDisplay, intervalSeconds, watchPatterns,
-                                runCount, isPaused, noHeader, useColor, scrollOffset);
+                                runCount, isPaused, noHeader, useColor, scrollOffset,
+                        diffEnabled, previousOutput);
                         }
                         break;
 
@@ -438,7 +449,8 @@ static async Task<int> RunLoopAsync(
                             int pageSize = GetTerminalHeight() - 2;
                             scrollOffset = Math.Max(0, scrollOffset - Math.Max(1, pageSize));
                             RenderScreen(lastResult, commandDisplay, intervalSeconds, watchPatterns,
-                                runCount, isPaused, noHeader, useColor, scrollOffset);
+                                runCount, isPaused, noHeader, useColor, scrollOffset,
+                        diffEnabled, previousOutput);
                         }
                         break;
 
@@ -448,7 +460,18 @@ static async Task<int> RunLoopAsync(
                             int pageSz = GetTerminalHeight() - 2;
                             scrollOffset += Math.Max(1, pageSz);
                             RenderScreen(lastResult, commandDisplay, intervalSeconds, watchPatterns,
-                                runCount, isPaused, noHeader, useColor, scrollOffset);
+                                runCount, isPaused, noHeader, useColor, scrollOffset,
+                        diffEnabled, previousOutput);
+                        }
+                        break;
+
+                    case ConsoleKey.D:
+                        diffEnabled = !diffEnabled;
+                        if (!showHelp)
+                        {
+                            RenderScreen(lastResult, commandDisplay, intervalSeconds, watchPatterns,
+                                runCount, isPaused, noHeader, useColor, scrollOffset,
+                                    diffEnabled, previousOutput);
                         }
                         break;
 
@@ -457,7 +480,8 @@ static async Task<int> RunLoopAsync(
                         {
                             showHelp = false;
                             RenderScreen(lastResult, commandDisplay, intervalSeconds, watchPatterns,
-                                runCount, isPaused, noHeader, useColor, scrollOffset);
+                                runCount, isPaused, noHeader, useColor, scrollOffset,
+                                    diffEnabled, previousOutput);
                         }
                         break;
 
@@ -473,7 +497,8 @@ static async Task<int> RunLoopAsync(
                             else
                             {
                                 RenderScreen(lastResult, commandDisplay, intervalSeconds, watchPatterns,
-                                    runCount, isPaused, noHeader, useColor, scrollOffset);
+                                    runCount, isPaused, noHeader, useColor, scrollOffset,
+                        diffEnabled, previousOutput);
                             }
                         }
                         break;
@@ -520,7 +545,8 @@ static async Task<int> RunLoopAsync(
                 if (!isPaused && !showHelp)
                 {
                     RenderScreen(lastResult, commandDisplay, intervalSeconds, watchPatterns,
-                        runCount, isPaused, noHeader, useColor, scrollOffset);
+                        runCount, isPaused, noHeader, useColor, scrollOffset,
+                        diffEnabled, previousOutput);
                 }
 
                 if (lastResult is not null && CheckAutoExit(lastResult, lastResult.Output, prevOutput,
@@ -627,11 +653,12 @@ static bool CheckAutoExit(
 static void RenderScreen(
     PeepResult? result, string commandDisplay,
     double intervalSeconds, string[] watchPatterns,
-    int runCount, bool isPaused, bool noHeader, bool useColor, int scrollOffset)
+    int runCount, bool isPaused, bool noHeader, bool useColor, int scrollOffset,
+    bool diffEnabled = false, string? previousOutput = null)
 {
     string? header = noHeader ? null : ScreenRenderer.FormatHeader(
         intervalSeconds, commandDisplay, DateTime.Now,
-        result?.ExitCode, runCount, isPaused, useColor);
+        result?.ExitCode, runCount, isPaused, useColor, isDiffEnabled: diffEnabled);
 
     string? watchLine = noHeader ? null : ScreenRenderer.FormatWatchLine(watchPatterns, useColor);
 
@@ -642,7 +669,9 @@ static void RenderScreen(
         result?.Output ?? "",
         GetTerminalHeight(),
         scrollOffset,
-        showHeader: !noHeader);
+        showHeader: !noHeader,
+        previousOutput: diffEnabled ? previousOutput : null,
+        diffEnabled: diffEnabled);
 }
 
 static int HandleExitFromLoop(
@@ -707,6 +736,7 @@ static void PrintHelp()
           --exit-on-success      Exit when command returns exit code 0
           --exit-on-error, -e    Exit when command returns non-zero
           --exit-on-match PAT    Exit when output matches regex (repeatable)
+          -d, --differences      Highlight changed lines between runs
           --once                 Run once, display, and exit
           --no-header, -t        Hide the header lines
           --json                 JSON summary to stderr on exit
@@ -721,12 +751,14 @@ static void PrintHelp()
           -n N                   Same as --interval
           -g                     Same as --exit-on-change
           -e                     Same as --exit-on-error
+          -d                     Same as --differences
           -t                     Same as --no-header
 
         Interactive:
           q / Ctrl+C             Quit
           Space                  Pause/unpause display
           r / Enter              Force immediate re-run
+          d                      Toggle diff highlighting
           Arrow keys / PgUp/Dn   Scroll while paused
           ?                      Show/hide help overlay
 
