@@ -163,8 +163,9 @@ public class FileOperationIntegrationTests : IDisposable
         Assert.Equal(0, compressResult.ExitCode);
 
         string compressedPath = compressResult.Result!.OutputPath;
+        // Original file still exists — need force to overwrite it during decompression
         var decompressResult = await FileOperations.DecompressFileAsync(
-            compressedPath, outputPath: null, explicitFormat: null, force: false, remove: false);
+            compressedPath, outputPath: null, explicitFormat: null, force: true, remove: false);
 
         Assert.Equal(0, decompressResult.ExitCode);
         Assert.NotNull(decompressResult.Result);
