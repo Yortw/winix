@@ -53,11 +53,11 @@ public static class ScreenRenderer
     }
 
     /// <summary>
-    /// Reverse video for highlighting changed lines in diff mode.
-    /// Swaps foreground/background — universally supported across terminals.
+    /// Dark grey background for highlighting changed lines in diff mode.
+    /// Uses 256-colour palette for broad terminal support.
     /// </summary>
-    private const string DiffHighlightOn = "\x1b[7m";
-    private const string DiffHighlightOff = "\x1b[27m";
+    private const string DiffHighlightOn = "\x1b[48;5;236m";
+    private const string DiffHighlightOff = "\x1b[49m";
 
     /// <summary>
     /// Renders the full screen: header, optional watch line, and command output.

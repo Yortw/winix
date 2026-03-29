@@ -369,8 +369,8 @@ public class DiffHighlightingTests
         ScreenRenderer.RenderOutputWithDiff(writer, current, previous, 10, 0);
 
         string output = writer.ToString();
-        // The changed line should have the reverse video escape sequence
-        Assert.Contains("\x1b[7m", output);
+        // The changed line should have the diff highlight escape sequence
+        Assert.Contains("\x1b[48;5;236m", output);
         // The unchanged lines should not
         Assert.Contains("same", output);
     }
