@@ -304,6 +304,8 @@ static async Task<int> RunLoopAsync(
     bool running = false;
     var history = new SnapshotHistory(historyCapacity);
     bool isTimeMachine = false;
+    bool historyOverlayOpen = false;
+    int historyOverlaySelection = -1;
 
     // Set up Ctrl+C handler -- cancel cleanly instead of killing the process
     Console.CancelKeyPress += (_, e) =>
@@ -398,6 +400,58 @@ static async Task<int> RunLoopAsync(
             while (Console.KeyAvailable)
             {
                 var key = Console.ReadKey(intercept: true);
+
+                if (historyOverlayOpen)
+                {
+                    switch (key.Key)
+                    {
+                        case ConsoleKey.UpArrow:
+                            if (historyOverlaySelection < history.Count - 1)
+                            {
+                                historyOverlaySelection++;
+                            }
+                            ScreenRenderer.RenderHistoryOverlay(Console.Out, history,
+                                historyOverlaySelection, GetTerminalWidth(), GetTerminalHeight());
+                            break;
+
+                        case ConsoleKey.DownArrow:
+                            if (historyOverlaySelection > 0)
+                            {
+                                historyOverlaySelection--;
+                            }
+                            ScreenRenderer.RenderHistoryOverlay(Console.Out, history,
+                                historyOverlaySelection, GetTerminalWidth(), GetTerminalHeight());
+                            break;
+
+                        case ConsoleKey.Enter:
+                            history.MoveToNewest();
+                            while (history.CursorIndex > historyOverlaySelection)
+                            {
+                                history.MoveOlder();
+                            }
+                            historyOverlayOpen = false;
+                            scrollOffset = 0;
+                            RenderTimeMachineScreen(history, commandDisplay, intervalSeconds,
+                                watchPatterns, noHeader, useColor, scrollOffset, diffEnabled);
+                            break;
+
+                        case ConsoleKey.Escape:
+                            historyOverlayOpen = false;
+                            RenderTimeMachineScreen(history, commandDisplay, intervalSeconds,
+                                watchPatterns, noHeader, useColor, scrollOffset, diffEnabled);
+                            break;
+
+                        default:
+                            if (key.KeyChar == 't')
+                            {
+                                historyOverlayOpen = false;
+                                RenderTimeMachineScreen(history, commandDisplay, intervalSeconds,
+                                    watchPatterns, noHeader, useColor, scrollOffset, diffEnabled);
+                            }
+                            break;
+                    }
+                    continue;
+                }
 
                 switch (key.Key)
                 {
@@ -629,7 +683,39 @@ static async Task<int> RunLoopAsync(
                         break;
 
                     default:
-                        if (key.KeyChar == '?')
+                        if (key.KeyChar == 't')
+                        {
+                            if (historyOverlayOpen)
+                            {
+                                historyOverlayOpen = false;
+                                if (isTimeMachine)
+                                {
+                                    RenderTimeMachineScreen(history, commandDisplay, intervalSeconds,
+                                        watchPatterns, noHeader, useColor, scrollOffset, diffEnabled);
+                                }
+                                else
+                                {
+                                    RenderScreen(lastResult, commandDisplay, intervalSeconds, watchPatterns,
+                                        runCount, isPaused, noHeader, useColor, scrollOffset,
+                                        diffEnabled, previousOutput);
+                                }
+                            }
+                            else if (history.Count > 0)
+                            {
+                                if (!isTimeMachine)
+                                {
+                                    isTimeMachine = true;
+                                    isPaused = true;
+                                    scrollOffset = 0;
+                                    showHelp = false;
+                                }
+                                historyOverlayOpen = true;
+                                historyOverlaySelection = history.CursorIndex;
+                                ScreenRenderer.RenderHistoryOverlay(Console.Out, history,
+                                    historyOverlaySelection, GetTerminalWidth(), GetTerminalHeight());
+                            }
+                        }
+                        else if (key.KeyChar == '?')
                         {
                             showHelp = !showHelp;
                             if (showHelp)
@@ -641,7 +727,7 @@ static async Task<int> RunLoopAsync(
                             {
                                 RenderScreen(lastResult, commandDisplay, intervalSeconds, watchPatterns,
                                     runCount, isPaused, noHeader, useColor, scrollOffset,
-                        diffEnabled, previousOutput);
+                                    diffEnabled, previousOutput);
                             }
                         }
                         break;
