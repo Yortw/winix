@@ -318,6 +318,9 @@ static async Task<int> RunLoopAsync(
                 jsonOutput, jsonOutputIncludeOutput, version, exitReason);
         }
 
+        // Key reading task — lives outside the loop, only recreated after a key is consumed
+        Task<ConsoleKeyInfo>? keyTask = StartKeyPollingTask(ct);
+
         // Main event loop
         while (!ct.IsCancellationRequested)
         {
@@ -325,7 +328,6 @@ static async Task<int> RunLoopAsync(
             var waitTasks = new List<Task>();
             Task? intervalTask = null;
             Task? fileChangeTask = null;
-            Task<ConsoleKeyInfo>? keyTask = null;
 
             if (scheduler is not null)
             {
@@ -339,20 +341,10 @@ static async Task<int> RunLoopAsync(
                 waitTasks.Add(fileChangeTask);
             }
 
-            // Non-blocking key check: start a task that waits for a key
-            keyTask = Task.Run(() =>
+            if (keyTask is not null)
             {
-                while (!ct.IsCancellationRequested)
-                {
-                    if (Console.KeyAvailable)
-                    {
-                        return Console.ReadKey(intercept: true);
-                    }
-                    Thread.Sleep(50);
-                }
-                throw new OperationCanceledException();
-            }, ct);
-            waitTasks.Add(keyTask);
+                waitTasks.Add(keyTask);
+            }
 
             if (waitTasks.Count == 0)
             {
@@ -430,7 +422,7 @@ static async Task<int> RunLoopAsync(
                 }
             }
             // Handle keyboard input
-            else if (completedTask == keyTask)
+            else if (keyTask is not null && completedTask == keyTask)
             {
                 ConsoleKeyInfo key;
                 try
@@ -441,6 +433,9 @@ static async Task<int> RunLoopAsync(
                 {
                     break;
                 }
+
+                // Recreate the key polling task for the next iteration
+                keyTask = StartKeyPollingTask(ct);
 
                 switch (key.Key)
                 {
@@ -761,6 +756,22 @@ static int GetTerminalHeight()
     {
         return 24; // Sensible default when not attached to a terminal
     }
+}
+
+static Task<ConsoleKeyInfo> StartKeyPollingTask(CancellationToken ct)
+{
+    return Task.Run(() =>
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            if (Console.KeyAvailable)
+            {
+                return Console.ReadKey(intercept: true);
+            }
+            Thread.Sleep(50);
+        }
+        throw new OperationCanceledException();
+    }, ct);
 }
 
 static int GetTerminalWidth()
