@@ -18,6 +18,7 @@ static async Task<int> RunAsync(string[] args)
     bool exitOnError = false;
     List<string> exitOnMatchPatterns = new();
     bool diffEnabled = false;
+    int historyCapacity = 1000;
     bool noGitIgnore = false;
     bool once = false;
     bool noHeader = false;
@@ -103,6 +104,19 @@ static async Task<int> RunAsync(string[] args)
                     return WriteUsageError("--exit-on-match requires a regex pattern argument", jsonOutput);
                 }
                 exitOnMatchPatterns.Add(args[i + 1]);
+                i++;
+                break;
+
+            case "--history":
+                if (i + 1 >= args.Length || !int.TryParse(args[i + 1], out int parsedHistory))
+                {
+                    return WriteUsageError("--history requires a numeric argument", jsonOutput);
+                }
+                if (parsedHistory < 0)
+                {
+                    return WriteUsageError("--history must be non-negative", jsonOutput);
+                }
+                historyCapacity = parsedHistory;
                 i++;
                 break;
 
@@ -209,7 +223,7 @@ static async Task<int> RunAsync(string[] args)
         command, commandArgs, commandDisplay,
         intervalSeconds, useInterval, watchPatterns.ToArray(), debounceMs,
         exitOnChange, exitOnSuccess, exitOnError, exitOnMatchRegexes, diffEnabled,
-        noGitIgnore, noHeader, jsonOutput, jsonOutputIncludeOutput, useColor, version);
+        historyCapacity, noGitIgnore, noHeader, jsonOutput, jsonOutputIncludeOutput, useColor, version);
 }
 
 static async Task<int> RunOnceAsync(
@@ -272,7 +286,7 @@ static async Task<int> RunLoopAsync(
     string command, string[] commandArgs, string commandDisplay,
     double intervalSeconds, bool useInterval, string[] watchPatterns, int debounceMs,
     bool exitOnChange, bool exitOnSuccess, bool exitOnError, Regex[] exitOnMatchRegexes,
-    bool diffEnabled, bool noGitIgnore,
+    bool diffEnabled, int historyCapacity, bool noGitIgnore,
     bool noHeader, bool jsonOutput, bool jsonOutputIncludeOutput,
     bool useColor, string version)
 {
@@ -749,6 +763,7 @@ static void PrintHelp()
           --exit-on-error, -e    Exit when command returns non-zero
           --exit-on-match PAT    Exit when output matches regex (repeatable)
           -d, --differences      Highlight changed lines between runs
+          --history N            Max history snapshots to retain (default: 1000, 0=unlimited)
           --no-gitignore         Disable automatic .gitignore filtering
           --once                 Run once, display, and exit
           --no-header, -t        Hide the header lines
