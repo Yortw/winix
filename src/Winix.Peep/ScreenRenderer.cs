@@ -53,10 +53,10 @@ public static class ScreenRenderer
     }
 
     /// <summary>
-    /// Dark grey background for highlighting changed lines in diff mode.
-    /// Uses 256-colour palette for broad terminal support.
+    /// Dark olive/gold background for highlighting changed lines in diff mode.
+    /// Visible on dark terminals without being garish. 256-colour palette index 58.
     /// </summary>
-    private const string DiffHighlightOn = "\x1b[48;5;236m";
+    private const string DiffHighlightOn = "\x1b[48;5;58m";
     private const string DiffHighlightOff = "\x1b[49m";
 
     /// <summary>
