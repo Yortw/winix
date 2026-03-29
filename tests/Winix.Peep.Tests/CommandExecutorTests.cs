@@ -8,8 +8,9 @@ public class CommandExecutorTests
     [Fact]
     public async Task RunAsync_SuccessfulCommand_ReturnsZeroExitCode()
     {
+        // Use "dotnet --list-runtimes" which reliably returns 0 on all CI platforms
         PeepResult result = await CommandExecutor.RunAsync(
-            "dotnet", new[] { "--version" }, TriggerSource.Initial);
+            "dotnet", new[] { "--list-runtimes" }, TriggerSource.Initial);
 
         Assert.Equal(0, result.ExitCode);
         Assert.True(result.Duration > TimeSpan.Zero);
