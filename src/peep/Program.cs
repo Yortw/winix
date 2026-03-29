@@ -18,6 +18,7 @@ static async Task<int> RunAsync(string[] args)
     bool exitOnError = false;
     List<string> exitOnMatchPatterns = new();
     bool diffEnabled = false;
+    bool noGitIgnore = false;
     bool once = false;
     bool noHeader = false;
     bool jsonOutput = false;
@@ -103,6 +104,10 @@ static async Task<int> RunAsync(string[] args)
                 }
                 exitOnMatchPatterns.Add(args[i + 1]);
                 i++;
+                break;
+
+            case "--no-gitignore":
+                noGitIgnore = true;
                 break;
 
             case "--once":
@@ -204,7 +209,7 @@ static async Task<int> RunAsync(string[] args)
         command, commandArgs, commandDisplay,
         intervalSeconds, useInterval, watchPatterns.ToArray(), debounceMs,
         exitOnChange, exitOnSuccess, exitOnError, exitOnMatchRegexes, diffEnabled,
-        noHeader, jsonOutput, jsonOutputIncludeOutput, useColor, version);
+        noGitIgnore, noHeader, jsonOutput, jsonOutputIncludeOutput, useColor, version);
 }
 
 static async Task<int> RunOnceAsync(
@@ -267,7 +272,7 @@ static async Task<int> RunLoopAsync(
     string command, string[] commandArgs, string commandDisplay,
     double intervalSeconds, bool useInterval, string[] watchPatterns, int debounceMs,
     bool exitOnChange, bool exitOnSuccess, bool exitOnError, Regex[] exitOnMatchRegexes,
-    bool diffEnabled,
+    bool diffEnabled, bool noGitIgnore,
     bool noHeader, bool jsonOutput, bool jsonOutputIncludeOutput,
     bool useColor, string version)
 {
@@ -297,8 +302,15 @@ static async Task<int> RunLoopAsync(
     SemaphoreSlim? fileChangeSemaphore = null;
     if (watchPatterns.Length > 0)
     {
+        // Auto-enable gitignore filtering when in a git repo (unless --no-gitignore)
+        Func<string, bool>? excludeFilter = null;
+        if (!noGitIgnore && GitIgnoreChecker.IsGitRepo())
+        {
+            excludeFilter = GitIgnoreChecker.IsIgnored;
+        }
+
         fileChangeSemaphore = new SemaphoreSlim(0);
-        fileWatcher = new FileWatcher(watchPatterns, debounceMs);
+        fileWatcher = new FileWatcher(watchPatterns, debounceMs, excludeFilter);
         fileWatcher.FileChanged += () =>
         {
             // Release the semaphore to signal the main loop
@@ -737,6 +749,7 @@ static void PrintHelp()
           --exit-on-error, -e    Exit when command returns non-zero
           --exit-on-match PAT    Exit when output matches regex (repeatable)
           -d, --differences      Highlight changed lines between runs
+          --no-gitignore         Disable automatic .gitignore filtering
           --once                 Run once, display, and exit
           --no-header, -t        Hide the header lines
           --json                 JSON summary to stderr on exit

@@ -15,6 +15,7 @@ public sealed class FileWatcher : IDisposable
 {
     private readonly string[] _patterns;
     private readonly int _debounceMs;
+    private readonly Func<string, bool>? _excludeFilter;
     private readonly List<FileSystemWatcher> _watchers = new();
     private readonly Matcher _matcher;
     private Timer? _debounceTimer;
@@ -38,10 +39,15 @@ public sealed class FileWatcher : IDisposable
     /// Milliseconds to wait after the last file event before raising <see cref="FileChanged"/>.
     /// Default 300ms. Prevents rapid-fire triggers during multi-file operations (e.g. git checkout).
     /// </param>
-    public FileWatcher(string[] patterns, int debounceMs = 300)
+    /// <param name="excludeFilter">
+    /// Optional filter that returns true for paths that should be excluded (e.g. gitignore check).
+    /// Called with the full file path after glob matching succeeds.
+    /// </param>
+    public FileWatcher(string[] patterns, int debounceMs = 300, Func<string, bool>? excludeFilter = null)
     {
         _patterns = patterns;
         _debounceMs = debounceMs;
+        _excludeFilter = excludeFilter;
 
         _matcher = new Matcher();
         foreach (string pattern in patterns)
@@ -174,7 +180,18 @@ public sealed class FileWatcher : IDisposable
         // Normalise separators for the matcher (it expects forward slashes)
         relativePath = relativePath.Replace('\\', '/');
 
-        return _matcher.Match(relativePath).HasMatches;
+        if (!_matcher.Match(relativePath).HasMatches)
+        {
+            return false;
+        }
+
+        // Check exclude filter (e.g. gitignore) — if the file is excluded, don't trigger
+        if (_excludeFilter is not null && _excludeFilter(fullPath))
+        {
+            return false;
+        }
+
+        return true;
     }
 
     /// <summary>
