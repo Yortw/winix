@@ -500,12 +500,10 @@ static async Task<int> RunLoopAsync(
                                 if (isTimeMachine)
                                 {
                                     int savedCursor = history.CursorIndex;
+                                    int countBefore = history.Count;
                                     history.Add(result, DateTime.Now, runCount);
-                                    if (history.Capacity > 0 && history.Count == history.Capacity && savedCursor > 0)
-                                    {
-                                        savedCursor--;
-                                    }
-                                    else if (history.Capacity > 0 && runCount > history.Capacity)
+                                    // If count didn't grow, an eviction occurred — adjust saved position
+                                    if (history.Count == countBefore)
                                     {
                                         savedCursor = Math.Max(0, savedCursor - 1);
                                     }
@@ -687,22 +685,7 @@ static async Task<int> RunLoopAsync(
                     default:
                         if (key.KeyChar == 't')
                         {
-                            if (historyOverlayOpen)
-                            {
-                                historyOverlayOpen = false;
-                                if (isTimeMachine)
-                                {
-                                    RenderTimeMachineScreen(history, commandDisplay, intervalSeconds,
-                                        watchPatterns, noHeader, useColor, scrollOffset, diffEnabled);
-                                }
-                                else
-                                {
-                                    RenderScreen(lastResult, commandDisplay, intervalSeconds, watchPatterns,
-                                        runCount, isPaused, noHeader, useColor, scrollOffset,
-                                        diffEnabled, previousOutput);
-                                }
-                            }
-                            else if (history.Count > 0)
+                            if (history.Count > 0)
                             {
                                 if (!isTimeMachine)
                                 {
@@ -772,12 +755,10 @@ static async Task<int> RunLoopAsync(
                     if (isTimeMachine)
                     {
                         int savedCursor = history.CursorIndex;
+                        int countBefore = history.Count;
                         history.Add(result, DateTime.Now, runCount);
-                        if (history.Capacity > 0 && history.Count == history.Capacity && savedCursor > 0)
-                        {
-                            savedCursor--;
-                        }
-                        else if (history.Capacity > 0 && runCount > history.Capacity)
+                        // If count didn't grow, an eviction occurred — adjust saved position
+                        if (history.Count == countBefore)
                         {
                             savedCursor = Math.Max(0, savedCursor - 1);
                         }
@@ -1045,7 +1026,9 @@ static void PrintHelp()
           Space                  Pause/unpause display
           r / Enter              Force immediate re-run
           d                      Toggle diff highlighting
-          Arrow keys / PgUp/Dn   Scroll while paused
+          Up/Down / PgUp/Dn     Scroll while paused
+          Left/Right             Time travel (older/newer)
+          t                      History overlay
           ?                      Show/hide help overlay
 
         Exit Codes:
