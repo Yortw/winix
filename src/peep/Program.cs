@@ -516,6 +516,8 @@ static async Task<int> RunLoopAsync(
                                 {
                                     history.Add(result, DateTime.Now, runCount);
                                 }
+
+                                previousOutput = prevOutput;
                             }
 
                             nextRunTime = DateTime.UtcNow.AddSeconds(intervalSeconds);
@@ -525,7 +527,7 @@ static async Task<int> RunLoopAsync(
                             {
                                 RenderScreen(lastResult, commandDisplay, intervalSeconds, watchPatterns,
                                     runCount, isPaused, noHeader, useColor, scrollOffset,
-                        diffEnabled, previousOutput);
+                                    diffEnabled, previousOutput);
                             }
 
                             if (lastResult is not null && CheckAutoExit(lastResult, lastResult.Output, prevOutput,
@@ -786,6 +788,8 @@ static async Task<int> RunLoopAsync(
                     {
                         history.Add(result, DateTime.Now, runCount);
                     }
+
+                    previousOutput = prevOutput;
                 }
 
                 nextRunTime = DateTime.UtcNow.AddSeconds(intervalSeconds);
