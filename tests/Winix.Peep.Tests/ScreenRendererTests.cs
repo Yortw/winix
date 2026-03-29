@@ -292,6 +292,200 @@ public class AlternateBufferTests
     }
 }
 
+public class TimeMachineHeaderTests
+{
+    [Fact]
+    public void FormatHeader_WithTimeMachine_ShowsTimeIndicator()
+    {
+        string header = ScreenRenderer.FormatHeader(
+            intervalSeconds: 2.0,
+            command: "dotnet build",
+            timestamp: new DateTime(2026, 3, 30, 14, 32, 5),
+            exitCode: 0,
+            runCount: 3,
+            isPaused: true,
+            useColor: false,
+            isDiffEnabled: false,
+            isTimeMachine: true,
+            timeMachinePosition: 3,
+            timeMachineTotal: 17);
+
+        Assert.Contains("[TIME", header);
+        Assert.Contains("3/17", header);
+    }
+
+    [Fact]
+    public void FormatHeader_WithTimeMachine_ShowsSnapshotRunCount()
+    {
+        string header = ScreenRenderer.FormatHeader(
+            intervalSeconds: 2.0,
+            command: "dotnet build",
+            timestamp: new DateTime(2026, 3, 30, 14, 32, 5),
+            exitCode: 0,
+            runCount: 3,
+            isPaused: true,
+            useColor: false,
+            isTimeMachine: true,
+            timeMachinePosition: 5,
+            timeMachineTotal: 10);
+
+        Assert.Contains("[run #3]", header);
+        Assert.Contains("[TIME 5/10]", header);
+    }
+
+    [Fact]
+    public void FormatHeader_NoTimeMachine_NoTimeIndicator()
+    {
+        string header = ScreenRenderer.FormatHeader(
+            intervalSeconds: 2.0,
+            command: "dotnet build",
+            timestamp: DateTime.Now,
+            exitCode: 0,
+            runCount: 1,
+            isPaused: false,
+            useColor: false);
+
+        Assert.DoesNotContain("[TIME", header);
+    }
+}
+
+public class HistoryOverlayTests
+{
+    private static PeepResult MakeResult(string output = "output", int exitCode = 0)
+    {
+        return new PeepResult(output, exitCode, TimeSpan.FromSeconds(1), TriggerSource.Interval);
+    }
+
+    [Fact]
+    public void RenderHistoryOverlay_ShowsRunNumbers()
+    {
+        var history = new SnapshotHistory(capacity: 10);
+        history.Add(MakeResult("a"), new DateTime(2026, 3, 30, 14, 0, 0), runNumber: 1);
+        history.Add(MakeResult("b"), new DateTime(2026, 3, 30, 14, 0, 2), runNumber: 2);
+
+        var writer = new StringWriter();
+        ScreenRenderer.RenderHistoryOverlay(writer, history, selectedIndex: 1, width: 80, height: 24);
+
+        string output = writer.ToString();
+        Assert.Contains("#1", output);
+        Assert.Contains("#2", output);
+    }
+
+    [Fact]
+    public void RenderHistoryOverlay_ShowsTimestamps()
+    {
+        var history = new SnapshotHistory(capacity: 10);
+        history.Add(MakeResult("a"), new DateTime(2026, 3, 30, 14, 32, 5), runNumber: 1);
+
+        var writer = new StringWriter();
+        ScreenRenderer.RenderHistoryOverlay(writer, history, selectedIndex: 0, width: 80, height: 24);
+
+        string output = writer.ToString();
+        Assert.Contains("14:32:05", output);
+    }
+
+    [Fact]
+    public void RenderHistoryOverlay_ShowsSelectionMarker()
+    {
+        var history = new SnapshotHistory(capacity: 10);
+        history.Add(MakeResult("a"), DateTime.Now, runNumber: 1);
+        history.Add(MakeResult("b"), DateTime.Now, runNumber: 2);
+
+        var writer = new StringWriter();
+        ScreenRenderer.RenderHistoryOverlay(writer, history, selectedIndex: 0, width: 80, height: 24);
+
+        string output = writer.ToString();
+        Assert.Contains(">", output);
+    }
+
+    [Fact]
+    public void RenderHistoryOverlay_ShowsExitCode()
+    {
+        var history = new SnapshotHistory(capacity: 10);
+        history.Add(MakeResult("a", exitCode: 1), DateTime.Now, runNumber: 1);
+
+        var writer = new StringWriter();
+        ScreenRenderer.RenderHistoryOverlay(writer, history, selectedIndex: 0, width: 80, height: 24);
+
+        string output = writer.ToString();
+        Assert.Contains("exit:1", output);
+    }
+
+    [Fact]
+    public void RenderHistoryOverlay_ShowsDiffStats()
+    {
+        var history = new SnapshotHistory(capacity: 10);
+        history.Add(MakeResult("line1\nline2"), DateTime.Now, runNumber: 1);
+        history.Add(MakeResult("line1\nchanged"), DateTime.Now, runNumber: 2);
+
+        var writer = new StringWriter();
+        ScreenRenderer.RenderHistoryOverlay(writer, history, selectedIndex: 1, width: 80, height: 24);
+
+        string output = writer.ToString();
+        Assert.Contains("+1", output);
+        Assert.Contains("-1", output);
+    }
+
+    [Fact]
+    public void RenderHistoryOverlay_ShowsHistoryTitle()
+    {
+        var history = new SnapshotHistory(capacity: 10);
+        history.Add(MakeResult("a"), DateTime.Now, runNumber: 1);
+
+        var writer = new StringWriter();
+        ScreenRenderer.RenderHistoryOverlay(writer, history, selectedIndex: 0, width: 80, height: 24);
+
+        string output = writer.ToString();
+        Assert.Contains("History", output);
+    }
+
+    [Fact]
+    public void RenderHistoryOverlay_ShowsKeyHints()
+    {
+        var history = new SnapshotHistory(capacity: 10);
+        history.Add(MakeResult("a"), DateTime.Now, runNumber: 1);
+
+        var writer = new StringWriter();
+        ScreenRenderer.RenderHistoryOverlay(writer, history, selectedIndex: 0, width: 80, height: 24);
+
+        string output = writer.ToString();
+        Assert.Contains("Enter", output);
+        Assert.Contains("navigate", output);
+    }
+
+    [Fact]
+    public void RenderHistoryOverlay_NewestAtTop()
+    {
+        var history = new SnapshotHistory(capacity: 10);
+        history.Add(MakeResult("a"), new DateTime(2026, 3, 30, 14, 0, 0), runNumber: 1);
+        history.Add(MakeResult("b"), new DateTime(2026, 3, 30, 14, 0, 2), runNumber: 2);
+        history.Add(MakeResult("c"), new DateTime(2026, 3, 30, 14, 0, 4), runNumber: 3);
+
+        var writer = new StringWriter();
+        ScreenRenderer.RenderHistoryOverlay(writer, history, selectedIndex: 2, width: 80, height: 24);
+
+        string output = writer.ToString();
+        int pos3 = output.IndexOf("#3");
+        int pos1 = output.IndexOf("#1");
+        Assert.True(pos3 < pos1, "Newest (#3) should appear before oldest (#1)");
+    }
+}
+
+public class HelpOverlayTimeMachineTests
+{
+    [Fact]
+    public void RenderHelpOverlay_ShowsTimeMachineKeys()
+    {
+        var writer = new StringWriter();
+        ScreenRenderer.RenderHelpOverlay(writer, width: 80, height: 24);
+
+        string output = writer.ToString();
+        Assert.Contains("Left/Right", output);
+        Assert.Contains("time travel", output.ToLowerInvariant());
+        Assert.Contains("istory", output); // "History" or "history"
+    }
+}
+
 public class DiffHighlightingTests
 {
     [Fact]

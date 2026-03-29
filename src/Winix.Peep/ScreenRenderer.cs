@@ -235,6 +235,8 @@ public static class ScreenRenderer
             "  r / Enter        Force re-run",
             "  Up/Down          Scroll (when paused)",
             "  PgUp/PgDn        Scroll page (when paused)",
+            "  Left/Right       Time travel (older/newer)",
+            "  t                History overlay",
             "  d                Toggle diff highlighting",
             "  ? / Esc          Toggle this help",
             "",
@@ -258,6 +260,77 @@ public static class ScreenRenderer
     }
 
     /// <summary>
+    /// Renders the history overlay showing a scrollable list of snapshots.
+    /// Newest snapshots appear at the top. The selected entry is marked with &gt;.
+    /// </summary>
+    /// <param name="writer">Output writer (typically <see cref="Console.Out"/>).</param>
+    /// <param name="history">The snapshot history to display.</param>
+    /// <param name="selectedIndex">Zero-based index of the currently selected snapshot (0 = oldest).</param>
+    /// <param name="width">Terminal width in columns.</param>
+    /// <param name="height">Terminal height in rows.</param>
+    public static void RenderHistoryOverlay(
+        TextWriter writer, SnapshotHistory history, int selectedIndex,
+        int width, int height)
+    {
+        ClearScreen(writer);
+
+        // Title bar
+        const string title = " History ";
+        string titleBar = title.PadLeft((width + title.Length) / 2).PadRight(width);
+        writer.WriteLine(titleBar);
+
+        // Reserve rows: 1 title + 1 hint line at bottom
+        const int reservedRows = 2;
+        int listHeight = Math.Max(0, height - reservedRows);
+
+        // Build the display list newest-first (reverses the oldest-first internal order).
+        int count = history.Count;
+
+        // Scroll so that the selected entry stays visible.
+        // selectedIndex is oldest-first; in the display it maps to display index (count - 1 - selectedIndex).
+        int displaySelected = count > 0 ? count - 1 - selectedIndex : 0;
+        int scrollOffset = 0;
+        if (listHeight > 0 && displaySelected >= listHeight)
+        {
+            scrollOffset = displaySelected - listHeight + 1;
+        }
+
+        int rendered = 0;
+        for (int displayIdx = scrollOffset; displayIdx < count && rendered < listHeight; displayIdx++, rendered++)
+        {
+            // Convert display index (newest-first) to storage index (oldest-first).
+            int storageIdx = count - 1 - displayIdx;
+            Snapshot snapshot = history[storageIdx];
+
+            bool isSelected = (storageIdx == selectedIndex);
+            string marker = isSelected ? ">" : " ";
+
+            string timestamp = snapshot.Timestamp.ToString("HH:mm:ss", CultureInfo.InvariantCulture);
+            string line = string.Format(
+                CultureInfo.InvariantCulture,
+                "{0} #{1,-4} {2}  exit:{3}  +{4} -{5}",
+                marker,
+                snapshot.RunNumber,
+                timestamp,
+                snapshot.Result.ExitCode,
+                snapshot.LinesAdded,
+                snapshot.LinesRemoved);
+
+            writer.WriteLine(line);
+        }
+
+        // Fill remaining rows so the hint line is always at the bottom.
+        for (int i = rendered; i < listHeight; i++)
+        {
+            writer.WriteLine();
+        }
+
+        // Key hints at bottom.
+        writer.Write("  Up/Dn navigate  Enter select  t/Esc close");
+        writer.Flush();
+    }
+
+    /// <summary>
     /// Formats the first header line showing interval, command, timestamp, exit code, and run count.
     /// </summary>
     /// <param name="intervalSeconds">The configured interval in seconds.</param>
@@ -267,6 +340,10 @@ public static class ScreenRenderer
     /// <param name="runCount">Total number of runs so far.</param>
     /// <param name="isPaused">Whether the display is currently paused.</param>
     /// <param name="useColor">Whether to apply ANSI colour to the exit code.</param>
+    /// <param name="isDiffEnabled">Whether diff highlighting is active.</param>
+    /// <param name="isTimeMachine">Whether the user is browsing historical snapshots.</param>
+    /// <param name="timeMachinePosition">1-based position within the history (cursor index + 1).</param>
+    /// <param name="timeMachineTotal">Total number of snapshots in the history.</param>
     /// <returns>Formatted header line string.</returns>
     public static string FormatHeader(
         double intervalSeconds,
@@ -276,7 +353,10 @@ public static class ScreenRenderer
         int runCount,
         bool isPaused,
         bool useColor,
-        bool isDiffEnabled = false)
+        bool isDiffEnabled = false,
+        bool isTimeMachine = false,
+        int timeMachinePosition = 0,
+        int timeMachineTotal = 0)
     {
         var sb = new StringBuilder();
 
@@ -307,6 +387,12 @@ public static class ScreenRenderer
         if (isDiffEnabled)
         {
             sb.Append(" [DIFF]");
+        }
+
+        if (isTimeMachine)
+        {
+            sb.AppendFormat(CultureInfo.InvariantCulture,
+                " [TIME {0}/{1}]", timeMachinePosition, timeMachineTotal);
         }
 
         return sb.ToString();
