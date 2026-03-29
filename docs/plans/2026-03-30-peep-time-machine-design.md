@@ -190,7 +190,7 @@ t            history overlay
 
 ### Formatting tests (additions)
 
-- JSON output includes `total_runs` and `history_retained` fields
+- JSON output includes `history_retained` field
 
 ## Out of Scope
 
