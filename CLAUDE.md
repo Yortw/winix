@@ -36,10 +36,22 @@ dotnet publish src/timeit/timeit.csproj -c Release -r win-x64
 - Exit codes: pass through child process exit code; 125/126/127 for tool's own errors (POSIX convention)
 - Full braces always, nullable reference types enabled, warnings as errors
 
+## Windows Defender false positive
+
+The `Winix.Squeeze.Tests` project may trigger Windows Defender (`Trojan:MSIL/Formbook.NE!MTB`). This is a false positive caused by ZstdSharp.Port's compression byte patterns triggering ML-based heuristic detection. The library has 195M+ NuGet downloads and a clean ReversingLabs scan.
+
+To resolve, add a Defender exclusion for the repo directory (elevated PowerShell):
+```powershell
+Add-MpPreference -ExclusionPath 'd:\projects\winix'
+```
+
 ## Project layout
 
 ```
-src/Winix.TimeIt/     — class library (timing logic, formatting, terminal detection)
-src/timeit/           — console app entry point
-tests/Winix.TimeIt.Tests/ — xUnit tests
+src/Winix.TimeIt/          — class library (timing logic, formatting, terminal detection)
+src/timeit/                — console app entry point
+src/Winix.Squeeze/         — class library (compression, format detection, formatting)
+src/squeeze/               — console app entry point
+tests/Winix.TimeIt.Tests/  — xUnit tests
+tests/Winix.Squeeze.Tests/ — xUnit tests
 ```
