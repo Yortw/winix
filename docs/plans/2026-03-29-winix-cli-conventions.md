@@ -92,6 +92,29 @@ Strict. Operational exit codes match the original tool's semantics.
 - Unavailable metrics: `null` (field present, value null — consistent schema). Zero is a valid measurement, distinct from `null`.
 - Booleans: JSON `true`/`false`, not strings
 
+### NDJSON (Newline-Delimited JSON)
+
+`--ndjson` enables streaming JSON output — one JSON object per line, emitted as results become available. Each line is a complete, self-contained JSON object following the same field conventions as `--json`.
+
+**When to use which:**
+- `--json` — complete result after the tool finishes. Best for single-result tools (timeit, squeeze) and scripts that want one parseable object.
+- `--ndjson` — one line per result, streamed incrementally. Best for multi-result or long-running tools (peep, xargs, tree+) and pipe chains with `jq`.
+
+**For single-result tools** (timeit, squeeze), `--ndjson` produces identical output to `--json` — one line. The flag exists for consistency so pipe chains work regardless of which tool is upstream.
+
+**For multi-result tools** (peep, xargs, tree+), `--ndjson` streams each result as it happens:
+```
+{"tool":"peep","exit_code":0,"run":1,"child_exit_code":0,"output":"..."}
+{"tool":"peep","exit_code":0,"run":2,"child_exit_code":0,"output":"..."}
+{"tool":"peep","exit_code":0,"run":3,"child_exit_code":1,"output":"..."}
+```
+
+Each line includes the standard fields (`tool`, `version`, `exit_code`, `exit_reason`) plus tool-specific data. This enables incremental processing: `peep --ndjson -- kubectl get pods | jq 'select(.child_exit_code != 0)'`.
+
+**Stream destination:** `--ndjson` writes to the same stream as `--json` (typically stderr for tools that produce data on stdout). For tools where the primary output IS the NDJSON stream (e.g. a future `tree+ --ndjson`), it goes to stdout.
+
+**Per-tool decision:** not every tool needs `--ndjson` in v1. Single-result tools can defer it. The convention is that when `--ndjson` is offered, it follows these rules.
+
 ### Schema Stability
 
 - Fields may be added in minor versions. Consumers should ignore unknown fields.
@@ -132,7 +155,8 @@ Error case:
 |------|-------|-------------|
 | `--help` | `-h` | Show help text |
 | `--version` | | Show tool name and version |
-| `--json` | | JSON output |
+| `--json` | | JSON output (complete object after tool finishes) |
+| `--ndjson` | | Streaming NDJSON output (one JSON line per result, where applicable) |
 | `--color` | | Force colour on |
 | `--no-color` | | Force colour off |
 | `--compat` | | Original tool output format (where applicable, per-tool decision) |
