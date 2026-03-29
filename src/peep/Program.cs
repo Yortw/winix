@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using Winix.Peep;
 using Yort.ShellKit;
 
@@ -15,6 +16,7 @@ static async Task<int> RunAsync(string[] args)
     bool exitOnChange = false;
     bool exitOnSuccess = false;
     bool exitOnError = false;
+    List<string> exitOnMatchPatterns = new();
     bool once = false;
     bool noHeader = false;
     bool jsonOutput = false;
@@ -88,6 +90,15 @@ static async Task<int> RunAsync(string[] args)
                 exitOnError = true;
                 break;
 
+            case "--exit-on-match":
+                if (i + 1 >= args.Length)
+                {
+                    return WriteUsageError("--exit-on-match requires a regex pattern argument", jsonOutput);
+                }
+                exitOnMatchPatterns.Add(args[i + 1]);
+                i++;
+                break;
+
             case "--once":
                 once = true;
                 break;
@@ -153,6 +164,19 @@ static async Task<int> RunAsync(string[] args)
         ? string.Join(" ", args.Skip(commandStart))
         : command;
 
+    // Compile exit-on-match patterns
+    Regex[] exitOnMatchRegexes;
+    try
+    {
+        exitOnMatchRegexes = exitOnMatchPatterns
+            .Select(p => new Regex(p, RegexOptions.Compiled))
+            .ToArray();
+    }
+    catch (RegexParseException ex)
+    {
+        return WriteUsageError($"invalid regex pattern: {ex.Message}", jsonOutput);
+    }
+
     // Resolve colour
     bool noColorEnv = ConsoleEnv.IsNoColorEnvSet();
     bool isTerminal = ConsoleEnv.IsTerminal(checkStdErr: false);
@@ -173,7 +197,7 @@ static async Task<int> RunAsync(string[] args)
     return await RunLoopAsync(
         command, commandArgs, commandDisplay,
         intervalSeconds, useInterval, watchPatterns.ToArray(), debounceMs,
-        exitOnChange, exitOnSuccess, exitOnError,
+        exitOnChange, exitOnSuccess, exitOnError, exitOnMatchRegexes,
         noHeader, jsonOutput, jsonOutputIncludeOutput, useColor, version);
 }
 
@@ -236,7 +260,7 @@ static async Task<int> RunOnceAsync(
 static async Task<int> RunLoopAsync(
     string command, string[] commandArgs, string commandDisplay,
     double intervalSeconds, bool useInterval, string[] watchPatterns, int debounceMs,
-    bool exitOnChange, bool exitOnSuccess, bool exitOnError,
+    bool exitOnChange, bool exitOnSuccess, bool exitOnError, Regex[] exitOnMatchRegexes,
     bool noHeader, bool jsonOutput, bool jsonOutputIncludeOutput,
     bool useColor, string version)
 {
@@ -305,7 +329,7 @@ static async Task<int> RunLoopAsync(
 
         // Check initial auto-exit conditions
         if (CheckAutoExit(lastResult, previousOutput, null,
-                exitOnChange, exitOnSuccess, exitOnError, out string? autoReason))
+                exitOnChange, exitOnSuccess, exitOnError, exitOnMatchRegexes, out string? autoReason))
         {
             exitReason = autoReason!;
             return HandleExitFromLoop(
@@ -382,7 +406,7 @@ static async Task<int> RunLoopAsync(
                             }
 
                             if (lastResult is not null && CheckAutoExit(lastResult, lastResult.Output, prevOutput,
-                                    exitOnChange, exitOnSuccess, exitOnError, out string? manualReason))
+                                    exitOnChange, exitOnSuccess, exitOnError, exitOnMatchRegexes, out string? manualReason))
                             {
                                 exitReason = manualReason!;
                                 cts.Cancel();
@@ -500,7 +524,7 @@ static async Task<int> RunLoopAsync(
                 }
 
                 if (lastResult is not null && CheckAutoExit(lastResult, lastResult.Output, prevOutput,
-                        exitOnChange, exitOnSuccess, exitOnError, out string? reason))
+                        exitOnChange, exitOnSuccess, exitOnError, exitOnMatchRegexes, out string? reason))
                 {
                     exitReason = reason!;
                     break;
@@ -561,7 +585,7 @@ static async Task<PeepResult?> TryRunCommand(
 
 static bool CheckAutoExit(
     PeepResult result, string? currentOutput, string? previousOutput,
-    bool exitOnChange, bool exitOnSuccess, bool exitOnError,
+    bool exitOnChange, bool exitOnSuccess, bool exitOnError, Regex[] exitOnMatchRegexes,
     out string? exitReason)
 {
     if (exitOnSuccess && result.ExitCode == 0)
@@ -581,6 +605,19 @@ static bool CheckAutoExit(
     {
         exitReason = "exit_on_change";
         return true;
+    }
+
+    if (exitOnMatchRegexes.Length > 0 && currentOutput is not null)
+    {
+        string stripped = Formatting.StripAnsi(currentOutput);
+        foreach (Regex regex in exitOnMatchRegexes)
+        {
+            if (regex.IsMatch(stripped))
+            {
+                exitReason = "exit_on_match";
+                return true;
+            }
+        }
     }
 
     exitReason = null;
@@ -669,6 +706,7 @@ static void PrintHelp()
           --exit-on-change, -g   Exit when output changes
           --exit-on-success      Exit when command returns exit code 0
           --exit-on-error, -e    Exit when command returns non-zero
+          --exit-on-match PAT    Exit when output matches regex (repeatable)
           --once                 Run once, display, and exit
           --no-header, -t        Hide the header lines
           --json                 JSON summary to stderr on exit
