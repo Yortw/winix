@@ -531,6 +531,15 @@ static async Task<int> RunLoopAsync(
                         }
                         break;
 
+                    case ConsoleKey.Escape:
+                        if (showHelp)
+                        {
+                            showHelp = false;
+                            RenderScreen(lastResult, commandDisplay, intervalSeconds, watchPatterns,
+                                runCount, isPaused, noHeader, useColor, scrollOffset);
+                        }
+                        break;
+
                     default:
                         if (key.KeyChar == '?')
                         {

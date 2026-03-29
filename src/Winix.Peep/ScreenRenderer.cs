@@ -143,7 +143,7 @@ public static class ScreenRenderer
             "  r / Enter        Force re-run",
             "  Up/Down          Scroll (when paused)",
             "  PgUp/PgDn        Scroll page (when paused)",
-            "  ?                Toggle this help",
+            "  ? / Esc          Toggle this help",
             "",
         };
 
