@@ -276,12 +276,7 @@ static async Task<int> RunLoopAsync(
         fileWatcher.Start();
     }
 
-    // Set up interval scheduler
-    IntervalScheduler? scheduler = null;
-    if (useInterval)
-    {
-        scheduler = new IntervalScheduler(TimeSpan.FromSeconds(intervalSeconds));
-    }
+    // Interval scheduling is handled by simple time comparison in the main loop
 
     // Enter alternate screen buffer
     ScreenRenderer.EnterAlternateBuffer(Console.Out);
@@ -318,124 +313,31 @@ static async Task<int> RunLoopAsync(
                 jsonOutput, jsonOutputIncludeOutput, version, exitReason);
         }
 
-        // Key reading task — lives outside the loop, only recreated after a key is consumed
-        Task<ConsoleKeyInfo>? keyTask = StartKeyPollingTask(ct);
+        // Main event loop — simple ticker approach.
+        // Poll every 50ms for keys, check interval and file-change signals.
+        // No competing Task.WhenAny — avoids orphaned tasks eating key presses.
+        var nextRunTime = DateTime.UtcNow.AddSeconds(intervalSeconds);
+        bool fileChangeSignalled = false;
 
-        // Main event loop
+        if (fileChangeSemaphore is not null)
+        {
+            // Drain any pre-existing signals and set up a monitor
+            _ = Task.Run(async () =>
+            {
+                while (!ct.IsCancellationRequested)
+                {
+                    await fileChangeSemaphore.WaitAsync(ct);
+                    fileChangeSignalled = true;
+                }
+            }, ct);
+        }
+
         while (!ct.IsCancellationRequested)
         {
-            // Build the set of tasks to wait on
-            var waitTasks = new List<Task>();
-            Task? intervalTask = null;
-            Task? fileChangeTask = null;
-
-            if (scheduler is not null)
+            // Check for key presses (non-blocking)
+            while (Console.KeyAvailable)
             {
-                intervalTask = scheduler.WaitForNextTickAsync(ct).AsTask();
-                waitTasks.Add(intervalTask);
-            }
-
-            if (fileChangeSemaphore is not null)
-            {
-                fileChangeTask = fileChangeSemaphore.WaitAsync(ct);
-                waitTasks.Add(fileChangeTask);
-            }
-
-            if (keyTask is not null)
-            {
-                waitTasks.Add(keyTask);
-            }
-
-            if (waitTasks.Count == 0)
-            {
-                break;
-            }
-
-            Task completedTask;
-            try
-            {
-                completedTask = await Task.WhenAny(waitTasks);
-            }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
-
-            // Handle interval trigger
-            if (completedTask == intervalTask && !running)
-            {
-                running = true;
-                string? prevOutput = lastResult?.Output;
-                PeepResult? result = await TryRunCommand(
-                    command, commandArgs, TriggerSource.Interval, ct);
-
-                if (result is not null)
-                {
-                    runCount++;
-                    lastResult = result;
-                }
-                running = false;
-
-                if (!isPaused && !showHelp)
-                {
-                    RenderScreen(lastResult, commandDisplay, intervalSeconds, watchPatterns,
-                        runCount, isPaused, noHeader, useColor, scrollOffset);
-                }
-
-                if (lastResult is not null && CheckAutoExit(lastResult, lastResult.Output, prevOutput,
-                        exitOnChange, exitOnSuccess, exitOnError, out string? reason))
-                {
-                    exitReason = reason!;
-                    break;
-                }
-            }
-            // Handle file change trigger
-            else if (completedTask == fileChangeTask && !running)
-            {
-                running = true;
-                string? prevOutput = lastResult?.Output;
-                PeepResult? result = await TryRunCommand(
-                    command, commandArgs, TriggerSource.FileChange, ct);
-
-                if (result is not null)
-                {
-                    runCount++;
-                    lastResult = result;
-                }
-
-                // Reset interval timer to prevent double-fire
-                scheduler?.Reset();
-
-                running = false;
-
-                if (!isPaused && !showHelp)
-                {
-                    RenderScreen(lastResult, commandDisplay, intervalSeconds, watchPatterns,
-                        runCount, isPaused, noHeader, useColor, scrollOffset);
-                }
-
-                if (lastResult is not null && CheckAutoExit(lastResult, lastResult.Output, prevOutput,
-                        exitOnChange, exitOnSuccess, exitOnError, out string? reason))
-                {
-                    exitReason = reason!;
-                    break;
-                }
-            }
-            // Handle keyboard input
-            else if (keyTask is not null && completedTask == keyTask)
-            {
-                ConsoleKeyInfo key;
-                try
-                {
-                    key = await keyTask;
-                }
-                catch (OperationCanceledException)
-                {
-                    break;
-                }
-
-                // Recreate the key polling task for the next iteration
-                keyTask = StartKeyPollingTask(ct);
+                var key = Console.ReadKey(intercept: true);
 
                 switch (key.Key)
                 {
@@ -470,7 +372,7 @@ static async Task<int> RunLoopAsync(
                                 lastResult = result;
                             }
 
-                            scheduler?.Reset();
+                            nextRunTime = DateTime.UtcNow.AddSeconds(intervalSeconds);
                             running = false;
 
                             if (!isPaused && !showHelp)
@@ -480,9 +382,9 @@ static async Task<int> RunLoopAsync(
                             }
 
                             if (lastResult is not null && CheckAutoExit(lastResult, lastResult.Output, prevOutput,
-                                    exitOnChange, exitOnSuccess, exitOnError, out string? reason))
+                                    exitOnChange, exitOnSuccess, exitOnError, out string? manualReason))
                             {
-                                exitReason = reason!;
+                                exitReason = manualReason!;
                                 cts.Cancel();
                             }
                         }
@@ -553,6 +455,67 @@ static async Task<int> RunLoopAsync(
                         break;
                 }
             }
+
+            if (ct.IsCancellationRequested)
+            {
+                break;
+            }
+
+            // Check if we should trigger a run
+            bool shouldRun = false;
+            TriggerSource trigger = TriggerSource.Interval;
+
+            if (fileChangeSignalled && !running)
+            {
+                fileChangeSignalled = false;
+                shouldRun = true;
+                trigger = TriggerSource.FileChange;
+            }
+            else if (useInterval && DateTime.UtcNow >= nextRunTime && !running)
+            {
+                shouldRun = true;
+                trigger = TriggerSource.Interval;
+            }
+
+            if (shouldRun)
+            {
+                running = true;
+                string? prevOutput = lastResult?.Output;
+                PeepResult? result = await TryRunCommand(
+                    command, commandArgs, trigger, ct);
+
+                if (result is not null)
+                {
+                    runCount++;
+                    lastResult = result;
+                }
+
+                nextRunTime = DateTime.UtcNow.AddSeconds(intervalSeconds);
+                running = false;
+
+                if (!isPaused && !showHelp)
+                {
+                    RenderScreen(lastResult, commandDisplay, intervalSeconds, watchPatterns,
+                        runCount, isPaused, noHeader, useColor, scrollOffset);
+                }
+
+                if (lastResult is not null && CheckAutoExit(lastResult, lastResult.Output, prevOutput,
+                        exitOnChange, exitOnSuccess, exitOnError, out string? reason))
+                {
+                    exitReason = reason!;
+                    break;
+                }
+            }
+
+            // Sleep briefly to avoid busy-waiting
+            try
+            {
+                await Task.Delay(50, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
         }
     }
     catch (OperationCanceledException)
@@ -563,7 +526,6 @@ static async Task<int> RunLoopAsync(
     {
         // Clean up resources before exiting alternate buffer
         fileWatcher?.Dispose();
-        scheduler?.Dispose();
         fileChangeSemaphore?.Dispose();
 
         ScreenRenderer.ExitAlternateBuffer(Console.Out);
@@ -756,22 +718,6 @@ static int GetTerminalHeight()
     {
         return 24; // Sensible default when not attached to a terminal
     }
-}
-
-static Task<ConsoleKeyInfo> StartKeyPollingTask(CancellationToken ct)
-{
-    return Task.Run(() =>
-    {
-        while (!ct.IsCancellationRequested)
-        {
-            if (Console.KeyAvailable)
-            {
-                return Console.ReadKey(intercept: true);
-            }
-            Thread.Sleep(50);
-        }
-        throw new OperationCanceledException();
-    }, ct);
 }
 
 static int GetTerminalWidth()
