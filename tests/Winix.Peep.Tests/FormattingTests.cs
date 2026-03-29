@@ -116,6 +116,41 @@ public class FormatJsonTests
         // Quotes should be escaped
         Assert.Contains("\\\"hello world\\\"", json);
     }
+
+    [Fact]
+    public void FormatJson_WithHistoryRetained_IncludesField()
+    {
+        string json = Formatting.FormatJson(
+            exitCode: 0,
+            exitReason: "manual",
+            runs: 50,
+            lastChildExitCode: 0,
+            durationSeconds: 100.0,
+            command: "dotnet test",
+            lastOutput: null,
+            toolName: "peep",
+            version: "0.1.0",
+            historyRetained: 50);
+
+        Assert.Contains("\"history_retained\":50", json);
+    }
+
+    [Fact]
+    public void FormatJson_NullHistoryRetained_OmitsField()
+    {
+        string json = Formatting.FormatJson(
+            exitCode: 0,
+            exitReason: "manual",
+            runs: 5,
+            lastChildExitCode: 0,
+            durationSeconds: 10.0,
+            command: "dotnet test",
+            lastOutput: null,
+            toolName: "peep",
+            version: "0.1.0");
+
+        Assert.DoesNotContain("history_retained", json);
+    }
 }
 
 public class FormatJsonErrorTests

@@ -24,6 +24,7 @@ public static partial class Formatting
     /// <param name="lastOutput">Captured output from the final run (ANSI-stripped), or null to omit.</param>
     /// <param name="toolName">The tool's executable name ("peep").</param>
     /// <param name="version">The tool's version string from assembly metadata.</param>
+    /// <param name="historyRetained">Number of snapshots retained in history at session end, or null to omit.</param>
     public static string FormatJson(
         int exitCode,
         string exitReason,
@@ -33,7 +34,8 @@ public static partial class Formatting
         string command,
         string? lastOutput,
         string toolName,
-        string version)
+        string version,
+        int? historyRetained = null)
     {
         var sb = new StringBuilder();
         sb.Append('{');
@@ -68,6 +70,12 @@ public static partial class Formatting
         {
             sb.AppendFormat(CultureInfo.InvariantCulture,
                 ",\"last_output\":\"{0}\"", EscapeJsonString(StripAnsi(lastOutput)));
+        }
+
+        if (historyRetained.HasValue)
+        {
+            sb.AppendFormat(CultureInfo.InvariantCulture,
+                ",\"history_retained\":{0}", historyRetained.Value);
         }
 
         sb.Append('}');
