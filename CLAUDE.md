@@ -24,7 +24,7 @@ dotnet publish src/timeit/timeit.csproj -c Release -r win-x64
 
 - **Class libraries** (`Winix.TimeIt`, etc.) contain all logic — testable without process spawning for formatting, integration tests for process execution
 - **Console apps** (`timeit`, etc.) are thin entry points — arg parsing, call library, set exit code
-- **Shared library** (`Yort.ShellKit`, future) — terminal detection, colour, path normalisation, process spawning. Currently inline in each tool as `ConsoleEnv`.
+- **Shared library** (`Yort.ShellKit`) — terminal detection, colour, display formatting. Referenced by all tool libraries.
 
 ## Conventions
 
@@ -48,10 +48,12 @@ Add-MpPreference -ExclusionPath 'd:\projects\winix'
 ## Project layout
 
 ```
-src/Winix.TimeIt/          — class library (timing logic, formatting, terminal detection)
+src/Yort.ShellKit/         — shared library (ConsoleEnv, AnsiColor, DisplayFormat)
+src/Winix.TimeIt/          — class library (timing logic, formatting)
 src/timeit/                — console app entry point
 src/Winix.Squeeze/         — class library (compression, format detection, formatting)
 src/squeeze/               — console app entry point
+tests/Yort.ShellKit.Tests/ — xUnit tests for shared library
 tests/Winix.TimeIt.Tests/  — xUnit tests
 tests/Winix.Squeeze.Tests/ — xUnit tests
 ```
