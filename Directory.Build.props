@@ -7,6 +7,7 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
     <RollForward>LatestMinor</RollForward>
+    <RuntimeFrameworkVersion>10.0.0</RuntimeFrameworkVersion>
     <Authors>Troy Willmot</Authors>
     <Copyright>Copyright (c) Troy Willmot</Copyright>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
