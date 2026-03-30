@@ -6,130 +6,94 @@ return await RunAsync(args);
 
 static async Task<int> RunAsync(string[] args)
 {
-    // --- Parse arguments ---
-    bool decompress = false;
-    CompressionFormat? formatFlag = null;
-    int? levelFlag = null;
-    bool stdout = false;
+    string version = GetVersion();
+
+    var parser = new CommandLineParser("squeeze", version)
+        .Description("Compress and decompress files using gzip, brotli, or zstd.")
+        .StandardFlags()
+        .Flag("--decompress", "-d", "Decompress (auto-detects format)")
+        .Flag("--brotli", "-b", "Use brotli format")
+        .Flag("--zstd", "-z", "Use zstd format")
+        .Flag("--stdout", "-c", "Write to stdout")
+        .Flag("--force", "-f", "Overwrite existing output files")
+        .Flag("--remove", "Delete input file after success")
+        .Flag("--keep", "-k", "Keep original file (default, accepted for gzip compat)")
+        .Flag("--verbose", "-v", "Show stats even when piped")
+        .Flag("--quiet", "-q", "Suppress stats even on terminal")
+        .IntOption("--level", null, "N", "Compression level (format-specific range)")
+        .Option("--output", "-o", "FILE", "Output file (single input only)")
+        .FlagAlias("-1", "--level", "1")
+        .FlagAlias("-2", "--level", "2")
+        .FlagAlias("-3", "--level", "3")
+        .FlagAlias("-4", "--level", "4")
+        .FlagAlias("-5", "--level", "5")
+        .FlagAlias("-6", "--level", "6")
+        .FlagAlias("-7", "--level", "7")
+        .FlagAlias("-8", "--level", "8")
+        .FlagAlias("-9", "--level", "9")
+        .Positional("file...")
+        .UsageErrorCode(2)
+        .Section("Compatibility",
+            """
+            These flags match gzip for muscle memory:
+            -d                  Same as --decompress
+            -c                  Same as --stdout
+            -k                  Accepted (keep is default, no-op)
+            -1..-9              Same as --level 1..9
+            -v                  Same as --verbose
+            -f                  Same as --force
+            """)
+        .ExitCodes(
+            (0, "Success"),
+            (1, "Compression/decompression error"),
+            (2, "Usage error"));
+
+    var result = parser.Parse(args);
+    if (result.IsHandled) return result.ExitCode;
+    if (result.HasErrors) return result.WriteErrors(Console.Error);
+
+    bool decompress = result.Has("--decompress");
+    bool stdout = result.Has("--stdout");
+    bool force = result.Has("--force");
+    bool remove = result.Has("--remove");
+    bool verbose = result.Has("--verbose");
+    bool quiet = result.Has("--quiet");
+    bool jsonOutput = result.Has("--json");
+    bool useColor = result.ResolveColor();
+
+    // Handle -o with "-" as stdout alias
     string? outputFile = null;
-    bool force = false;
-    bool remove = false;
-    bool verbose = false;
-    bool quiet = false;
-    bool jsonOutput = false;
-    bool colorFlag = false;
-    bool noColorFlag = false;
-    List<string> files = new();
-
-    for (int i = 0; i < args.Length; i++)
+    if (result.Has("--output"))
     {
-        string arg = args[i];
-
-        // -- stops flag parsing
-        if (arg == "--")
+        string raw = result.GetString("--output");
+        if (raw == "-")
         {
-            for (int j = i + 1; j < args.Length; j++)
-            {
-                files.Add(args[j]);
-            }
-            break;
+            stdout = true;
         }
-
-        switch (arg)
+        else
         {
-            case "-d":
-            case "--decompress":
-                decompress = true;
-                break;
-            case "-b":
-            case "--brotli":
-                formatFlag = CompressionFormat.Brotli;
-                break;
-            case "-z":
-            case "--zstd":
-                formatFlag = CompressionFormat.Zstd;
-                break;
-            case "--level":
-                if (i + 1 >= args.Length || !int.TryParse(args[i + 1], out int parsedLevel))
-                {
-                    return WriteUsageError("--level requires a numeric argument", jsonOutput);
-                }
-                levelFlag = parsedLevel;
-                i++;
-                break;
-            case "-1": levelFlag = 1; break;
-            case "-2": levelFlag = 2; break;
-            case "-3": levelFlag = 3; break;
-            case "-4": levelFlag = 4; break;
-            case "-5": levelFlag = 5; break;
-            case "-6": levelFlag = 6; break;
-            case "-7": levelFlag = 7; break;
-            case "-8": levelFlag = 8; break;
-            case "-9": levelFlag = 9; break;
-            case "-c":
-            case "--stdout":
-                stdout = true;
-                break;
-            case "-o":
-            case "--output":
-                if (i + 1 >= args.Length)
-                {
-                    return WriteUsageError("-o requires a filename argument", jsonOutput);
-                }
-                outputFile = args[i + 1];
-                if (outputFile == "-")
-                {
-                    stdout = true;
-                    outputFile = null;
-                }
-                i++;
-                break;
-            case "-f":
-            case "--force":
-                force = true;
-                break;
-            case "--remove":
-                remove = true;
-                break;
-            case "-k":
-            case "--keep":
-                // No-op -- keep is default (gzip compat)
-                break;
-            case "-v":
-            case "--verbose":
-                verbose = true;
-                break;
-            case "-q":
-            case "--quiet":
-                quiet = true;
-                break;
-            case "--json":
-                jsonOutput = true;
-                break;
-            case "--color":
-                colorFlag = true;
-                break;
-            case "--no-color":
-                noColorFlag = true;
-                break;
-            case "--version":
-                Console.WriteLine($"squeeze {GetVersion()}");
-                return 0;
-            case "-h":
-            case "--help":
-                PrintHelp();
-                return 0;
-            default:
-                if (arg.StartsWith('-'))
-                {
-                    return WriteUsageError($"unknown option: {arg}", jsonOutput);
-                }
-                files.Add(arg);
-                break;
+            outputFile = raw;
         }
     }
 
-    string version = GetVersion();
+    // Format flags → CompressionFormat
+    CompressionFormat? formatFlag = null;
+    if (result.Has("--brotli"))
+    {
+        formatFlag = CompressionFormat.Brotli;
+    }
+    else if (result.Has("--zstd"))
+    {
+        formatFlag = CompressionFormat.Zstd;
+    }
+
+    int? levelFlag = null;
+    if (result.Has("--level"))
+    {
+        levelFlag = result.GetInt("--level");
+    }
+
+    string[] files = result.Positionals;
 
     // --- Validate arguments ---
     CompressionFormat format = formatFlag ?? CompressionFormat.Gzip;
@@ -140,31 +104,29 @@ static async Task<int> RunAsync(string[] args)
         var (_, _, min, max) = CompressionFormatInfo.GetMetadata(format);
         return WriteUsageError(
             $"level {levelFlag.Value} out of range for {CompressionFormatInfo.GetShortName(format)} ({min}-{max})",
-            jsonOutput);
+            jsonOutput, version);
     }
 
-    if (outputFile is not null && files.Count > 1)
+    if (outputFile is not null && files.Length > 1)
     {
-        return WriteUsageError("-o cannot be used with multiple input files", jsonOutput);
+        return WriteUsageError("-o cannot be used with multiple input files", jsonOutput, version);
     }
 
-    // --- Resolve colour and stats visibility ---
-    bool noColorEnv = ConsoleEnv.IsNoColorEnvSet();
+    // --- Resolve stats visibility ---
     bool isTerminal = ConsoleEnv.IsTerminal(checkStdErr: true);
-    bool useColor = ConsoleEnv.ResolveUseColor(colorFlag, noColorFlag, noColorEnv, isTerminal);
     bool showStats = !jsonOutput && !quiet && (verbose || isTerminal);
 
     // --- Pipe mode ---
-    if (files.Count == 0 && Console.IsInputRedirected)
+    if (files.Length == 0 && Console.IsInputRedirected)
     {
         return await RunPipeModeAsync(
             decompress, format, level, formatFlag, jsonOutput, version);
     }
 
     // --- No files and no pipe ---
-    if (files.Count == 0)
+    if (files.Length == 0)
     {
-        return WriteUsageError("no input files. Run 'squeeze --help' for usage.", jsonOutput);
+        return WriteUsageError("no input files. Run 'squeeze --help' for usage.", jsonOutput, version);
     }
 
     // --- File mode ---
@@ -174,7 +136,7 @@ static async Task<int> RunAsync(string[] args)
     foreach (string file in files)
     {
         FileOperationResult opResult;
-        string? thisOutput = files.Count == 1 ? outputFile : null;
+        string? thisOutput = files.Length == 1 ? outputFile : null;
 
         if (stdout)
         {
@@ -375,60 +337,18 @@ static async Task<FileOperationResult> RunStdoutModeAsync(
     }
 }
 
-static int WriteUsageError(string message, bool jsonOutput)
+static int WriteUsageError(string message, bool jsonOutput, string version)
 {
     if (jsonOutput)
     {
         Console.Error.WriteLine(
-            Formatting.FormatJsonError(2, "usage_error", "squeeze", GetVersion()));
+            Formatting.FormatJsonError(2, "usage_error", "squeeze", version));
     }
     else
     {
         Console.Error.WriteLine($"squeeze: {message}");
     }
     return 2;
-}
-
-static void PrintHelp()
-{
-    Console.WriteLine(
-        """
-        Usage: squeeze [options] [file...]
-
-        Compress and decompress files using gzip, brotli, or zstd.
-
-        Options:
-          -d, --decompress    Decompress (auto-detects format)
-          --brotli, -b        Use brotli format
-          --zstd, -z          Use zstd format
-          --level N           Compression level (format-specific range)
-          -1..-9              Compression level shortcut
-          -c, --stdout        Write to stdout
-          -o, --output FILE   Output file (single input only)
-          -f, --force         Overwrite existing output files
-          --remove            Delete input file after success
-          -v, --verbose       Show stats even when piped
-          -q, --quiet         Suppress stats even on terminal
-          --json              JSON output (to stderr)
-          --no-color          Disable colored output
-          --color             Force colored output
-          --version           Show version
-          -h, --help          Show help
-
-        Compatibility:
-          These flags match gzip for muscle memory:
-          -d                  Same as --decompress
-          -c                  Same as --stdout
-          -k                  Accepted (keep is default, no-op)
-          -1..-9              Same as --level 1..9
-          -v                  Same as --verbose
-          -f                  Same as --force
-
-        Exit Codes:
-          0    Success
-          1    Compression/decompression error
-          2    Usage error
-        """);
 }
 
 static string GetVersion()
