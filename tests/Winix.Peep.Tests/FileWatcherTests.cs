@@ -196,13 +196,13 @@ public class FileWatcherIntegrationTests
             watcher.FileChanged += () => Interlocked.Increment(ref fireCount);
             watcher.Start();
 
-            // Create a file in src
+            // Create a file in src, wait for debounce to fire
             await File.WriteAllTextAsync(Path.Combine(srcDir, "a.txt"), "hello");
-            await Task.Delay(300); // Wait for debounce
+            await WaitForConditionAsync(() => Volatile.Read(ref fireCount) >= 1, timeoutMs: 3000);
 
-            // Create a file in tests
+            // Create a file in tests, wait for debounce to fire
             await File.WriteAllTextAsync(Path.Combine(testsDir, "b.txt"), "world");
-            await Task.Delay(300); // Wait for debounce
+            await WaitForConditionAsync(() => Volatile.Read(ref fireCount) >= 2, timeoutMs: 3000);
 
             Assert.Equal(2, fireCount);
         }
@@ -211,6 +211,20 @@ public class FileWatcherIntegrationTests
             Directory.SetCurrentDirectory(originalDir);
             watcher?.Dispose();
             TryDeleteDirectory(tempDir);
+        }
+    }
+
+    /// <summary>
+    /// Polls a condition at short intervals up to a timeout. Avoids fixed-delay sleeps
+    /// that are either too short on slow CI runners or waste time locally.
+    /// </summary>
+    private static async Task WaitForConditionAsync(Func<bool> condition, int timeoutMs)
+    {
+        int elapsed = 0;
+        while (!condition() && elapsed < timeoutMs)
+        {
+            await Task.Delay(50);
+            elapsed += 50;
         }
     }
 
