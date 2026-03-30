@@ -229,3 +229,91 @@ public class OptionParsingTests
         Assert.Contains("must be positive", result.Errors[0]);
     }
 }
+
+public class ListOptionTests
+{
+    [Fact]
+    public void ListOption_SingleValue_ReturnsSingleElementArray()
+    {
+        var parser = new CommandLineParser("test", "1.0.0")
+            .ListOption("--watch", "-w", "GLOB", "Watch pattern");
+
+        var result = parser.Parse(new[] { "--watch", "*.cs" });
+
+        Assert.Equal(new[] { "*.cs" }, result.GetList("--watch"));
+    }
+
+    [Fact]
+    public void ListOption_MultipleValues_ReturnsAll()
+    {
+        var parser = new CommandLineParser("test", "1.0.0")
+            .ListOption("--watch", "-w", "GLOB", "Watch pattern");
+
+        var result = parser.Parse(new[] { "-w", "*.cs", "-w", "*.fs" });
+
+        Assert.Equal(new[] { "*.cs", "*.fs" }, result.GetList("--watch"));
+    }
+
+    [Fact]
+    public void ListOption_Absent_ReturnsEmptyArray()
+    {
+        var parser = new CommandLineParser("test", "1.0.0")
+            .ListOption("--watch", null, "GLOB", "Watch pattern");
+
+        var result = parser.Parse(Array.Empty<string>());
+
+        Assert.Empty(result.GetList("--watch"));
+    }
+
+    [Fact]
+    public void ListOption_MissingValue_HasErrors()
+    {
+        var parser = new CommandLineParser("test", "1.0.0")
+            .ListOption("--watch", null, "GLOB", "Watch pattern");
+
+        var result = parser.Parse(new[] { "--watch" });
+
+        Assert.True(result.HasErrors);
+        Assert.Contains("requires a value", result.Errors[0]);
+    }
+}
+
+public class FlagAliasTests
+{
+    [Fact]
+    public void FlagAlias_ExpandsToOptionValue()
+    {
+        var parser = new CommandLineParser("test", "1.0.0")
+            .IntOption("--level", null, "N", "Level")
+            .FlagAlias("-9", "--level", "9");
+
+        var result = parser.Parse(new[] { "-9" });
+
+        Assert.Equal(9, result.GetInt("--level"));
+    }
+
+    [Fact]
+    public void FlagAlias_MultipleAliases_LastWins()
+    {
+        var parser = new CommandLineParser("test", "1.0.0")
+            .IntOption("--level", null, "N", "Level")
+            .FlagAlias("-1", "--level", "1")
+            .FlagAlias("-9", "--level", "9");
+
+        var result = parser.Parse(new[] { "-1", "-9" });
+
+        Assert.Equal(9, result.GetInt("--level"));
+    }
+
+    [Fact]
+    public void FlagAlias_NotShownAsUnknown()
+    {
+        var parser = new CommandLineParser("test", "1.0.0")
+            .IntOption("--level", null, "N", "Level")
+            .FlagAlias("-5", "--level", "5");
+
+        var result = parser.Parse(new[] { "-5" });
+
+        Assert.False(result.HasErrors);
+    }
+}
