@@ -1,0 +1,21 @@
+{
+    "version": "0.0.0",
+    "description": "Run a command repeatedly and display output on a refreshing screen.",
+    "homepage": "https://github.com/Yortw/winix",
+    "license": "MIT",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/Yortw/winix/releases/download/v0.0.0/peep-win-x64.zip",
+            "hash": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+    },
+    "bin": "peep.exe",
+    "checkver": "github",
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/Yortw/winix/releases/download/v$version/peep-win-x64.zip"
+            }
+        }
+    }
+}
