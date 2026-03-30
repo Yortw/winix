@@ -160,8 +160,11 @@ public class FileWatcherIntegrationTests
                 await Task.Delay(20); // 20ms between writes, well within 200ms debounce
             }
 
-            // Wait for debounce to settle + some buffer
-            await Task.Delay(600);
+            // Wait for at least one debounced trigger to fire
+            await WaitForConditionAsync(() => Volatile.Read(ref fireCount) >= 1, timeoutMs: 3000);
+
+            // Then wait a bit more to confirm no extra triggers arrive
+            await Task.Delay(500);
 
             // Debounce is best-effort — file system timing varies across CI environments.
             // The key assertion: 5 rapid writes should produce far fewer than 5 triggers.
