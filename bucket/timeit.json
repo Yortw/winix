@@ -1,21 +1,21 @@
 {
-    "version": "0.0.0",
-    "description": "Time a command — wall clock, CPU time, peak memory, exit code.",
-    "homepage": "https://github.com/Yortw/winix",
-    "license": "MIT",
-    "architecture": {
-        "64bit": {
-            "url": "https://github.com/Yortw/winix/releases/download/v0.0.0/timeit-win-x64.zip",
-            "hash": "0000000000000000000000000000000000000000000000000000000000000000"
-        }
-    },
-    "bin": "timeit.exe",
-    "checkver": "github",
-    "autoupdate": {
-        "architecture": {
-            "64bit": {
-                "url": "https://github.com/Yortw/winix/releases/download/v$version/timeit-win-x64.zip"
-            }
-        }
+  "version": "0.1.0-preview.4",
+  "description": "Time a command — wall clock, CPU time, peak memory, exit code.",
+  "homepage": "https://github.com/Yortw/winix",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/Yortw/winix/releases/download/v0.0.0/timeit-win-x64.zip",
+      "hash": "2de2ffb074de565acd7c85932274087baa23216e063022f2bb6086b6a1a5382a"
     }
+  },
+  "bin": "timeit.exe",
+  "checkver": "github",
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/Yortw/winix/releases/download/v$version/timeit-win-x64.zip"
+      }
+    }
+  }
 }

@@ -1,25 +1,25 @@
 {
-    "version": "0.0.0",
-    "description": "Winix CLI tool suite — timeit, squeeze, peep.",
-    "homepage": "https://github.com/Yortw/winix",
-    "license": "MIT",
-    "architecture": {
-        "64bit": {
-            "url": "https://github.com/Yortw/winix/releases/download/v0.0.0/winix-win-x64.zip",
-            "hash": "0000000000000000000000000000000000000000000000000000000000000000"
-        }
-    },
-    "bin": [
-        "timeit.exe",
-        "squeeze.exe",
-        "peep.exe"
-    ],
-    "checkver": "github",
-    "autoupdate": {
-        "architecture": {
-            "64bit": {
-                "url": "https://github.com/Yortw/winix/releases/download/v$version/winix-win-x64.zip"
-            }
-        }
+  "version": "0.1.0-preview.4",
+  "description": "Winix CLI tool suite — timeit, squeeze, peep.",
+  "homepage": "https://github.com/Yortw/winix",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/Yortw/winix/releases/download/v0.0.0/winix-win-x64.zip",
+      "hash": "8e370504ebf25205bf4d44d0fd338e96899b285f860e0bc2edb67cd153195819"
     }
+  },
+  "bin": [
+    "timeit.exe",
+    "squeeze.exe",
+    "peep.exe"
+  ],
+  "checkver": "github",
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/Yortw/winix/releases/download/v$version/winix-win-x64.zip"
+      }
+    }
+  }
 }
