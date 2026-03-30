@@ -296,42 +296,42 @@ jobs:
             local dir="winget-manifests/${pkg_id}/${VERSION}"
             mkdir -p "$dir"
 
-            cat > "${dir}/${pkg_id}.yaml" <<YAML
-PackageIdentifier: ${pkg_id}
-PackageVersion: ${VERSION}
-DefaultLocale: en-US
-ManifestType: version
-ManifestVersion: 1.9.0
-YAML
+            printf '%s\n' \
+              "PackageIdentifier: ${pkg_id}" \
+              "PackageVersion: ${VERSION}" \
+              "DefaultLocale: en-US" \
+              "ManifestType: version" \
+              "ManifestVersion: 1.9.0" \
+              > "${dir}/${pkg_id}.yaml"
 
-            cat > "${dir}/${pkg_id}.installer.yaml" <<YAML
-PackageIdentifier: ${pkg_id}
-PackageVersion: ${VERSION}
-InstallerType: zip
-NestedInstallerType: portable
-NestedInstallerFiles:
-  - RelativeFilePath: ${tool}.exe
-    PortableCommandAlias: ${tool}
-Installers:
-  - Architecture: x64
-    InstallerUrl: https://github.com/Yortw/winix/releases/download/v${VERSION}/${tool}-win-x64.zip
-    InstallerSha256: ${hash}
-ManifestType: installer
-ManifestVersion: 1.9.0
-YAML
+            printf '%s\n' \
+              "PackageIdentifier: ${pkg_id}" \
+              "PackageVersion: ${VERSION}" \
+              "InstallerType: zip" \
+              "NestedInstallerType: portable" \
+              "NestedInstallerFiles:" \
+              "  - RelativeFilePath: ${tool}.exe" \
+              "    PortableCommandAlias: ${tool}" \
+              "Installers:" \
+              "  - Architecture: x64" \
+              "    InstallerUrl: https://github.com/Yortw/winix/releases/download/v${VERSION}/${tool}-win-x64.zip" \
+              "    InstallerSha256: ${hash}" \
+              "ManifestType: installer" \
+              "ManifestVersion: 1.9.0" \
+              > "${dir}/${pkg_id}.installer.yaml"
 
-            cat > "${dir}/${pkg_id}.locale.en-US.yaml" <<YAML
-PackageIdentifier: ${pkg_id}
-PackageVersion: ${VERSION}
-PackageName: Winix ${tool_title}
-Publisher: Troy Willmot
-License: MIT
-LicenseUrl: https://github.com/Yortw/winix/blob/main/LICENSE
-ShortDescription: ${description}
-PackageUrl: https://github.com/Yortw/winix
-ManifestType: defaultLocale
-ManifestVersion: 1.9.0
-YAML
+            printf '%s\n' \
+              "PackageIdentifier: ${pkg_id}" \
+              "PackageVersion: ${VERSION}" \
+              "PackageName: Winix ${tool_title}" \
+              "Publisher: Troy Willmot" \
+              "License: MIT" \
+              "LicenseUrl: https://github.com/Yortw/winix/blob/main/LICENSE" \
+              "ShortDescription: ${description}" \
+              "PackageUrl: https://github.com/Yortw/winix" \
+              "ManifestType: defaultLocale" \
+              "ManifestVersion: 1.9.0" \
+              > "${dir}/${pkg_id}.locale.en-US.yaml"
           }
 
           generate_manifests "timeit" "TimeIt" "Time a command — wall clock, CPU time, peak memory, exit code."
