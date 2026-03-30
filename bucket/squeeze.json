@@ -5,8 +5,8 @@
   "license": "MIT",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/Yortw/winix/releases/download/v0.0.0/squeeze-win-x64.zip",
-      "hash": "9deffe93d85d5a8b76cbc6d5db150a7c4b4e6e2785f3dd47d6c1b80c0ee3470e"
+      "url": "https://github.com/Yortw/winix/releases/download/v0.1.0-preview.4/squeeze-win-x64.zip",
+      "hash": "445121b6bc0eba8a72ab7e463a6057fdcfb1d64ed613e9b12de0fbbd980ed937"
     }
   },
   "bin": "squeeze.exe",

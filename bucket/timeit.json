@@ -5,8 +5,8 @@
   "license": "MIT",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/Yortw/winix/releases/download/v0.0.0/timeit-win-x64.zip",
-      "hash": "2de2ffb074de565acd7c85932274087baa23216e063022f2bb6086b6a1a5382a"
+      "url": "https://github.com/Yortw/winix/releases/download/v0.1.0-preview.4/timeit-win-x64.zip",
+      "hash": "1770f04aaf14a0fe8f9f266aaeae47ee31fbd52e2c61258d5caf6340c8d0c43c"
     }
   },
   "bin": "timeit.exe",

@@ -5,8 +5,8 @@
   "license": "MIT",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/Yortw/winix/releases/download/v0.0.0/peep-win-x64.zip",
-      "hash": "7eb50de066bd021c9a6c72f5393102e487acf02b3146f7573b719d151b67b9da"
+      "url": "https://github.com/Yortw/winix/releases/download/v0.1.0-preview.4/peep-win-x64.zip",
+      "hash": "a4c31b4ec9e3a70e28f74d4e79aca22c26bbad058e507d530e1ceeac924e3752"
     }
   },
   "bin": "peep.exe",
