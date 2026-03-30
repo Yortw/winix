@@ -24,13 +24,34 @@ Winix is a suite of small, focused command-line tools built with .NET and compil
 
 ## Install
 
-```bash
-# Individual tool
-dotnet tool install -g winix.timeit
+### Scoop (Windows)
 
-# All tools (coming soon)
-dotnet tool install -g winix
+```bash
+scoop bucket add winix https://github.com/Yortw/winix
+scoop install winix/timeit    # individual tool
+scoop install winix/winix     # all tools
 ```
+
+### Winget (Windows, stable releases)
+
+```bash
+winget install Winix.TimeIt
+winget install Winix.Squeeze
+winget install Winix.Peep
+```
+
+### .NET Tool (cross-platform)
+
+```bash
+dotnet tool install -g Winix.TimeIt
+dotnet tool install -g Winix.Squeeze
+dotnet tool install -g Winix.Peep
+```
+
+### Direct Download
+
+Download native binaries from [GitHub Releases](https://github.com/Yortw/winix/releases).
+Available for Windows (x64), Linux (x64), and macOS (x64, ARM64).
 
 ## Quick Start
 
