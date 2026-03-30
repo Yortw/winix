@@ -395,10 +395,111 @@ public sealed class CommandLineParser
         }
     }
 
-    // Help generation placeholder — implemented in Task 7
     internal string GenerateHelp()
     {
-        return $"Usage: {_toolName} [options]";
+        var sb = new StringBuilder();
+
+        // Usage line
+        sb.Append($"Usage: {_toolName} [options]");
+        if (_commandMode)
+        {
+            sb.Append(" [--] <command> [args...]");
+        }
+        else if (_positionalLabel is not null)
+        {
+            sb.Append($" [{_positionalLabel}]");
+        }
+        sb.AppendLine();
+
+        // Description
+        if (_description is not null)
+        {
+            sb.AppendLine();
+            sb.AppendLine(_description);
+        }
+
+        // Options table
+        sb.AppendLine();
+        sb.AppendLine("Options:");
+
+        // Collect all option lines: (leftColumn, description, isStandard)
+        var optionLines = new List<(string Left, string Desc, bool IsStandard)>();
+        string[] standardNames = { "--help", "--version", "--color", "--no-color", "--json" };
+
+        foreach (FlagDef f in _flags)
+        {
+            bool isStd = Array.IndexOf(standardNames, f.LongName) >= 0;
+            string left = f.ShortName is not null
+                ? $"  {f.ShortName}, {f.LongName}"
+                : $"  {f.LongName}";
+            optionLines.Add((left, f.Description, isStd));
+        }
+
+        foreach (OptionDef o in _options)
+        {
+            string left = o.ShortName is not null
+                ? $"  {o.ShortName}, {o.LongName} {o.Placeholder}"
+                : $"  {o.LongName} {o.Placeholder}";
+            optionLines.Add((left, o.Description, false));
+        }
+
+        foreach (ListOptionDef l in _listOptions)
+        {
+            string left = l.ShortName is not null
+                ? $"  {l.ShortName}, {l.LongName} {l.Placeholder}"
+                : $"  {l.LongName} {l.Placeholder}";
+            optionLines.Add((left, l.Description + " (repeatable)", false));
+        }
+
+        // Sort: non-standard first (in registration order), then standard
+        var nonStandard = optionLines.Where(o => !o.IsStandard).ToList();
+        var standard = optionLines.Where(o => o.IsStandard).ToList();
+        var sorted = nonStandard.Concat(standard).ToList();
+
+        // Calculate alignment
+        int maxLeft = sorted.Count > 0 ? sorted.Max(o => o.Left.Length) : 0;
+        int alignCol = maxLeft + 2; // minimum 2-space gap
+
+        foreach (var (left, desc, _) in sorted)
+        {
+            sb.Append(left.PadRight(alignCol));
+            sb.AppendLine(desc);
+        }
+
+        // Custom sections
+        foreach (var (title, body) in _sections)
+        {
+            sb.AppendLine();
+            sb.AppendLine($"{title}:");
+            // Indent each line of the body by 2 spaces
+            foreach (string line in body.Split('\n'))
+            {
+                string trimmed = line.TrimStart();
+                if (trimmed.Length > 0)
+                {
+                    sb.AppendLine($"  {trimmed}");
+                }
+                else
+                {
+                    sb.AppendLine();
+                }
+            }
+        }
+
+        // Exit codes
+        if (_exitCodes.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("Exit Codes:");
+            int maxCode = _exitCodes.Max(e => e.Code.ToString(CultureInfo.InvariantCulture).Length);
+            foreach (var (code, desc) in _exitCodes)
+            {
+                string codeStr = code.ToString(CultureInfo.InvariantCulture);
+                sb.AppendLine($"  {codeStr.PadRight(maxCode + 2)}{desc}");
+            }
+        }
+
+        return sb.ToString().TrimEnd();
     }
 
     // Internal definition types

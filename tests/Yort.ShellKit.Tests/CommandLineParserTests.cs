@@ -408,6 +408,7 @@ public class PositionalTests
     }
 }
 
+[Collection("ConsoleOutput")]
 public class StandardFlagTests
 {
     [Fact]
@@ -551,5 +552,250 @@ public class WriteErrorsTests
         int exitCode = result.WriteErrors(writer);
 
         Assert.Equal(2, exitCode);
+    }
+}
+
+[Collection("ConsoleOutput")]
+public class HelpGenerationTests
+{
+    [Fact]
+    public void GenerateHelp_IncludesUsageLine()
+    {
+        var writer = new StringWriter();
+        Console.SetOut(writer);
+
+        try
+        {
+            var parser = new CommandLineParser("mytool", "1.0.0")
+                .Description("A test tool")
+                .StandardFlags();
+
+            parser.Parse(new[] { "--help" });
+            string help = writer.ToString();
+
+            Assert.Contains("Usage: mytool", help);
+        }
+        finally
+        {
+            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+        }
+    }
+
+    [Fact]
+    public void GenerateHelp_CommandMode_ShowsCommandInUsage()
+    {
+        var writer = new StringWriter();
+        Console.SetOut(writer);
+
+        try
+        {
+            var parser = new CommandLineParser("mytool", "1.0.0")
+                .StandardFlags()
+                .CommandMode();
+
+            parser.Parse(new[] { "--help" });
+            string help = writer.ToString();
+
+            Assert.Contains("<command>", help);
+        }
+        finally
+        {
+            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+        }
+    }
+
+    [Fact]
+    public void GenerateHelp_Positional_ShowsLabelInUsage()
+    {
+        var writer = new StringWriter();
+        Console.SetOut(writer);
+
+        try
+        {
+            var parser = new CommandLineParser("mytool", "1.0.0")
+                .StandardFlags()
+                .Positional("files...");
+
+            parser.Parse(new[] { "--help" });
+            string help = writer.ToString();
+
+            Assert.Contains("[files...]", help);
+        }
+        finally
+        {
+            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+        }
+    }
+
+    [Fact]
+    public void GenerateHelp_IncludesDescription()
+    {
+        var writer = new StringWriter();
+        Console.SetOut(writer);
+
+        try
+        {
+            var parser = new CommandLineParser("mytool", "1.0.0")
+                .Description("A useful test tool")
+                .StandardFlags();
+
+            parser.Parse(new[] { "--help" });
+            string help = writer.ToString();
+
+            Assert.Contains("A useful test tool", help);
+        }
+        finally
+        {
+            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+        }
+    }
+
+    [Fact]
+    public void GenerateHelp_IncludesRegisteredFlags()
+    {
+        var writer = new StringWriter();
+        Console.SetOut(writer);
+
+        try
+        {
+            var parser = new CommandLineParser("mytool", "1.0.0")
+                .StandardFlags()
+                .Flag("--verbose", "-v", "Enable verbose output");
+
+            parser.Parse(new[] { "--help" });
+            string help = writer.ToString();
+
+            Assert.Contains("-v, --verbose", help);
+            Assert.Contains("Enable verbose output", help);
+        }
+        finally
+        {
+            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+        }
+    }
+
+    [Fact]
+    public void GenerateHelp_IncludesOptionWithPlaceholder()
+    {
+        var writer = new StringWriter();
+        Console.SetOut(writer);
+
+        try
+        {
+            var parser = new CommandLineParser("mytool", "1.0.0")
+                .StandardFlags()
+                .IntOption("--count", "-c", "N", "Number of items");
+
+            parser.Parse(new[] { "--help" });
+            string help = writer.ToString();
+
+            Assert.Contains("-c, --count N", help);
+            Assert.Contains("Number of items", help);
+        }
+        finally
+        {
+            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+        }
+    }
+
+    [Fact]
+    public void GenerateHelp_ListOption_ShowsRepeatable()
+    {
+        var writer = new StringWriter();
+        Console.SetOut(writer);
+
+        try
+        {
+            var parser = new CommandLineParser("mytool", "1.0.0")
+                .StandardFlags()
+                .ListOption("--watch", "-w", "GLOB", "Watch pattern");
+
+            parser.Parse(new[] { "--help" });
+            string help = writer.ToString();
+
+            Assert.Contains("(repeatable)", help);
+        }
+        finally
+        {
+            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+        }
+    }
+
+    [Fact]
+    public void GenerateHelp_IncludesCustomSections()
+    {
+        var writer = new StringWriter();
+        Console.SetOut(writer);
+
+        try
+        {
+            var parser = new CommandLineParser("mytool", "1.0.0")
+                .StandardFlags()
+                .Section("Compatibility", "These flags match gzip");
+
+            parser.Parse(new[] { "--help" });
+            string help = writer.ToString();
+
+            Assert.Contains("Compatibility:", help);
+            Assert.Contains("These flags match gzip", help);
+        }
+        finally
+        {
+            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+        }
+    }
+
+    [Fact]
+    public void GenerateHelp_IncludesExitCodes()
+    {
+        var writer = new StringWriter();
+        Console.SetOut(writer);
+
+        try
+        {
+            var parser = new CommandLineParser("mytool", "1.0.0")
+                .StandardFlags()
+                .ExitCodes(
+                    (0, "Success"),
+                    (125, "Usage error"));
+
+            parser.Parse(new[] { "--help" });
+            string help = writer.ToString();
+
+            Assert.Contains("Exit Codes:", help);
+            Assert.Contains("0", help);
+            Assert.Contains("Success", help);
+            Assert.Contains("125", help);
+            Assert.Contains("Usage error", help);
+        }
+        finally
+        {
+            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+        }
+    }
+
+    [Fact]
+    public void GenerateHelp_StandardFlagsAppearLast()
+    {
+        var writer = new StringWriter();
+        Console.SetOut(writer);
+
+        try
+        {
+            var parser = new CommandLineParser("mytool", "1.0.0")
+                .StandardFlags()
+                .Flag("--verbose", "-v", "Verbose output");
+
+            parser.Parse(new[] { "--help" });
+            string help = writer.ToString();
+
+            int verbosePos = help.IndexOf("--verbose");
+            int helpPos = help.IndexOf("--help");
+            Assert.True(verbosePos < helpPos, "--verbose should appear before --help in options list");
+        }
+        finally
+        {
+            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+        }
     }
 }
