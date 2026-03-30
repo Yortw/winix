@@ -49,4 +49,34 @@ public static class ConsoleEnv
 
         return isTerminal;
     }
+
+    /// <summary>
+    /// Returns the terminal height in rows, or 24 if not attached to a terminal.
+    /// </summary>
+    public static int GetTerminalHeight()
+    {
+        try
+        {
+            return Console.WindowHeight;
+        }
+        catch
+        {
+            return 24;
+        }
+    }
+
+    /// <summary>
+    /// Returns the terminal width in columns, or 80 if not attached to a terminal.
+    /// </summary>
+    public static int GetTerminalWidth()
+    {
+        try
+        {
+            return Console.WindowWidth;
+        }
+        catch
+        {
+            return 80;
+        }
+    }
 }
