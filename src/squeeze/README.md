@@ -8,9 +8,28 @@ Supports pipe mode (stdin/stdout), multi-file batch processing, and gzip-compati
 
 ## Install
 
+### Scoop (Windows)
+
 ```bash
-dotnet tool install -g winix.squeeze
+scoop bucket add winix https://github.com/Yortw/winix
+scoop install winix/squeeze
 ```
+
+### Winget (Windows, stable releases)
+
+```bash
+winget install Winix.Squeeze
+```
+
+### .NET Tool (cross-platform)
+
+```bash
+dotnet tool install -g Winix.Squeeze
+```
+
+### Direct Download
+
+Download native binaries from [GitHub Releases](https://github.com/Yortw/winix/releases).
 
 ## Usage
 

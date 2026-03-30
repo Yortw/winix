@@ -8,9 +8,28 @@ Supports interval polling, file-watch triggers, diff highlighting, time-machine 
 
 ## Install
 
+### Scoop (Windows)
+
 ```bash
-dotnet tool install -g winix.peep
+scoop bucket add winix https://github.com/Yortw/winix
+scoop install winix/peep
 ```
+
+### Winget (Windows, stable releases)
+
+```bash
+winget install Winix.Peep
+```
+
+### .NET Tool (cross-platform)
+
+```bash
+dotnet tool install -g Winix.Peep
+```
+
+### Direct Download
+
+Download native binaries from [GitHub Releases](https://github.com/Yortw/winix/releases).
 
 ## Usage
 

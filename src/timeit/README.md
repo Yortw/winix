@@ -8,9 +8,28 @@ A transparent wrapper — the child's stdout, stderr, and exit code pass through
 
 ## Install
 
+### Scoop (Windows)
+
 ```bash
-dotnet tool install -g winix.timeit
+scoop bucket add winix https://github.com/Yortw/winix
+scoop install winix/timeit
 ```
+
+### Winget (Windows, stable releases)
+
+```bash
+winget install Winix.TimeIt
+```
+
+### .NET Tool (cross-platform)
+
+```bash
+dotnet tool install -g Winix.TimeIt
+```
+
+### Direct Download
+
+Download native binaries from [GitHub Releases](https://github.com/Yortw/winix/releases).
 
 ## Usage
 
