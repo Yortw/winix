@@ -205,6 +205,81 @@ public static class FileOperations
     }
 
     /// <summary>
+    /// Processes a file to an output stream — compresses or decompresses with byte counting.
+    /// Used for --stdout mode where the output goes to a stream rather than a file.
+    /// </summary>
+    /// <param name="inputPath">Path to the input file.</param>
+    /// <param name="output">Stream to write output to.</param>
+    /// <param name="decompress">True to decompress, false to compress.</param>
+    /// <param name="format">Compression format (used for compression).</param>
+    /// <param name="level">Compression level (only used when compressing).</param>
+    /// <param name="explicitFormat">When set, decompress using this format instead of auto-detecting.</param>
+    public static async Task<FileOperationResult> ProcessFileToStreamAsync(
+        string inputPath, Stream output,
+        bool decompress, CompressionFormat format, int level,
+        CompressionFormat? explicitFormat)
+    {
+        if (!File.Exists(inputPath))
+        {
+            return new FileOperationResult(1, "file_not_found", null,
+                $"squeeze: {inputPath}: No such file");
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+        long inputBytes;
+
+        try
+        {
+            using var inputStream = File.OpenRead(inputPath);
+            inputBytes = inputStream.Length;
+
+            using var countingOutput = new MemoryStream();
+
+            if (decompress)
+            {
+                if (explicitFormat.HasValue)
+                {
+                    await Compressor.DecompressAsync(inputStream, countingOutput, explicitFormat.Value)
+                        .ConfigureAwait(false);
+                }
+                else
+                {
+                    CompressionFormat? detected = await Compressor.DecompressAutoDetectAsync(
+                        inputStream, countingOutput, filename: inputPath).ConfigureAwait(false);
+
+                    if (!detected.HasValue)
+                    {
+                        return new FileOperationResult(1, "corrupt_input", null,
+                            $"squeeze: {inputPath}: unrecognised format");
+                    }
+
+                    format = detected.Value;
+                }
+            }
+            else
+            {
+                await Compressor.CompressAsync(inputStream, countingOutput, format, level)
+                    .ConfigureAwait(false);
+            }
+
+            long outputBytes = countingOutput.Length;
+            countingOutput.Position = 0;
+            await countingOutput.CopyToAsync(output).ConfigureAwait(false);
+
+            stopwatch.Stop();
+
+            var result = new SqueezeResult(inputPath, "<stdout>", inputBytes, outputBytes,
+                format, stopwatch.Elapsed);
+            return new FileOperationResult(0, "success", result, null);
+        }
+        catch (Exception ex)
+        {
+            return new FileOperationResult(1, decompress ? "corrupt_input" : "io_error", null,
+                $"squeeze: {inputPath}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// Best-effort file deletion. Swallows all exceptions — used for partial output cleanup
     /// and optional input removal where failure is not fatal.
     /// </summary>
