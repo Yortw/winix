@@ -407,3 +407,149 @@ public class PositionalTests
         Assert.Empty(result.Positionals);
     }
 }
+
+public class StandardFlagTests
+{
+    [Fact]
+    public void StandardFlags_RegistersHelpVersionColorJson()
+    {
+        var parser = new CommandLineParser("test", "1.0.0")
+            .StandardFlags();
+
+        var result = parser.Parse(new[] { "--json", "--no-color" });
+
+        Assert.True(result.Has("--json"));
+        Assert.True(result.Has("--no-color"));
+        Assert.False(result.HasErrors);
+    }
+
+    [Fact]
+    public void StandardFlags_Help_IsHandled()
+    {
+        var writer = new StringWriter();
+        Console.SetOut(writer);
+
+        try
+        {
+            var parser = new CommandLineParser("test", "1.0.0")
+                .StandardFlags();
+
+            var result = parser.Parse(new[] { "--help" });
+
+            Assert.True(result.IsHandled);
+            Assert.Equal(0, result.ExitCode);
+        }
+        finally
+        {
+            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+        }
+    }
+
+    [Fact]
+    public void StandardFlags_Version_IsHandled()
+    {
+        var writer = new StringWriter();
+        Console.SetOut(writer);
+
+        try
+        {
+            var parser = new CommandLineParser("test", "1.0.0")
+                .StandardFlags();
+
+            var result = parser.Parse(new[] { "--version" });
+
+            Assert.True(result.IsHandled);
+            Assert.Equal(0, result.ExitCode);
+            Assert.Contains("test 1.0.0", writer.ToString());
+        }
+        finally
+        {
+            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+        }
+    }
+
+    [Fact]
+    public void StandardFlags_ShortHelp_IsHandled()
+    {
+        var writer = new StringWriter();
+        Console.SetOut(writer);
+
+        try
+        {
+            var parser = new CommandLineParser("test", "1.0.0")
+                .StandardFlags();
+
+            var result = parser.Parse(new[] { "-h" });
+
+            Assert.True(result.IsHandled);
+        }
+        finally
+        {
+            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+        }
+    }
+
+    [Fact]
+    public void StandardFlags_NormalArgs_NotHandled()
+    {
+        var parser = new CommandLineParser("test", "1.0.0")
+            .StandardFlags()
+            .Flag("--verbose", null, "Verbose");
+
+        var result = parser.Parse(new[] { "--verbose" });
+
+        Assert.False(result.IsHandled);
+    }
+}
+
+public class WriteErrorsTests
+{
+    [Fact]
+    public void WriteErrors_PlainText_WritesToolPrefixedErrors()
+    {
+        var parser = new CommandLineParser("mytool", "1.0.0")
+            .Flag("--verbose", null, "Verbose");
+
+        var result = parser.Parse(new[] { "--unknown" });
+
+        var writer = new StringWriter();
+        int exitCode = result.WriteErrors(writer);
+
+        Assert.Equal(ExitCode.UsageError, exitCode);
+        Assert.Contains("mytool: unknown option: --unknown", writer.ToString());
+    }
+
+    [Fact]
+    public void WriteErrors_JsonMode_WritesJsonError()
+    {
+        var parser = new CommandLineParser("mytool", "2.0.0")
+            .StandardFlags()
+            .Flag("--verbose", null, "Verbose");
+
+        var result = parser.Parse(new[] { "--json", "--unknown" });
+
+        var writer = new StringWriter();
+        int exitCode = result.WriteErrors(writer);
+
+        Assert.Equal(ExitCode.UsageError, exitCode);
+        string output = writer.ToString();
+        Assert.Contains("\"tool\":\"mytool\"", output);
+        Assert.Contains("\"exit_code\":125", output);
+        Assert.Contains("\"exit_reason\":\"usage_error\"", output);
+    }
+
+    [Fact]
+    public void WriteErrors_CustomUsageErrorCode_ReturnsCustomCode()
+    {
+        var parser = new CommandLineParser("squeeze", "1.0.0")
+            .Flag("--verbose", null, "Verbose")
+            .UsageErrorCode(2);
+
+        var result = parser.Parse(new[] { "--unknown" });
+
+        var writer = new StringWriter();
+        int exitCode = result.WriteErrors(writer);
+
+        Assert.Equal(2, exitCode);
+    }
+}
