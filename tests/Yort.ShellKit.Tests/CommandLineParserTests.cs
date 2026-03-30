@@ -799,3 +799,53 @@ public class HelpGenerationTests
         }
     }
 }
+
+public class WriteErrorTests
+{
+    [Fact]
+    public void WriteError_PlainText_WritesToolPrefixedMessage()
+    {
+        var parser = new CommandLineParser("mytool", "1.0.0")
+            .Flag("--verbose", null, "Verbose");
+
+        var result = parser.Parse(Array.Empty<string>());
+
+        var writer = new StringWriter();
+        int exitCode = result.WriteError("no command specified", writer);
+
+        Assert.Equal(ExitCode.UsageError, exitCode);
+        Assert.Contains("mytool: no command specified", writer.ToString());
+    }
+
+    [Fact]
+    public void WriteError_JsonMode_WritesJsonError()
+    {
+        var parser = new CommandLineParser("mytool", "2.0.0")
+            .StandardFlags();
+
+        var result = parser.Parse(new[] { "--json" });
+
+        var writer = new StringWriter();
+        int exitCode = result.WriteError("no command specified", writer);
+
+        Assert.Equal(ExitCode.UsageError, exitCode);
+        string output = writer.ToString();
+        Assert.Contains("\"tool\":\"mytool\"", output);
+        Assert.Contains("\"exit_code\":125", output);
+        Assert.Contains("\"exit_reason\":\"usage_error\"", output);
+    }
+
+    [Fact]
+    public void WriteError_CustomUsageErrorCode_ReturnsCustomCode()
+    {
+        var parser = new CommandLineParser("squeeze", "1.0.0")
+            .UsageErrorCode(2);
+
+        var result = parser.Parse(Array.Empty<string>());
+
+        var writer = new StringWriter();
+        int exitCode = result.WriteError("bad args", writer);
+
+        Assert.Equal(2, exitCode);
+    }
+}
