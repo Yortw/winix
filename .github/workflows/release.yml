@@ -246,8 +246,10 @@ jobs:
             local zip="$2"
             local hash
             hash=$(sha256sum "$zip" | awk '{print $1}')
-            jq --arg v "$VERSION" --arg h "$hash" \
-              '.version = $v | .architecture."64bit".hash = $h' \
+            local url
+            url=$(jq -r '.autoupdate.architecture."64bit".url' "$file" | sed "s/\$version/$VERSION/g")
+            jq --arg v "$VERSION" --arg h "$hash" --arg u "$url" \
+              '.version = $v | .architecture."64bit".hash = $h | .architecture."64bit".url = $u' \
               "$file" > "${file}.tmp"
             mv "${file}.tmp" "$file"
           }
