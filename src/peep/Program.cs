@@ -8,186 +8,92 @@ return await RunAsync(args);
 
 static async Task<int> RunAsync(string[] args)
 {
-    // --- Parse arguments ---
-    double intervalSeconds = 2.0;
-    bool intervalExplicit = false;
-    List<string> watchPatterns = new();
-    int debounceMs = 300;
-    bool exitOnChange = false;
-    bool exitOnSuccess = false;
-    bool exitOnError = false;
-    List<string> exitOnMatchPatterns = new();
-    bool diffEnabled = false;
-    int historyCapacity = 1000;
-    bool noGitIgnore = false;
-    bool once = false;
-    bool noHeader = false;
-    bool jsonOutput = false;
-    bool jsonOutputIncludeOutput = false;
-    bool colorFlag = false;
-    bool noColorFlag = false;
-    int commandStart = -1;
-
-    for (int i = 0; i < args.Length; i++)
-    {
-        if (args[i] == "--")
-        {
-            commandStart = i + 1;
-            break;
-        }
-
-        switch (args[i])
-        {
-            case "-n":
-            case "--interval":
-                if (i + 1 >= args.Length || !double.TryParse(args[i + 1],
-                    System.Globalization.NumberStyles.Float,
-                    System.Globalization.CultureInfo.InvariantCulture,
-                    out double parsedInterval))
-                {
-                    return WriteUsageError("--interval requires a numeric argument", jsonOutput);
-                }
-                if (parsedInterval <= 0)
-                {
-                    return WriteUsageError("--interval must be positive", jsonOutput);
-                }
-                intervalSeconds = parsedInterval;
-                intervalExplicit = true;
-                i++;
-                break;
-
-            case "-w":
-            case "--watch":
-                if (i + 1 >= args.Length)
-                {
-                    return WriteUsageError("--watch requires a glob pattern argument", jsonOutput);
-                }
-                watchPatterns.Add(args[i + 1]);
-                i++;
-                break;
-
-            case "--debounce":
-                if (i + 1 >= args.Length || !int.TryParse(args[i + 1], out int parsedDebounce))
-                {
-                    return WriteUsageError("--debounce requires a numeric argument", jsonOutput);
-                }
-                if (parsedDebounce < 0)
-                {
-                    return WriteUsageError("--debounce must be non-negative", jsonOutput);
-                }
-                debounceMs = parsedDebounce;
-                i++;
-                break;
-
-            case "-d":
-            case "--differences":
-                diffEnabled = true;
-                break;
-
-            case "-g":
-            case "--exit-on-change":
-                exitOnChange = true;
-                break;
-
-            case "--exit-on-success":
-                exitOnSuccess = true;
-                break;
-
-            case "-e":
-            case "--exit-on-error":
-                exitOnError = true;
-                break;
-
-            case "--exit-on-match":
-                if (i + 1 >= args.Length)
-                {
-                    return WriteUsageError("--exit-on-match requires a regex pattern argument", jsonOutput);
-                }
-                exitOnMatchPatterns.Add(args[i + 1]);
-                i++;
-                break;
-
-            case "--history":
-                if (i + 1 >= args.Length || !int.TryParse(args[i + 1], out int parsedHistory))
-                {
-                    return WriteUsageError("--history requires a numeric argument", jsonOutput);
-                }
-                if (parsedHistory < 0)
-                {
-                    return WriteUsageError("--history must be non-negative", jsonOutput);
-                }
-                historyCapacity = parsedHistory;
-                i++;
-                break;
-
-            case "--no-gitignore":
-                noGitIgnore = true;
-                break;
-
-            case "--once":
-                once = true;
-                break;
-
-            case "-t":
-            case "--no-header":
-                noHeader = true;
-                break;
-
-            case "--json":
-                jsonOutput = true;
-                break;
-
-            case "--json-output":
-                jsonOutput = true;
-                jsonOutputIncludeOutput = true;
-                break;
-
-            case "--color":
-                colorFlag = true;
-                break;
-
-            case "--no-color":
-                noColorFlag = true;
-                break;
-
-            case "--version":
-                Console.WriteLine($"peep {GetVersion()}");
-                return 0;
-
-            case "-h":
-            case "--help":
-                PrintHelp();
-                return 0;
-
-            default:
-                if (args[i].StartsWith('-'))
-                {
-                    return WriteUsageError($"unknown option: {args[i]}", jsonOutput);
-                }
-                // First non-flag argument starts the command
-                commandStart = i;
-                break;
-        }
-
-        if (commandStart >= 0)
-        {
-            break;
-        }
-    }
-
     string version = GetVersion();
 
-    // --- Validate arguments ---
-    if (commandStart < 0 || commandStart >= args.Length)
+    var parser = new CommandLineParser("peep", version)
+        .Description("Run a command repeatedly and display output on a refreshing screen.")
+        .StandardFlags()
+        .DoubleOption("--interval", "-n", "N", "Seconds between runs (default: 2)",
+            validate: v => v > 0 ? null : "must be positive")
+        .ListOption("--watch", "-w", "GLOB", "Re-run on file changes matching glob")
+        .IntOption("--debounce", null, "N", "Milliseconds to debounce file changes (default: 300)",
+            validate: v => v >= 0 ? null : "must be non-negative")
+        .IntOption("--history", null, "N", "Max history snapshots to retain (default: 1000, 0=unlimited)",
+            validate: v => v >= 0 ? null : "must be non-negative")
+        .Flag("--exit-on-change", "-g", "Exit when output changes")
+        .Flag("--exit-on-success", "Exit when command returns exit code 0")
+        .Flag("--exit-on-error", "-e", "Exit when command returns non-zero")
+        .ListOption("--exit-on-match", null, "PAT", "Exit when output matches regex")
+        .Flag("--differences", "-d", "Highlight changed lines between runs")
+        .Flag("--no-gitignore", "Disable automatic .gitignore filtering")
+        .Flag("--once", "Run once, display, and exit")
+        .Flag("--no-header", "-t", "Hide the header lines")
+        .Flag("--json-output", "Include last captured output in JSON (implies --json)")
+        .Section("Compatibility",
+            """
+            These flags match watch for muscle memory:
+            -n N                   Same as --interval
+            -g                     Same as --exit-on-change
+            -e                     Same as --exit-on-error
+            -d                     Same as --differences
+            -t                     Same as --no-header
+            """)
+        .Section("Interactive",
+            """
+            q / Ctrl+C             Quit
+            Space                  Pause/unpause display
+            r / Enter              Force immediate re-run
+            d                      Toggle diff highlighting
+            Up/Down / PgUp/Dn     Scroll while paused
+            Left/Right             Time travel (older/newer)
+            t                      History overlay
+            ?                      Show/hide help overlay
+            """)
+        .CommandMode()
+        .ExitCodes(
+            (0, "Auto-exit condition met, or manual quit with last child exit 0"),
+            (ExitCode.UsageError, "Usage error"),
+            (ExitCode.NotExecutable, "Command not executable"),
+            (ExitCode.NotFound, "Command not found"));
+
+    var result = parser.Parse(args);
+    if (result.IsHandled) return result.ExitCode;
+    if (result.HasErrors) return result.WriteErrors(Console.Error);
+
+    // Extract values
+    double intervalSeconds = result.GetDouble("--interval", defaultValue: 2.0);
+    bool intervalExplicit = result.Has("--interval");
+    string[] watchPatterns = result.GetList("--watch");
+    int debounceMs = result.GetInt("--debounce", defaultValue: 300);
+    int historyCapacity = result.GetInt("--history", defaultValue: 1000);
+    bool exitOnChange = result.Has("--exit-on-change");
+    bool exitOnSuccess = result.Has("--exit-on-success");
+    bool exitOnError = result.Has("--exit-on-error");
+    string[] exitOnMatchPatterns = result.GetList("--exit-on-match");
+    bool diffEnabled = result.Has("--differences");
+    bool noGitIgnore = result.Has("--no-gitignore");
+    bool once = result.Has("--once");
+    bool noHeader = result.Has("--no-header");
+    bool jsonOutput = result.Has("--json") || result.Has("--json-output");
+    bool jsonOutputIncludeOutput = result.Has("--json-output");
+    bool useColor = result.ResolveColor();
+
+    if (result.Command.Length == 0)
     {
-        return WriteUsageError("no command specified. Run 'peep --help' for usage.", jsonOutput);
+        if (jsonOutput)
+        {
+            Console.Error.WriteLine(Formatting.FormatJsonError(ExitCode.UsageError, "usage_error", "peep", version));
+        }
+        else
+        {
+            Console.Error.WriteLine("peep: no command specified. Run 'peep --help' for usage.");
+        }
+        return ExitCode.UsageError;
     }
 
-    string command = args[commandStart];
-    string[] commandArgs = args.Skip(commandStart + 1).ToArray();
-    string commandDisplay = commandStart < args.Length
-        ? string.Join(" ", args.Skip(commandStart))
-        : command;
+    string command = result.Command[0];
+    string[] commandArgs = result.Command.Skip(1).ToArray();
+    string commandDisplay = string.Join(" ", result.Command);
 
     // Compile exit-on-match patterns
     Regex[] exitOnMatchRegexes;
@@ -199,16 +105,19 @@ static async Task<int> RunAsync(string[] args)
     }
     catch (RegexParseException ex)
     {
-        return WriteUsageError($"invalid regex pattern: {ex.Message}", jsonOutput);
+        if (jsonOutput)
+        {
+            Console.Error.WriteLine(Formatting.FormatJsonError(ExitCode.UsageError, "usage_error", "peep", version));
+        }
+        else
+        {
+            Console.Error.WriteLine($"peep: invalid regex pattern: {ex.Message}");
+        }
+        return ExitCode.UsageError;
     }
 
-    // Resolve colour
-    bool noColorEnv = ConsoleEnv.IsNoColorEnvSet();
-    bool isTerminal = ConsoleEnv.IsTerminal(checkStdErr: false);
-    bool useColor = ConsoleEnv.ResolveUseColor(colorFlag, noColorFlag, noColorEnv, isTerminal);
-
     // If only file watching (no explicit -n), disable interval polling
-    bool useInterval = watchPatterns.Count == 0 || intervalExplicit;
+    bool useInterval = watchPatterns.Length == 0 || intervalExplicit;
 
     // --- Once mode ---
     if (once)
@@ -221,7 +130,7 @@ static async Task<int> RunAsync(string[] args)
     // --- Main loop ---
     return await RunLoopAsync(
         command, commandArgs, commandDisplay,
-        intervalSeconds, useInterval, watchPatterns.ToArray(), debounceMs,
+        intervalSeconds, useInterval, watchPatterns, debounceMs,
         exitOnChange, exitOnSuccess, exitOnError, exitOnMatchRegexes, diffEnabled,
         historyCapacity, noGitIgnore, noHeader, jsonOutput, jsonOutputIncludeOutput, useColor, version);
 }
@@ -969,75 +878,6 @@ static int HandleExitFromLoop(
     }
 
     return exitCode;
-}
-
-static int WriteUsageError(string message, bool jsonOutput)
-{
-    if (jsonOutput)
-    {
-        Console.Error.WriteLine(
-            Formatting.FormatJsonError(125, "usage_error", "peep", GetVersion()));
-    }
-    else
-    {
-        Console.Error.WriteLine($"peep: {message}");
-    }
-    return 125;
-}
-
-static void PrintHelp()
-{
-    Console.WriteLine(
-        """
-        Usage: peep [options] [--] <command> [args...]
-
-        Run a command repeatedly and display output on a refreshing screen.
-
-        Options:
-          -n, --interval N       Seconds between runs (default: 2)
-          -w, --watch GLOB       Re-run on file changes matching glob (repeatable)
-          --debounce N           Milliseconds to debounce file changes (default: 300)
-          --exit-on-change, -g   Exit when output changes
-          --exit-on-success      Exit when command returns exit code 0
-          --exit-on-error, -e    Exit when command returns non-zero
-          --exit-on-match PAT    Exit when output matches regex (repeatable)
-          -d, --differences      Highlight changed lines between runs
-          --history N            Max history snapshots to retain (default: 1000, 0=unlimited)
-          --no-gitignore         Disable automatic .gitignore filtering
-          --once                 Run once, display, and exit
-          --no-header, -t        Hide the header lines
-          --json                 JSON summary to stderr on exit
-          --json-output          Include last captured output in JSON (implies --json)
-          --no-color             Disable colored output
-          --color                Force colored output
-          --version              Show version
-          -h, --help             Show help
-
-        Compatibility:
-          These flags match watch for muscle memory:
-          -n N                   Same as --interval
-          -g                     Same as --exit-on-change
-          -e                     Same as --exit-on-error
-          -d                     Same as --differences
-          -t                     Same as --no-header
-
-        Interactive:
-          q / Ctrl+C             Quit
-          Space                  Pause/unpause display
-          r / Enter              Force immediate re-run
-          d                      Toggle diff highlighting
-          Up/Down / PgUp/Dn     Scroll while paused
-          Left/Right             Time travel (older/newer)
-          t                      History overlay
-          ?                      Show/hide help overlay
-
-        Exit Codes:
-          0    Auto-exit condition met, or manual quit with last child exit 0
-          <N>  Last child exit code (manual quit)
-          125  Usage error
-          126  Command not executable
-          127  Command not found
-        """);
 }
 
 static string GetVersion()
