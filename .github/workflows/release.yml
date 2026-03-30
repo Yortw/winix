@@ -76,13 +76,13 @@ jobs:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
       - name: Pack timeit
-        run: dotnet pack src/timeit/timeit.csproj -c Release -o packages /p:Version=${{ needs.resolve-version.outputs.version }}
+        run: dotnet pack src/timeit/timeit.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
 
       - name: Pack squeeze
-        run: dotnet pack src/squeeze/squeeze.csproj -c Release -o packages /p:Version=${{ needs.resolve-version.outputs.version }}
+        run: dotnet pack src/squeeze/squeeze.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
 
       - name: Pack peep
-        run: dotnet pack src/peep/peep.csproj -c Release -o packages /p:Version=${{ needs.resolve-version.outputs.version }}
+        run: dotnet pack src/peep/peep.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
 
       - name: Upload NuGet packages
         uses: actions/upload-artifact@v4
@@ -115,13 +115,13 @@ jobs:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
       - name: Publish timeit
-        run: dotnet publish src/timeit/timeit.csproj -c Release -r ${{ matrix.rid }} /p:Version=${{ needs.resolve-version.outputs.version }}
+        run: dotnet publish src/timeit/timeit.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
 
       - name: Publish squeeze
-        run: dotnet publish src/squeeze/squeeze.csproj -c Release -r ${{ matrix.rid }} /p:Version=${{ needs.resolve-version.outputs.version }}
+        run: dotnet publish src/squeeze/squeeze.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
 
       - name: Publish peep
-        run: dotnet publish src/peep/peep.csproj -c Release -r ${{ matrix.rid }} /p:Version=${{ needs.resolve-version.outputs.version }}
+        run: dotnet publish src/peep/peep.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
 
       - name: Zip binaries (Linux/macOS)
         if: runner.os != 'Windows'
