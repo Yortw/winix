@@ -9,8 +9,14 @@
     <UseSystemResourceKeys>true</UseSystemResourceKeys>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>peep</ToolCommandName>
+    <PackageId>Winix.Peep</PackageId>
+    <Description>Run a command repeatedly and display output on a refreshing screen. A cross-platform 'watch' + 'entr' replacement.</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Winix.Peep\Winix.Peep.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
   </ItemGroup>
 </Project>

@@ -6,5 +6,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <Authors>Troy Willmot</Authors>
+    <Copyright>Copyright (c) Troy Willmot</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/Yortw/winix</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageProjectUrl>https://github.com/Yortw/winix</PackageProjectUrl>
+    <PackageTags>cli;tools;cross-platform;aot</PackageTags>
   </PropertyGroup>
 </Project>

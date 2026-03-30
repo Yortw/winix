@@ -9,8 +9,14 @@
     <UseSystemResourceKeys>true</UseSystemResourceKeys>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>squeeze</ToolCommandName>
+    <PackageId>Winix.Squeeze</PackageId>
+    <Description>Compress and decompress files using gzip, brotli, or zstd. A cross-platform multi-format compression tool.</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Winix.Squeeze\Winix.Squeeze.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
   </ItemGroup>
 </Project>
