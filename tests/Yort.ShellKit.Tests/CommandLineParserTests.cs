@@ -317,3 +317,93 @@ public class FlagAliasTests
         Assert.False(result.HasErrors);
     }
 }
+
+public class CommandModeTests
+{
+    [Fact]
+    public void CommandMode_FirstNonFlag_StartsCommand()
+    {
+        var parser = new CommandLineParser("test", "1.0.0")
+            .Flag("--verbose", null, "Verbose")
+            .CommandMode();
+
+        var result = parser.Parse(new[] { "--verbose", "ls", "-la" });
+
+        Assert.True(result.Has("--verbose"));
+        Assert.Equal(new[] { "ls", "-la" }, result.Command);
+    }
+
+    [Fact]
+    public void CommandMode_DoubleDash_StartsCommand()
+    {
+        var parser = new CommandLineParser("test", "1.0.0")
+            .Flag("--verbose", null, "Verbose")
+            .CommandMode();
+
+        var result = parser.Parse(new[] { "--verbose", "--", "git", "status" });
+
+        Assert.True(result.Has("--verbose"));
+        Assert.Equal(new[] { "git", "status" }, result.Command);
+    }
+
+    [Fact]
+    public void CommandMode_NoCommand_EmptyArray()
+    {
+        var parser = new CommandLineParser("test", "1.0.0")
+            .CommandMode();
+
+        var result = parser.Parse(Array.Empty<string>());
+
+        Assert.Empty(result.Command);
+    }
+
+    [Fact]
+    public void CommandMode_DoubleDashThenFlags_FlagsAreCommand()
+    {
+        var parser = new CommandLineParser("test", "1.0.0")
+            .Flag("--verbose", null, "Verbose")
+            .CommandMode();
+
+        var result = parser.Parse(new[] { "--", "--verbose", "arg" });
+
+        Assert.False(result.Has("--verbose"));
+        Assert.Equal(new[] { "--verbose", "arg" }, result.Command);
+    }
+}
+
+public class PositionalTests
+{
+    [Fact]
+    public void Positional_NonFlags_CollectedInOrder()
+    {
+        var parser = new CommandLineParser("test", "1.0.0")
+            .Flag("--verbose", null, "Verbose");
+
+        var result = parser.Parse(new[] { "file1.txt", "--verbose", "file2.txt" });
+
+        Assert.Equal(new[] { "file1.txt", "file2.txt" }, result.Positionals);
+        Assert.True(result.Has("--verbose"));
+    }
+
+    [Fact]
+    public void Positional_AfterDoubleDash_AllPositional()
+    {
+        var parser = new CommandLineParser("test", "1.0.0")
+            .Flag("--verbose", null, "Verbose");
+
+        var result = parser.Parse(new[] { "--", "--verbose", "file.txt" });
+
+        Assert.Equal(new[] { "--verbose", "file.txt" }, result.Positionals);
+        Assert.False(result.Has("--verbose"));
+    }
+
+    [Fact]
+    public void Positional_NoArgs_EmptyArray()
+    {
+        var parser = new CommandLineParser("test", "1.0.0");
+
+        var result = parser.Parse(Array.Empty<string>());
+
+        Assert.Empty(result.Positionals);
+    }
+}
