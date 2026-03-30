@@ -268,3 +268,79 @@ jobs:
             git commit -m "chore: update scoop manifests to v${{ needs.resolve-version.outputs.version }}"
             git push
           fi
+
+  generate-winget-manifests:
+    needs: [resolve-version, release]
+    if: ${{ !contains(needs.resolve-version.outputs.version, '-') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download AOT binaries (win-x64)
+        uses: actions/download-artifact@v4
+        with:
+          name: aot-win-x64
+          path: aot
+
+      - name: Generate winget manifests
+        run: |
+          VERSION="${{ needs.resolve-version.outputs.version }}"
+
+          generate_manifests() {
+            local tool="$1"
+            local tool_title="$2"
+            local description="$3"
+            local zip="aot/${tool}-win-x64.zip"
+            local hash
+            hash=$(sha256sum "$zip" | awk '{print $1}' | tr '[:lower:]' '[:upper:]')
+
+            local pkg_id="Winix.${tool_title}"
+            local dir="winget-manifests/${pkg_id}/${VERSION}"
+            mkdir -p "$dir"
+
+            cat > "${dir}/${pkg_id}.yaml" <<YAML
+PackageIdentifier: ${pkg_id}
+PackageVersion: ${VERSION}
+DefaultLocale: en-US
+ManifestType: version
+ManifestVersion: 1.9.0
+YAML
+
+            cat > "${dir}/${pkg_id}.installer.yaml" <<YAML
+PackageIdentifier: ${pkg_id}
+PackageVersion: ${VERSION}
+InstallerType: zip
+NestedInstallerType: portable
+NestedInstallerFiles:
+  - RelativeFilePath: ${tool}.exe
+    PortableCommandAlias: ${tool}
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/Yortw/winix/releases/download/v${VERSION}/${tool}-win-x64.zip
+    InstallerSha256: ${hash}
+ManifestType: installer
+ManifestVersion: 1.9.0
+YAML
+
+            cat > "${dir}/${pkg_id}.locale.en-US.yaml" <<YAML
+PackageIdentifier: ${pkg_id}
+PackageVersion: ${VERSION}
+PackageName: Winix ${tool_title}
+Publisher: Troy Willmot
+License: MIT
+LicenseUrl: https://github.com/Yortw/winix/blob/main/LICENSE
+ShortDescription: ${description}
+PackageUrl: https://github.com/Yortw/winix
+ManifestType: defaultLocale
+ManifestVersion: 1.9.0
+YAML
+          }
+
+          generate_manifests "timeit" "TimeIt" "Time a command — wall clock, CPU time, peak memory, exit code."
+          generate_manifests "squeeze" "Squeeze" "Compress and decompress files using gzip, brotli, or zstd."
+          generate_manifests "peep" "Peep" "Run a command repeatedly and display output on a refreshing screen."
+
+      - name: Upload winget manifests
+        uses: actions/upload-artifact@v4
+        with:
+          name: winget-manifests
+          path: winget-manifests/
+          retention-days: 90
