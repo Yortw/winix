@@ -258,3 +258,74 @@ public class FileOperationIntegrationTests : IDisposable
         Assert.Equal("file_not_found", result.ExitReason);
     }
 }
+
+public class FileToStreamTests : IDisposable
+{
+    private readonly string _tempDir;
+
+    public FileToStreamTests()
+    {
+        _tempDir = Path.Combine(Path.GetTempPath(), $"squeeze-stream-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(_tempDir);
+    }
+
+    public void Dispose()
+    {
+        try { Directory.Delete(_tempDir, recursive: true); } catch { }
+    }
+
+    [Fact]
+    public async Task ProcessFileToStreamAsync_Compress_WritesToStream()
+    {
+        string inputPath = Path.Combine(_tempDir, "test.txt");
+        await File.WriteAllTextAsync(inputPath, "Hello, stream output!");
+
+        using var output = new MemoryStream();
+        var result = await FileOperations.ProcessFileToStreamAsync(
+            inputPath, output,
+            decompress: false, CompressionFormat.Gzip, level: 6, explicitFormat: null);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.NotNull(result.Result);
+        Assert.True(output.Length > 0);
+    }
+
+    [Fact]
+    public async Task ProcessFileToStreamAsync_CompressDecompress_RoundTrips()
+    {
+        string inputPath = Path.Combine(_tempDir, "roundtrip.txt");
+        string original = "Round-trip content for stream test.";
+        await File.WriteAllTextAsync(inputPath, original);
+
+        // Compress to stream
+        using var compressed = new MemoryStream();
+        await FileOperations.ProcessFileToStreamAsync(
+            inputPath, compressed,
+            decompress: false, CompressionFormat.Gzip, level: 6, explicitFormat: null);
+
+        // Write compressed bytes to a file, then decompress to stream
+        string compressedPath = Path.Combine(_tempDir, "roundtrip.txt.gz");
+        await File.WriteAllBytesAsync(compressedPath, compressed.ToArray());
+
+        using var decompressed = new MemoryStream();
+        var result = await FileOperations.ProcessFileToStreamAsync(
+            compressedPath, decompressed,
+            decompress: true, CompressionFormat.Gzip, level: 6, explicitFormat: null);
+
+        Assert.Equal(0, result.ExitCode);
+        string text = System.Text.Encoding.UTF8.GetString(decompressed.ToArray());
+        Assert.Equal(original, text);
+    }
+
+    [Fact]
+    public async Task ProcessFileToStreamAsync_FileNotFound_ReturnsError()
+    {
+        using var output = new MemoryStream();
+        var result = await FileOperations.ProcessFileToStreamAsync(
+            Path.Combine(_tempDir, "nonexistent.txt"), output,
+            decompress: false, CompressionFormat.Gzip, level: 6, explicitFormat: null);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Equal("file_not_found", result.ExitReason);
+    }
+}

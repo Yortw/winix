@@ -176,6 +176,31 @@ public sealed class ParseResult
         return _usageErrorCode;
     }
 
+    /// <summary>
+    /// Writes a single error message and returns the usage error exit code.
+    /// If --json was set, writes a JSON error object instead of plain text.
+    /// Use for post-parse validation errors (e.g. "no command specified").
+    /// </summary>
+    public int WriteError(string message, TextWriter writer)
+    {
+        if (_hasJson)
+        {
+            writer.WriteLine(
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "{{\"tool\":\"{0}\",\"version\":\"{1}\",\"exit_code\":{2},\"exit_reason\":\"usage_error\"}}",
+                    EscapeJson(_toolName),
+                    EscapeJson(_version),
+                    _usageErrorCode));
+        }
+        else
+        {
+            writer.WriteLine($"{_toolName}: {message}");
+        }
+
+        return _usageErrorCode;
+    }
+
     private static string EscapeJson(string value)
     {
         return value
