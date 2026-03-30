@@ -37,6 +37,7 @@ dotnet publish src/timeit/timeit.csproj -c Release -r win-x64
 - Full braces always, nullable reference types enabled, warnings as errors
 - Console apps use proper `namespace`/`class Program`/`static Main` — no top-level statements
 - Console apps are thin: arg parsing, validation, constructing library objects, error output. Stream orchestration, event loops, and domain logic belong in the class library.
+- Each tool has a `README.md` in its console app directory (e.g. `src/timeit/README.md`). Keep these up to date when flags, options, or behaviour change. Follow the existing pattern: description, install, usage/examples, options table, exit codes, colour section.
 
 ## Windows Defender false positive
 

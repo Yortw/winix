@@ -6,16 +6,21 @@ Winix is a suite of small, focused command-line tools built with .NET and compil
 
 ## Tools
 
+| Tool | What it does | *nix equivalent | Status |
+|------|-------------|-----------------|--------|
+| [**timeit**](src/timeit/README.md) | Time a command — wall clock, CPU time, peak memory, exit code | `time` | Shipped |
+| [**peep**](src/peep/README.md) | Watch a command on interval + re-run on file changes | `watch` + `entr` | Shipped |
+| [**squeeze**](src/squeeze/README.md) | Multi-format compression (gzip, brotli, zstd) | `gzip`, `brotli`, `zstd` | Shipped |
+
+### Planned
+
 | Tool | What it does | *nix equivalent |
 |------|-------------|-----------------|
-| **timeit** | Time a command — wall clock, CPU time, peak memory, exit code | `time` |
-| **peep** | Watch a command on interval + re-run on file changes | `watch` + `entr` |
-| **squeeze** | Multi-format compression (gzip, brotli, zstd, zlib) | `gzip`, `brotli`, `zstd` |
 | **treex** | Enhanced directory tree with colour, filtering, sizes, .gitignore | `tree` |
 | **schedule** | Crontab + RRULE over Windows Task Scheduler | `crontab` |
 | **xargs** | Build and execute commands from stdin with correct Windows quoting | `xargs` |
 
-*More tools planned — see [design notes](docs/plans/2026-03-28-winix-design-notes.md).*
+*See [design notes](docs/plans/2026-03-28-winix-design-notes.md) for more ideas.*
 
 ## Install
 
@@ -33,11 +38,14 @@ dotnet tool install -g winix
 # Time a build
 timeit dotnet build
 
+# Watch a command, re-run on file changes
+peep -w "src/**/*.cs" dotnet test
+
+# Compress with zstd
+squeeze --zstd largefile.bin
+
 # JSON output for CI
 timeit --json dotnet test
-
-# One-line format for logs
-timeit -1 dotnet publish -c Release
 ```
 
 ## Building from Source
@@ -54,7 +62,7 @@ dotnet publish src/timeit/timeit.csproj -c Release -r win-x64
 
 ## Status
 
-Early development. `timeit` is the first tool — functional and AOT-ready. More tools coming.
+Three tools shipped (`timeit`, `peep`, `squeeze`) — all functional, tested, and AOT-ready. More tools planned.
 
 ## License
 
