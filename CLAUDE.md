@@ -35,6 +35,8 @@ dotnet publish src/timeit/timeit.csproj -c Release -r win-x64
 - Respect `NO_COLOR` env var (no-color.org)
 - Exit codes: pass through child process exit code; 125/126/127 for tool's own errors (POSIX convention)
 - Full braces always, nullable reference types enabled, warnings as errors
+- Console apps use proper `namespace`/`class Program`/`static Main` — no top-level statements
+- Console apps are thin: arg parsing, validation, constructing library objects, error output. Stream orchestration, event loops, and domain logic belong in the class library.
 
 ## Windows Defender false positive
 
