@@ -38,6 +38,9 @@ dotnet publish src/timeit/timeit.csproj -c Release -r win-x64
 - Console apps use proper `namespace`/`class Program`/`static Main` — no top-level statements
 - Console apps are thin: arg parsing, validation, constructing library objects, error output. Stream orchestration, event loops, and domain logic belong in the class library.
 - Each tool has a `README.md` in its console app directory (e.g. `src/timeit/README.md`). Keep these up to date when flags, options, or behaviour change. Follow the existing pattern: description, install, usage/examples, options table, exit codes, colour section.
+- Versioning: `Directory.Build.props` holds the dev version. Release builds override via `/p:Version=X.Y.Z`. Tag format: `v0.1.0`.
+- To release: push a tag `vX.Y.Z` to main, or use manual workflow dispatch in GitHub Actions.
+- NuGet package IDs: `Winix.TimeIt`, `Winix.Squeeze`, `Winix.Peep`. Publishing requires `NUGET_API_KEY` secret in GitHub repo settings.
 
 ## Windows Defender false positive
 

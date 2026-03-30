@@ -9,8 +9,14 @@
     <UseSystemResourceKeys>true</UseSystemResourceKeys>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>timeit</ToolCommandName>
+    <PackageId>Winix.TimeIt</PackageId>
+    <Description>Time a command — wall clock, CPU time, peak memory, exit code. A cross-platform 'time' replacement.</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Winix.TimeIt\Winix.TimeIt.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
   </ItemGroup>
 </Project>

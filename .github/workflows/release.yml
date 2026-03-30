@@ -1,0 +1,214 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g. 0.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  DOTNET_VERSION: '10.0.x'
+
+jobs:
+  resolve-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Resolve version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            TAG="${{ github.ref_name }}"
+            echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-and-test:
+    needs: resolve-version
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore
+        run: dotnet restore Winix.sln
+
+      - name: Build
+        run: dotnet build Winix.sln --no-restore -c Release
+
+      - name: Test
+        run: dotnet test Winix.sln --no-build -c Release --logger "trx;LogFileName=results.trx"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-release-${{ matrix.os }}
+          path: '**/TestResults/*.trx'
+          retention-days: 7
+
+  pack-nuget:
+    needs: [resolve-version, build-and-test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Pack timeit
+        run: dotnet pack src/timeit/timeit.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
+
+      - name: Pack squeeze
+        run: dotnet pack src/squeeze/squeeze.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
+
+      - name: Pack peep
+        run: dotnet pack src/peep/peep.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
+
+      - name: Upload NuGet packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuget-packages
+          path: packages/*.nupkg
+          retention-days: 7
+
+  publish-aot:
+    needs: [resolve-version, build-and-test]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: win-x64
+            os: windows-latest
+          - rid: linux-x64
+            os: ubuntu-latest
+          - rid: osx-x64
+            os: macos-latest
+          - rid: osx-arm64
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Publish timeit
+        run: dotnet publish src/timeit/timeit.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
+
+      - name: Publish squeeze
+        run: dotnet publish src/squeeze/squeeze.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
+
+      - name: Publish peep
+        run: dotnet publish src/peep/peep.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
+
+      - name: Zip binaries (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          cd src/timeit/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/timeit-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
+          cd src/squeeze/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/squeeze-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
+          cd src/peep/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/peep-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
+
+      - name: Zip binaries (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path src/timeit/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath timeit-${{ matrix.rid }}.zip
+          Compress-Archive -Path src/squeeze/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath squeeze-${{ matrix.rid }}.zip
+          Compress-Archive -Path src/peep/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath peep-${{ matrix.rid }}.zip
+
+      - name: Upload AOT binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: aot-${{ matrix.rid }}
+          path: '*.zip'
+          retention-days: 7
+
+  release:
+    needs: [resolve-version, pack-nuget, publish-aot]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Download NuGet packages
+        uses: actions/download-artifact@v4
+        with:
+          name: nuget-packages
+          path: packages
+
+      - name: Download AOT binaries (win-x64)
+        uses: actions/download-artifact@v4
+        with:
+          name: aot-win-x64
+          path: aot
+
+      - name: Download AOT binaries (linux-x64)
+        uses: actions/download-artifact@v4
+        with:
+          name: aot-linux-x64
+          path: aot
+
+      - name: Download AOT binaries (osx-x64)
+        uses: actions/download-artifact@v4
+        with:
+          name: aot-osx-x64
+          path: aot
+
+      - name: Download AOT binaries (osx-arm64)
+        uses: actions/download-artifact@v4
+        with:
+          name: aot-osx-arm64
+          path: aot
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ needs.resolve-version.outputs.version }}"
+          TAG="v${VERSION}"
+
+          # Create tag if manual dispatch (tag already exists for tag-push trigger)
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            git tag "$TAG"
+            git push origin "$TAG"
+          fi
+
+          gh release create "$TAG" \
+            --title "v${VERSION}" \
+            --generate-notes \
+            packages/*.nupkg \
+            aot/*.zip
+
+      - name: Publish to NuGet.org
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          for pkg in packages/*.nupkg; do
+            dotnet nuget push "$pkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+          done
