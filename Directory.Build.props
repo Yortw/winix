@@ -6,6 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <RollForward>LatestMinor</RollForward>
     <Authors>Troy Willmot</Authors>
     <Copyright>Copyright (c) Troy Willmot</Copyright>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

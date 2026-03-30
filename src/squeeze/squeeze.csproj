@@ -7,7 +7,6 @@
     <OptimizationPreference>Size</OptimizationPreference>
     <StackTraceSupport>false</StackTraceSupport>
     <UseSystemResourceKeys>true</UseSystemResourceKeys>
-    <RollForward>LatestMinor</RollForward>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>squeeze</ToolCommandName>
     <PackageId>Winix.Squeeze</PackageId>
