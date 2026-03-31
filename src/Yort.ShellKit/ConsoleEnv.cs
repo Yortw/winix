@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+
 namespace Yort.ShellKit;
 
 /// <summary>
@@ -5,6 +7,57 @@ namespace Yort.ShellKit;
 /// </summary>
 public static class ConsoleEnv
 {
+    /// <summary>
+    /// Enables ANSI/VT100 escape sequence processing on Windows. No-op on other platforms.
+    /// Call once at startup before writing any ANSI codes. Safe to call multiple times.
+    /// </summary>
+    /// <remarks>
+    /// Windows CMD and PowerShell do not process ANSI escape codes by default.
+    /// This sets <c>ENABLE_VIRTUAL_TERMINAL_PROCESSING</c> on the stdout console handle,
+    /// which tells Windows to interpret escape sequences instead of printing them literally.
+    /// Windows Terminal enables this by default, but CMD and older PowerShell do not.
+    /// </remarks>
+    public static void EnableAnsiIfNeeded()
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            return;
+        }
+
+        try
+        {
+            nint handle = GetStdHandle(StdOutputHandle);
+            if (handle == InvalidHandle)
+            {
+                return;
+            }
+
+            if (!GetConsoleMode(handle, out uint mode))
+            {
+                return;
+            }
+
+            SetConsoleMode(handle, mode | EnableVirtualTerminalProcessing);
+        }
+        catch
+        {
+            // Best effort — if it fails, colours just won't render
+        }
+    }
+
+    private const int StdOutputHandle = -11;
+    private static readonly nint InvalidHandle = new(-1);
+    private const uint EnableVirtualTerminalProcessing = 0x0004;
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern nint GetStdHandle(int nStdHandle);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetConsoleMode(nint hConsoleHandle, out uint lpMode);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool SetConsoleMode(nint hConsoleHandle, uint dwMode);
+
     /// <summary>
     /// Returns true if the <c>NO_COLOR</c> environment variable is set (any value, including empty).
     /// See https://no-color.org.

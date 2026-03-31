@@ -8,6 +8,7 @@ internal sealed class Program
 {
     static async Task<int> Main(string[] args)
     {
+        ConsoleEnv.EnableAnsiIfNeeded();
         string version = GetVersion();
 
         var parser = new CommandLineParser("wargs", version)
