@@ -1,5 +1,3 @@
-#nullable enable
-
 using System.Globalization;
 
 namespace Winix.FileWalk;
@@ -73,7 +71,14 @@ public static class SizeParser
             return false;
         }
 
-        bytes = raw * multiplier;
+        try
+        {
+            bytes = checked(raw * multiplier);
+        }
+        catch (OverflowException)
+        {
+            return false;
+        }
         return true;
     }
 }

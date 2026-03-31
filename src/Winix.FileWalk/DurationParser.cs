@@ -1,5 +1,3 @@
-#nullable enable
-
 using System.Globalization;
 
 namespace Winix.FileWalk;
@@ -52,15 +50,30 @@ public static class DurationParser
         }
 
         // Use MinValue as a sentinel for an unrecognised suffix; it can't arise from valid input.
-        duration = suffix switch
+        // Overflow is possible for very large values (e.g. 999999999999w).
+        try
         {
-            's' => TimeSpan.FromSeconds(raw),
-            'm' => TimeSpan.FromMinutes(raw),
-            'h' => TimeSpan.FromHours(raw),
-            'd' => TimeSpan.FromDays(raw),
-            'w' => TimeSpan.FromDays(raw * 7),
-            _ => TimeSpan.MinValue
-        };
+            duration = suffix switch
+            {
+                's' => TimeSpan.FromSeconds(raw),
+                'm' => TimeSpan.FromMinutes(raw),
+                'h' => TimeSpan.FromHours(raw),
+                'd' => TimeSpan.FromDays(raw),
+                'w' => TimeSpan.FromDays(checked(raw * 7)),
+                _ => TimeSpan.MinValue
+            };
+        }
+        catch (OverflowException)
+        {
+            duration = TimeSpan.Zero;
+            return false;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            // TimeSpan.FromDays/FromHours etc. throw this for values outside TimeSpan range
+            duration = TimeSpan.Zero;
+            return false;
+        }
 
         if (duration == TimeSpan.MinValue)
         {
