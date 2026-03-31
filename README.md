@@ -15,6 +15,8 @@ Winix is a suite of small, focused command-line tools built with .NET and compil
 | [**timeit**](src/timeit/README.md) | Time a command — wall clock, CPU time, peak memory, exit code | `time` | Shipped |
 | [**peep**](src/peep/README.md) | Watch a command on interval + re-run on file changes | `watch` + `entr` | Shipped |
 | [**squeeze**](src/squeeze/README.md) | Multi-format compression (gzip, brotli, zstd) | `gzip`, `brotli`, `zstd` | Shipped |
+| [**wargs**](src/wargs/README.md) | Build and execute commands from stdin | `xargs` | Shipped |
+| [**files**](src/files/README.md) | Find files by name, size, date, type, and content | `find` | Shipped |
 
 ### Planned
 
@@ -22,7 +24,6 @@ Winix is a suite of small, focused command-line tools built with .NET and compil
 |------|-------------|-----------------|
 | **treex** | Enhanced directory tree with colour, filtering, sizes, .gitignore | `tree` |
 | **schedule** | Crontab + RRULE over Windows Task Scheduler | `crontab` |
-| **xargs** | Build and execute commands from stdin with correct Windows quoting | `xargs` |
 
 *See [design notes](docs/plans/2026-03-28-winix-design-notes.md) for more ideas.*
 
@@ -87,7 +88,7 @@ dotnet publish src/timeit/timeit.csproj -c Release -r win-x64
 
 ## Status
 
-Three tools shipped (`timeit`, `peep`, `squeeze`) — all functional, tested, and AOT-ready. More tools planned.
+Five tools shipped (`timeit`, `peep`, `squeeze`, `wargs`, `files`) — all functional, tested, and AOT-ready. More tools planned.
 
 ## License
 

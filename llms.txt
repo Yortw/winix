@@ -4,6 +4,10 @@ Cross-platform CLI tool suite for the gaps between Windows and *nix. Native bina
 
 ## Tools
 
+- [timeit](docs/ai/timeit.md): Time a command — wall clock, CPU, memory, exit code. Replaces POSIX `time`.
+- [squeeze](docs/ai/squeeze.md): Multi-format compression/decompression (gzip, brotli, zstd). Replaces `gzip`/`brotli`/`zstd`.
+- [peep](docs/ai/peep.md): Watch a command on interval + re-run on file changes. Replaces `watch` + `entr`.
+- [wargs](docs/ai/wargs.md): Build and execute commands from stdin. Replaces `xargs` with sane defaults.
 - [files](docs/ai/files.md): Find files by name, size, date, type, and content. Replaces `find` with glob patterns and clean output.
 
 ## Key Features for AI Agents
