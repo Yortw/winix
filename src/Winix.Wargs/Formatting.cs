@@ -1,5 +1,5 @@
-using System.Globalization;
-using System.Text;
+using System.Text.Json;
+using Yort.ShellKit;
 
 namespace Winix.Wargs;
 
@@ -15,18 +15,23 @@ public static class Formatting
     /// </summary>
     public static string FormatJson(WargsResult result, int exitCode, string exitReason, string toolName, string version)
     {
-        return string.Format(
-            CultureInfo.InvariantCulture,
-            "{{\"tool\":\"{0}\",\"version\":\"{1}\",\"exit_code\":{2},\"exit_reason\":\"{3}\",\"total_jobs\":{4},\"succeeded\":{5},\"failed\":{6},\"skipped\":{7},\"wall_seconds\":{8:F3}}}",
-            EscapeJson(toolName),
-            EscapeJson(version),
-            exitCode,
-            EscapeJson(exitReason),
-            result.TotalJobs,
-            result.Succeeded,
-            result.Failed,
-            result.Skipped,
-            result.WallTime.TotalSeconds);
+        var (writer, buffer) = JsonHelper.CreateWriter();
+        using (writer)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("tool", toolName);
+            writer.WriteString("version", version);
+            writer.WriteNumber("exit_code", exitCode);
+            writer.WriteString("exit_reason", exitReason);
+            writer.WriteNumber("total_jobs", result.TotalJobs);
+            writer.WriteNumber("succeeded", result.Succeeded);
+            writer.WriteNumber("failed", result.Failed);
+            writer.WriteNumber("skipped", result.Skipped);
+            JsonHelper.WriteFixedDecimal(writer, "wall_seconds", result.WallTime.TotalSeconds, 3);
+            writer.WriteEndObject();
+        }
+
+        return JsonHelper.GetString(buffer);
     }
 
     /// <summary>
@@ -36,40 +41,36 @@ public static class Formatting
     /// </summary>
     public static string FormatNdjsonLine(JobResult job, int exitCode, string exitReason, string toolName, string version)
     {
-        var sb = new StringBuilder();
-        sb.AppendFormat(
-            CultureInfo.InvariantCulture,
-            "{{\"tool\":\"{0}\",\"version\":\"{1}\",\"job\":{2},\"exit_code\":{3},\"exit_reason\":\"{4}\",\"child_exit_code\":{5},",
-            EscapeJson(toolName),
-            EscapeJson(version),
-            job.JobIndex,
-            exitCode,
-            EscapeJson(exitReason),
-            job.ChildExitCode);
+        var (writer, buffer) = JsonHelper.CreateWriter();
+        using (writer)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("tool", toolName);
+            writer.WriteString("version", version);
+            writer.WriteNumber("job", job.JobIndex);
+            writer.WriteNumber("exit_code", exitCode);
+            writer.WriteString("exit_reason", exitReason);
+            writer.WriteNumber("child_exit_code", job.ChildExitCode);
 
-        if (job.SourceItems.Length == 1)
-        {
-            sb.AppendFormat(CultureInfo.InvariantCulture, "\"input\":\"{0}\",", EscapeJson(job.SourceItems[0]));
-        }
-        else
-        {
-            sb.Append("\"input\":[");
-            for (int i = 0; i < job.SourceItems.Length; i++)
+            if (job.SourceItems.Length == 1)
             {
-                if (i > 0)
+                writer.WriteString("input", job.SourceItems[0]);
+            }
+            else
+            {
+                writer.WriteStartArray("input");
+                foreach (string item in job.SourceItems)
                 {
-                    sb.Append(',');
+                    writer.WriteStringValue(item);
                 }
-
-                sb.AppendFormat(CultureInfo.InvariantCulture, "\"{0}\"", EscapeJson(job.SourceItems[i]));
+                writer.WriteEndArray();
             }
 
-            sb.Append("],");
+            JsonHelper.WriteFixedDecimal(writer, "wall_seconds", job.Duration.TotalSeconds, 3);
+            writer.WriteEndObject();
         }
 
-        sb.AppendFormat(CultureInfo.InvariantCulture, "\"wall_seconds\":{0:F3}}}", job.Duration.TotalSeconds);
-
-        return sb.ToString();
+        return JsonHelper.GetString(buffer);
     }
 
     /// <summary>
@@ -78,13 +79,18 @@ public static class Formatting
     /// </summary>
     public static string FormatJsonError(int exitCode, string exitReason, string toolName, string version)
     {
-        return string.Format(
-            CultureInfo.InvariantCulture,
-            "{{\"tool\":\"{0}\",\"version\":\"{1}\",\"exit_code\":{2},\"exit_reason\":\"{3}\"}}",
-            EscapeJson(toolName),
-            EscapeJson(version),
-            exitCode,
-            EscapeJson(exitReason));
+        var (writer, buffer) = JsonHelper.CreateWriter();
+        using (writer)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("tool", toolName);
+            writer.WriteString("version", version);
+            writer.WriteNumber("exit_code", exitCode);
+            writer.WriteString("exit_reason", exitReason);
+            writer.WriteEndObject();
+        }
+
+        return JsonHelper.GetString(buffer);
     }
 
     /// <summary>
@@ -101,9 +107,4 @@ public static class Formatting
         return $"wargs: {result.Failed}/{result.TotalJobs} jobs failed";
     }
 
-    /// <summary>Escapes backslashes and double-quotes for safe JSON string embedding.</summary>
-    private static string EscapeJson(string value)
-    {
-        return value.Replace("\\", "\\\\").Replace("\"", "\\\"");
-    }
 }

@@ -2,7 +2,7 @@
 
 using System.Collections.Generic;
 using System.Globalization;
-using System.Text;
+using System.Text.Json;
 using Winix.FileWalk;
 using Yort.ShellKit;
 
@@ -69,34 +69,30 @@ public static class Formatting
     /// <param name="version">Value for the <c>version</c> envelope field.</param>
     public static string FormatNdjsonLine(FileEntry entry, string toolName, string version)
     {
-        var sb = new StringBuilder();
-        sb.Append('{');
-        sb.AppendFormat(CultureInfo.InvariantCulture,
-            "\"tool\":\"{0}\",\"version\":\"{1}\",\"exit_code\":0,\"exit_reason\":\"success\",",
-            EscapeJson(toolName),
-            EscapeJson(version));
-
-        sb.AppendFormat(CultureInfo.InvariantCulture,
-            "\"path\":\"{0}\",\"name\":\"{1}\",\"type\":\"{2}\",\"size_bytes\":{3},",
-            EscapeJson(entry.Path),
-            EscapeJson(entry.Name),
-            EscapeJson(FormatTypeString(entry.Type)),
-            entry.SizeBytes);
-
-        sb.AppendFormat(CultureInfo.InvariantCulture,
-            "\"modified\":\"{0}\",\"depth\":{1}",
-            EscapeJson(entry.Modified.ToString("o", CultureInfo.InvariantCulture)),
-            entry.Depth);
-
-        if (entry.IsText.HasValue)
+        var (writer, buffer) = JsonHelper.CreateWriter();
+        using (writer)
         {
-            sb.AppendFormat(CultureInfo.InvariantCulture,
-                ",\"is_text\":{0}",
-                entry.IsText.Value ? "true" : "false");
+            writer.WriteStartObject();
+            writer.WriteString("tool", toolName);
+            writer.WriteString("version", version);
+            writer.WriteNumber("exit_code", 0);
+            writer.WriteString("exit_reason", "success");
+            writer.WriteString("path", entry.Path);
+            writer.WriteString("name", entry.Name);
+            writer.WriteString("type", FormatTypeString(entry.Type));
+            writer.WriteNumber("size_bytes", entry.SizeBytes);
+            writer.WriteString("modified", entry.Modified.ToString("o", CultureInfo.InvariantCulture));
+            writer.WriteNumber("depth", entry.Depth);
+
+            if (entry.IsText.HasValue)
+            {
+                writer.WriteBoolean("is_text", entry.IsText.Value);
+            }
+
+            writer.WriteEndObject();
         }
 
-        sb.Append('}');
-        return sb.ToString();
+        return JsonHelper.GetString(buffer);
     }
 
     /// <summary>
@@ -117,46 +113,49 @@ public static class Formatting
         string toolName,
         string version)
     {
-        var sb = new StringBuilder();
-        sb.AppendFormat(CultureInfo.InvariantCulture,
-            "{{\"tool\":\"{0}\",\"version\":\"{1}\",\"exit_code\":{2},\"exit_reason\":\"{3}\",\"count\":{4},\"searched_roots\":[",
-            EscapeJson(toolName),
-            EscapeJson(version),
-            exitCode,
-            EscapeJson(exitReason),
-            count);
-
-        for (int i = 0; i < searchedRoots.Count; i++)
+        var (writer, buffer) = JsonHelper.CreateWriter();
+        using (writer)
         {
-            if (i > 0)
+            writer.WriteStartObject();
+            writer.WriteString("tool", toolName);
+            writer.WriteString("version", version);
+            writer.WriteNumber("exit_code", exitCode);
+            writer.WriteString("exit_reason", exitReason);
+            writer.WriteNumber("count", count);
+            writer.WriteStartArray("searched_roots");
+            foreach (string root in searchedRoots)
             {
-                sb.Append(',');
+                writer.WriteStringValue(root);
             }
-
-            sb.AppendFormat(CultureInfo.InvariantCulture, "\"{0}\"", EscapeJson(searchedRoots[i]));
+            writer.WriteEndArray();
+            writer.WriteEndObject();
         }
 
-        sb.Append("]}");
-        return sb.ToString();
+        return JsonHelper.GetString(buffer);
     }
 
     /// <summary>
     /// Returns a JSON error object for failures that occur before any entries are emitted.
     /// Contains only the standard Winix envelope fields.
     /// </summary>
-    /// <param name="exitCode">Process exit code (typically 125–127 for tool errors).</param>
+    /// <param name="exitCode">Process exit code (typically 125-127 for tool errors).</param>
     /// <param name="exitReason">Machine-readable exit reason string.</param>
     /// <param name="toolName">Value for the <c>tool</c> envelope field.</param>
     /// <param name="version">Value for the <c>version</c> envelope field.</param>
     public static string FormatJsonError(int exitCode, string exitReason, string toolName, string version)
     {
-        return string.Format(
-            CultureInfo.InvariantCulture,
-            "{{\"tool\":\"{0}\",\"version\":\"{1}\",\"exit_code\":{2},\"exit_reason\":\"{3}\"}}",
-            EscapeJson(toolName),
-            EscapeJson(version),
-            exitCode,
-            EscapeJson(exitReason));
+        var (writer, buffer) = JsonHelper.CreateWriter();
+        using (writer)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("tool", toolName);
+            writer.WriteString("version", version);
+            writer.WriteNumber("exit_code", exitCode);
+            writer.WriteString("exit_reason", exitReason);
+            writer.WriteEndObject();
+        }
+
+        return JsonHelper.GetString(buffer);
     }
 
     /// <summary>
@@ -173,17 +172,4 @@ public static class Formatting
         };
     }
 
-    /// <summary>
-    /// Escapes characters that are not safe inside a JSON string value:
-    /// backslash, double-quote, carriage return, newline, and tab.
-    /// </summary>
-    private static string EscapeJson(string value)
-    {
-        return value
-            .Replace("\\", "\\\\")
-            .Replace("\"", "\\\"")
-            .Replace("\r", "\\r")
-            .Replace("\n", "\\n")
-            .Replace("\t", "\\t");
-    }
 }

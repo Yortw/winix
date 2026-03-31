@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using System.Text.Json;
 
 namespace Yort.ShellKit;
 
@@ -586,245 +587,199 @@ public sealed class CommandLineParser
 
     internal string GenerateDescribe()
     {
-        var sb = new StringBuilder();
-        sb.Append('{');
-
-        // tool, version, description
-        sb.Append($"\"tool\":\"{EscapeJson(_toolName)}\"");
-        sb.Append($",\"version\":\"{EscapeJson(_version)}\"");
-        if (_description is not null)
+        var (writer, buffer) = JsonHelper.CreateWriter();
+        using (writer)
         {
-            sb.Append($",\"description\":\"{EscapeJson(_description)}\"");
-        }
+            writer.WriteStartObject();
 
-        // platform
-        if (_platformScope is not null)
-        {
-            sb.Append(",\"platform\":{");
-            sb.Append($"\"scope\":\"{EscapeJson(_platformScope)}\"");
-            if (_platformReplaces is not null && _platformReplaces.Length > 0)
+            // tool, version, description
+            writer.WriteString("tool", _toolName);
+            writer.WriteString("version", _version);
+            if (_description is not null)
             {
-                sb.Append(",\"replaces\":[");
-                for (int i = 0; i < _platformReplaces.Length; i++)
+                writer.WriteString("description", _description);
+            }
+
+            // platform
+            if (_platformScope is not null)
+            {
+                writer.WritePropertyName("platform");
+                writer.WriteStartObject();
+                writer.WriteString("scope", _platformScope);
+                if (_platformReplaces is not null && _platformReplaces.Length > 0)
                 {
-                    if (i > 0)
+                    writer.WriteStartArray("replaces");
+                    foreach (string r in _platformReplaces)
                     {
-                        sb.Append(',');
+                        writer.WriteStringValue(r);
                     }
-                    sb.Append($"\"{EscapeJson(_platformReplaces[i])}\"");
+                    writer.WriteEndArray();
                 }
-                sb.Append(']');
+                if (_platformValueWindows is not null)
+                {
+                    writer.WriteString("value_on_windows", _platformValueWindows);
+                }
+                if (_platformValueUnix is not null)
+                {
+                    writer.WriteString("value_on_unix", _platformValueUnix);
+                }
+                writer.WriteEndObject();
             }
-            if (_platformValueWindows is not null)
+
+            // usage
+            var usageSb = new StringBuilder();
+            usageSb.Append($"{_toolName} [options]");
+            if (_commandMode)
             {
-                sb.Append($",\"value_on_windows\":\"{EscapeJson(_platformValueWindows)}\"");
+                usageSb.Append(" [--] <command> [args...]");
             }
-            if (_platformValueUnix is not null)
+            else if (_positionalLabel is not null)
             {
-                sb.Append($",\"value_on_unix\":\"{EscapeJson(_platformValueUnix)}\"");
+                usageSb.Append($" [{_positionalLabel}]");
             }
-            sb.Append('}');
+            writer.WriteString("usage", usageSb.ToString());
+
+            // options (flags + options + list options)
+            bool hasOptions = _flags.Count > 0 || _options.Count > 0 || _listOptions.Count > 0;
+            if (hasOptions)
+            {
+                writer.WriteStartArray("options");
+
+                foreach (FlagDef f in _flags)
+                {
+                    writer.WriteStartObject();
+                    writer.WriteString("long", f.LongName);
+                    if (f.ShortName is not null)
+                    {
+                        writer.WriteString("short", f.ShortName);
+                    }
+                    writer.WriteString("type", "flag");
+                    writer.WriteString("description", f.Description);
+                    writer.WriteBoolean("repeatable", false);
+                    writer.WriteEndObject();
+                }
+
+                foreach (OptionDef o in _options)
+                {
+                    writer.WriteStartObject();
+                    writer.WriteString("long", o.LongName);
+                    if (o.ShortName is not null)
+                    {
+                        writer.WriteString("short", o.ShortName);
+                    }
+                    string typeStr = o.Type switch
+                    {
+                        OptionType.Int => "int",
+                        OptionType.Double => "double",
+                        _ => "string"
+                    };
+                    writer.WriteString("type", typeStr);
+                    writer.WriteString("placeholder", o.Placeholder);
+                    writer.WriteString("description", o.Description);
+                    writer.WriteBoolean("repeatable", false);
+                    writer.WriteEndObject();
+                }
+
+                foreach (ListOptionDef l in _listOptions)
+                {
+                    writer.WriteStartObject();
+                    writer.WriteString("long", l.LongName);
+                    if (l.ShortName is not null)
+                    {
+                        writer.WriteString("short", l.ShortName);
+                    }
+                    writer.WriteString("type", "string");
+                    writer.WriteString("placeholder", l.Placeholder);
+                    writer.WriteString("description", l.Description);
+                    writer.WriteBoolean("repeatable", true);
+                    writer.WriteEndObject();
+                }
+
+                writer.WriteEndArray();
+            }
+
+            // exit_codes
+            if (_exitCodes.Count > 0)
+            {
+                writer.WriteStartArray("exit_codes");
+                foreach (var (code, description) in _exitCodes)
+                {
+                    writer.WriteStartObject();
+                    writer.WriteNumber("code", code);
+                    writer.WriteString("description", description);
+                    writer.WriteEndObject();
+                }
+                writer.WriteEndArray();
+            }
+
+            // io
+            if (_stdinDescription is not null || _stdoutDescription is not null || _stderrDescription is not null)
+            {
+                writer.WritePropertyName("io");
+                writer.WriteStartObject();
+                if (_stdinDescription is not null)
+                {
+                    writer.WriteString("stdin", _stdinDescription);
+                }
+                if (_stdoutDescription is not null)
+                {
+                    writer.WriteString("stdout", _stdoutDescription);
+                }
+                if (_stderrDescription is not null)
+                {
+                    writer.WriteString("stderr", _stderrDescription);
+                }
+                writer.WriteEndObject();
+            }
+
+            // examples
+            if (_examples.Count > 0)
+            {
+                writer.WriteStartArray("examples");
+                foreach (var (command, description) in _examples)
+                {
+                    writer.WriteStartObject();
+                    writer.WriteString("command", command);
+                    writer.WriteString("description", description);
+                    writer.WriteEndObject();
+                }
+                writer.WriteEndArray();
+            }
+
+            // composes_with
+            if (_composability.Count > 0)
+            {
+                writer.WriteStartArray("composes_with");
+                foreach (var (tool, pattern, description) in _composability)
+                {
+                    writer.WriteStartObject();
+                    writer.WriteString("tool", tool);
+                    writer.WriteString("pattern", pattern);
+                    writer.WriteString("description", description);
+                    writer.WriteEndObject();
+                }
+                writer.WriteEndArray();
+            }
+
+            // json_output_fields
+            if (_jsonFields.Count > 0)
+            {
+                writer.WriteStartArray("json_output_fields");
+                foreach (var (name, type, description) in _jsonFields)
+                {
+                    writer.WriteStartObject();
+                    writer.WriteString("name", name);
+                    writer.WriteString("type", type);
+                    writer.WriteString("description", description);
+                    writer.WriteEndObject();
+                }
+                writer.WriteEndArray();
+            }
+
+            writer.WriteEndObject();
         }
 
-        // usage
-        var usageSb = new StringBuilder();
-        usageSb.Append($"{_toolName} [options]");
-        if (_commandMode)
-        {
-            usageSb.Append(" [--] <command> [args...]");
-        }
-        else if (_positionalLabel is not null)
-        {
-            usageSb.Append($" [{_positionalLabel}]");
-        }
-        sb.Append($",\"usage\":\"{EscapeJson(usageSb.ToString())}\"");
-
-        // options (flags + options + list options)
-        bool hasOptions = _flags.Count > 0 || _options.Count > 0 || _listOptions.Count > 0;
-        if (hasOptions)
-        {
-            sb.Append(",\"options\":[");
-            bool first = true;
-
-            foreach (FlagDef f in _flags)
-            {
-                if (!first)
-                {
-                    sb.Append(',');
-                }
-                first = false;
-                sb.Append('{');
-                sb.Append($"\"long\":\"{EscapeJson(f.LongName)}\"");
-                if (f.ShortName is not null)
-                {
-                    sb.Append($",\"short\":\"{EscapeJson(f.ShortName)}\"");
-                }
-                sb.Append(",\"type\":\"flag\"");
-                sb.Append($",\"description\":\"{EscapeJson(f.Description)}\"");
-                sb.Append(",\"repeatable\":false");
-                sb.Append('}');
-            }
-
-            foreach (OptionDef o in _options)
-            {
-                if (!first)
-                {
-                    sb.Append(',');
-                }
-                first = false;
-                sb.Append('{');
-                sb.Append($"\"long\":\"{EscapeJson(o.LongName)}\"");
-                if (o.ShortName is not null)
-                {
-                    sb.Append($",\"short\":\"{EscapeJson(o.ShortName)}\"");
-                }
-                string typeStr = o.Type switch
-                {
-                    OptionType.Int => "int",
-                    OptionType.Double => "double",
-                    _ => "string"
-                };
-                sb.Append($",\"type\":\"{typeStr}\"");
-                sb.Append($",\"placeholder\":\"{EscapeJson(o.Placeholder)}\"");
-                sb.Append($",\"description\":\"{EscapeJson(o.Description)}\"");
-                sb.Append(",\"repeatable\":false");
-                sb.Append('}');
-            }
-
-            foreach (ListOptionDef l in _listOptions)
-            {
-                if (!first)
-                {
-                    sb.Append(',');
-                }
-                first = false;
-                sb.Append('{');
-                sb.Append($"\"long\":\"{EscapeJson(l.LongName)}\"");
-                if (l.ShortName is not null)
-                {
-                    sb.Append($",\"short\":\"{EscapeJson(l.ShortName)}\"");
-                }
-                sb.Append(",\"type\":\"string\"");
-                sb.Append($",\"placeholder\":\"{EscapeJson(l.Placeholder)}\"");
-                sb.Append($",\"description\":\"{EscapeJson(l.Description)}\"");
-                sb.Append(",\"repeatable\":true");
-                sb.Append('}');
-            }
-
-            sb.Append(']');
-        }
-
-        // exit_codes
-        if (_exitCodes.Count > 0)
-        {
-            sb.Append(",\"exit_codes\":[");
-            for (int i = 0; i < _exitCodes.Count; i++)
-            {
-                if (i > 0)
-                {
-                    sb.Append(',');
-                }
-                sb.Append('{');
-                sb.Append($"\"code\":{_exitCodes[i].Code.ToString(CultureInfo.InvariantCulture)}");
-                sb.Append($",\"description\":\"{EscapeJson(_exitCodes[i].Description)}\"");
-                sb.Append('}');
-            }
-            sb.Append(']');
-        }
-
-        // io
-        if (_stdinDescription is not null || _stdoutDescription is not null || _stderrDescription is not null)
-        {
-            sb.Append(",\"io\":{");
-            bool ioFirst = true;
-            if (_stdinDescription is not null)
-            {
-                sb.Append($"\"stdin\":\"{EscapeJson(_stdinDescription)}\"");
-                ioFirst = false;
-            }
-            if (_stdoutDescription is not null)
-            {
-                if (!ioFirst)
-                {
-                    sb.Append(',');
-                }
-                sb.Append($"\"stdout\":\"{EscapeJson(_stdoutDescription)}\"");
-                ioFirst = false;
-            }
-            if (_stderrDescription is not null)
-            {
-                if (!ioFirst)
-                {
-                    sb.Append(',');
-                }
-                sb.Append($"\"stderr\":\"{EscapeJson(_stderrDescription)}\"");
-            }
-            sb.Append('}');
-        }
-
-        // examples
-        if (_examples.Count > 0)
-        {
-            sb.Append(",\"examples\":[");
-            for (int i = 0; i < _examples.Count; i++)
-            {
-                if (i > 0)
-                {
-                    sb.Append(',');
-                }
-                sb.Append('{');
-                sb.Append($"\"command\":\"{EscapeJson(_examples[i].Command)}\"");
-                sb.Append($",\"description\":\"{EscapeJson(_examples[i].Description)}\"");
-                sb.Append('}');
-            }
-            sb.Append(']');
-        }
-
-        // composes_with
-        if (_composability.Count > 0)
-        {
-            sb.Append(",\"composes_with\":[");
-            for (int i = 0; i < _composability.Count; i++)
-            {
-                if (i > 0)
-                {
-                    sb.Append(',');
-                }
-                sb.Append('{');
-                sb.Append($"\"tool\":\"{EscapeJson(_composability[i].Tool)}\"");
-                sb.Append($",\"pattern\":\"{EscapeJson(_composability[i].Pattern)}\"");
-                sb.Append($",\"description\":\"{EscapeJson(_composability[i].Description)}\"");
-                sb.Append('}');
-            }
-            sb.Append(']');
-        }
-
-        // json_output_fields
-        if (_jsonFields.Count > 0)
-        {
-            sb.Append(",\"json_output_fields\":[");
-            for (int i = 0; i < _jsonFields.Count; i++)
-            {
-                if (i > 0)
-                {
-                    sb.Append(',');
-                }
-                sb.Append('{');
-                sb.Append($"\"name\":\"{EscapeJson(_jsonFields[i].Name)}\"");
-                sb.Append($",\"type\":\"{EscapeJson(_jsonFields[i].Type)}\"");
-                sb.Append($",\"description\":\"{EscapeJson(_jsonFields[i].Description)}\"");
-                sb.Append('}');
-            }
-            sb.Append(']');
-        }
-
-        sb.Append('}');
-        return sb.ToString();
-    }
-
-    private static string EscapeJson(string value)
-    {
-        return value.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r").Replace("\t", "\\t");
+        return JsonHelper.GetString(buffer);
     }
 
     // Internal definition types

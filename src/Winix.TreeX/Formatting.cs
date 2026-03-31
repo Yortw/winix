@@ -1,8 +1,9 @@
 #nullable enable
 
 using System.Globalization;
-using System.Text;
+using System.Text.Json;
 using Winix.FileWalk;
+using Yort.ShellKit;
 
 namespace Winix.TreeX;
 
@@ -20,27 +21,24 @@ public static class Formatting
     /// <param name="version">Value for the <c>version</c> envelope field.</param>
     public static string FormatNdjsonLine(TreeNode node, int depth, string toolName, string version)
     {
-        var sb = new StringBuilder();
-        sb.Append('{');
-        sb.AppendFormat(CultureInfo.InvariantCulture,
-            "\"tool\":\"{0}\",\"version\":\"{1}\",\"exit_code\":0,\"exit_reason\":\"success\",",
-            EscapeJson(toolName),
-            EscapeJson(version));
+        var (writer, buffer) = JsonHelper.CreateWriter();
+        using (writer)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("tool", toolName);
+            writer.WriteString("version", version);
+            writer.WriteNumber("exit_code", 0);
+            writer.WriteString("exit_reason", "success");
+            writer.WriteString("path", node.FullPath);
+            writer.WriteString("name", node.Name);
+            writer.WriteString("type", FormatTypeString(node.Type));
+            writer.WriteNumber("size_bytes", node.SizeBytes);
+            writer.WriteString("modified", node.Modified.ToString("o", CultureInfo.InvariantCulture));
+            writer.WriteNumber("depth", depth);
+            writer.WriteEndObject();
+        }
 
-        sb.AppendFormat(CultureInfo.InvariantCulture,
-            "\"path\":\"{0}\",\"name\":\"{1}\",\"type\":\"{2}\",\"size_bytes\":{3},",
-            EscapeJson(node.FullPath),
-            EscapeJson(node.Name),
-            EscapeJson(FormatTypeString(node.Type)),
-            node.SizeBytes);
-
-        sb.AppendFormat(CultureInfo.InvariantCulture,
-            "\"modified\":\"{0}\",\"depth\":{1}",
-            EscapeJson(node.Modified.ToString("o", CultureInfo.InvariantCulture)),
-            depth);
-
-        sb.Append('}');
-        return sb.ToString();
+        return JsonHelper.GetString(buffer);
     }
 
     /// <summary>
@@ -61,28 +59,26 @@ public static class Formatting
         string toolName,
         string version)
     {
-        var sb = new StringBuilder();
-        sb.AppendFormat(CultureInfo.InvariantCulture,
-            "{{\"tool\":\"{0}\",\"version\":\"{1}\",\"exit_code\":{2},\"exit_reason\":\"{3}\",",
-            EscapeJson(toolName),
-            EscapeJson(version),
-            exitCode,
-            EscapeJson(exitReason));
-
-        sb.AppendFormat(CultureInfo.InvariantCulture,
-            "\"directories\":{0},\"files\":{1}",
-            stats.DirectoryCount,
-            stats.FileCount);
-
-        if (stats.TotalSizeBytes >= 0)
+        var (writer, buffer) = JsonHelper.CreateWriter();
+        using (writer)
         {
-            sb.AppendFormat(CultureInfo.InvariantCulture,
-                ",\"total_size_bytes\":{0}",
-                stats.TotalSizeBytes);
+            writer.WriteStartObject();
+            writer.WriteString("tool", toolName);
+            writer.WriteString("version", version);
+            writer.WriteNumber("exit_code", exitCode);
+            writer.WriteString("exit_reason", exitReason);
+            writer.WriteNumber("directories", stats.DirectoryCount);
+            writer.WriteNumber("files", stats.FileCount);
+
+            if (stats.TotalSizeBytes >= 0)
+            {
+                writer.WriteNumber("total_size_bytes", stats.TotalSizeBytes);
+            }
+
+            writer.WriteEndObject();
         }
 
-        sb.Append('}');
-        return sb.ToString();
+        return JsonHelper.GetString(buffer);
     }
 
     /// <summary>
@@ -95,13 +91,18 @@ public static class Formatting
     /// <param name="version">Value for the <c>version</c> envelope field.</param>
     public static string FormatJsonError(int exitCode, string exitReason, string toolName, string version)
     {
-        return string.Format(
-            CultureInfo.InvariantCulture,
-            "{{\"tool\":\"{0}\",\"version\":\"{1}\",\"exit_code\":{2},\"exit_reason\":\"{3}\"}}",
-            EscapeJson(toolName),
-            EscapeJson(version),
-            exitCode,
-            EscapeJson(exitReason));
+        var (writer, buffer) = JsonHelper.CreateWriter();
+        using (writer)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("tool", toolName);
+            writer.WriteString("version", version);
+            writer.WriteNumber("exit_code", exitCode);
+            writer.WriteString("exit_reason", exitReason);
+            writer.WriteEndObject();
+        }
+
+        return JsonHelper.GetString(buffer);
     }
 
     /// <summary>
@@ -141,17 +142,4 @@ public static class Formatting
         };
     }
 
-    /// <summary>
-    /// Escapes characters that are not safe inside a JSON string value:
-    /// backslash, double-quote, carriage return, newline, and tab.
-    /// </summary>
-    private static string EscapeJson(string value)
-    {
-        return value
-            .Replace("\\", "\\\\")
-            .Replace("\"", "\\\"")
-            .Replace("\r", "\\r")
-            .Replace("\n", "\\n")
-            .Replace("\t", "\\t");
-    }
 }

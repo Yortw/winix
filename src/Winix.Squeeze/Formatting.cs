@@ -1,5 +1,5 @@
 using System.Globalization;
-using System.Text;
+using System.Text.Json;
 using Yort.ShellKit;
 
 namespace Winix.Squeeze;
@@ -53,38 +53,34 @@ public static class Formatting
         string toolName,
         string version)
     {
-        var sb = new StringBuilder();
-        sb.Append('{');
-        sb.AppendFormat(
-            CultureInfo.InvariantCulture,
-            "\"tool\":\"{0}\",\"version\":\"{1}\",\"exit_code\":{2},\"exit_reason\":\"{3}\",\"files\":[",
-            EscapeJsonString(toolName),
-            EscapeJsonString(version),
-            exitCode,
-            EscapeJsonString(exitReason));
-
-        for (int i = 0; i < results.Count; i++)
+        var (writer, buffer) = JsonHelper.CreateWriter();
+        using (writer)
         {
-            if (i > 0)
-            {
-                sb.Append(',');
-            }
+            writer.WriteStartObject();
+            writer.WriteString("tool", toolName);
+            writer.WriteString("version", version);
+            writer.WriteNumber("exit_code", exitCode);
+            writer.WriteString("exit_reason", exitReason);
 
-            SqueezeResult r = results[i];
-            sb.AppendFormat(
-                CultureInfo.InvariantCulture,
-                "{{\"input\":\"{0}\",\"output\":\"{1}\",\"input_bytes\":{2},\"output_bytes\":{3},\"ratio\":{4:F3},\"format\":\"{5}\",\"seconds\":{6:F3}}}",
-                EscapeJsonString(r.InputPath),
-                EscapeJsonString(r.OutputPath),
-                r.InputBytes,
-                r.OutputBytes,
-                r.Ratio,
-                CompressionFormatInfo.GetShortName(r.Format),
-                r.Elapsed.TotalSeconds);
+            writer.WriteStartArray("files");
+            foreach (SqueezeResult r in results)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("input", r.InputPath);
+                writer.WriteString("output", r.OutputPath);
+                writer.WriteNumber("input_bytes", r.InputBytes);
+                writer.WriteNumber("output_bytes", r.OutputBytes);
+                JsonHelper.WriteFixedDecimal(writer, "ratio", r.Ratio, 3);
+                writer.WriteString("format", CompressionFormatInfo.GetShortName(r.Format));
+                JsonHelper.WriteFixedDecimal(writer, "seconds", r.Elapsed.TotalSeconds, 3);
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+
+            writer.WriteEndObject();
         }
 
-        sb.Append("]}");
-        return sb.ToString();
+        return JsonHelper.GetString(buffer);
     }
 
     /// <summary>
@@ -93,20 +89,17 @@ public static class Formatting
     /// </summary>
     public static string FormatJsonError(int exitCode, string exitReason, string toolName, string version)
     {
-        return string.Format(
-            CultureInfo.InvariantCulture,
-            "{{\"tool\":\"{0}\",\"version\":\"{1}\",\"exit_code\":{2},\"exit_reason\":\"{3}\"}}",
-            EscapeJsonString(toolName),
-            EscapeJsonString(version),
-            exitCode,
-            EscapeJsonString(exitReason));
-    }
+        var (writer, buffer) = JsonHelper.CreateWriter();
+        using (writer)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("tool", toolName);
+            writer.WriteString("version", version);
+            writer.WriteNumber("exit_code", exitCode);
+            writer.WriteString("exit_reason", exitReason);
+            writer.WriteEndObject();
+        }
 
-    /// <summary>
-    /// Escapes backslashes and double-quotes for safe JSON string embedding.
-    /// </summary>
-    private static string EscapeJsonString(string value)
-    {
-        return value.Replace("\\", "\\\\").Replace("\"", "\\\"");
+        return JsonHelper.GetString(buffer);
     }
 }

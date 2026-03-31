@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 
 namespace Yort.ShellKit;
 
@@ -157,13 +158,7 @@ public sealed class ParseResult
     {
         if (_hasJson)
         {
-            writer.WriteLine(
-                string.Format(
-                    CultureInfo.InvariantCulture,
-                    "{{\"tool\":\"{0}\",\"version\":\"{1}\",\"exit_code\":{2},\"exit_reason\":\"usage_error\"}}",
-                    EscapeJson(_toolName),
-                    EscapeJson(_version),
-                    _usageErrorCode));
+            writer.WriteLine(FormatUsageErrorJson());
         }
         else
         {
@@ -185,13 +180,7 @@ public sealed class ParseResult
     {
         if (_hasJson)
         {
-            writer.WriteLine(
-                string.Format(
-                    CultureInfo.InvariantCulture,
-                    "{{\"tool\":\"{0}\",\"version\":\"{1}\",\"exit_code\":{2},\"exit_reason\":\"usage_error\"}}",
-                    EscapeJson(_toolName),
-                    EscapeJson(_version),
-                    _usageErrorCode));
+            writer.WriteLine(FormatUsageErrorJson());
         }
         else
         {
@@ -201,10 +190,19 @@ public sealed class ParseResult
         return _usageErrorCode;
     }
 
-    private static string EscapeJson(string value)
+    private string FormatUsageErrorJson()
     {
-        return value
-            .Replace("\\", "\\\\")
-            .Replace("\"", "\\\"");
+        var (w, buffer) = JsonHelper.CreateWriter();
+        using (w)
+        {
+            w.WriteStartObject();
+            w.WriteString("tool", _toolName);
+            w.WriteString("version", _version);
+            w.WriteNumber("exit_code", _usageErrorCode);
+            w.WriteString("exit_reason", "usage_error");
+            w.WriteEndObject();
+        }
+
+        return JsonHelper.GetString(buffer);
     }
 }

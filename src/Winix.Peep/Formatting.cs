@@ -1,6 +1,6 @@
-using System.Globalization;
-using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
+using Yort.ShellKit;
 
 namespace Winix.Peep;
 
@@ -37,49 +37,42 @@ public static partial class Formatting
         string version,
         int? historyRetained = null)
     {
-        var sb = new StringBuilder();
-        sb.Append('{');
-
-        sb.AppendFormat(
-            CultureInfo.InvariantCulture,
-            "\"tool\":\"{0}\",\"version\":\"{1}\",\"exit_code\":{2},\"exit_reason\":\"{3}\"",
-            EscapeJsonString(toolName),
-            EscapeJsonString(version),
-            exitCode,
-            EscapeJsonString(exitReason));
-
-        sb.AppendFormat(CultureInfo.InvariantCulture, ",\"runs\":{0}", runs);
-
-        if (lastChildExitCode.HasValue)
+        var (writer, buffer) = JsonHelper.CreateWriter();
+        using (writer)
         {
-            sb.AppendFormat(CultureInfo.InvariantCulture,
-                ",\"last_child_exit_code\":{0}", lastChildExitCode.Value);
-        }
-        else
-        {
-            sb.Append(",\"last_child_exit_code\":null");
-        }
+            writer.WriteStartObject();
+            writer.WriteString("tool", toolName);
+            writer.WriteString("version", version);
+            writer.WriteNumber("exit_code", exitCode);
+            writer.WriteString("exit_reason", exitReason);
+            writer.WriteNumber("runs", runs);
 
-        sb.AppendFormat(CultureInfo.InvariantCulture,
-            ",\"duration_seconds\":{0:F3}", durationSeconds);
+            if (lastChildExitCode.HasValue)
+            {
+                writer.WriteNumber("last_child_exit_code", lastChildExitCode.Value);
+            }
+            else
+            {
+                writer.WriteNull("last_child_exit_code");
+            }
 
-        sb.AppendFormat(CultureInfo.InvariantCulture,
-            ",\"command\":\"{0}\"", EscapeJsonString(command));
+            JsonHelper.WriteFixedDecimal(writer, "duration_seconds", durationSeconds, 3);
+            writer.WriteString("command", command);
 
-        if (lastOutput is not null)
-        {
-            sb.AppendFormat(CultureInfo.InvariantCulture,
-                ",\"last_output\":\"{0}\"", EscapeJsonString(StripAnsi(lastOutput)));
-        }
+            if (lastOutput is not null)
+            {
+                writer.WriteString("last_output", StripAnsi(lastOutput));
+            }
 
-        if (historyRetained.HasValue)
-        {
-            sb.AppendFormat(CultureInfo.InvariantCulture,
-                ",\"history_retained\":{0}", historyRetained.Value);
+            if (historyRetained.HasValue)
+            {
+                writer.WriteNumber("history_retained", historyRetained.Value);
+            }
+
+            writer.WriteEndObject();
         }
 
-        sb.Append('}');
-        return sb.ToString();
+        return JsonHelper.GetString(buffer);
     }
 
     /// <summary>
@@ -92,13 +85,18 @@ public static partial class Formatting
     /// <param name="version">The tool's version string.</param>
     public static string FormatJsonError(int exitCode, string exitReason, string toolName, string version)
     {
-        return string.Format(
-            CultureInfo.InvariantCulture,
-            "{{\"tool\":\"{0}\",\"version\":\"{1}\",\"exit_code\":{2},\"exit_reason\":\"{3}\"}}",
-            EscapeJsonString(toolName),
-            EscapeJsonString(version),
-            exitCode,
-            EscapeJsonString(exitReason));
+        var (writer, buffer) = JsonHelper.CreateWriter();
+        using (writer)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("tool", toolName);
+            writer.WriteString("version", version);
+            writer.WriteNumber("exit_code", exitCode);
+            writer.WriteString("exit_reason", exitReason);
+            writer.WriteEndObject();
+        }
+
+        return JsonHelper.GetString(buffer);
     }
 
     /// <summary>
@@ -126,16 +124,4 @@ public static partial class Formatting
     [GeneratedRegex(@"\x1b\[[0-9;]*[a-zA-Z]")]
     private static partial Regex AnsiEscapeRegex();
 
-    /// <summary>
-    /// Escapes backslashes, double-quotes, and control characters for safe JSON string embedding.
-    /// </summary>
-    private static string EscapeJsonString(string value)
-    {
-        return value
-            .Replace("\\", "\\\\")
-            .Replace("\"", "\\\"")
-            .Replace("\n", "\\n")
-            .Replace("\r", "\\r")
-            .Replace("\t", "\\t");
-    }
 }
