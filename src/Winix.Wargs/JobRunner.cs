@@ -134,8 +134,18 @@ public sealed class JobRunner
                     .ConfigureAwait(false);
             }
 
-            JobResult result = await ExecuteJobAsync(invocation, jobIndex, cancellationToken)
-                .ConfigureAwait(false);
+            JobResult result;
+            if (_options.Strategy == BufferStrategy.LineBuffered)
+            {
+                result = await ExecuteJobLineBufferedAsync(invocation, jobIndex, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            else
+            {
+                result = await ExecuteJobAsync(invocation, jobIndex, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             jobs.Add(result);
 
             // Flush captured output to stdout
@@ -256,11 +266,22 @@ public sealed class JobRunner
                         }
                     }
 
-                    JobResult result = await ExecuteJobAsync(capturedInvocation, capturedIndex, cancellationToken)
-                        .ConfigureAwait(false);
+                    JobResult result;
+                    if (_options.Strategy == BufferStrategy.LineBuffered)
+                    {
+                        result = await ExecuteJobLineBufferedAsync(capturedInvocation, capturedIndex, cancellationToken)
+                            .ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        result = await ExecuteJobAsync(capturedInvocation, capturedIndex, cancellationToken)
+                            .ConfigureAwait(false);
+                    }
 
-                    // Flush captured output atomically
-                    if (result.Output != null)
+                    // JobBuffered: flush captured output atomically as each job completes.
+                    // KeepOrder: defer output until all jobs finish (written in input order below).
+                    // LineBuffered: Output is null (children wrote directly to inherited stdio).
+                    if (_options.Strategy == BufferStrategy.JobBuffered && result.Output != null)
                     {
                         lock (outputLock)
                         {
@@ -284,6 +305,20 @@ public sealed class JobRunner
         }
 
         await Task.WhenAll(tasks).ConfigureAwait(false);
+
+        // Keep-order: write all output in input order after all jobs complete
+        if (_options.Strategy == BufferStrategy.KeepOrder)
+        {
+            for (int i = 0; i < tasks.Length; i++)
+            {
+                JobResult r = tasks[i].Result;
+                if (r.Output != null)
+                {
+                    stdout.Write(r.Output);
+                }
+            }
+        }
+
         wallStopwatch.Stop();
 
         // Collect results sorted by JobIndex (tasks array is already in order)
@@ -417,6 +452,68 @@ public sealed class JobRunner
             {
                 output.Append(buffer, 0, charsRead);
             }
+        }
+    }
+
+    /// <summary>
+    /// Spawns a single child process without redirecting stdio, so output flows
+    /// directly to the inherited console. The returned <see cref="JobResult.Output"/>
+    /// is always null because nothing is captured.
+    /// </summary>
+    private static async Task<JobResult> ExecuteJobLineBufferedAsync(
+        CommandInvocation invocation,
+        int jobIndex,
+        CancellationToken cancellationToken)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = invocation.Command,
+            UseShellExecute = false,
+            RedirectStandardOutput = false,
+            RedirectStandardError = false,
+            RedirectStandardInput = false,
+        };
+
+        foreach (string arg in invocation.Arguments)
+        {
+            startInfo.ArgumentList.Add(arg);
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+        Process process;
+
+        try
+        {
+            process = Process.Start(startInfo)
+                ?? throw new Win32Exception("Process.Start returned null");
+        }
+        catch (Win32Exception)
+        {
+            stopwatch.Stop();
+            return new JobResult(
+                JobIndex: jobIndex,
+                ChildExitCode: -1,
+                Output: null,
+                Duration: stopwatch.Elapsed,
+                SourceItems: invocation.SourceItems,
+                Skipped: false);
+        }
+
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+            stopwatch.Stop();
+            return new JobResult(
+                JobIndex: jobIndex,
+                ChildExitCode: process.ExitCode,
+                Output: null,
+                Duration: stopwatch.Elapsed,
+                SourceItems: invocation.SourceItems,
+                Skipped: false);
+        }
+        finally
+        {
+            process.Dispose();
         }
     }
 

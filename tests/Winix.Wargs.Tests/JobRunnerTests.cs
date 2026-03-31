@@ -207,4 +207,45 @@ public class JobRunnerTests
         Assert.Equal(2, result.Succeeded);
         Assert.Equal(1, result.Skipped);
     }
+
+    [Fact]
+    public async Task RunAsync_KeepOrder_OutputsInInputOrder()
+    {
+        var stdout = new StringWriter();
+        var options = new JobRunnerOptions(Parallelism: 4, Strategy: BufferStrategy.KeepOrder);
+        var runner = new JobRunner(options);
+        var invocations = Enumerable.Range(1, 4)
+            .Select(i => MakeEchoInvocation($"item{i}", i))
+            .ToArray();
+
+        await runner.RunAsync(invocations, stdout, TextWriter.Null);
+
+        string output = stdout.ToString();
+        int pos1 = output.IndexOf("item1");
+        int pos2 = output.IndexOf("item2");
+        int pos3 = output.IndexOf("item3");
+        int pos4 = output.IndexOf("item4");
+
+        Assert.True(pos1 >= 0, "item1 should be in output");
+        Assert.True(pos2 >= 0, "item2 should be in output");
+        Assert.True(pos3 >= 0, "item3 should be in output");
+        Assert.True(pos4 >= 0, "item4 should be in output");
+        Assert.True(pos1 < pos2, "item1 should appear before item2");
+        Assert.True(pos2 < pos3, "item2 should appear before item3");
+        Assert.True(pos3 < pos4, "item3 should appear before item4");
+    }
+
+    [Fact]
+    public async Task RunAsync_LineBuffered_DoesNotCaptureOutput()
+    {
+        var options = new JobRunnerOptions(Strategy: BufferStrategy.LineBuffered);
+        var runner = new JobRunner(options);
+        var invocations = new[] { MakeEchoInvocation("hello", 1) };
+
+        var result = await runner.RunAsync(
+            invocations, TextWriter.Null, TextWriter.Null);
+
+        Assert.Single(result.Jobs);
+        Assert.Null(result.Jobs[0].Output);
+    }
 }
