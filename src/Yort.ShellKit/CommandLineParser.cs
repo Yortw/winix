@@ -34,6 +34,17 @@ public sealed class CommandLineParser
     private readonly List<(string Title, string Body)> _sections = new();
     private readonly List<(int Code, string Description)> _exitCodes = new();
 
+    private string? _stdinDescription;
+    private string? _stdoutDescription;
+    private string? _stderrDescription;
+    private readonly List<(string Command, string Description)> _examples = new();
+    private readonly List<(string Tool, string Pattern, string Description)> _composability = new();
+    private readonly List<(string Name, string Type, string Description)> _jsonFields = new();
+    private string? _platformScope;
+    private string[]? _platformReplaces;
+    private string? _platformValueWindows;
+    private string? _platformValueUnix;
+
     // Lookup tables built lazily on first Parse()
     private Dictionary<string, FlagDef>? _flagLookup;
     private Dictionary<string, OptionDef>? _optionLookup;
@@ -149,6 +160,7 @@ public sealed class CommandLineParser
         Flag("--color", "Force colored output");
         Flag("--no-color", "Disable colored output");
         Flag("--json", "JSON output to stderr");
+        Flag("--describe", "Structured JSON metadata for AI agents");
         return this;
     }
 
@@ -173,6 +185,70 @@ public sealed class CommandLineParser
     public CommandLineParser ExitCodes(params (int Code, string Description)[] codes)
     {
         _exitCodes.AddRange(codes);
+        return this;
+    }
+
+    /// <summary>Sets the description of what the tool reads from stdin.</summary>
+    public CommandLineParser StdinDescription(string text)
+    {
+        _stdinDescription = text;
+        return this;
+    }
+
+    /// <summary>Sets the description of what the tool writes to stdout.</summary>
+    public CommandLineParser StdoutDescription(string text)
+    {
+        _stdoutDescription = text;
+        return this;
+    }
+
+    /// <summary>Sets the description of what the tool writes to stderr.</summary>
+    public CommandLineParser StderrDescription(string text)
+    {
+        _stderrDescription = text;
+        return this;
+    }
+
+    /// <summary>Adds a usage example shown in --describe output.</summary>
+    /// <param name="command">The example command line.</param>
+    /// <param name="description">What the example demonstrates.</param>
+    public CommandLineParser Example(string command, string description)
+    {
+        _examples.Add((command, description));
+        return this;
+    }
+
+    /// <summary>Documents how this tool composes with another tool in a pipeline.</summary>
+    /// <param name="tool">Name of the other tool (e.g. "jq", "grep").</param>
+    /// <param name="pattern">Example pipeline pattern.</param>
+    /// <param name="description">What the composition achieves.</param>
+    public CommandLineParser ComposesWith(string tool, string pattern, string description)
+    {
+        _composability.Add((tool, pattern, description));
+        return this;
+    }
+
+    /// <summary>Documents a field in the tool's --json output.</summary>
+    /// <param name="name">JSON field name.</param>
+    /// <param name="type">JSON type (e.g. "number", "string", "boolean").</param>
+    /// <param name="description">What the field contains.</param>
+    public CommandLineParser JsonField(string name, string type, string description)
+    {
+        _jsonFields.Add((name, type, description));
+        return this;
+    }
+
+    /// <summary>Documents the tool's cross-platform scope and which native tools it replaces.</summary>
+    /// <param name="scope">Platform scope (e.g. "cross-platform").</param>
+    /// <param name="replaces">Native tools this replaces (e.g. "time" on Unix, "Measure-Command" on Windows).</param>
+    /// <param name="valueOnWindows">What value this tool adds on Windows.</param>
+    /// <param name="valueOnUnix">What value this tool adds on Unix/macOS.</param>
+    public CommandLineParser Platform(string scope, string[] replaces, string valueOnWindows, string valueOnUnix)
+    {
+        _platformScope = scope;
+        _platformReplaces = replaces;
+        _platformValueWindows = valueOnWindows;
+        _platformValueUnix = valueOnUnix;
         return this;
     }
 
@@ -334,6 +410,12 @@ public sealed class CommandLineParser
             isHandled = true;
             handledExitCode = 0;
         }
+        else if (flagsSet.Contains("--describe") && _standardFlagsRegistered)
+        {
+            Console.WriteLine(GenerateDescribe());
+            isHandled = true;
+            handledExitCode = 0;
+        }
 
         return new ParseResult(
             toolName: _toolName,
@@ -424,7 +506,7 @@ public sealed class CommandLineParser
 
         // Collect all option lines: (leftColumn, description, isStandard)
         var optionLines = new List<(string Left, string Desc, bool IsStandard)>();
-        string[] standardNames = { "--help", "--version", "--color", "--no-color", "--json" };
+        string[] standardNames = { "--help", "--version", "--color", "--no-color", "--json", "--describe" };
 
         foreach (FlagDef f in _flags)
         {
@@ -500,6 +582,249 @@ public sealed class CommandLineParser
         }
 
         return sb.ToString().TrimEnd();
+    }
+
+    internal string GenerateDescribe()
+    {
+        var sb = new StringBuilder();
+        sb.Append('{');
+
+        // tool, version, description
+        sb.Append($"\"tool\":\"{EscapeJson(_toolName)}\"");
+        sb.Append($",\"version\":\"{EscapeJson(_version)}\"");
+        if (_description is not null)
+        {
+            sb.Append($",\"description\":\"{EscapeJson(_description)}\"");
+        }
+
+        // platform
+        if (_platformScope is not null)
+        {
+            sb.Append(",\"platform\":{");
+            sb.Append($"\"scope\":\"{EscapeJson(_platformScope)}\"");
+            if (_platformReplaces is not null && _platformReplaces.Length > 0)
+            {
+                sb.Append(",\"replaces\":[");
+                for (int i = 0; i < _platformReplaces.Length; i++)
+                {
+                    if (i > 0)
+                    {
+                        sb.Append(',');
+                    }
+                    sb.Append($"\"{EscapeJson(_platformReplaces[i])}\"");
+                }
+                sb.Append(']');
+            }
+            if (_platformValueWindows is not null)
+            {
+                sb.Append($",\"value_on_windows\":\"{EscapeJson(_platformValueWindows)}\"");
+            }
+            if (_platformValueUnix is not null)
+            {
+                sb.Append($",\"value_on_unix\":\"{EscapeJson(_platformValueUnix)}\"");
+            }
+            sb.Append('}');
+        }
+
+        // usage
+        var usageSb = new StringBuilder();
+        usageSb.Append($"{_toolName} [options]");
+        if (_commandMode)
+        {
+            usageSb.Append(" [--] <command> [args...]");
+        }
+        else if (_positionalLabel is not null)
+        {
+            usageSb.Append($" [{_positionalLabel}]");
+        }
+        sb.Append($",\"usage\":\"{EscapeJson(usageSb.ToString())}\"");
+
+        // options (flags + options + list options)
+        bool hasOptions = _flags.Count > 0 || _options.Count > 0 || _listOptions.Count > 0;
+        if (hasOptions)
+        {
+            sb.Append(",\"options\":[");
+            bool first = true;
+
+            foreach (FlagDef f in _flags)
+            {
+                if (!first)
+                {
+                    sb.Append(',');
+                }
+                first = false;
+                sb.Append('{');
+                sb.Append($"\"long\":\"{EscapeJson(f.LongName)}\"");
+                if (f.ShortName is not null)
+                {
+                    sb.Append($",\"short\":\"{EscapeJson(f.ShortName)}\"");
+                }
+                sb.Append(",\"type\":\"flag\"");
+                sb.Append($",\"description\":\"{EscapeJson(f.Description)}\"");
+                sb.Append(",\"repeatable\":false");
+                sb.Append('}');
+            }
+
+            foreach (OptionDef o in _options)
+            {
+                if (!first)
+                {
+                    sb.Append(',');
+                }
+                first = false;
+                sb.Append('{');
+                sb.Append($"\"long\":\"{EscapeJson(o.LongName)}\"");
+                if (o.ShortName is not null)
+                {
+                    sb.Append($",\"short\":\"{EscapeJson(o.ShortName)}\"");
+                }
+                string typeStr = o.Type switch
+                {
+                    OptionType.Int => "int",
+                    OptionType.Double => "double",
+                    _ => "string"
+                };
+                sb.Append($",\"type\":\"{typeStr}\"");
+                sb.Append($",\"placeholder\":\"{EscapeJson(o.Placeholder)}\"");
+                sb.Append($",\"description\":\"{EscapeJson(o.Description)}\"");
+                sb.Append(",\"repeatable\":false");
+                sb.Append('}');
+            }
+
+            foreach (ListOptionDef l in _listOptions)
+            {
+                if (!first)
+                {
+                    sb.Append(',');
+                }
+                first = false;
+                sb.Append('{');
+                sb.Append($"\"long\":\"{EscapeJson(l.LongName)}\"");
+                if (l.ShortName is not null)
+                {
+                    sb.Append($",\"short\":\"{EscapeJson(l.ShortName)}\"");
+                }
+                sb.Append(",\"type\":\"string\"");
+                sb.Append($",\"placeholder\":\"{EscapeJson(l.Placeholder)}\"");
+                sb.Append($",\"description\":\"{EscapeJson(l.Description)}\"");
+                sb.Append(",\"repeatable\":true");
+                sb.Append('}');
+            }
+
+            sb.Append(']');
+        }
+
+        // exit_codes
+        if (_exitCodes.Count > 0)
+        {
+            sb.Append(",\"exit_codes\":[");
+            for (int i = 0; i < _exitCodes.Count; i++)
+            {
+                if (i > 0)
+                {
+                    sb.Append(',');
+                }
+                sb.Append('{');
+                sb.Append($"\"code\":{_exitCodes[i].Code.ToString(CultureInfo.InvariantCulture)}");
+                sb.Append($",\"description\":\"{EscapeJson(_exitCodes[i].Description)}\"");
+                sb.Append('}');
+            }
+            sb.Append(']');
+        }
+
+        // io
+        if (_stdinDescription is not null || _stdoutDescription is not null || _stderrDescription is not null)
+        {
+            sb.Append(",\"io\":{");
+            bool ioFirst = true;
+            if (_stdinDescription is not null)
+            {
+                sb.Append($"\"stdin\":\"{EscapeJson(_stdinDescription)}\"");
+                ioFirst = false;
+            }
+            if (_stdoutDescription is not null)
+            {
+                if (!ioFirst)
+                {
+                    sb.Append(',');
+                }
+                sb.Append($"\"stdout\":\"{EscapeJson(_stdoutDescription)}\"");
+                ioFirst = false;
+            }
+            if (_stderrDescription is not null)
+            {
+                if (!ioFirst)
+                {
+                    sb.Append(',');
+                }
+                sb.Append($"\"stderr\":\"{EscapeJson(_stderrDescription)}\"");
+            }
+            sb.Append('}');
+        }
+
+        // examples
+        if (_examples.Count > 0)
+        {
+            sb.Append(",\"examples\":[");
+            for (int i = 0; i < _examples.Count; i++)
+            {
+                if (i > 0)
+                {
+                    sb.Append(',');
+                }
+                sb.Append('{');
+                sb.Append($"\"command\":\"{EscapeJson(_examples[i].Command)}\"");
+                sb.Append($",\"description\":\"{EscapeJson(_examples[i].Description)}\"");
+                sb.Append('}');
+            }
+            sb.Append(']');
+        }
+
+        // composes_with
+        if (_composability.Count > 0)
+        {
+            sb.Append(",\"composes_with\":[");
+            for (int i = 0; i < _composability.Count; i++)
+            {
+                if (i > 0)
+                {
+                    sb.Append(',');
+                }
+                sb.Append('{');
+                sb.Append($"\"tool\":\"{EscapeJson(_composability[i].Tool)}\"");
+                sb.Append($",\"pattern\":\"{EscapeJson(_composability[i].Pattern)}\"");
+                sb.Append($",\"description\":\"{EscapeJson(_composability[i].Description)}\"");
+                sb.Append('}');
+            }
+            sb.Append(']');
+        }
+
+        // json_output_fields
+        if (_jsonFields.Count > 0)
+        {
+            sb.Append(",\"json_output_fields\":[");
+            for (int i = 0; i < _jsonFields.Count; i++)
+            {
+                if (i > 0)
+                {
+                    sb.Append(',');
+                }
+                sb.Append('{');
+                sb.Append($"\"name\":\"{EscapeJson(_jsonFields[i].Name)}\"");
+                sb.Append($",\"type\":\"{EscapeJson(_jsonFields[i].Type)}\"");
+                sb.Append($",\"description\":\"{EscapeJson(_jsonFields[i].Description)}\"");
+                sb.Append('}');
+            }
+            sb.Append(']');
+        }
+
+        sb.Append('}');
+        return sb.ToString();
+    }
+
+    private static string EscapeJson(string value)
+    {
+        return value.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r").Replace("\t", "\\t");
     }
 
     // Internal definition types

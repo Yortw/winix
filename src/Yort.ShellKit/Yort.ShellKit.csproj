@@ -6,4 +6,7 @@
     <IsPackable>false</IsPackable>
     <PackageId>Yort.ShellKit.Library</PackageId>
   </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Yort.ShellKit.Tests" />
+  </ItemGroup>
 </Project>
