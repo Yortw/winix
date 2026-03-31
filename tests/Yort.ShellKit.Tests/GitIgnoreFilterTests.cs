@@ -1,0 +1,136 @@
+using System.Diagnostics;
+using Xunit;
+using Yort.ShellKit;
+
+namespace Yort.ShellKit.Tests;
+
+public class GitIgnoreFilterTests : IDisposable
+{
+    private readonly string _tempDir;
+
+    public GitIgnoreFilterTests()
+    {
+        _tempDir = Path.Combine(
+            Path.GetTempPath(),
+            "winix-gitignore-tests-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(_tempDir);
+    }
+
+    public void Dispose()
+    {
+        try { Directory.Delete(_tempDir, recursive: true); }
+        catch { /* best-effort cleanup */ }
+    }
+
+    [Fact]
+    public void Create_NotGitRepo_ReturnsNull()
+    {
+        using GitIgnoreFilter? filter = GitIgnoreFilter.Create(_tempDir);
+
+        Assert.Null(filter);
+    }
+
+    [Fact]
+    public void Create_GitRepoWithIgnore_ReturnsFilter()
+    {
+        InitGitRepo();
+        File.WriteAllText(Path.Combine(_tempDir, ".gitignore"), "*.log\nbin/\n");
+
+        using GitIgnoreFilter? filter = GitIgnoreFilter.Create(_tempDir);
+
+        Assert.NotNull(filter);
+    }
+
+    [Fact]
+    public void IsIgnored_IgnoredFile_ReturnsTrue()
+    {
+        InitGitRepo();
+        File.WriteAllText(Path.Combine(_tempDir, ".gitignore"), "*.log\n");
+        File.WriteAllText(Path.Combine(_tempDir, "debug.log"), "log content");
+
+        using GitIgnoreFilter? filter = GitIgnoreFilter.Create(_tempDir);
+        Assert.NotNull(filter);
+
+        Assert.True(filter!.IsIgnored("debug.log"));
+    }
+
+    [Fact]
+    public void IsIgnored_NotIgnoredFile_ReturnsFalse()
+    {
+        InitGitRepo();
+        File.WriteAllText(Path.Combine(_tempDir, ".gitignore"), "*.log\n");
+        File.WriteAllText(Path.Combine(_tempDir, "readme.md"), "hello");
+
+        using GitIgnoreFilter? filter = GitIgnoreFilter.Create(_tempDir);
+        Assert.NotNull(filter);
+
+        Assert.False(filter!.IsIgnored("readme.md"));
+    }
+
+    [Fact]
+    public void IsIgnored_IgnoredDirectory_ReturnsTrue()
+    {
+        InitGitRepo();
+        File.WriteAllText(Path.Combine(_tempDir, ".gitignore"), "bin/\n");
+        Directory.CreateDirectory(Path.Combine(_tempDir, "bin"));
+
+        using GitIgnoreFilter? filter = GitIgnoreFilter.Create(_tempDir);
+        Assert.NotNull(filter);
+
+        Assert.True(filter!.IsIgnored("bin/"));
+    }
+
+    [Fact]
+    public void IsIgnored_MultiplePathsInSingleSession_AllCorrect()
+    {
+        InitGitRepo();
+        File.WriteAllText(Path.Combine(_tempDir, ".gitignore"), "*.log\nbin/\n");
+        File.WriteAllText(Path.Combine(_tempDir, "debug.log"), "log content");
+        File.WriteAllText(Path.Combine(_tempDir, "readme.md"), "hello");
+        Directory.CreateDirectory(Path.Combine(_tempDir, "bin"));
+
+        using GitIgnoreFilter? filter = GitIgnoreFilter.Create(_tempDir);
+        Assert.NotNull(filter);
+
+        // Exercise the long-running process with several sequential queries.
+        Assert.True(filter!.IsIgnored("debug.log"));
+        Assert.False(filter.IsIgnored("readme.md"));
+        Assert.True(filter.IsIgnored("bin/"));
+        Assert.False(filter.IsIgnored("readme.md"));
+        Assert.True(filter.IsIgnored("debug.log"));
+    }
+
+    [Fact]
+    public void IsIgnored_AfterDispose_ThrowsObjectDisposedException()
+    {
+        InitGitRepo();
+        File.WriteAllText(Path.Combine(_tempDir, ".gitignore"), "*.log\n");
+
+        GitIgnoreFilter? filter = GitIgnoreFilter.Create(_tempDir);
+        Assert.NotNull(filter);
+        filter!.Dispose();
+
+        Assert.Throws<ObjectDisposedException>(() => filter.IsIgnored("debug.log"));
+    }
+
+    private void InitGitRepo()
+    {
+        RunGit("init");
+        RunGit("config user.email test@test.com");
+        RunGit("config user.name Test");
+    }
+
+    private void RunGit(string arguments)
+    {
+        var psi = new ProcessStartInfo("git", arguments)
+        {
+            WorkingDirectory = _tempDir,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        using var process = Process.Start(psi)!;
+        process.WaitForExit(10000);
+    }
+}
