@@ -6,4 +6,5 @@ obj/
 TestResults/
 tmp_*/
 .worktrees/
+.superpowers/
 /.claude/settings.local.json
