@@ -1,6 +1,6 @@
 {
   "version": "0.1.0-preview.4",
-  "description": "Winix CLI tool suite — timeit, squeeze, peep.",
+  "description": "Winix CLI tool suite — timeit, squeeze, peep, wargs.",
   "homepage": "https://github.com/Yortw/winix",
   "license": "MIT",
   "architecture": {
@@ -12,7 +12,8 @@
   "bin": [
     "timeit.exe",
     "squeeze.exe",
-    "peep.exe"
+    "peep.exe",
+    "wargs.exe"
   ],
   "checkver": "github",
   "autoupdate": {
