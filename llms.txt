@@ -9,6 +9,7 @@ Cross-platform CLI tool suite for the gaps between Windows and *nix. Native bina
 - [peep](docs/ai/peep.md): Watch a command on interval + re-run on file changes. Replaces `watch` + `entr`.
 - [wargs](docs/ai/wargs.md): Build and execute commands from stdin. Replaces `xargs` with sane defaults.
 - [files](docs/ai/files.md): Find files by name, size, date, type, and content. Replaces `find` with glob patterns and clean output.
+- [treex](docs/ai/treex.md): Enhanced directory tree with colour, filtering, sizes, and clickable links. Replaces `tree`.
 
 ## Key Features for AI Agents
 

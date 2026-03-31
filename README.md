@@ -17,12 +17,12 @@ Winix is a suite of small, focused command-line tools built with .NET and compil
 | [**squeeze**](src/squeeze/README.md) | Multi-format compression (gzip, brotli, zstd) | `gzip`, `brotli`, `zstd` | Shipped |
 | [**wargs**](src/wargs/README.md) | Build and execute commands from stdin | `xargs` | Shipped |
 | [**files**](src/files/README.md) | Find files by name, size, date, type, and content | `find` | Shipped |
+| [**treex**](src/treex/README.md) | Enhanced directory tree with colour, filtering, sizes | `tree` | Shipped |
 
 ### Planned
 
 | Tool | What it does | *nix equivalent |
 |------|-------------|-----------------|
-| **treex** | Enhanced directory tree with colour, filtering, sizes, .gitignore | `tree` |
 | **schedule** | Crontab + RRULE over Windows Task Scheduler | `crontab` |
 
 *See [design notes](docs/plans/2026-03-28-winix-design-notes.md) for more ideas.*
@@ -88,7 +88,7 @@ dotnet publish src/timeit/timeit.csproj -c Release -r win-x64
 
 ## Status
 
-Five tools shipped (`timeit`, `peep`, `squeeze`, `wargs`, `files`) — all functional, tested, and AOT-ready. More tools planned.
+Six tools shipped (`timeit`, `peep`, `squeeze`, `wargs`, `files`, `treex`) — all functional, tested, and AOT-ready. More tools planned.
 
 ## License
 
