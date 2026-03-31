@@ -1,0 +1,25 @@
+# Winix
+
+Cross-platform CLI tool suite for the gaps between Windows and *nix. Native binaries (AOT-compiled .NET), no runtime required.
+
+## Tools
+
+- [files](docs/ai/files.md): Find files by name, size, date, type, and content. Replaces `find` with glob patterns and clean output.
+
+## Key Features for AI Agents
+
+- Every tool supports `--describe` for structured JSON metadata (flags, types, examples, composability, platform scope)
+- Every tool supports `--json` for machine-parseable output with standard fields
+- Consistent exit codes across all tools (0 = success, 125 = usage error)
+- Tools compose via pipes: `files ... | wargs ...` replaces `find ... | xargs ...`
+- All current tools are cross-platform. Each tool's `--describe` output includes a `platform` section explaining what it replaces and its value on each OS.
+
+## Quick Reference
+
+Run `<tool> --describe` to get full structured metadata for any tool.
+Run `<tool> --help` for human-readable help.
+
+## Install
+
+Available via Scoop (Windows), winget (Windows), .NET tool (cross-platform), or direct download.
+See: https://github.com/Yortw/winix
