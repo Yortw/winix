@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsTrimmable>true</IsTrimmable>
+    <IsAotCompatible>true</IsAotCompatible>
+    <IsPackable>false</IsPackable>
+    <PackageId>Winix.TreeX.Library</PackageId>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Winix.FileWalk\Winix.FileWalk.csproj" />
+    <ProjectReference Include="..\Yort.ShellKit\Yort.ShellKit.csproj" />
+  </ItemGroup>
+</Project>
