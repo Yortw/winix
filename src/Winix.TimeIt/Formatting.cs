@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using Yort.ShellKit;
 
 namespace Winix.TimeIt;
@@ -53,31 +54,56 @@ public static class Formatting
     /// <param name="version">The tool's version string from assembly metadata.</param>
     public static string FormatJson(TimeItResult result, string toolName, string version)
     {
-        string userJson = result.UserCpuTime.HasValue
-            ? result.UserCpuTime.Value.TotalSeconds.ToString("F3", CultureInfo.InvariantCulture)
-            : "null";
-        string sysJson = result.SystemCpuTime.HasValue
-            ? result.SystemCpuTime.Value.TotalSeconds.ToString("F3", CultureInfo.InvariantCulture)
-            : "null";
-        string cpuJson = result.TotalCpuTime.HasValue
-            ? result.TotalCpuTime.Value.TotalSeconds.ToString("F3", CultureInfo.InvariantCulture)
-            : "null";
-        string peakJson = result.PeakMemoryBytes.HasValue
-            ? result.PeakMemoryBytes.Value.ToString(CultureInfo.InvariantCulture)
-            : "null";
+        var (writer, buffer) = JsonHelper.CreateWriter();
+        using (writer)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("tool", toolName);
+            writer.WriteString("version", version);
+            writer.WriteNumber("exit_code", 0);
+            writer.WriteString("exit_reason", "success");
+            writer.WriteNumber("child_exit_code", result.ExitCode);
+            JsonHelper.WriteFixedDecimal(writer, "wall_seconds", result.WallTime.TotalSeconds, 3);
 
-        return string.Format(
-            CultureInfo.InvariantCulture,
-            "{{\"tool\":\"{0}\",\"version\":\"{1}\",\"exit_code\":0,\"exit_reason\":\"success\",\"child_exit_code\":{2},\"wall_seconds\":{3:F3},\"user_cpu_seconds\":{4},\"sys_cpu_seconds\":{5},\"cpu_seconds\":{6},\"peak_memory_bytes\":{7}}}",
-            toolName,
-            version,
-            result.ExitCode,
-            result.WallTime.TotalSeconds,
-            userJson,
-            sysJson,
-            cpuJson,
-            peakJson
-        );
+            if (result.UserCpuTime.HasValue)
+            {
+                JsonHelper.WriteFixedDecimal(writer, "user_cpu_seconds", result.UserCpuTime.Value.TotalSeconds, 3);
+            }
+            else
+            {
+                writer.WriteNull("user_cpu_seconds");
+            }
+
+            if (result.SystemCpuTime.HasValue)
+            {
+                JsonHelper.WriteFixedDecimal(writer, "sys_cpu_seconds", result.SystemCpuTime.Value.TotalSeconds, 3);
+            }
+            else
+            {
+                writer.WriteNull("sys_cpu_seconds");
+            }
+
+            if (result.TotalCpuTime.HasValue)
+            {
+                JsonHelper.WriteFixedDecimal(writer, "cpu_seconds", result.TotalCpuTime.Value.TotalSeconds, 3);
+            }
+            else
+            {
+                writer.WriteNull("cpu_seconds");
+            }
+
+            if (result.PeakMemoryBytes.HasValue)
+            {
+                writer.WriteNumber("peak_memory_bytes", result.PeakMemoryBytes.Value);
+            }
+            else
+            {
+                writer.WriteNull("peak_memory_bytes");
+            }
+
+            writer.WriteEndObject();
+        }
+        return JsonHelper.GetString(buffer);
     }
 
     /// <summary>
@@ -90,13 +116,17 @@ public static class Formatting
     /// <param name="version">The tool's version string.</param>
     public static string FormatJsonError(int exitCode, string exitReason, string toolName, string version)
     {
-        return string.Format(
-            CultureInfo.InvariantCulture,
-            "{{\"tool\":\"{0}\",\"version\":\"{1}\",\"exit_code\":{2},\"exit_reason\":\"{3}\",\"child_exit_code\":null}}",
-            toolName,
-            version,
-            exitCode,
-            exitReason
-        );
+        var (writer, buffer) = JsonHelper.CreateWriter();
+        using (writer)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("tool", toolName);
+            writer.WriteString("version", version);
+            writer.WriteNumber("exit_code", exitCode);
+            writer.WriteString("exit_reason", exitReason);
+            writer.WriteNull("child_exit_code");
+            writer.WriteEndObject();
+        }
+        return JsonHelper.GetString(buffer);
     }
 }
