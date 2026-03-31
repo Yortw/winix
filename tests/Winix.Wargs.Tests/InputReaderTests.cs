@@ -68,4 +68,76 @@ public class InputReaderTests
         var items = reader.ReadItems().ToList();
         Assert.Equal(new[] { "line one\nstill one", "two" }, items);
     }
+
+    [Fact]
+    public void ReadItems_CustomDelimiter_SplitsOnChar()
+    {
+        var reader = new InputReader(new StringReader("alpha,beta,gamma"), DelimiterMode.Custom, ',');
+        var items = reader.ReadItems().ToList();
+        Assert.Equal(new[] { "alpha", "beta", "gamma" }, items);
+    }
+
+    [Fact]
+    public void ReadItems_CustomDelimiter_SkipsEmptyItems()
+    {
+        var reader = new InputReader(new StringReader("alpha,,beta,"), DelimiterMode.Custom, ',');
+        var items = reader.ReadItems().ToList();
+        Assert.Equal(new[] { "alpha", "beta" }, items);
+    }
+
+    [Fact]
+    public void ReadItems_Whitespace_SplitsOnSpacesAndTabs()
+    {
+        var reader = new InputReader(new StringReader("alpha beta\tgamma"), DelimiterMode.Whitespace);
+        var items = reader.ReadItems().ToList();
+        Assert.Equal(new[] { "alpha", "beta", "gamma" }, items);
+    }
+
+    [Fact]
+    public void ReadItems_Whitespace_SplitsAcrossNewlines()
+    {
+        var reader = new InputReader(new StringReader("alpha\nbeta gamma"), DelimiterMode.Whitespace);
+        var items = reader.ReadItems().ToList();
+        Assert.Equal(new[] { "alpha", "beta", "gamma" }, items);
+    }
+
+    [Fact]
+    public void ReadItems_Whitespace_SingleQuotesPreserveLiteral()
+    {
+        var reader = new InputReader(new StringReader("'hello world' beta"), DelimiterMode.Whitespace);
+        var items = reader.ReadItems().ToList();
+        Assert.Equal(new[] { "hello world", "beta" }, items);
+    }
+
+    [Fact]
+    public void ReadItems_Whitespace_DoubleQuotesPreserveSpaces()
+    {
+        var reader = new InputReader(new StringReader("\"hello world\" beta"), DelimiterMode.Whitespace);
+        var items = reader.ReadItems().ToList();
+        Assert.Equal(new[] { "hello world", "beta" }, items);
+    }
+
+    [Fact]
+    public void ReadItems_Whitespace_BackslashEscapesSpace()
+    {
+        var reader = new InputReader(new StringReader("hello\\ world beta"), DelimiterMode.Whitespace);
+        var items = reader.ReadItems().ToList();
+        Assert.Equal(new[] { "hello world", "beta" }, items);
+    }
+
+    [Fact]
+    public void ReadItems_Whitespace_DoubleQuotesAllowBackslashEscapes()
+    {
+        var reader = new InputReader(new StringReader("\"hello \\\"world\\\"\" beta"), DelimiterMode.Whitespace);
+        var items = reader.ReadItems().ToList();
+        Assert.Equal(new[] { "hello \"world\"", "beta" }, items);
+    }
+
+    [Fact]
+    public void ReadItems_Whitespace_EmptyInput_YieldsNothing()
+    {
+        var reader = new InputReader(new StringReader("   \n\t  "), DelimiterMode.Whitespace);
+        var items = reader.ReadItems().ToList();
+        Assert.Empty(items);
+    }
 }

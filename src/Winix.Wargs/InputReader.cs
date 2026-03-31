@@ -82,7 +82,57 @@ public sealed class InputReader
 
     private IEnumerable<string> ReadWhitespaceDelimited()
     {
-        // Placeholder — implemented in Task 3
-        yield break;
+        var buffer = new System.Text.StringBuilder();
+        int ch;
+        bool inSingleQuote = false;
+        bool inDoubleQuote = false;
+        bool escaped = false;
+
+        while ((ch = _source.Read()) != -1)
+        {
+            char c = (char)ch;
+
+            if (escaped)
+            {
+                buffer.Append(c);
+                escaped = false;
+                continue;
+            }
+
+            if (c == '\\' && !inSingleQuote)
+            {
+                escaped = true;
+                continue;
+            }
+
+            if (c == '\'' && !inDoubleQuote)
+            {
+                inSingleQuote = !inSingleQuote;
+                continue;
+            }
+
+            if (c == '"' && !inSingleQuote)
+            {
+                inDoubleQuote = !inDoubleQuote;
+                continue;
+            }
+
+            if (char.IsWhiteSpace(c) && !inSingleQuote && !inDoubleQuote)
+            {
+                if (buffer.Length > 0)
+                {
+                    yield return buffer.ToString();
+                    buffer.Clear();
+                }
+                continue;
+            }
+
+            buffer.Append(c);
+        }
+
+        if (buffer.Length > 0)
+        {
+            yield return buffer.ToString();
+        }
     }
 }
