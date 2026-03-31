@@ -77,6 +77,9 @@ cat urls.txt | wargs -P4 -k curl -s {}
 
 # NDJSON — streaming per-job results to stderr
 cat servers.txt | wargs --ndjson ssh {} "uptime"
+
+# Windows — dir /b gives bare filenames, one per line
+dir /b *.log | wargs del {}
 ```
 
 ## How It Works
@@ -103,6 +106,7 @@ cat servers.txt | wargs --ndjson ssh {} "uptime"
 | `-v`, `--verbose` | Print each command to stderr before running |
 | `--json` | JSON summary to stderr on exit |
 | `--ndjson` | Streaming NDJSON per job to stderr |
+| `--no-shell-fallback` | Disable shell fallback for builtins |
 | `--no-color` | Disable colored output |
 | `--color` | Force colored output |
 | `--version` | Show version |
@@ -134,6 +138,16 @@ cat servers.txt | wargs --ndjson ssh {} "uptime"
 | 125 | Usage error (bad arguments) |
 | 126 | Command not executable |
 | 127 | Command not found |
+
+## Shell Builtins
+
+Commands like `echo`, `del`, `type`, and `ver` are shell builtins on Windows — they don't exist as standalone `.exe` files. By default, wargs automatically retries failed commands via the platform shell (`cmd /c` on Windows, `sh -c` on Unix), so builtins work transparently:
+
+```bash
+dir /b *.log | wargs echo {}
+```
+
+Use `--no-shell-fallback` to disable this and require all commands to be standalone executables.
 
 ## Colour
 
