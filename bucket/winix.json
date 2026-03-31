@@ -14,7 +14,8 @@
     "squeeze.exe",
     "peep.exe",
     "wargs.exe",
-    "files.exe"
+    "files.exe",
+    "treex.exe"
   ],
   "checkver": "github",
   "autoupdate": {

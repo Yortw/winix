@@ -1,0 +1,21 @@
+{
+  "version": "0.1.0-preview.1",
+  "description": "Enhanced directory tree with colour, filtering, size rollups, gitignore, and clickable hyperlinks.",
+  "homepage": "https://github.com/Yortw/winix",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/Yortw/winix/releases/download/v0.0.0/treex-win-x64.zip",
+      "hash": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  },
+  "bin": "treex.exe",
+  "checkver": "github",
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/Yortw/winix/releases/download/v$version/treex-win-x64.zip"
+      }
+    }
+  }
+}
