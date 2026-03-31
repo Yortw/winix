@@ -87,6 +87,9 @@ jobs:
       - name: Pack wargs
         run: dotnet pack src/wargs/wargs.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
 
+      - name: Pack files
+        run: dotnet pack src/files/files.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
+
       - name: Upload NuGet packages
         uses: actions/upload-artifact@v4
         with:
@@ -129,6 +132,9 @@ jobs:
       - name: Publish wargs
         run: dotnet publish src/wargs/wargs.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
 
+      - name: Publish files
+        run: dotnet publish src/files/files.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
+
       - name: Zip binaries (Linux/macOS)
         if: runner.os != 'Windows'
         run: |
@@ -136,6 +142,7 @@ jobs:
           cd src/squeeze/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/squeeze-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
           cd src/peep/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/peep-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
           cd src/wargs/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/wargs-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
+          cd src/files/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/files-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
 
       - name: Zip binaries (Windows)
         if: runner.os == 'Windows'
@@ -145,6 +152,7 @@ jobs:
           Compress-Archive -Path src/squeeze/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath squeeze-${{ matrix.rid }}.zip
           Compress-Archive -Path src/peep/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath peep-${{ matrix.rid }}.zip
           Compress-Archive -Path src/wargs/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath wargs-${{ matrix.rid }}.zip
+          Compress-Archive -Path src/files/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath files-${{ matrix.rid }}.zip
 
       - name: Create combined Winix zip (Windows)
         if: runner.os == 'Windows' && matrix.rid == 'win-x64'
@@ -155,6 +163,7 @@ jobs:
           Copy-Item src/squeeze/bin/Release/net10.0/${{ matrix.rid }}/publish/squeeze.exe winix-combined/
           Copy-Item src/peep/bin/Release/net10.0/${{ matrix.rid }}/publish/peep.exe winix-combined/
           Copy-Item src/wargs/bin/Release/net10.0/${{ matrix.rid }}/publish/wargs.exe winix-combined/
+          Copy-Item src/files/bin/Release/net10.0/${{ matrix.rid }}/publish/files.exe winix-combined/
           Compress-Archive -Path winix-combined/* -DestinationPath winix-${{ matrix.rid }}.zip
 
       - name: Upload AOT binaries
@@ -267,6 +276,7 @@ jobs:
           update_manifest bucket/squeeze.json aot/squeeze-win-x64.zip
           update_manifest bucket/peep.json aot/peep-win-x64.zip
           update_manifest bucket/wargs.json aot/wargs-win-x64.zip
+          update_manifest bucket/files.json aot/files-win-x64.zip
           update_manifest bucket/winix.json aot/winix-win-x64.zip
 
       - name: Commit and push scoop bucket
@@ -350,6 +360,7 @@ jobs:
           generate_manifests "squeeze" "Squeeze" "Compress and decompress files using gzip, brotli, or zstd."
           generate_manifests "peep" "Peep" "Run a command repeatedly and display output on a refreshing screen."
           generate_manifests "wargs" "Wargs" "Cross-platform xargs replacement with sane defaults."
+          generate_manifests "files" "Files" "Find files by name, size, date, type, and content. A cross-platform find replacement."
 
       - name: Upload winget manifests
         uses: actions/upload-artifact@v4
