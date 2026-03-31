@@ -14,8 +14,8 @@ public static class AnsiColor
     /// <summary>Red text (ANSI SGR 31).</summary>
     public static string Red(bool enabled) => enabled ? "\x1b[31m" : "";
 
-    /// <summary>Blue text (ANSI SGR 34).</summary>
-    public static string Blue(bool enabled) => enabled ? "\x1b[34m" : "";
+    /// <summary>Bright blue text (ANSI SGR 94). Uses bright variant for readability on dark backgrounds.</summary>
+    public static string Blue(bool enabled) => enabled ? "\x1b[94m" : "";
 
     /// <summary>Cyan text (ANSI SGR 36).</summary>
     public static string Cyan(bool enabled) => enabled ? "\x1b[36m" : "";

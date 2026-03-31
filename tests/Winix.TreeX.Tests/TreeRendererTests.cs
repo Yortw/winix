@@ -134,8 +134,8 @@ public class TreeRendererTests
         var opts = new TreeRenderOptions(UseColor: true, UseLinks: false, ShowSize: false, ShowDate: false, DirsOnly: false);
         string output = RenderToString(root, opts);
 
-        // Blue escape: \x1b[34m should wrap directory names
-        Assert.Contains("\x1b[34m", output);
+        // Blue escape: \x1b[94m should wrap directory names
+        Assert.Contains("\x1b[94m", output);
     }
 
     [Fact]
@@ -333,7 +333,7 @@ public class TreeRendererTests
         // Both OSC 8 and no colour wrapping for a regular file (no colour on name)
         // but root is a dir and should have blue + link
         Assert.Contains("\x1b]8;;file://", output);
-        Assert.Contains("\x1b[34m", output); // blue for root dir name
+        Assert.Contains("\x1b[94m", output); // blue for root dir name
     }
 
     [Fact]

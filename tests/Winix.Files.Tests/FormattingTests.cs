@@ -57,7 +57,7 @@ public class FormattingTests
     {
         string result = Formatting.FormatPath(SampleDir, useColor: true);
         Assert.True(result.Contains('\x1b'), "Should contain ANSI escape");
-        Assert.StartsWith("\x1b[34m", result); // Blue
+        Assert.StartsWith("\x1b[94m", result); // Blue
         Assert.EndsWith("\x1b[0m", result); // Reset
         Assert.Contains("src", result);
     }
