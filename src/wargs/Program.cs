@@ -35,7 +35,29 @@ internal sealed class Program
                 (WargsExitCode.FailFastAbort, "Aborted due to --fail-fast"),
                 (ExitCode.UsageError, "Usage error"),
                 (ExitCode.NotExecutable, "Command not executable"),
-                (ExitCode.NotFound, "Command not found"));
+                (ExitCode.NotFound, "Command not found"))
+            .Platform("cross-platform",
+                replaces: new[] { "xargs" },
+                valueOnWindows: "No native xargs; Git Bash xargs has path-mangling issues with Windows paths",
+                valueOnUnix: "Sane line-delimited default instead of whitespace splitting")
+            .StdinDescription("Items to process, one per line (default). Null-delimited with -0. Whitespace with --compat.")
+            .StdoutDescription("Child process stdout (buffered per job by default)")
+            .StderrDescription("Failure summary. JSON with --json. NDJSON per job with --ndjson.")
+            .Example("files . --ext log | wargs rm", "Delete all log files")
+            .Example("git diff --name-only | wargs dotnet format", "Format changed files")
+            .Example("files . --ext cs | wargs -P4 dotnet format", "Parallel format")
+            .Example("echo 'one\\ntwo\\nthree' | wargs echo", "Basic usage")
+            .ComposesWith("files", "files ... | wargs <command>", "Find then execute (find | xargs pattern)")
+            .ComposesWith("squeeze", "files . --ext csv | wargs squeeze --zstd", "Batch compress")
+            .JsonField("tool", "string", "Tool name (\"wargs\")")
+            .JsonField("version", "string", "Tool version")
+            .JsonField("exit_code", "int", "Tool exit code (0 = success)")
+            .JsonField("exit_reason", "string", "Machine-readable exit reason")
+            .JsonField("total_jobs", "int", "Total number of jobs")
+            .JsonField("succeeded", "int", "Jobs that exited 0")
+            .JsonField("failed", "int", "Jobs that exited non-zero")
+            .JsonField("skipped", "int", "Jobs skipped (fail-fast)")
+            .JsonField("wall_seconds", "float", "Total wall time in seconds");
 
         var result = parser.Parse(args);
         if (result.IsHandled) { return result.ExitCode; }

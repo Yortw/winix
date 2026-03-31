@@ -56,7 +56,30 @@ internal sealed class Program
                 (0, "Auto-exit condition met, or manual quit with last child exit 0"),
                 (ExitCode.UsageError, "Usage error"),
                 (ExitCode.NotExecutable, "Command not executable"),
-                (ExitCode.NotFound, "Command not found"));
+                (ExitCode.NotFound, "Command not found"))
+            .Platform("cross-platform",
+                replaces: new[] { "watch", "entr" },
+                valueOnWindows: "No native watch or entr equivalent on Windows",
+                valueOnUnix: "Combines watch + entr in one tool with diff highlighting")
+            .StdinDescription("Not used")
+            .StdoutDescription("Child process output displayed on refreshing screen")
+            .StderrDescription("Errors and diagnostics. NDJSON with --ndjson.")
+            .Example("peep -- git status", "Watch git status every 2 seconds")
+            .Example("peep -n 5 -- kubectl get pods", "Watch pods every 5 seconds")
+            .Example("peep -w 'src/**/*.cs' -- dotnet test", "Re-run tests on file change")
+            .Example("peep --ndjson -- dotnet test", "Stream test results as NDJSON")
+            .ComposesWith("files", "peep -- files . --newer 5m --type f", "Watch for recently created files")
+            .ComposesWith("timeit", "peep -- timeit dotnet build", "Monitor build times")
+            .JsonField("tool", "string", "Tool name (\"peep\")")
+            .JsonField("version", "string", "Tool version")
+            .JsonField("exit_code", "int", "Tool exit code (0 = success)")
+            .JsonField("exit_reason", "string", "Machine-readable exit reason (manual, once, exit_on_success, etc.)")
+            .JsonField("runs", "int", "Total command executions during session")
+            .JsonField("last_child_exit_code", "int|null", "Exit code of the final child run")
+            .JsonField("duration_seconds", "float", "Total session wall time in seconds")
+            .JsonField("command", "string", "The watched command")
+            .JsonField("last_output", "string|null", "Captured output from final run (with --json-output)")
+            .JsonField("history_retained", "int|null", "Snapshots retained at session end");
 
         var result = parser.Parse(args);
         if (result.IsHandled) return result.ExitCode;

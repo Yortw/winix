@@ -48,7 +48,33 @@ internal sealed class Program
             .ExitCodes(
                 (0, "Success"),
                 (1, "Compression/decompression error"),
-                (2, "Usage error"));
+                (2, "Usage error"))
+            .Platform("cross-platform",
+                replaces: new[] { "gzip", "brotli", "zstd" },
+                valueOnWindows: "Windows ships no compression CLI tools at all",
+                valueOnUnix: "Single tool for gzip + brotli + zstd; brotli CLI is rarely installed anywhere")
+            .StdinDescription("Reads input data when no file argument given (pipe mode)")
+            .StdoutDescription("Compressed/decompressed data in pipe mode")
+            .StderrDescription("Status summary. JSON with --json.")
+            .Example("squeeze file.csv", "Compress with gzip (default)")
+            .Example("squeeze --zstd largefile.bin", "Compress with zstd")
+            .Example("squeeze -d file.csv.gz", "Decompress (auto-detect format)")
+            .Example("cat dump.sql | squeeze > dump.gz", "Pipe mode compression")
+            .Example("squeeze --json file.csv", "Machine-parseable result for CI")
+            .ComposesWith("files", "files . --ext log | wargs squeeze --zstd", "Compress all log files")
+            .ComposesWith("wargs", "files . --ext csv | wargs squeeze", "Batch compress files")
+            .JsonField("tool", "string", "Tool name (\"squeeze\")")
+            .JsonField("version", "string", "Tool version")
+            .JsonField("exit_code", "int", "Tool exit code (0 = success)")
+            .JsonField("exit_reason", "string", "Machine-readable exit reason")
+            .JsonField("files", "array", "Array of per-file result objects")
+            .JsonField("files[].input", "string", "Input file path")
+            .JsonField("files[].output", "string", "Output file path")
+            .JsonField("files[].input_bytes", "int", "Original size in bytes")
+            .JsonField("files[].output_bytes", "int", "Compressed/decompressed size in bytes")
+            .JsonField("files[].ratio", "float", "Compression ratio (0.0–1.0)")
+            .JsonField("files[].format", "string", "Compression format (gz, br, zst)")
+            .JsonField("files[].seconds", "float", "Processing time in seconds");
 
         var result = parser.Parse(args);
         if (result.IsHandled) return result.ExitCode;

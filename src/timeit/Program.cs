@@ -20,7 +20,28 @@ internal sealed class Program
                 (0, "Child process exit code (pass-through)"),
                 (ExitCode.UsageError, "No command specified or bad timeit arguments"),
                 (ExitCode.NotExecutable, "Command not executable (permission denied)"),
-                (ExitCode.NotFound, "Command not found"));
+                (ExitCode.NotFound, "Command not found"))
+            .Platform("cross-platform",
+                replaces: new[] { "time" },
+                valueOnWindows: "No native time command; Measure-Command is verbose and doesn't stream output",
+                valueOnUnix: "Richer output than time — peak memory, CPU breakdown, JSON output")
+            .StdinDescription("Not used (child process inherits stdin)")
+            .StdoutDescription("Child process stdout passes through unmodified")
+            .StderrDescription("Timing summary after child exits. JSON with --json. Child stderr also passes through.")
+            .Example("timeit dotnet build", "Time a build")
+            .Example("timeit --json dotnet test", "Machine-parseable timing for CI")
+            .Example("timeit --stdout dotnet build 2>/dev/null", "Capture just the timing summary")
+            .ComposesWith("peep", "peep -- timeit dotnet build", "Watch build time on every file change")
+            .JsonField("tool", "string", "Tool name (\"timeit\")")
+            .JsonField("version", "string", "Tool version")
+            .JsonField("exit_code", "int", "Tool exit code (0 = success)")
+            .JsonField("exit_reason", "string", "Machine-readable exit reason")
+            .JsonField("child_exit_code", "int|null", "Child process exit code")
+            .JsonField("wall_seconds", "float", "Wall clock time in seconds")
+            .JsonField("user_cpu_seconds", "float|null", "User CPU time in seconds")
+            .JsonField("sys_cpu_seconds", "float|null", "System CPU time in seconds")
+            .JsonField("cpu_seconds", "float|null", "Total CPU time (user + sys)")
+            .JsonField("peak_memory_bytes", "int|null", "Peak working set in bytes");
 
         var result = parser.Parse(args);
         if (result.IsHandled) return result.ExitCode;
