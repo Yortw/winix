@@ -1,5 +1,3 @@
-#nullable enable
-
 using System.Globalization;
 using System.Text.Json;
 using Winix.FileWalk;
@@ -133,13 +131,7 @@ public static class Formatting
     /// </summary>
     public static string FormatTypeString(FileEntryType type)
     {
-        return type switch
-        {
-            FileEntryType.File => "file",
-            FileEntryType.Directory => "dir",
-            FileEntryType.Symlink => "link",
-            _ => "file"
-        };
+        return FileSystemHelper.FormatTypeString(type);
     }
 
 }

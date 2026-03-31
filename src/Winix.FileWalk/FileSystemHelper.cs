@@ -45,4 +45,19 @@ public static class FileSystemHelper
 
         return false;
     }
+
+    /// <summary>
+    /// Returns a short display string for a <see cref="FileEntryType"/>:
+    /// <c>file</c>, <c>dir</c>, or <c>link</c>.
+    /// </summary>
+    public static string FormatTypeString(FileEntryType type)
+    {
+        return type switch
+        {
+            FileEntryType.File => "file",
+            FileEntryType.Directory => "dir",
+            FileEntryType.Symlink => "link",
+            _ => "file"
+        };
+    }
 }
