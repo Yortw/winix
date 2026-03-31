@@ -105,7 +105,7 @@ internal sealed class Program
         try
         {
             exitOnMatchRegexes = result.GetList("--exit-on-match")
-                .Select(p => new Regex(p, RegexOptions.Compiled))
+                .Select(p => new Regex(p, RegexOptions.None))
                 .ToArray();
         }
         catch (RegexParseException ex)
