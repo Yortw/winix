@@ -89,17 +89,15 @@ public sealed class GitIgnoreFilter : IDisposable
     }
 
     /// <summary>
-    /// Checks multiple paths in a single <c>git check-ignore --stdin</c> invocation.
+    /// Checks multiple paths in a single <c>git check-ignore --stdin</c> invocation per chunk.
     /// Returns the subset of paths that are ignored. Far more efficient than calling
     /// <see cref="IsIgnored"/> per file — one process per batch instead of one per path.
     /// </summary>
-    /// <param name="relativePaths">Paths relative to the git root, using forward slashes.</param>
-    /// <returns>A set of the paths from <paramref name="relativePaths"/> that are ignored.</returns>
-    /// <summary>
-    /// Checks multiple paths in a single <c>git check-ignore --stdin</c> invocation.
-    /// Returns the subset of paths that are ignored. Far more efficient than calling
-    /// <see cref="IsIgnored"/> per file — one process per batch instead of one per path.
-    /// </summary>
+    /// <remarks>
+    /// Paths are processed in chunks of 100 to avoid pipe buffer deadlock. Each chunk's
+    /// output is small relative to the OS pipe buffer (4 KB on Windows, 64 KB on Linux),
+    /// so synchronous write-then-read within a chunk is safe.
+    /// </remarks>
     /// <param name="relativePaths">Paths relative to the git root, using forward slashes.</param>
     /// <returns>A set of the paths from <paramref name="relativePaths"/> that are ignored.</returns>
     public HashSet<string> CheckBatch(IReadOnlyList<string> relativePaths)
@@ -109,6 +107,18 @@ public sealed class GitIgnoreFilter : IDisposable
         var ignored = new HashSet<string>(StringComparer.Ordinal);
         if (relativePaths.Count == 0) { return ignored; }
 
+        const int chunkSize = 100;
+        for (int offset = 0; offset < relativePaths.Count; offset += chunkSize)
+        {
+            int count = Math.Min(chunkSize, relativePaths.Count - offset);
+            CheckBatchChunk(relativePaths, offset, count, ignored);
+        }
+
+        return ignored;
+    }
+
+    private void CheckBatchChunk(IReadOnlyList<string> paths, int offset, int count, HashSet<string> ignored)
+    {
         try
         {
             var psi = new ProcessStartInfo("git", "check-ignore --stdin")
@@ -121,18 +131,14 @@ public sealed class GitIgnoreFilter : IDisposable
                 CreateNoWindow = true
             };
             using var process = Process.Start(psi);
-            if (process is null) { return ignored; }
+            if (process is null) { return; }
 
-            // Write all paths then close stdin. For typical directory batches
-            // (5-20 paths), output is well under the 4KB pipe buffer so
-            // synchronous write-then-read won't deadlock.
-            foreach (string path in relativePaths)
+            for (int i = offset; i < offset + count; i++)
             {
-                process.StandardInput.WriteLine(path);
+                process.StandardInput.WriteLine(paths[i]);
             }
             process.StandardInput.Close();
 
-            // Read stdout (ignored paths) and drain stderr to prevent buffer deadlock
             string stdout = process.StandardOutput.ReadToEnd();
             process.StandardError.ReadToEnd();
             process.WaitForExit(5000);
@@ -150,8 +156,6 @@ public sealed class GitIgnoreFilter : IDisposable
         {
             // If git fails, treat nothing as ignored
         }
-
-        return ignored;
     }
 
     /// <summary>Disposes this instance. No process is held open, so this is a no-op.</summary>
