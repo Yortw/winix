@@ -43,6 +43,9 @@ scoop install winix/winix     # all tools
 winget install Winix.TimeIt
 winget install Winix.Squeeze
 winget install Winix.Peep
+winget install Winix.Wargs
+winget install Winix.Files
+winget install Winix.TreeX
 ```
 
 ### .NET Tool (cross-platform)
@@ -51,6 +54,9 @@ winget install Winix.Peep
 dotnet tool install -g Winix.TimeIt
 dotnet tool install -g Winix.Squeeze
 dotnet tool install -g Winix.Peep
+dotnet tool install -g Winix.Wargs
+dotnet tool install -g Winix.Files
+dotnet tool install -g Winix.TreeX
 ```
 
 ### Direct Download
@@ -70,8 +76,17 @@ peep -w "src/**/*.cs" dotnet test
 # Compress with zstd
 squeeze --zstd largefile.bin
 
+# Find files and batch-process them
+files src --ext cs | wargs dotnet format
+
+# Browse a directory tree with sizes
+treex --size --gitignore --no-hidden
+
 # JSON output for CI
 timeit --json dotnet test
+
+# AI agent metadata
+files --describe
 ```
 
 ## Building from Source

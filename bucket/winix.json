@@ -1,6 +1,6 @@
 {
   "version": "0.1.0-preview.4",
-  "description": "Winix CLI tool suite — timeit, squeeze, peep, wargs, files.",
+  "description": "Winix CLI tool suite — timeit, squeeze, peep, wargs, files, treex.",
   "homepage": "https://github.com/Yortw/winix",
   "license": "MIT",
   "architecture": {
