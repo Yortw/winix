@@ -51,4 +51,23 @@ public class SizeParserTests
         Assert.False(ok);
         Assert.Equal(0, bytes);
     }
+
+    [Theory]
+    [InlineData("9999999999G")]
+    [InlineData("9999999999999999k")]
+    [InlineData("9223372036854775807G")]
+    public void TryParse_Overflow_ReturnsFalse(string input)
+    {
+        bool ok = SizeParser.TryParse(input, out long bytes);
+        Assert.False(ok);
+        Assert.Equal(0, bytes);
+    }
+
+    [Theory]
+    [InlineData("9999999999G")]
+    [InlineData("9999999999999999k")]
+    public void Parse_Overflow_ThrowsFormatException(string input)
+    {
+        Assert.Throws<FormatException>(() => SizeParser.Parse(input));
+    }
 }

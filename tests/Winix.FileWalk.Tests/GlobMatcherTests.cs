@@ -71,4 +71,22 @@ public class GlobMatcherTests
         var matcher = new GlobMatcher(Array.Empty<string>(), caseInsensitive: false);
         Assert.False(matcher.HasPatterns);
     }
+
+    [Fact]
+    public void IsMatch_DoubleStarPattern_MatchesAcrossDirectories()
+    {
+        var matcher = new GlobMatcher(new[] { "**/*.cs" }, caseInsensitive: false);
+        Assert.True(matcher.IsMatch("src/Program.cs"));
+        Assert.True(matcher.IsMatch("src/deep/nested/File.cs"));
+        Assert.False(matcher.IsMatch("src/readme.md"));
+    }
+
+    [Fact]
+    public void IsMatch_DoubleStarAlone_MatchesAnything()
+    {
+        // ** alone matches any path
+        var matcher = new GlobMatcher(new[] { "**" }, caseInsensitive: false);
+        Assert.True(matcher.IsMatch("Program.cs"));
+        Assert.True(matcher.IsMatch("src/deep/File.cs"));
+    }
 }

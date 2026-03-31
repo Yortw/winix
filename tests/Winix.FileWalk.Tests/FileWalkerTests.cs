@@ -336,4 +336,37 @@ public class FileWalkerTests : IDisposable
             Directory.Delete(root2, recursive: true);
         }
     }
+
+    [Fact]
+    public void Walk_MinSize_ExcludesSmallFiles()
+    {
+        // file1.cs = "class A {}" = 10 bytes, file2.txt = "hello" = 5 bytes
+        var walker = new FileWalker(MakeOptions(typeFilter: FileEntryType.File, minSize: 6));
+        var results = walker.Walk(new[] { _root }).ToList();
+
+        Assert.DoesNotContain(results, e => e.Name == "file2.txt");
+        Assert.Contains(results, e => e.Name == "file1.cs");
+    }
+
+    [Fact]
+    public void Walk_MaxSize_ExcludesLargeFiles()
+    {
+        // file1.cs = 10 bytes, file2.txt = 5 bytes
+        var walker = new FileWalker(MakeOptions(typeFilter: FileEntryType.File, maxSize: 6));
+        var results = walker.Walk(new[] { _root }).ToList();
+
+        Assert.Contains(results, e => e.Name == "file2.txt");
+        Assert.DoesNotContain(results, e => e.Name == "file1.cs");
+    }
+
+    [Fact]
+    public void Walk_MinAndMaxSize_FiltersRange()
+    {
+        // Only files between 6 and 15 bytes: file1.cs (10 bytes) matches
+        var walker = new FileWalker(MakeOptions(typeFilter: FileEntryType.File, minSize: 6, maxSize: 15));
+        var results = walker.Walk(new[] { _root }).ToList();
+
+        Assert.Contains(results, e => e.Name == "file1.cs");
+        Assert.DoesNotContain(results, e => e.Name == "file2.txt");
+    }
 }

@@ -82,4 +82,23 @@ public class DurationParserTests
         Assert.False(ok);
         Assert.Equal(TimeSpan.Zero, duration);
     }
+
+    [Theory]
+    [InlineData("999999999999999w")]
+    [InlineData("9999999999999999d")]
+    [InlineData("99999999999999999h")]
+    public void TryParse_Overflow_ReturnsFalse(string input)
+    {
+        bool ok = DurationParser.TryParse(input, out TimeSpan duration);
+        Assert.False(ok);
+        Assert.Equal(TimeSpan.Zero, duration);
+    }
+
+    [Theory]
+    [InlineData("999999999999999w")]
+    [InlineData("9999999999999999d")]
+    public void Parse_Overflow_ThrowsFormatException(string input)
+    {
+        Assert.Throws<FormatException>(() => DurationParser.Parse(input));
+    }
 }
