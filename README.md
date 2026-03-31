@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="Winix.png" alt="Winix — a penguin peeking through Windows shutters" width="128" />
+</p>
+
 # Winix
 
 **Cross-platform CLI tools for the gaps between Windows and *nix.**

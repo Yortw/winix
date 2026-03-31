@@ -15,5 +15,9 @@
     <RepositoryType>git</RepositoryType>
     <PackageProjectUrl>https://github.com/Yortw/winix</PackageProjectUrl>
     <PackageTags>cli;tools;cross-platform;aot</PackageTags>
+    <PackageIcon>Winix.png</PackageIcon>
   </PropertyGroup>
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)Winix.png" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
 </Project>
