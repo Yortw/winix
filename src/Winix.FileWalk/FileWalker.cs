@@ -1,6 +1,5 @@
 #nullable enable
 
-using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 
 namespace Winix.FileWalk;
@@ -110,19 +109,11 @@ public sealed class FileWalker
         {
             string name = Path.GetFileName(fullPath);
 
-            // Hidden check: dot-prefix or Windows hidden attribute
-            if (!_options.IncludeHidden && IsHidden(fullPath, name))
-            {
-                continue;
-            }
-
-            bool isDirectory;
-            bool isSymlink;
+            // Get attributes once -- used for hidden check, directory/symlink detection
+            FileAttributes attrs;
             try
             {
-                var attrs = File.GetAttributes(fullPath);
-                isDirectory = (attrs & FileAttributes.Directory) != 0;
-                isSymlink = (attrs & FileAttributes.ReparsePoint) != 0;
+                attrs = File.GetAttributes(fullPath);
             }
             catch (UnauthorizedAccessException)
             {
@@ -133,7 +124,15 @@ public sealed class FileWalker
                 continue;
             }
 
-            string relativePath = GetRelativePath(root, fullPath);
+            if (!_options.IncludeHidden && FileSystemHelper.IsHidden(fullPath, name, attrs))
+            {
+                continue;
+            }
+
+            bool isDirectory = (attrs & FileAttributes.Directory) != 0;
+            bool isSymlink = (attrs & FileAttributes.ReparsePoint) != 0;
+
+            string relativePath = FileSystemHelper.GetRelativePath(root, fullPath);
 
             if (isDirectory)
             {
@@ -313,42 +312,4 @@ public sealed class FileWalker
         return false;
     }
 
-    /// <summary>
-    /// Returns a forward-slash relative path from root to the given full path.
-    /// </summary>
-    private static string GetRelativePath(string root, string fullPath)
-    {
-        string relative = Path.GetRelativePath(root, fullPath);
-        return relative.Replace('\\', '/');
-    }
-
-    /// <summary>
-    /// Checks if a file or directory is hidden. A dot-prefix in the name is always considered hidden.
-    /// On Windows, the <see cref="FileAttributes.Hidden"/> attribute is also checked.
-    /// </summary>
-    private static bool IsHidden(string fullPath, string name)
-    {
-        if (name.Length > 0 && name[0] == '.')
-        {
-            return true;
-        }
-
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            try
-            {
-                var attrs = File.GetAttributes(fullPath);
-                if ((attrs & FileAttributes.Hidden) != 0)
-                {
-                    return true;
-                }
-            }
-            catch
-            {
-                // Can't read attributes — treat as not hidden
-            }
-        }
-
-        return false;
-    }
 }

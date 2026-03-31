@@ -112,12 +112,7 @@ public sealed class TreeBuilder
         {
             string name = Path.GetFileName(fullPath);
 
-            // Hidden check
-            if (!_options.IncludeHidden && IsHidden(fullPath, name))
-            {
-                continue;
-            }
-
+            // Get attributes once -- used for hidden check, directory/symlink detection
             FileAttributes attrs;
             try
             {
@@ -132,10 +127,15 @@ public sealed class TreeBuilder
                 continue;
             }
 
+            if (!_options.IncludeHidden && FileSystemHelper.IsHidden(fullPath, name, attrs))
+            {
+                continue;
+            }
+
             bool isDirectory = (attrs & FileAttributes.Directory) != 0;
             bool isSymlink = (attrs & FileAttributes.ReparsePoint) != 0;
 
-            string relativePath = GetRelativePath(rootPath, fullPath);
+            string relativePath = FileSystemHelper.GetRelativePath(rootPath, fullPath);
 
             // Gitignore check — skip ignored entries
             if (_isIgnored != null && _isIgnored(relativePath))
@@ -361,45 +361,6 @@ public sealed class TreeBuilder
             if (regex.IsMatch(fileName))
             {
                 return true;
-            }
-        }
-
-        return false;
-    }
-
-    /// <summary>
-    /// Returns a forward-slash relative path from root to the given full path.
-    /// </summary>
-    private static string GetRelativePath(string root, string fullPath)
-    {
-        string relative = Path.GetRelativePath(root, fullPath);
-        return relative.Replace('\\', '/');
-    }
-
-    /// <summary>
-    /// Checks if a file or directory is hidden. A dot-prefix is always hidden.
-    /// On Windows, the <see cref="FileAttributes.Hidden"/> attribute is also checked.
-    /// </summary>
-    private static bool IsHidden(string fullPath, string name)
-    {
-        if (name.Length > 0 && name[0] == '.')
-        {
-            return true;
-        }
-
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            try
-            {
-                var attrs = File.GetAttributes(fullPath);
-                if ((attrs & FileAttributes.Hidden) != 0)
-                {
-                    return true;
-                }
-            }
-            catch
-            {
-                // Can't read attributes — treat as not hidden
             }
         }
 
