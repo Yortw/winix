@@ -1,4 +1,3 @@
-#nullable enable
 
 using System.Text.RegularExpressions;
 
@@ -53,9 +52,12 @@ public sealed class FileWalker
         {
             string fullRoot = Path.GetFullPath(root);
 
-            // Track visited real paths for symlink cycle detection
+            // Track visited real paths for symlink cycle detection.
+            // Case-insensitive on Windows/macOS (NTFS/APFS), case-sensitive on Linux (ext4/xfs).
             HashSet<string>? visitedDirs = _options.FollowSymlinks
-                ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                ? new HashSet<string>(OperatingSystem.IsLinux()
+                    ? StringComparer.Ordinal
+                    : StringComparer.OrdinalIgnoreCase)
                 : null;
 
             foreach (FileEntry entry in WalkDirectory(fullRoot, fullRoot, 0, visitedDirs))
