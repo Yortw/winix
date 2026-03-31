@@ -44,6 +44,55 @@ public class FormattingTests
         Assert.Equal("src", Formatting.FormatPath(SampleDir));
     }
 
+    [Fact]
+    public void FormatPath_NoColor_ReturnsPlainPath()
+    {
+        string result = Formatting.FormatPath(SampleDir, useColor: false);
+        Assert.Equal("src", result);
+        Assert.False(result.Contains('\x1b'), "Should not contain ANSI escape");
+    }
+
+    [Fact]
+    public void FormatPath_Color_DirectoryIsBlue()
+    {
+        string result = Formatting.FormatPath(SampleDir, useColor: true);
+        Assert.True(result.Contains('\x1b'), "Should contain ANSI escape");
+        Assert.StartsWith("\x1b[34m", result); // Blue
+        Assert.EndsWith("\x1b[0m", result); // Reset
+        Assert.Contains("src", result);
+    }
+
+    [Fact]
+    public void FormatPath_Color_SymlinkIsCyan()
+    {
+        string result = Formatting.FormatPath(SampleSymlink, useColor: true);
+        Assert.True(result.Contains('\x1b'), "Should contain ANSI escape");
+        Assert.StartsWith("\x1b[36m", result); // Cyan
+        Assert.EndsWith("\x1b[0m", result); // Reset
+    }
+
+    [Fact]
+    public void FormatPath_Color_FileHasNoColor()
+    {
+        string result = Formatting.FormatPath(SampleFile, useColor: true);
+        Assert.False(result.Contains('\x1b'), "Files should not have colour");
+        Assert.Equal("src/Program.cs", result);
+    }
+
+    [Fact]
+    public void FormatLong_Color_DirectoryPathIsBlue()
+    {
+        string result = Formatting.FormatLong(SampleDir, useColor: true);
+        Assert.True(result.Contains('\x1b'), "Should contain ANSI escape for directory");
+    }
+
+    [Fact]
+    public void FormatLong_NoColor_NoAnsiCodes()
+    {
+        string result = Formatting.FormatLong(SampleDir, useColor: false);
+        Assert.False(result.Contains('\x1b'), "Should not contain ANSI escape");
+    }
+
     // --- FormatTypeString ---
 
     [Fact]

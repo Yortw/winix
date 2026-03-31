@@ -14,6 +14,15 @@ public static class AnsiColor
     /// <summary>Red text (ANSI SGR 31).</summary>
     public static string Red(bool enabled) => enabled ? "\x1b[31m" : "";
 
+    /// <summary>Blue text (ANSI SGR 34).</summary>
+    public static string Blue(bool enabled) => enabled ? "\x1b[34m" : "";
+
+    /// <summary>Cyan text (ANSI SGR 36).</summary>
+    public static string Cyan(bool enabled) => enabled ? "\x1b[36m" : "";
+
+    /// <summary>Yellow text (ANSI SGR 33).</summary>
+    public static string Yellow(bool enabled) => enabled ? "\x1b[33m" : "";
+
     /// <summary>Reset all attributes (ANSI SGR 0).</summary>
     public static string Reset(bool enabled) => enabled ? "\x1b[0m" : "";
 }

@@ -103,6 +103,7 @@ internal sealed class Program
         bool print0 = result.Has("--print0");
         bool ndjson = result.Has("--ndjson");
         bool jsonSummary = result.Has("--json");
+        bool useColor = result.ResolveColor();
 
         int outputFormatCount = (longOutput ? 1 : 0) + (print0 ? 1 : 0) + (ndjson ? 1 : 0);
         if (outputFormatCount > 1)
@@ -286,7 +287,7 @@ internal sealed class Program
                     }
                     else if (longOutput)
                     {
-                        Console.Out.WriteLine(Formatting.FormatLong(entry));
+                        Console.Out.WriteLine(Formatting.FormatLong(entry, useColor));
                     }
                     else if (print0)
                     {
@@ -295,7 +296,7 @@ internal sealed class Program
                     }
                     else
                     {
-                        Console.Out.WriteLine(Formatting.FormatPath(entry));
+                        Console.Out.WriteLine(Formatting.FormatPath(entry, useColor));
                     }
 
                     count++;

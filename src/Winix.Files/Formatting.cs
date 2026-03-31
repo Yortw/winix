@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 using Winix.FileWalk;
+using Yort.ShellKit;
 
 namespace Winix.Files;
 
@@ -11,19 +12,37 @@ namespace Winix.Files;
 public static class Formatting
 {
     /// <summary>
-    /// Returns the path of <paramref name="entry"/> unchanged.
-    /// Used for the default (paths-only) output mode.
+    /// Returns the path of <paramref name="entry"/>, coloured by type when enabled.
+    /// Directories are blue, symlinks are cyan, files are uncoloured.
     /// </summary>
-    public static string FormatPath(FileEntry entry)
+    public static string FormatPath(FileEntry entry, bool useColor = false)
     {
-        return entry.Path;
+        if (!useColor)
+        {
+            return entry.Path;
+        }
+
+        string color = entry.Type switch
+        {
+            FileEntryType.Directory => AnsiColor.Blue(true),
+            FileEntryType.Symlink => AnsiColor.Cyan(true),
+            _ => ""
+        };
+
+        if (color.Length == 0)
+        {
+            return entry.Path;
+        }
+
+        return $"{color}{entry.Path}{AnsiColor.Reset(true)}";
     }
 
     /// <summary>
     /// Returns a tab-delimited long-format line for <paramref name="entry"/>.
-    /// Fields: path, size (bytes with commas, or <c>-</c> for directories), modified (local time yyyy-MM-dd HH:mm, or <c>-</c>), type string.
+    /// Fields: path (coloured by type when enabled), size (bytes with commas, or <c>-</c> for directories),
+    /// modified (local time yyyy-MM-dd HH:mm, or <c>-</c>), type string.
     /// </summary>
-    public static string FormatLong(FileEntry entry)
+    public static string FormatLong(FileEntry entry, bool useColor = false)
     {
         string size = entry.Type == FileEntryType.Directory
             ? "-"
@@ -34,8 +53,9 @@ public static class Formatting
             : entry.Modified.LocalDateTime.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
 
         string type = FormatTypeString(entry.Type);
+        string path = FormatPath(entry, useColor);
 
-        return $"{entry.Path}\t{size}\t{modified}\t{type}";
+        return $"{path}\t{size}\t{modified}\t{type}";
     }
 
     /// <summary>
