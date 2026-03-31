@@ -1,5 +1,3 @@
-#nullable enable
-
 namespace Winix.TreeX;
 
 /// <summary>Sort order for tree entries.</summary>

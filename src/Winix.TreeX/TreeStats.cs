@@ -1,5 +1,3 @@
-#nullable enable
-
 namespace Winix.TreeX;
 
 /// <summary>Summary statistics from a tree rendering pass.</summary>

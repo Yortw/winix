@@ -1,5 +1,3 @@
-#nullable enable
-
 namespace Winix.FileWalk;
 
 /// <summary>The type of a file system entry.</summary>

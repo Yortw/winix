@@ -1,5 +1,3 @@
-#nullable enable
-
 using System.Globalization;
 using Winix.FileWalk;
 using Yort.ShellKit;

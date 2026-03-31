@@ -1,5 +1,3 @@
-#nullable enable
-
 namespace Winix.TreeX;
 
 /// <summary>Controls how the tree is rendered to text output.</summary>

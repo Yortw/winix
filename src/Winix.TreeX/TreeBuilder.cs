@@ -1,5 +1,3 @@
-#nullable enable
-
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using Winix.FileWalk;

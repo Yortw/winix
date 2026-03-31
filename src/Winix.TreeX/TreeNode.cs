@@ -1,5 +1,3 @@
-#nullable enable
-
 using Winix.FileWalk;
 
 namespace Winix.TreeX;
