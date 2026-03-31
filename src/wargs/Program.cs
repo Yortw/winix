@@ -27,6 +27,7 @@ internal sealed class Program
             .Flag("--confirm", "-p", "Prompt before each job")
             .Flag("--dry-run", "Print commands without executing")
             .Flag("--verbose", "-v", "Print each command to stderr before running")
+            .Flag("--no-shell-fallback", "Disable shell fallback for builtins (cmd /c, sh -c)")
             .CommandMode()
             .ExitCodes(
                 (0, "All jobs succeeded"),
@@ -51,6 +52,7 @@ internal sealed class Program
         bool confirm = result.Has("--confirm");
         bool keepOrder = result.Has("--keep-order");
         bool lineBuffered = result.Has("--line-buffered");
+        bool noShellFallback = result.Has("--no-shell-fallback");
 
         // --- Resolve delimiter mode ---
         bool hasNull = result.Has("--null");
@@ -120,7 +122,8 @@ internal sealed class Program
             FailFast: failFast,
             DryRun: dryRun,
             Verbose: verbose,
-            Confirm: confirm);
+            Confirm: confirm,
+            ShellFallback: !noShellFallback);
         var jobRunner = new JobRunner(runnerOptions);
 
         // JobRunner.RunAsync takes IReadOnlyList<CommandInvocation>, so materialise the pipeline

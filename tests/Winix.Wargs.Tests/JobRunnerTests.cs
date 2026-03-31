@@ -248,4 +248,65 @@ public class JobRunnerTests
         Assert.Single(result.Jobs);
         Assert.Null(result.Jobs[0].Output);
     }
+
+    [Fact]
+    public async Task RunAsync_ShellFallback_RunsBuiltinViaShell()
+    {
+        // Use a command name that doesn't exist as a standalone executable but
+        // is a shell builtin. "echo" is a builtin on Windows cmd.exe. On Unix
+        // /usr/bin/echo exists so direct exec succeeds — use "type" which is
+        // a builtin in both cmd.exe and bash (type is also a standalone on some
+        // systems, but this test verifies the fallback path doesn't break anything).
+        var options = new JobRunnerOptions(ShellFallback: true);
+        var runner = new JobRunner(options);
+
+        // Use a guaranteed non-existent command that will trigger the fallback,
+        // then verify the fallback itself works by checking cmd /c echo on Windows
+        // or sh -c echo on Unix.
+        string command;
+        string[] arguments;
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            // "echo" without cmd /c won't be found as an exe on a stock Windows install
+            // unless Git Bash's /usr/bin is on PATH. Use ver instead — it's cmd-only.
+            command = "ver";
+            arguments = Array.Empty<string>();
+        }
+        else
+        {
+            // On Unix, test with "echo" which exists as /usr/bin/echo — direct exec works,
+            // so instead use ":" (the shell no-op) which is a builtin with no standalone binary.
+            command = ":";
+            arguments = Array.Empty<string>();
+        }
+
+        var invocations = new[]
+        {
+            new CommandInvocation(command, arguments, command, new[] { "test" })
+        };
+
+        var result = await runner.RunAsync(invocations, TextWriter.Null, TextWriter.Null);
+
+        Assert.Equal(1, result.TotalJobs);
+        Assert.Equal(1, result.Succeeded);
+        Assert.Equal(0, result.Jobs[0].ChildExitCode);
+    }
+
+    [Fact]
+    public async Task RunAsync_ShellFallbackDisabled_FailsForBuiltin()
+    {
+        var options = new JobRunnerOptions(ShellFallback: false);
+        var runner = new JobRunner(options);
+        var invocations = new[]
+        {
+            new CommandInvocation(
+                "nonexistent_command_xyzzy_99999", Array.Empty<string>(),
+                "nonexistent_command_xyzzy_99999", new[] { "item" })
+        };
+
+        var result = await runner.RunAsync(invocations, TextWriter.Null, TextWriter.Null);
+
+        Assert.Equal(1, result.Failed);
+        Assert.Equal(-1, result.Jobs[0].ChildExitCode);
+    }
 }

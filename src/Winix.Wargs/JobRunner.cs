@@ -357,26 +357,14 @@ public sealed class JobRunner
 
     /// <summary>
     /// Spawns a single child process, captures merged stdout+stderr, and returns a <see cref="JobResult"/>.
+    /// If the command is not found and shell fallback is enabled, retries via the platform shell.
     /// </summary>
-    private static async Task<JobResult> ExecuteJobAsync(
+    private async Task<JobResult> ExecuteJobAsync(
         CommandInvocation invocation,
         int jobIndex,
         CancellationToken cancellationToken)
     {
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = invocation.Command,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            RedirectStandardInput = true,
-            CreateNoWindow = true,
-        };
-
-        foreach (string arg in invocation.Arguments)
-        {
-            startInfo.ArgumentList.Add(arg);
-        }
+        var startInfo = BuildStartInfo(invocation, redirectIo: true);
 
         var stopwatch = Stopwatch.StartNew();
         Process process;
@@ -388,15 +376,39 @@ public sealed class JobRunner
         }
         catch (Win32Exception)
         {
-            // Command not found or not executable — record as failed, don't throw.
-            stopwatch.Stop();
-            return new JobResult(
-                JobIndex: jobIndex,
-                ChildExitCode: -1,
-                Output: null,
-                Duration: stopwatch.Elapsed,
-                SourceItems: invocation.SourceItems,
-                Skipped: false);
+            if (_options.ShellFallback)
+            {
+                // Command not found as standalone executable — retry via platform shell
+                // so that shell builtins (echo, del, type, etc.) work transparently.
+                startInfo = BuildShellFallbackStartInfo(invocation, redirectIo: true);
+                try
+                {
+                    process = Process.Start(startInfo)
+                        ?? throw new Win32Exception("Process.Start returned null");
+                }
+                catch (Win32Exception)
+                {
+                    stopwatch.Stop();
+                    return new JobResult(
+                        JobIndex: jobIndex,
+                        ChildExitCode: -1,
+                        Output: null,
+                        Duration: stopwatch.Elapsed,
+                        SourceItems: invocation.SourceItems,
+                        Skipped: false);
+                }
+            }
+            else
+            {
+                stopwatch.Stop();
+                return new JobResult(
+                    JobIndex: jobIndex,
+                    ChildExitCode: -1,
+                    Output: null,
+                    Duration: stopwatch.Elapsed,
+                    SourceItems: invocation.SourceItems,
+                    Skipped: false);
+            }
         }
 
         // Close stdin immediately — child commands don't read interactive input
@@ -459,25 +471,14 @@ public sealed class JobRunner
     /// Spawns a single child process without redirecting stdio, so output flows
     /// directly to the inherited console. The returned <see cref="JobResult.Output"/>
     /// is always null because nothing is captured.
+    /// If the command is not found and shell fallback is enabled, retries via the platform shell.
     /// </summary>
-    private static async Task<JobResult> ExecuteJobLineBufferedAsync(
+    private async Task<JobResult> ExecuteJobLineBufferedAsync(
         CommandInvocation invocation,
         int jobIndex,
         CancellationToken cancellationToken)
     {
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = invocation.Command,
-            UseShellExecute = false,
-            RedirectStandardOutput = false,
-            RedirectStandardError = false,
-            RedirectStandardInput = false,
-        };
-
-        foreach (string arg in invocation.Arguments)
-        {
-            startInfo.ArgumentList.Add(arg);
-        }
+        var startInfo = BuildStartInfo(invocation, redirectIo: false);
 
         var stopwatch = Stopwatch.StartNew();
         Process process;
@@ -489,14 +490,37 @@ public sealed class JobRunner
         }
         catch (Win32Exception)
         {
-            stopwatch.Stop();
-            return new JobResult(
-                JobIndex: jobIndex,
-                ChildExitCode: -1,
-                Output: null,
-                Duration: stopwatch.Elapsed,
-                SourceItems: invocation.SourceItems,
-                Skipped: false);
+            if (_options.ShellFallback)
+            {
+                startInfo = BuildShellFallbackStartInfo(invocation, redirectIo: false);
+                try
+                {
+                    process = Process.Start(startInfo)
+                        ?? throw new Win32Exception("Process.Start returned null");
+                }
+                catch (Win32Exception)
+                {
+                    stopwatch.Stop();
+                    return new JobResult(
+                        JobIndex: jobIndex,
+                        ChildExitCode: -1,
+                        Output: null,
+                        Duration: stopwatch.Elapsed,
+                        SourceItems: invocation.SourceItems,
+                        Skipped: false);
+                }
+            }
+            else
+            {
+                stopwatch.Stop();
+                return new JobResult(
+                    JobIndex: jobIndex,
+                    ChildExitCode: -1,
+                    Output: null,
+                    Duration: stopwatch.Elapsed,
+                    SourceItems: invocation.SourceItems,
+                    Skipped: false);
+            }
         }
 
         try
@@ -515,6 +539,67 @@ public sealed class JobRunner
         {
             process.Dispose();
         }
+    }
+
+    /// <summary>
+    /// Builds a <see cref="ProcessStartInfo"/> for direct execution of the invocation's command.
+    /// </summary>
+    private static ProcessStartInfo BuildStartInfo(CommandInvocation invocation, bool redirectIo)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = invocation.Command,
+            UseShellExecute = false,
+            RedirectStandardOutput = redirectIo,
+            RedirectStandardError = redirectIo,
+            RedirectStandardInput = redirectIo,
+            CreateNoWindow = true,
+        };
+
+        foreach (string arg in invocation.Arguments)
+        {
+            startInfo.ArgumentList.Add(arg);
+        }
+
+        return startInfo;
+    }
+
+    /// <summary>
+    /// Builds a <see cref="ProcessStartInfo"/> that wraps the invocation in the platform shell
+    /// (<c>cmd /c</c> on Windows, <c>sh -c</c> on Unix). Used as a fallback when the command
+    /// is not found as a standalone executable — this allows shell builtins like <c>echo</c>,
+    /// <c>del</c>, <c>type</c> to work transparently.
+    /// </summary>
+    private static ProcessStartInfo BuildShellFallbackStartInfo(CommandInvocation invocation, bool redirectIo)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            UseShellExecute = false,
+            RedirectStandardOutput = redirectIo,
+            RedirectStandardError = redirectIo,
+            RedirectStandardInput = redirectIo,
+            CreateNoWindow = true,
+        };
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            startInfo.FileName = "cmd";
+            startInfo.ArgumentList.Add("/c");
+            startInfo.ArgumentList.Add(invocation.Command);
+            foreach (string arg in invocation.Arguments)
+            {
+                startInfo.ArgumentList.Add(arg);
+            }
+        }
+        else
+        {
+            // sh -c takes a single string command, so join command + args with shell quoting.
+            startInfo.FileName = "sh";
+            startInfo.ArgumentList.Add("-c");
+            startInfo.ArgumentList.Add(invocation.DisplayString);
+        }
+
+        return startInfo;
     }
 
     /// <summary>
