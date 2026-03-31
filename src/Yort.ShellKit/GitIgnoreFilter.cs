@@ -88,6 +88,72 @@ public sealed class GitIgnoreFilter : IDisposable
         catch { return false; }
     }
 
+    /// <summary>
+    /// Checks multiple paths in a single <c>git check-ignore --stdin</c> invocation.
+    /// Returns the subset of paths that are ignored. Far more efficient than calling
+    /// <see cref="IsIgnored"/> per file — one process per batch instead of one per path.
+    /// </summary>
+    /// <param name="relativePaths">Paths relative to the git root, using forward slashes.</param>
+    /// <returns>A set of the paths from <paramref name="relativePaths"/> that are ignored.</returns>
+    /// <summary>
+    /// Checks multiple paths in a single <c>git check-ignore --stdin</c> invocation.
+    /// Returns the subset of paths that are ignored. Far more efficient than calling
+    /// <see cref="IsIgnored"/> per file — one process per batch instead of one per path.
+    /// </summary>
+    /// <param name="relativePaths">Paths relative to the git root, using forward slashes.</param>
+    /// <returns>A set of the paths from <paramref name="relativePaths"/> that are ignored.</returns>
+    public HashSet<string> CheckBatch(IReadOnlyList<string> relativePaths)
+    {
+        if (_disposed) { throw new ObjectDisposedException(nameof(GitIgnoreFilter)); }
+
+        var ignored = new HashSet<string>(StringComparer.Ordinal);
+        if (relativePaths.Count == 0) { return ignored; }
+
+        try
+        {
+            var psi = new ProcessStartInfo("git", "check-ignore --stdin")
+            {
+                WorkingDirectory = _rootPath,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            using var process = Process.Start(psi);
+            if (process is null) { return ignored; }
+
+            // Write all paths then close stdin. For typical directory batches
+            // (5-20 paths), output is well under the 4KB pipe buffer so
+            // synchronous write-then-read won't deadlock.
+            foreach (string path in relativePaths)
+            {
+                process.StandardInput.WriteLine(path);
+            }
+            process.StandardInput.Close();
+
+            // Read stdout (ignored paths) and drain stderr to prevent buffer deadlock
+            string stdout = process.StandardOutput.ReadToEnd();
+            process.StandardError.ReadToEnd();
+            process.WaitForExit(5000);
+
+            foreach (string line in stdout.Split('\n'))
+            {
+                string trimmed = line.Trim();
+                if (trimmed.Length > 0)
+                {
+                    ignored.Add(trimmed);
+                }
+            }
+        }
+        catch
+        {
+            // If git fails, treat nothing as ignored
+        }
+
+        return ignored;
+    }
+
     /// <summary>Disposes this instance. No process is held open, so this is a no-op.</summary>
     public void Dispose()
     {

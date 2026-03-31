@@ -22,8 +22,8 @@ public sealed class FileWalker
     /// <param name="options">Walk configuration (filters, depth, flags).</param>
     /// <param name="isIgnored">
     /// Optional predicate that returns <see langword="true"/> for paths that should be skipped.
-    /// Receives a relative path (forward-slash separated) from the search root. Intended for
-    /// gitignore integration without a compile-time dependency on the filter class.
+    /// Receives a relative path (forward-slash separated) from the search root. Called for
+    /// directories before recursing (skipping entire subtrees) and for files individually.
     /// </param>
     public FileWalker(FileWalkerOptions options, Func<string, bool>? isIgnored = null)
     {
@@ -116,14 +116,6 @@ public sealed class FileWalker
                 continue;
             }
 
-            string relativePath = GetRelativePath(root, fullPath);
-
-            // Gitignore check via the injected func
-            if (_isIgnored != null && _isIgnored(relativePath))
-            {
-                continue;
-            }
-
             bool isDirectory;
             bool isSymlink;
             try
@@ -141,9 +133,19 @@ public sealed class FileWalker
                 continue;
             }
 
+            string relativePath = GetRelativePath(root, fullPath);
+
             if (isDirectory)
             {
                 FileEntryType dirType = isSymlink ? FileEntryType.Symlink : FileEntryType.Directory;
+
+                // Gitignore check for directories — skip entire subtree if ignored.
+                // This is the key performance optimisation: one check per directory
+                // eliminates all per-file checks for ignored subtrees like bin/ and obj/.
+                if (_isIgnored != null && _isIgnored(relativePath))
+                {
+                    continue;
+                }
 
                 // Skip symlink directories unless FollowSymlinks is set
                 if (isSymlink && !_options.FollowSymlinks)
@@ -175,6 +177,12 @@ public sealed class FileWalker
             {
                 // File (or file symlink)
                 FileEntryType fileType = isSymlink ? FileEntryType.Symlink : FileEntryType.File;
+
+                // Gitignore check for files (e.g. *.log patterns)
+                if (_isIgnored != null && _isIgnored(relativePath))
+                {
+                    continue;
+                }
 
                 // Type filter: skip if we only want directories
                 if (_options.TypeFilter != null && _options.TypeFilter != fileType)
