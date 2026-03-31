@@ -146,4 +146,65 @@ public class JobRunnerTests
         Assert.Equal(1, result.Jobs[0].JobIndex);
         Assert.Equal(2, result.Jobs[1].JobIndex);
     }
+
+    [Fact]
+    public async Task RunAsync_Parallel_ExecutesAllJobs()
+    {
+        var options = new JobRunnerOptions(Parallelism: 4);
+        var runner = new JobRunner(options);
+        var invocations = Enumerable.Range(1, 8)
+            .Select(i => MakeEchoInvocation($"item{i}", i))
+            .ToArray();
+
+        var result = await runner.RunAsync(
+            invocations, TextWriter.Null, TextWriter.Null);
+
+        Assert.Equal(8, result.TotalJobs);
+        Assert.Equal(8, result.Succeeded);
+    }
+
+    [Fact]
+    public async Task RunAsync_FailFast_StopsSpawningNewJobs()
+    {
+        var options = new JobRunnerOptions(FailFast: true);
+        var runner = new JobRunner(options);
+        var invocations = new[]
+        {
+            MakeExitInvocation(1, "fail"),
+            MakeEchoInvocation("should-not-run", 2),
+            MakeEchoInvocation("should-not-run", 3),
+        };
+
+        var result = await runner.RunAsync(
+            invocations, TextWriter.Null, TextWriter.Null);
+
+        Assert.Equal(1, result.Failed);
+        Assert.Equal(2, result.Skipped);
+    }
+
+    [Fact]
+    public async Task RunAsync_Confirm_SkipsDeclinedJobs()
+    {
+        int callCount = 0;
+        var options = new JobRunnerOptions(
+            Confirm: true,
+            ConfirmPrompt: _ =>
+            {
+                callCount++;
+                return callCount != 2; // decline the second job
+            });
+        var runner = new JobRunner(options);
+        var invocations = new[]
+        {
+            MakeEchoInvocation("a", 1),
+            MakeEchoInvocation("b", 2),
+            MakeEchoInvocation("c", 3),
+        };
+
+        var result = await runner.RunAsync(
+            invocations, TextWriter.Null, TextWriter.Null);
+
+        Assert.Equal(2, result.Succeeded);
+        Assert.Equal(1, result.Skipped);
+    }
 }

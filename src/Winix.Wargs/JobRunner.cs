@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 
 namespace Winix.Wargs;
 
@@ -41,8 +42,13 @@ public sealed class JobRunner
             return RunDryRun(invocations, stdout);
         }
 
-        // Sequential path (P=1). Parallel dispatch will be added in a later task.
-        return await RunSequentialAsync(invocations, stdout, stderr, cancellationToken)
+        if (_options.Parallelism == 1)
+        {
+            return await RunSequentialAsync(invocations, stdout, stderr, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return await RunParallelAsync(invocations, stdout, stderr, cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -154,6 +160,156 @@ public sealed class JobRunner
         }
 
         wallStopwatch.Stop();
+
+        return new WargsResult(
+            TotalJobs: invocations.Count,
+            Succeeded: succeeded,
+            Failed: failed,
+            Skipped: skipped,
+            WallTime: wallStopwatch.Elapsed,
+            Jobs: jobs);
+    }
+
+    /// <summary>
+    /// Runs invocations concurrently, limited by <see cref="JobRunnerOptions.Parallelism"/>.
+    /// Uses <see cref="SemaphoreSlim"/> to throttle concurrency and <see cref="Volatile"/>
+    /// read/write on the abort flag for fail-fast across threads.
+    /// </summary>
+    private async Task<WargsResult> RunParallelAsync(
+        IReadOnlyList<CommandInvocation> invocations,
+        TextWriter stdout,
+        TextWriter stderr,
+        CancellationToken cancellationToken)
+    {
+        var wallStopwatch = Stopwatch.StartNew();
+        int maxParallelism = _options.Parallelism == 0 ? int.MaxValue : _options.Parallelism;
+        var semaphore = new SemaphoreSlim(maxParallelism, maxParallelism);
+        var tasks = new Task<JobResult>[invocations.Count];
+        bool aborted = false;
+        // Lock protects stdout/stderr writes so job outputs don't interleave
+        var outputLock = new object();
+
+        for (int i = 0; i < invocations.Count; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            CommandInvocation invocation = invocations[i];
+            int jobIndex = i + 1; // 1-based
+
+            // Fail-fast: skip remaining jobs after a failure (checked before acquiring semaphore)
+            if (Volatile.Read(ref aborted))
+            {
+                tasks[i] = Task.FromResult(new JobResult(
+                    JobIndex: jobIndex,
+                    ChildExitCode: -1,
+                    Output: null,
+                    Duration: TimeSpan.Zero,
+                    SourceItems: invocation.SourceItems,
+                    Skipped: true));
+                continue;
+            }
+
+            // Confirm prompt — must run on the dispatching thread (sequential, before spawning)
+            if (_options.Confirm)
+            {
+                Func<string, bool> prompt = _options.ConfirmPrompt ?? DefaultConfirmPrompt;
+                if (!prompt(invocation.DisplayString))
+                {
+                    tasks[i] = Task.FromResult(new JobResult(
+                        JobIndex: jobIndex,
+                        ChildExitCode: -1,
+                        Output: null,
+                        Duration: TimeSpan.Zero,
+                        SourceItems: invocation.SourceItems,
+                        Skipped: true));
+                    continue;
+                }
+            }
+
+            await semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+            // Capture loop variable for the closure
+            int capturedIndex = jobIndex;
+            CommandInvocation capturedInvocation = invocation;
+
+            tasks[i] = Task.Run(async () =>
+            {
+                try
+                {
+                    // Race check: abort may have been set while we waited for the semaphore
+                    if (Volatile.Read(ref aborted))
+                    {
+                        return new JobResult(
+                            JobIndex: capturedIndex,
+                            ChildExitCode: -1,
+                            Output: null,
+                            Duration: TimeSpan.Zero,
+                            SourceItems: capturedInvocation.SourceItems,
+                            Skipped: true);
+                    }
+
+                    if (_options.Verbose)
+                    {
+                        lock (outputLock)
+                        {
+                            stderr.WriteLine($"wargs: {capturedInvocation.DisplayString}");
+                        }
+                    }
+
+                    JobResult result = await ExecuteJobAsync(capturedInvocation, capturedIndex, cancellationToken)
+                        .ConfigureAwait(false);
+
+                    // Flush captured output atomically
+                    if (result.Output != null)
+                    {
+                        lock (outputLock)
+                        {
+                            stdout.Write(result.Output);
+                        }
+                    }
+
+                    // Check for fail-fast trigger
+                    if (result.ChildExitCode != 0 && _options.FailFast)
+                    {
+                        Volatile.Write(ref aborted, true);
+                    }
+
+                    return result;
+                }
+                finally
+                {
+                    semaphore.Release();
+                }
+            }, cancellationToken);
+        }
+
+        await Task.WhenAll(tasks).ConfigureAwait(false);
+        wallStopwatch.Stop();
+
+        // Collect results sorted by JobIndex (tasks array is already in order)
+        var jobs = new List<JobResult>(invocations.Count);
+        int succeeded = 0;
+        int failed = 0;
+        int skipped = 0;
+
+        for (int i = 0; i < tasks.Length; i++)
+        {
+            JobResult result = tasks[i].Result;
+            jobs.Add(result);
+
+            if (result.Skipped)
+            {
+                skipped++;
+            }
+            else if (result.ChildExitCode == 0)
+            {
+                succeeded++;
+            }
+            else
+            {
+                failed++;
+            }
+        }
 
         return new WargsResult(
             TotalJobs: invocations.Count,
