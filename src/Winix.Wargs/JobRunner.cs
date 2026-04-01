@@ -504,7 +504,13 @@ public sealed class JobRunner
             Task stderrTask = ReadStreamAsync(process.StandardError, output, outputLock);
 
             await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
-            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+
+            // Use CancellationToken.None so WaitForExitAsync waits for the kill
+            // (triggered by the Register callback) to fully complete, giving us a
+            // valid ExitCode. Passing cancellationToken here could throw OCE before
+            // the process has fully exited, leaving a zombie on Linux.
+            await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
 
             stopwatch.Stop();
 
@@ -626,7 +632,10 @@ public sealed class JobRunner
                 }
             });
 
-            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+            // Use CancellationToken.None — see comment in ExecuteJobAsync above.
+            await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+
             stopwatch.Stop();
             return new JobResult(
                 JobIndex: jobIndex,
