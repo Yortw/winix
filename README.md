@@ -4,6 +4,10 @@
 
 # Winix
 
+[![CI](https://github.com/Yortw/winix/actions/workflows/ci.yml/badge.svg)](https://github.com/Yortw/winix/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![GitHub release](https://img.shields.io/github/v/release/Yortw/winix?include_prereleases)](https://github.com/Yortw/winix/releases)
+
 **Cross-platform CLI tools for the gaps between Windows and *nix.**
 
 Winix is a suite of small, focused command-line tools built with .NET and compiled to native binaries via AOT. Each tool fills a gap where Linux utilities either don't exist on Windows, have poor/abandoned ports, or where a modern implementation can do better than the original.
@@ -84,7 +88,7 @@ files --describe
 ## Building from Source
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/Yortw/winix.git
 cd winix
 dotnet build Winix.sln
 dotnet test Winix.sln
