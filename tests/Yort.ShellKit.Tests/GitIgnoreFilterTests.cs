@@ -101,6 +101,65 @@ public class GitIgnoreFilterTests : IDisposable
     }
 
     [Fact]
+    public void CheckBatch_ReturnsIgnoredPaths()
+    {
+        InitGitRepo();
+        File.WriteAllText(Path.Combine(_tempDir, ".gitignore"), "*.log\nbin/\n");
+        File.WriteAllText(Path.Combine(_tempDir, "debug.log"), "log content");
+        File.WriteAllText(Path.Combine(_tempDir, "readme.md"), "hello");
+        Directory.CreateDirectory(Path.Combine(_tempDir, "bin"));
+
+        using GitIgnoreFilter? filter = GitIgnoreFilter.Create(_tempDir);
+        Assert.NotNull(filter);
+
+        HashSet<string> ignored = filter!.CheckBatch(new[] { "debug.log", "readme.md", "src/main.cs" });
+
+        Assert.Contains("debug.log", ignored);
+        Assert.DoesNotContain("readme.md", ignored);
+        Assert.DoesNotContain("src/main.cs", ignored);
+    }
+
+    [Fact]
+    public void CheckBatch_EmptyInput_ReturnsEmptySet()
+    {
+        InitGitRepo();
+        File.WriteAllText(Path.Combine(_tempDir, ".gitignore"), "*.log\n");
+
+        using GitIgnoreFilter? filter = GitIgnoreFilter.Create(_tempDir);
+        Assert.NotNull(filter);
+
+        HashSet<string> ignored = filter!.CheckBatch(Array.Empty<string>());
+
+        Assert.Empty(ignored);
+    }
+
+    [Fact]
+    public void CheckBatch_OverChunkSize_ProcessesAllPaths()
+    {
+        InitGitRepo();
+        File.WriteAllText(Path.Combine(_tempDir, ".gitignore"), "ignored-*\n");
+
+        // Create 150 paths (exceeds the 100-path chunk size)
+        var paths = new List<string>();
+        for (int i = 0; i < 150; i++)
+        {
+            string name = i % 3 == 0 ? $"ignored-{i}.txt" : $"keep-{i}.txt";
+            paths.Add(name);
+        }
+
+        using GitIgnoreFilter? filter = GitIgnoreFilter.Create(_tempDir);
+        Assert.NotNull(filter);
+
+        HashSet<string> ignored = filter!.CheckBatch(paths);
+
+        // Every third file should be ignored (i % 3 == 0)
+        Assert.Equal(50, ignored.Count);
+        Assert.Contains("ignored-0.txt", ignored);
+        Assert.Contains("ignored-99.txt", ignored);
+        Assert.DoesNotContain("keep-1.txt", ignored);
+    }
+
+    [Fact]
     public void IsIgnored_AfterDispose_ThrowsObjectDisposedException()
     {
         InitGitRepo();

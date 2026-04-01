@@ -75,6 +75,31 @@ public class CommandRunnerTests
     }
 
     [Fact]
+    public void Run_PermissionDenied_ThrowsCommandNotExecutableException()
+    {
+        // Create a file with no execute permission. On Windows the EACCES error code
+        // is harder to trigger reliably without ACL manipulation, so skip on Windows.
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        string tempFile = Path.Combine(Path.GetTempPath(), $"timeit-test-noexec-{Guid.NewGuid()}");
+        try
+        {
+            File.WriteAllText(tempFile, "#!/bin/sh\nexit 0\n");
+            File.SetUnixFileMode(tempFile, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+
+            Assert.Throws<CommandNotExecutableException>(
+                () => CommandRunner.Run(tempFile, Array.Empty<string>()));
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
     public void Run_BadExecutableFormat_ThrowsInvalidOperationException()
     {
         // Create a temp file with invalid EXE content — triggers ERROR_BAD_EXE_FORMAT

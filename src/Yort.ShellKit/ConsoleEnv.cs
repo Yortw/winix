@@ -119,7 +119,9 @@ public static class ConsoleEnv
     {
         try
         {
-            return Console.WindowHeight;
+            int height = Console.WindowHeight;
+            // Some Linux CI/redirect environments return 0 instead of throwing
+            return height > 0 ? height : 24;
         }
         catch
         {
@@ -134,7 +136,9 @@ public static class ConsoleEnv
     {
         try
         {
-            return Console.WindowWidth;
+            int width = Console.WindowWidth;
+            // Some Linux CI/redirect environments return 0 instead of throwing
+            return width > 0 ? width : 80;
         }
         catch
         {

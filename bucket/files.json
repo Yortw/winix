@@ -5,8 +5,8 @@
   "license": "MIT",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/Yortw/winix/releases/download/v0.0.0/files-win-x64.zip",
-      "hash": "0000000000000000000000000000000000000000000000000000000000000000"
+      "url": "https://github.com/Yortw/winix/releases/download/v0.1.0-preview.1/files-win-x64.zip",
+      "hash": "placeholder-updated-by-release-pipeline"
     }
   },
   "bin": "files.exe",

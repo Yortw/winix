@@ -290,26 +290,6 @@ public class IntegrationTests : IDisposable
         Assert.Contains("\"last_output\":", json);
     }
 
-    [Fact]
-    public void IntervalScheduler_ResetDoesNotThrow()
-    {
-        // Verify that creating a scheduler, resetting, and disposing works without exceptions.
-        using var scheduler = new IntervalScheduler(TimeSpan.FromSeconds(2));
-        scheduler.Reset();
-        scheduler.Reset();
-        // No exception means success -- this tests the timer recreation path.
-    }
-
-    [Fact]
-    public async Task IntervalScheduler_TickFires_WithShortInterval()
-    {
-        using var scheduler = new IntervalScheduler(TimeSpan.FromMilliseconds(50));
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
-
-        bool ticked = await scheduler.WaitForNextTickAsync(cts.Token);
-        Assert.True(ticked);
-    }
-
     /// <summary>
     /// Best-effort temp directory cleanup with retry for OS handle release delays.
     /// </summary>

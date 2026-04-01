@@ -26,11 +26,20 @@ jobs:
         id: version
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+            VERSION="${{ inputs.version }}"
           else
             TAG="${{ github.ref_name }}"
-            echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+            VERSION="${TAG#v}"
           fi
+
+          # Validate semver format (prevents typos like "v0.2.0" producing "vv0.2.0" tags,
+          # or malformed versions being pushed to NuGet where they can't be deleted)
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'; then
+            echo "::error::Invalid version format: '$VERSION'. Expected semver like 1.2.3 or 1.2.3-preview.1"
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
   build-and-test:
     needs: resolve-version
@@ -111,9 +120,9 @@ jobs:
           - rid: linux-x64
             os: ubuntu-latest
           - rid: osx-x64
-            os: macos-latest
+            os: macos-13        # Intel runner — native x64 build, no cross-compilation
           - rid: osx-arm64
-            os: macos-latest
+            os: macos-latest    # Apple Silicon runner (macos-14+)
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -298,6 +307,8 @@ jobs:
             echo "No scoop manifest changes to commit"
           else
             git commit -m "chore: update scoop manifests to v${{ needs.resolve-version.outputs.version }}"
+            # Pull with rebase in case another release pushed between our checkout and now
+            git pull --rebase origin main
             git push
           fi
 

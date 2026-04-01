@@ -803,18 +803,30 @@ public sealed class CommandLineParser
         return JsonHelper.GetString(buffer);
     }
 
-    // Internal definition types
+    /// <summary>Definition of a boolean flag (e.g. --verbose).</summary>
     internal sealed record FlagDef(string LongName, string? ShortName, string Description);
 
-    internal enum OptionType { String, Int, Double }
+    /// <summary>The value type of a parsed option.</summary>
+    internal enum OptionType
+    {
+        /// <summary>String value.</summary>
+        String,
+        /// <summary>Integer value.</summary>
+        Int,
+        /// <summary>Double-precision floating-point value.</summary>
+        Double
+    }
 
+    /// <summary>Definition of a single-value option (e.g. --output FILE).</summary>
     internal sealed record OptionDef(
         string LongName, string? ShortName, string Placeholder, string Description,
         OptionType Type,
         Func<int, string?>? IntValidate = null,
         Func<double, string?>? DoubleValidate = null);
 
+    /// <summary>Definition of a repeatable list option (e.g. --ext .cs --ext .txt).</summary>
     internal sealed record ListOptionDef(string LongName, string? ShortName, string Placeholder, string Description);
 
+    /// <summary>Definition of a flag alias that expands to an option+value pair (e.g. -9 → --level 9).</summary>
     internal sealed record AliasDef(string Alias, string TargetOption, string Value);
 }
