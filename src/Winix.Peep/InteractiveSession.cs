@@ -83,6 +83,7 @@ public sealed class InteractiveSession
 
         // Enter alternate screen buffer
         ScreenRenderer.EnterAlternateBuffer(Console.Out);
+        Task? fileChangeMonitor = null;
 
         try
         {
@@ -119,7 +120,8 @@ public sealed class InteractiveSession
             {
                 // Drain any pre-existing signals and set up a monitor.
                 // Uses Interlocked to safely communicate between the monitor task and main loop.
-                _ = Task.Run(async () =>
+                // Task is captured so we can await it during cleanup before disposing the semaphore.
+                fileChangeMonitor = Task.Run(async () =>
                 {
                     try
                     {
@@ -195,7 +197,21 @@ public sealed class InteractiveSession
         }
         finally
         {
-            // Clean up resources before exiting alternate buffer
+            // Ensure the file-change monitor task has exited before disposing the semaphore
+            // it waits on. The CancellationToken from cts (disposed by 'using' after this block)
+            // triggers cancellation; we give the task a moment to observe it.
+            if (fileChangeMonitor is not null)
+            {
+                try
+                {
+                    await fileChangeMonitor.WaitAsync(TimeSpan.FromSeconds(1));
+                }
+                catch
+                {
+                    // Best effort — don't block shutdown if the task is stuck
+                }
+            }
+
             fileWatcher?.Dispose();
             fileChangeSemaphore?.Dispose();
 
