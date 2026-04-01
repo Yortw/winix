@@ -1,5 +1,6 @@
 using Xunit;
 using Winix.TimeIt;
+using Yort.ShellKit;
 
 namespace Winix.TimeIt.Tests;
 

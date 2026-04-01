@@ -1,4 +1,4 @@
-namespace Winix.Peep;
+namespace Yort.ShellKit;
 
 /// <summary>
 /// Thrown when the specified command cannot be found on PATH.

@@ -13,6 +13,11 @@ public static class DisplayFormat
     /// </summary>
     public static string FormatBytes(long bytes)
     {
+        if (bytes < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(bytes), bytes, "Byte count cannot be negative.");
+        }
+
         const long KB = 1024;
         const long MB = 1024 * KB;
         const long GB = 1024 * MB;

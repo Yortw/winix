@@ -23,6 +23,12 @@ public class DisplayFormatBytesTests
     {
         Assert.Equal(expected, DisplayFormat.FormatBytes(bytes));
     }
+
+    [Fact]
+    public void FormatBytes_NegativeValue_ThrowsArgumentOutOfRange()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => DisplayFormat.FormatBytes(-1));
+    }
 }
 
 public class DisplayFormatDurationTests

@@ -1,4 +1,4 @@
-namespace Winix.Peep;
+namespace Yort.ShellKit;
 
 /// <summary>
 /// Thrown when the specified command exists but cannot be executed (e.g. permission denied).

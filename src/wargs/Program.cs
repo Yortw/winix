@@ -120,6 +120,11 @@ internal sealed class Program
             return result.WriteError("--line-buffered and --keep-order cannot be combined", Console.Error);
         }
 
+        if (lineBuffered && parallelism > 1)
+        {
+            return result.WriteError("--line-buffered cannot be used with --parallel > 1 (output would interleave)", Console.Error);
+        }
+
         if (ndjsonOutput && lineBuffered)
         {
             return result.WriteError("--ndjson and --line-buffered cannot be combined", Console.Error);

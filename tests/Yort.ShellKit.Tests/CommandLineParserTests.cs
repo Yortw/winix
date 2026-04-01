@@ -849,3 +849,48 @@ public class WriteErrorTests
         Assert.Equal(2, exitCode);
     }
 }
+
+public class SectionHelpTests
+{
+    [Fact]
+    public void Section_WithWindowsLineEndings_DoesNotProduceTrailingCarriageReturn()
+    {
+        var parser = new CommandLineParser("test", "1.0")
+            .StandardFlags()
+            .Section("Notes", "Line one\r\nLine two\r\nLine three");
+
+        // GenerateHelp is internal — call directly to avoid Console.SetOut side effects
+        string help = parser.GenerateHelp();
+
+        // Normalize to \n and verify no stray \r remains from the \r\n section body
+        string normalized = help.Replace("\r\n", "\n");
+        Assert.DoesNotContain("\r", normalized);
+        Assert.Contains("Line one", normalized);
+        Assert.Contains("Line two", normalized);
+        Assert.Contains("Line three", normalized);
+    }
+}
+
+public class PostParseMutationTests
+{
+    [Fact]
+    public void Flag_AfterParse_ThrowsInvalidOperation()
+    {
+        var parser = new CommandLineParser("test", "1.0")
+            .Flag("--verbose", "-v", "Verbose output");
+        parser.Parse(Array.Empty<string>());
+
+        Assert.Throws<InvalidOperationException>(() =>
+            parser.Flag("--debug", "-d", "Debug output"));
+    }
+
+    [Fact]
+    public void Option_AfterParse_ThrowsInvalidOperation()
+    {
+        var parser = new CommandLineParser("test", "1.0");
+        parser.Parse(Array.Empty<string>());
+
+        Assert.Throws<InvalidOperationException>(() =>
+            parser.Option("--output", "-o", "FILE", "Output file"));
+    }
+}

@@ -46,12 +46,14 @@ public sealed class CommandLineParser
     private string? _platformValueWindows;
     private string? _platformValueUnix;
 
-    // Lookup tables built lazily on first Parse()
+    // Lookup tables built on first Parse(). Registering flags/options after Parse() is
+    // unsupported — the lookups would be stale and the new registrations silently ignored.
     private Dictionary<string, FlagDef>? _flagLookup;
     private Dictionary<string, OptionDef>? _optionLookup;
     private Dictionary<string, ListOptionDef>? _listOptionLookup;
     private Dictionary<string, AliasDef>? _aliasLookup;
     private bool _standardFlagsRegistered;
+    private bool _parsed;
 
     /// <summary>
     /// Creates a new parser for the specified tool.
@@ -64,9 +66,20 @@ public sealed class CommandLineParser
         _version = version;
     }
 
+    private void ThrowIfParsed()
+    {
+        if (_parsed)
+        {
+            throw new InvalidOperationException(
+                "Cannot modify CommandLineParser after Parse() has been called. " +
+                "Register all flags/options before calling Parse().");
+        }
+    }
+
     /// <summary>Sets the tool description shown in help output.</summary>
     public CommandLineParser Description(string text)
     {
+        ThrowIfParsed();
         _description = text;
         return this;
     }
@@ -79,6 +92,7 @@ public sealed class CommandLineParser
     /// <param name="description">Description shown in help output.</param>
     public CommandLineParser Flag(string longName, string? shortName, string description)
     {
+        ThrowIfParsed();
         _flags.Add(new FlagDef(longName, shortName, description));
         return this;
     }
@@ -94,6 +108,7 @@ public sealed class CommandLineParser
     /// <summary>Registers a string-valued option.</summary>
     public CommandLineParser Option(string longName, string? shortName, string placeholder, string description)
     {
+        ThrowIfParsed();
         _options.Add(new OptionDef(longName, shortName, placeholder, description, OptionType.String));
         return this;
     }
@@ -102,6 +117,7 @@ public sealed class CommandLineParser
     public CommandLineParser IntOption(string longName, string? shortName, string placeholder, string description,
         Func<int, string?>? validate = null)
     {
+        ThrowIfParsed();
         _options.Add(new OptionDef(longName, shortName, placeholder, description, OptionType.Int, IntValidate: validate));
         return this;
     }
@@ -110,6 +126,7 @@ public sealed class CommandLineParser
     public CommandLineParser DoubleOption(string longName, string? shortName, string placeholder, string description,
         Func<double, string?>? validate = null)
     {
+        ThrowIfParsed();
         _options.Add(new OptionDef(longName, shortName, placeholder, description, OptionType.Double, DoubleValidate: validate));
         return this;
     }
@@ -117,6 +134,7 @@ public sealed class CommandLineParser
     /// <summary>Registers a repeatable option that collects values into a list.</summary>
     public CommandLineParser ListOption(string longName, string? shortName, string placeholder, string description)
     {
+        ThrowIfParsed();
         _listOptions.Add(new ListOptionDef(longName, shortName, placeholder, description));
         return this;
     }
@@ -128,6 +146,7 @@ public sealed class CommandLineParser
     /// </summary>
     public CommandLineParser FlagAlias(string alias, string targetOption, string value)
     {
+        ThrowIfParsed();
         _aliases.Add(new AliasDef(alias, targetOption, value));
         return this;
     }
@@ -258,6 +277,7 @@ public sealed class CommandLineParser
     /// </summary>
     public ParseResult Parse(string[] args)
     {
+        _parsed = true;
         BuildLookups();
 
         var flagsSet = new HashSet<string>(StringComparer.Ordinal);
@@ -554,8 +574,9 @@ public sealed class CommandLineParser
         {
             sb.AppendLine();
             sb.AppendLine($"{title}:");
-            // Indent each line of the body by 2 spaces
-            foreach (string line in body.Split('\n'))
+            // Indent each line of the body by 2 spaces.
+            // Split on both \r\n and \n so Windows-edited strings don't carry trailing \r.
+            foreach (string line in body.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None))
             {
                 string trimmed = line.TrimStart();
                 if (trimmed.Length > 0)

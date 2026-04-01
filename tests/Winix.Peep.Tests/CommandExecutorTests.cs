@@ -1,5 +1,6 @@
 using Xunit;
 using Winix.Peep;
+using Yort.ShellKit;
 
 namespace Winix.Peep.Tests;
 

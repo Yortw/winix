@@ -483,7 +483,19 @@ public sealed class InteractiveSession
         string? prevOutput = _lastResult?.Output;
         PeepResult? result = await TryRunCommandAsync(trigger, ct);
 
-        if (result is not null)
+        if (result is null)
+        {
+            // Command failed (not found, not executable, cancelled). Still re-render
+            // so the user sees the error on stderr rather than stale output from the
+            // last successful run sitting unchanged on screen.
+            _running = false;
+            if (!_isPaused && !_showHelp)
+            {
+                RenderCurrentScreen();
+            }
+            return;
+        }
+
         {
             _runCount++;
             _lastResult = result;

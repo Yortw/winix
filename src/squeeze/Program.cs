@@ -46,6 +46,8 @@ internal sealed class Program
                 -v                  Same as --verbose
                 -f                  Same as --force
                 """)
+            // Exit code 2 for usage error matches gzip convention, not the POSIX 125
+            // used by other Winix tools. Intentional for gzip muscle-memory compatibility.
             .ExitCodes(
                 (0, "Success"),
                 (1, "Compression/decompression error"),

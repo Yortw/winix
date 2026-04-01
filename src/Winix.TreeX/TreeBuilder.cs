@@ -302,7 +302,8 @@ public sealed class TreeBuilder
             {
                 SortMode.Size => b.SizeBytes.CompareTo(a.SizeBytes),    // Largest first
                 SortMode.Modified => b.Modified.CompareTo(a.Modified),  // Newest first
-                _ => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase)  // Alphabetical
+                _ => string.Compare(a.Name, b.Name,
+                    _options.CaseInsensitive ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)
             };
         });
     }
