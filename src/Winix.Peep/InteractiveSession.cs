@@ -83,6 +83,12 @@ public sealed class InteractiveSession
                 // Warn on stderr — file events may have been lost (e.g. OS buffer overflow)
                 Console.Error.WriteLine($"[peep] warning: file watcher error: {message}");
             };
+            fileWatcher.GitIgnoreChanged += () =>
+            {
+                // .gitignore was modified — clear cached results so subsequent checks
+                // reflect the updated rules instead of serving stale answers.
+                GitIgnoreChecker.ClearCache();
+            };
             fileWatcher.Start();
         }
 

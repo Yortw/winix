@@ -16,6 +16,15 @@ public static class GitIgnoreChecker
     private static readonly ConcurrentDictionary<string, bool> _cache = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// Clears the cached gitignore results. Call this when <c>.gitignore</c> changes
+    /// so that subsequent checks reflect the updated rules.
+    /// </summary>
+    public static void ClearCache()
+    {
+        _cache.Clear();
+    }
+
+    /// <summary>
     /// Returns true if the current directory is inside a git repository.
     /// </summary>
     public static bool IsGitRepo()

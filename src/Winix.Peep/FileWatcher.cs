@@ -37,6 +37,12 @@ public sealed class FileWatcher : IDisposable
     public event Action<string>? WatchError;
 
     /// <summary>
+    /// Raised when a <c>.gitignore</c> file is created, changed, or deleted in any watched
+    /// directory. Subscribers should invalidate any cached gitignore results.
+    /// </summary>
+    public event Action? GitIgnoreChanged;
+
+    /// <summary>
     /// Creates a new file watcher for the specified glob patterns.
     /// </summary>
     /// <param name="patterns">
@@ -177,6 +183,8 @@ public sealed class FileWatcher : IDisposable
     /// </summary>
     private void OnFileEvent(object sender, FileSystemEventArgs e)
     {
+        CheckGitIgnoreChanged(e.FullPath);
+
         if (IsMatch(e.FullPath))
         {
             ResetDebounce();
@@ -188,9 +196,23 @@ public sealed class FileWatcher : IDisposable
     /// </summary>
     private void OnRenameEvent(object sender, RenamedEventArgs e)
     {
+        CheckGitIgnoreChanged(e.FullPath);
+        CheckGitIgnoreChanged(e.OldFullPath);
+
         if (IsMatch(e.FullPath) || IsMatch(e.OldFullPath))
         {
             ResetDebounce();
+        }
+    }
+
+    /// <summary>
+    /// Fires <see cref="GitIgnoreChanged"/> if the path is a <c>.gitignore</c> file.
+    /// </summary>
+    private void CheckGitIgnoreChanged(string fullPath)
+    {
+        if (Path.GetFileName(fullPath).Equals(".gitignore", StringComparison.OrdinalIgnoreCase))
+        {
+            GitIgnoreChanged?.Invoke();
         }
     }
 
