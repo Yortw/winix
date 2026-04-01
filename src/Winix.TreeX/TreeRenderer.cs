@@ -257,19 +257,12 @@ public sealed class TreeRenderer
     }
 
     /// <summary>
-    /// Converts an absolute filesystem path to a file:// URL with forward slashes.
+    /// Converts an absolute filesystem path to a properly encoded file:// URL.
+    /// Uses <see cref="Uri"/> to correctly percent-encode spaces, #, ?, Unicode, and
+    /// other characters that are invalid in URLs.
     /// </summary>
     private static string PathToFileUrl(string fullPath)
     {
-        // Normalise to forward slashes for URL
-        string urlPath = fullPath.Replace('\\', '/');
-
-        // Ensure triple-slash for absolute paths (file:///C:/... or file:///home/...)
-        if (urlPath.Length > 0 && urlPath[0] != '/')
-        {
-            return $"file:///{urlPath}";
-        }
-
-        return $"file://{urlPath}";
+        return new Uri(fullPath).AbsoluteUri;
     }
 }
