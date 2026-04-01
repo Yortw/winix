@@ -75,12 +75,18 @@ public static partial class NativeMetrics
         TimeSpan baseUser = new TimeValLinux { tv_sec = baseline.UserSeconds, tv_usec = baseline.UserMicroseconds }.ToTimeSpan();
         TimeSpan baseSys = new TimeValLinux { tv_sec = baseline.SystemSeconds, tv_usec = baseline.SystemMicroseconds }.ToTimeSpan();
 
+        // ru_maxrss (RUSAGE_CHILDREN) is a high-water mark across all waited children,
+        // not per-child. Use the baseline delta so we attribute only the child we just
+        // timed. Clamp to 0: if a previously-waited child had higher peak RSS, the
+        // high-water mark didn't change and the delta would be negative/zero.
+        long peakDeltaKb = Math.Max(0, usage.ru_maxrss - baseline.PeakRssRaw);
+
         return new ProcessMetrics
         {
             UserCpuTime = postUser - baseUser,
             SystemCpuTime = postSys - baseSys,
             // ru_maxrss is in kilobytes on Linux
-            PeakMemoryBytes = usage.ru_maxrss * 1024,
+            PeakMemoryBytes = peakDeltaKb * 1024,
         };
     }
 }

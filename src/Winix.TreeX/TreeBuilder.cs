@@ -64,6 +64,15 @@ public sealed class TreeBuilder
     {
         string fullRoot = Path.GetFullPath(rootPath);
 
+        // Track visited real paths for symlink cycle detection. Without this,
+        // a symlink pointing to an ancestor directory causes infinite recursion
+        // and a StackOverflowException. Case-insensitive on Windows/macOS
+        // (NTFS/APFS), case-sensitive on Linux (ext4/xfs).
+        var visitedDirs = new HashSet<string>(OperatingSystem.IsLinux()
+            ? StringComparer.Ordinal
+            : StringComparer.OrdinalIgnoreCase);
+        visitedDirs.Add(fullRoot);
+
         TreeNode root = new()
         {
             Name = Path.GetFileName(fullRoot),
@@ -75,7 +84,7 @@ public sealed class TreeBuilder
             IsMatch = !_hasFileFilters
         };
 
-        BuildChildren(root, fullRoot, fullRoot, 0);
+        BuildChildren(root, fullRoot, fullRoot, 0, visitedDirs);
 
         if (_hasFileFilters)
         {
@@ -90,7 +99,7 @@ public sealed class TreeBuilder
         return root;
     }
 
-    private void BuildChildren(TreeNode parentNode, string rootPath, string dirPath, int depth)
+    private void BuildChildren(TreeNode parentNode, string rootPath, string dirPath, int depth, HashSet<string> visitedDirs)
     {
         IEnumerable<string> entries;
         try
@@ -168,10 +177,24 @@ public sealed class TreeBuilder
                         : !_hasFileFilters
                 };
 
-                // Recurse if depth allows
+                // Recurse if depth allows and we haven't visited this directory
+                // (symlink cycle detection)
                 if (_options.MaxDepth == null || depth < _options.MaxDepth)
                 {
-                    BuildChildren(dirNode, rootPath, fullPath, depth + 1);
+                    string realPath = fullPath;
+                    try
+                    {
+                        realPath = Path.GetFullPath(fullPath);
+                    }
+                    catch
+                    {
+                        // Fall back to the path as-is
+                    }
+
+                    if (visitedDirs.Add(realPath))
+                    {
+                        BuildChildren(dirNode, rootPath, fullPath, depth + 1, visitedDirs);
+                    }
                 }
 
                 parentNode.Children.Add(dirNode);
