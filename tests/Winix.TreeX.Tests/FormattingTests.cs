@@ -134,6 +134,32 @@ public class FormattingTests
         JsonDocument.Parse(line);
     }
 
+    [Fact]
+    public void FormatNdjsonLine_RootNode_EmitsDotPath()
+    {
+        TreeNode node = MakeDir("myproject");
+        string line = Formatting.FormatNdjsonLine(node, 0, "/tmp/myproject", ToolName, Version);
+
+        Assert.Contains("\"path\":\".\"", line);
+    }
+
+    [Fact]
+    public void FormatNdjsonLine_NestedFile_EmitsRelativeForwardSlashPath()
+    {
+        TreeNode node = new TreeNode
+        {
+            Name = "app.cs",
+            FullPath = "/tmp/myproject/src/app.cs",
+            Type = FileEntryType.File,
+            SizeBytes = 100,
+            Modified = FixedDate
+        };
+
+        string line = Formatting.FormatNdjsonLine(node, 2, "/tmp/myproject", ToolName, Version);
+
+        Assert.Contains("\"path\":\"src/app.cs\"", line);
+    }
+
     // --- FormatJsonSummary ---
 
     [Fact]

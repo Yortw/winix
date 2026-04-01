@@ -415,4 +415,15 @@ public class FileWalkerTests : IDisposable
         // "deep" has repeated 'e', "sub" does not — just verify it completes without crashing
         Assert.DoesNotContain(results, e => e.Name == "file1.cs");
     }
+
+    [Fact]
+    public void Constructor_InvalidRegex_ThrowsRegexParseException()
+    {
+        // Invalid regex should throw RegexParseException (subclass of ArgumentException).
+        // The files console app catches this to return exit code 125 (usage_error).
+        var ex = Assert.ThrowsAny<ArgumentException>(
+            () => new FileWalker(MakeOptions(regexPatterns: new[] { "[invalid" })));
+
+        Assert.IsType<System.Text.RegularExpressions.RegexParseException>(ex);
+    }
 }
