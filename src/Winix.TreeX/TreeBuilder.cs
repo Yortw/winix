@@ -42,7 +42,7 @@ public sealed class TreeBuilder
         }
 
         _regexes = options.RegexPatterns
-            .Select(p => new Regex(p, regexOptions))
+            .Select(p => SafeRegex.Create(p, regexOptions))
             .ToArray();
 
         _hasFileFilters = _globMatcher.HasPatterns
@@ -383,9 +383,18 @@ public sealed class TreeBuilder
     {
         foreach (Regex regex in _regexes)
         {
-            if (regex.IsMatch(fileName))
+            try
             {
-                return true;
+                if (regex.IsMatch(fileName))
+                {
+                    return true;
+                }
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                // Pattern timed out on this filename — treat as non-match rather than
+                // hanging the process. Only fires for patterns that fell back to the
+                // standard engine (NonBacktracking never times out).
             }
         }
 
