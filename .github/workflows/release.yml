@@ -242,10 +242,13 @@ jobs:
           VERSION="${{ needs.resolve-version.outputs.version }}"
           TAG="v${VERSION}"
 
-          # Create tag if manual dispatch (tag already exists for tag-push trigger)
+          # Create tag if manual dispatch (tag already exists for tag-push trigger).
+          # Check first so re-runs of failed releases don't fail on tag creation.
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            git tag "$TAG"
-            git push origin "$TAG"
+            if ! git rev-parse "$TAG" >/dev/null 2>&1; then
+              git tag "$TAG"
+              git push origin "$TAG"
+            fi
           fi
 
           gh release create "$TAG" \
