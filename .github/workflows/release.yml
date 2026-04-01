@@ -203,31 +203,31 @@ jobs:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
       - name: Download NuGet packages
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: nuget-packages
           path: packages
 
       - name: Download AOT binaries (win-x64)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: aot-win-x64
           path: aot
 
       - name: Download AOT binaries (linux-x64)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: aot-linux-x64
           path: aot
 
       - name: Download AOT binaries (osx-x64)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: aot-osx-x64
           path: aot
 
       - name: Download AOT binaries (osx-arm64)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: aot-osx-arm64
           path: aot
@@ -268,7 +268,7 @@ jobs:
           ref: main
 
       - name: Download AOT binaries (win-x64)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: aot-win-x64
           path: aot
@@ -318,7 +318,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download AOT binaries (win-x64)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: aot-win-x64
           path: aot
