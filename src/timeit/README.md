@@ -61,19 +61,20 @@ timeit -- myapp --help
 **Default** (multi-line, stderr):
 ```
   real  12.4s
-  cpu    9.1s
-  peak  482 MB
+  user  9.1s
+  sys   0.300s
+  peak  482.0 MB
   exit  0
 ```
 
 **One-line** (`-1` / `--oneline`):
 ```
-[timeit] 12.4s wall | 9.1s cpu | 482 MB peak | exit 0
+[timeit] 12.4s wall | 9.1s user | 0.300s sys | 482.0 MB peak | exit 0
 ```
 
 **JSON** (`--json`):
 ```json
-{"wall_seconds":12.4,"cpu_seconds":9.1,"peak_memory_bytes":505413632,"exit_code":0}
+{"tool":"timeit","version":"0.1.0","exit_code":0,"exit_reason":"success","child_exit_code":0,"wall_seconds":12.400,"user_cpu_seconds":9.100,"sys_cpu_seconds":0.300,"cpu_seconds":9.400,"peak_memory_bytes":505413632}
 ```
 
 ## Options
