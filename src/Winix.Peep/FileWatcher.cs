@@ -108,18 +108,34 @@ public sealed class FileWatcher : IDisposable
 
         foreach (string root in roots)
         {
-            var watcher = new FileSystemWatcher(root)
+            FileSystemWatcher watcher;
+            try
             {
-                IncludeSubdirectories = true,
-                // Default 8KB buffer overflows easily during git checkout or build tool runs.
-                // 64KB handles most real-world burst scenarios without excessive memory use.
-                InternalBufferSize = 65536,
-                NotifyFilter = NotifyFilters.FileName
-                             | NotifyFilters.LastWrite
-                             | NotifyFilters.Size
-                             | NotifyFilters.CreationTime,
-                EnableRaisingEvents = true,
-            };
+                watcher = new FileSystemWatcher(root)
+                {
+                    IncludeSubdirectories = true,
+                    // Default 8KB buffer overflows easily during git checkout or build tool runs.
+                    // 64KB handles most real-world burst scenarios without excessive memory use.
+                    InternalBufferSize = 65536,
+                    NotifyFilter = NotifyFilters.FileName
+                                 | NotifyFilters.LastWrite
+                                 | NotifyFilters.Size
+                                 | NotifyFilters.CreationTime,
+                    EnableRaisingEvents = true,
+                };
+            }
+            catch (DirectoryNotFoundException)
+            {
+                // Directory was deleted between the exists-check above and construction.
+                // Skip this root rather than crashing — the watcher for the base path
+                // (added as a fallback) will still cover the parent directory.
+                continue;
+            }
+            catch (ArgumentException)
+            {
+                // Invalid path (e.g. too long, illegal characters). Skip gracefully.
+                continue;
+            }
 
             watcher.Changed += OnFileEvent;
             watcher.Created += OnFileEvent;
