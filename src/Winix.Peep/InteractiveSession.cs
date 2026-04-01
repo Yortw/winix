@@ -52,13 +52,16 @@ public sealed class InteractiveSession
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         CancellationToken ct = cts.Token;
 
-        // Set up Ctrl+C handler -- cancel cleanly instead of killing the process
-        Console.CancelKeyPress += (_, e) =>
+        // Set up Ctrl+C handler -- cancel cleanly instead of killing the process.
+        // Must be a named delegate so we can unregister in the finally block to avoid
+        // calling Cancel() on a disposed CTS if Ctrl+C fires after RunAsync returns.
+        ConsoleCancelEventHandler cancelHandler = (_, e) =>
         {
             e.Cancel = true;
             _exitReason = "interrupted";
             cts.Cancel();
         };
+        Console.CancelKeyPress += cancelHandler;
 
         // Set up file watcher
         FileWatcher? fileWatcher = null;
@@ -227,6 +230,10 @@ public sealed class InteractiveSession
 
             fileWatcher?.Dispose();
             fileChangeSemaphore?.Dispose();
+
+            // Unregister before the 'using' disposes cts, so a late Ctrl+C
+            // doesn't call Cancel() on a disposed CancellationTokenSource.
+            Console.CancelKeyPress -= cancelHandler;
 
             ScreenRenderer.ExitAlternateBuffer(Console.Out);
         }
