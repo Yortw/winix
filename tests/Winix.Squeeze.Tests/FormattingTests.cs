@@ -222,6 +222,46 @@ public class FormatJsonTests
     }
 }
 
+public class FormatJsonWithErrorsTests
+{
+    [Fact]
+    public void PartialFailure_IncludesErrorsInSameEnvelope()
+    {
+        var results = new[]
+        {
+            new SqueezeResult("a.txt", "a.txt.gz", 1000, 500,
+                CompressionFormat.Gzip, TimeSpan.FromMilliseconds(50))
+        };
+        var errors = new[] { "squeeze: b.txt: No such file" };
+
+        string json = Formatting.FormatJson(results, exitCode: 1, exitReason: "partial_failure",
+            toolName: "squeeze", version: "0.1.0", errors: errors);
+
+        // Single document with both files and errors arrays
+        Assert.Contains("\"files\":", json);
+        Assert.Contains("\"errors\":", json);
+        Assert.Contains("\"exit_reason\":\"partial_failure\"", json);
+        Assert.Contains("squeeze: b.txt: No such file", json);
+        Assert.Contains("\"input\":\"a.txt\"", json);
+    }
+
+    [Fact]
+    public void NoErrors_OmitsErrorsArray()
+    {
+        var results = new[]
+        {
+            new SqueezeResult("a.txt", "a.txt.gz", 1000, 500,
+                CompressionFormat.Gzip, TimeSpan.FromMilliseconds(50))
+        };
+
+        string json = Formatting.FormatJson(results, exitCode: 0, exitReason: "success",
+            toolName: "squeeze", version: "0.1.0", errors: null);
+
+        Assert.Contains("\"files\":", json);
+        Assert.DoesNotContain("\"errors\":", json);
+    }
+}
+
 public class FormatJsonErrorTests
 {
     [Fact]

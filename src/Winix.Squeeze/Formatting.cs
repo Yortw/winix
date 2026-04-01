@@ -44,14 +44,17 @@ public static class Formatting
 
     /// <summary>
     /// Formats one or more <see cref="SqueezeResult"/>s as a JSON object following Winix CLI conventions.
-    /// Includes tool/version/exit_code/exit_reason envelope and a files array.
+    /// Includes tool/version/exit_code/exit_reason envelope, a files array, and an optional errors array.
+    /// When files partially fail, errors are included in the same envelope rather than emitted as
+    /// separate JSON objects, so a consumer receives a single parseable document.
     /// </summary>
     public static string FormatJson(
         IReadOnlyList<SqueezeResult> results,
         int exitCode,
         string exitReason,
         string toolName,
-        string version)
+        string version,
+        IReadOnlyList<string>? errors = null)
     {
         var (writer, buffer) = JsonHelper.CreateWriter();
         using (writer)
@@ -76,6 +79,16 @@ public static class Formatting
                 writer.WriteEndObject();
             }
             writer.WriteEndArray();
+
+            if (errors is { Count: > 0 })
+            {
+                writer.WriteStartArray("errors");
+                foreach (string error in errors)
+                {
+                    writer.WriteStringValue(error);
+                }
+                writer.WriteEndArray();
+            }
 
             writer.WriteEndObject();
         }

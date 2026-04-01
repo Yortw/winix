@@ -233,7 +233,10 @@ public static class FileOperations
             using var inputStream = File.OpenRead(inputPath);
             inputBytes = inputStream.Length;
 
-            using var countingOutput = new MemoryStream();
+            // Stream directly to the output through a counting wrapper instead of
+            // buffering the entire result in a MemoryStream. The old approach would
+            // OOM on large files since it held the full result in memory.
+            using var countingOutput = new CountingStream(output);
 
             if (decompress)
             {
@@ -262,9 +265,8 @@ public static class FileOperations
                     .ConfigureAwait(false);
             }
 
-            long outputBytes = countingOutput.Length;
-            countingOutput.Position = 0;
-            await countingOutput.CopyToAsync(output).ConfigureAwait(false);
+            long outputBytes = countingOutput.BytesWritten;
+            await countingOutput.FlushAsync().ConfigureAwait(false);
 
             stopwatch.Stop();
 

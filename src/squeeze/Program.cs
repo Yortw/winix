@@ -156,6 +156,7 @@ internal sealed class Program
         // --- File mode ---
         int exitCode = 0;
         List<SqueezeResult> results = new();
+        List<string> jsonErrors = new();
 
         foreach (string file in files)
         {
@@ -183,8 +184,9 @@ internal sealed class Program
             {
                 if (jsonOutput)
                 {
-                    Console.Error.WriteLine(
-                        Formatting.FormatJsonError(opResult.ExitCode, opResult.ExitReason, "squeeze", version));
+                    // Collect errors for the JSON envelope rather than emitting separate
+                    // JSON objects, so the consumer receives a single parseable document.
+                    jsonErrors.Add(opResult.ErrorMessage ?? $"squeeze: {file}: {opResult.ExitReason}");
                 }
                 else
                 {
@@ -206,11 +208,14 @@ internal sealed class Program
             }
         }
 
-        if (jsonOutput && results.Count > 0)
+        if (jsonOutput)
         {
+            // Always emit the JSON envelope when --json is set, even if no files succeeded.
+            // Errors are included in the same envelope for single-document parseability.
+            string exitReason = exitCode == 0 ? "success" : (results.Count > 0 ? "partial_failure" : "failure");
             Console.Error.WriteLine(
-                Formatting.FormatJson(results, exitCode, exitCode == 0 ? "success" : "partial_failure",
-                    "squeeze", version));
+                Formatting.FormatJson(results, exitCode, exitReason,
+                    "squeeze", version, jsonErrors.Count > 0 ? jsonErrors : null));
         }
 
         return exitCode;
