@@ -28,28 +28,25 @@ public static class PipeOperations
 
         try
         {
-            // Buffer input so we can count bytes before processing
-            using var inputBuffer = new MemoryStream();
-            await input.CopyToAsync(inputBuffer).ConfigureAwait(false);
-            inputBytes = inputBuffer.Length;
-            inputBuffer.Position = 0;
+            // Stream through counting wrappers instead of buffering in MemoryStream.
+            // The old approach held both full input and full output in memory, which
+            // would OOM on large pipes. ReadCountingStream counts input bytes as the
+            // compressor/decompressor reads through, and CountingStream counts output
+            // bytes as they flow to stdout.
+            using var countingInput = new ReadCountingStream(input);
+            using var countingOutput = new CountingStream(output);
 
             if (decompress)
             {
-                // Decompress into an intermediate buffer to capture output byte count,
-                // then copy to the real output. Mirrors the compression path.
-                // Without this, non-seekable streams (stdout) would report 0 output bytes.
-                using var countingOutput = new MemoryStream();
-
                 if (explicitFormat.HasValue)
                 {
-                    await Compressor.DecompressAsync(inputBuffer, countingOutput, explicitFormat.Value)
+                    await Compressor.DecompressAsync(countingInput, countingOutput, explicitFormat.Value)
                         .ConfigureAwait(false);
                 }
                 else
                 {
                     CompressionFormat? detected = await Compressor.DecompressAutoDetectAsync(
-                        inputBuffer, countingOutput, filename: null).ConfigureAwait(false);
+                        countingInput, countingOutput, filename: null).ConfigureAwait(false);
 
                     if (!detected.HasValue)
                     {
@@ -59,21 +56,16 @@ public static class PipeOperations
 
                     format = detected.Value;
                 }
-
-                outputBytes = countingOutput.Length;
-                countingOutput.Position = 0;
-                await countingOutput.CopyToAsync(output).ConfigureAwait(false);
             }
             else
             {
-                // Compress into an intermediate buffer to capture output byte count
-                using var countingOutput = new MemoryStream();
-                await Compressor.CompressAsync(inputBuffer, countingOutput, format, level)
+                await Compressor.CompressAsync(countingInput, countingOutput, format, level)
                     .ConfigureAwait(false);
-                outputBytes = countingOutput.Length;
-                countingOutput.Position = 0;
-                await countingOutput.CopyToAsync(output).ConfigureAwait(false);
             }
+
+            await countingOutput.FlushAsync().ConfigureAwait(false);
+            inputBytes = countingInput.BytesRead;
+            outputBytes = countingOutput.BytesWritten;
         }
         catch (Exception ex)
         {
