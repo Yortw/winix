@@ -251,6 +251,11 @@ internal sealed class Program
                     gitFilters[fullRoot] = filter;
                 }
             }
+
+            if (gitFilters.Count == 0)
+            {
+                Console.Error.WriteLine("treex: warning: --gitignore specified but git not found on PATH or no roots are inside a git repository");
+            }
         }
 
         try
@@ -307,6 +312,12 @@ internal sealed class Program
                         }
                     }
                 }
+            }
+            catch (ArgumentException ex) when (ex is System.Text.RegularExpressions.RegexParseException)
+            {
+                Console.Error.WriteLine($"treex: invalid regex: {ex.Message}");
+                exitCode = ExitCode.UsageError;
+                exitReason = "usage_error";
             }
             catch (Exception ex)
             {

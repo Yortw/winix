@@ -181,14 +181,19 @@ public sealed class TreeBuilder
                 // (symlink cycle detection)
                 if (_options.MaxDepth == null || depth < _options.MaxDepth)
                 {
-                    string realPath = fullPath;
+                    // ResolveLinkTarget resolves symlinks to their real target so that
+                    // a symlink pointing to an ancestor directory is detected as a cycle.
+                    // Path.GetFullPath only normalises "." and ".." — it does NOT resolve symlinks.
+                    string realPath;
                     try
                     {
-                        realPath = Path.GetFullPath(fullPath);
+                        var dirInfo = new DirectoryInfo(fullPath);
+                        string? resolved = dirInfo.ResolveLinkTarget(returnFinalTarget: true)?.FullName;
+                        realPath = resolved ?? Path.GetFullPath(fullPath);
                     }
                     catch
                     {
-                        // Fall back to the path as-is
+                        realPath = Path.GetFullPath(fullPath);
                     }
 
                     if (visitedDirs.Add(realPath))
