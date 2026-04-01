@@ -88,7 +88,7 @@ internal sealed class Program
         bool verbose = result.Has("--verbose");
         bool quiet = result.Has("--quiet");
         bool jsonOutput = result.Has("--json");
-        bool useColor = result.ResolveColor();
+        bool useColor = result.ResolveColor(checkStdErr: true);
 
         string? outputFile = null;
         if (result.Has("--output"))

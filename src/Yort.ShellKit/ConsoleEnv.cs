@@ -13,9 +13,11 @@ public static class ConsoleEnv
     /// </summary>
     /// <remarks>
     /// Windows CMD and PowerShell do not process ANSI escape codes by default.
-    /// This sets <c>ENABLE_VIRTUAL_TERMINAL_PROCESSING</c> on the stdout console handle,
-    /// which tells Windows to interpret escape sequences instead of printing them literally.
-    /// Windows Terminal enables this by default, but CMD and older PowerShell do not.
+    /// This sets <c>ENABLE_VIRTUAL_TERMINAL_PROCESSING</c> on both the stdout and stderr
+    /// console handles, which tells Windows to interpret escape sequences instead of printing
+    /// them literally. Both handles are needed because Winix tools write coloured output to
+    /// stderr (summary stats, diagnostics). Windows Terminal enables this by default, but CMD
+    /// and older PowerShell do not.
     /// </remarks>
     public static void EnableAnsiIfNeeded()
     {
@@ -26,18 +28,8 @@ public static class ConsoleEnv
 
         try
         {
-            nint handle = GetStdHandle(StdOutputHandle);
-            if (handle == InvalidHandle)
-            {
-                return;
-            }
-
-            if (!GetConsoleMode(handle, out uint mode))
-            {
-                return;
-            }
-
-            SetConsoleMode(handle, mode | EnableVirtualTerminalProcessing);
+            EnableVtForHandle(StdOutputHandle);
+            EnableVtForHandle(StdErrorHandle);
         }
         catch
         {
@@ -45,7 +37,24 @@ public static class ConsoleEnv
         }
     }
 
+    private static void EnableVtForHandle(int handleId)
+    {
+        nint handle = GetStdHandle(handleId);
+        if (handle == InvalidHandle)
+        {
+            return;
+        }
+
+        if (!GetConsoleMode(handle, out uint mode))
+        {
+            return;
+        }
+
+        SetConsoleMode(handle, mode | EnableVirtualTerminalProcessing);
+    }
+
     private const int StdOutputHandle = -11;
+    private const int StdErrorHandle = -12;
     private static readonly nint InvalidHandle = new(-1);
     private const uint EnableVirtualTerminalProcessing = 0x0004;
 

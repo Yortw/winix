@@ -141,13 +141,18 @@ public sealed class ParseResult
     /// Resolves whether colour output should be used, applying Winix precedence:
     /// explicit --color/--no-color flag &gt; NO_COLOR env var &gt; terminal auto-detection.
     /// </summary>
-    public bool ResolveColor()
+    /// <param name="checkStdErr">
+    /// When <see langword="true"/>, auto-detection checks whether stderr is a terminal instead of stdout.
+    /// Pass <see langword="true"/> for tools that write coloured output to stderr (e.g. summary stats),
+    /// so that piping stdout does not suppress colour on the still-visible stderr stream.
+    /// </param>
+    public bool ResolveColor(bool checkStdErr = false)
     {
         return ConsoleEnv.ResolveUseColor(
             Has("--color"),
             Has("--no-color"),
             ConsoleEnv.IsNoColorEnvSet(),
-            ConsoleEnv.IsTerminal(checkStdErr: false));
+            ConsoleEnv.IsTerminal(checkStdErr));
     }
 
     /// <summary>

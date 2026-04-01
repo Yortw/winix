@@ -76,7 +76,7 @@ internal sealed class Program
         // --- Resolve output format ---
         bool ndjson = result.Has("--ndjson");
         bool jsonSummary = result.Has("--json");
-        bool useColor = result.ResolveColor();
+        bool useColor = result.ResolveColor(checkStdErr: true);
         bool useLinks = useColor && !result.Has("--no-links");
         bool showSize = result.Has("--size");
         bool showDate = result.Has("--date");
