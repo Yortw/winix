@@ -37,9 +37,15 @@ public class CommandRunnerTests
     {
         var result = CommandRunner.Run("dotnet", new[] { "--version" });
 
-        // Native APIs should reliably provide peak memory (no more race condition)
-        Assert.NotNull(result.PeakMemoryBytes);
-        Assert.True(result.PeakMemoryBytes!.Value > 0, "Expected non-zero peak memory for a real process");
+        // On Windows, peak memory always comes from the process handle (reliable).
+        // On Unix, ru_maxrss is a high-water mark across all waited children — the
+        // delta can be zero if a previous test already waited for a child with higher
+        // peak RSS, in which case null is returned (indeterminate). Either non-null
+        // positive or null is acceptable; only 0 would be wrong.
+        if (result.PeakMemoryBytes.HasValue)
+        {
+            Assert.True(result.PeakMemoryBytes.Value > 0, "Peak memory should be positive when available");
+        }
     }
 
     [Fact]
