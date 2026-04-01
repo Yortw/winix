@@ -30,6 +30,13 @@ public sealed class FileWatcher : IDisposable
     public event Action? FileChanged;
 
     /// <summary>
+    /// Raised when a <see cref="FileSystemWatcher"/> encounters an internal error, typically
+    /// because the OS event buffer overflowed (too many rapid changes). When this fires,
+    /// some file change events may have been silently lost.
+    /// </summary>
+    public event Action<string>? WatchError;
+
+    /// <summary>
     /// Creates a new file watcher for the specified glob patterns.
     /// </summary>
     /// <param name="patterns">
@@ -98,6 +105,9 @@ public sealed class FileWatcher : IDisposable
             var watcher = new FileSystemWatcher(root)
             {
                 IncludeSubdirectories = true,
+                // Default 8KB buffer overflows easily during git checkout or build tool runs.
+                // 64KB handles most real-world burst scenarios without excessive memory use.
+                InternalBufferSize = 65536,
                 NotifyFilter = NotifyFilters.FileName
                              | NotifyFilters.LastWrite
                              | NotifyFilters.Size
@@ -109,6 +119,7 @@ public sealed class FileWatcher : IDisposable
             watcher.Created += OnFileEvent;
             watcher.Deleted += OnFileEvent;
             watcher.Renamed += OnRenameEvent;
+            watcher.Error += OnWatcherError;
 
             _watchers.Add(watcher);
         }
@@ -145,6 +156,19 @@ public sealed class FileWatcher : IDisposable
         }
 
         _watchers.Clear();
+    }
+
+    /// <summary>
+    /// Handles <see cref="FileSystemWatcher.Error"/> events, typically caused by the OS
+    /// event buffer overflowing when too many changes arrive faster than they can be processed.
+    /// </summary>
+    private void OnWatcherError(object sender, ErrorEventArgs e)
+    {
+        string message = e.GetException().Message;
+        WatchError?.Invoke(message);
+
+        // Trigger a debounced re-run since we may have missed file change events
+        ResetDebounce();
     }
 
     /// <summary>

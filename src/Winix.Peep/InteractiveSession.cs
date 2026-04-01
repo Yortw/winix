@@ -78,6 +78,11 @@ public sealed class InteractiveSession
                 // Release the semaphore to signal the main loop
                 fileChangeSemaphore.Release();
             };
+            fileWatcher.WatchError += (message) =>
+            {
+                // Warn on stderr — file events may have been lost (e.g. OS buffer overflow)
+                Console.Error.WriteLine($"[peep] warning: file watcher error: {message}");
+            };
             fileWatcher.Start();
         }
 
