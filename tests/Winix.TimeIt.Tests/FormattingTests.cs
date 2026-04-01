@@ -166,6 +166,41 @@ public class FormatOneLineTests
         Assert.Contains("N/A user", output);
         Assert.Contains("N/A sys", output);
     }
+
+    [Fact]
+    public void FormatOneLine_WithColor_SuccessExitCodeIsGreen()
+    {
+        var result = new TimeItResult(
+            WallTime: TimeSpan.FromSeconds(1.0),
+            UserCpuTime: TimeSpan.FromSeconds(0.4),
+            SystemCpuTime: TimeSpan.FromSeconds(0.1),
+            PeakMemoryBytes: 1_048_576,
+            ExitCode: 0
+        );
+
+        string output = Formatting.FormatOneLine(result, useColor: true);
+
+        // Green ANSI escape for success exit code
+        Assert.Contains("\x1b[32m", output);
+        Assert.Contains("\x1b[0m", output);
+    }
+
+    [Fact]
+    public void FormatOneLine_WithColor_FailedExitCodeIsRed()
+    {
+        var result = new TimeItResult(
+            WallTime: TimeSpan.FromSeconds(1.0),
+            UserCpuTime: TimeSpan.FromSeconds(0.4),
+            SystemCpuTime: TimeSpan.FromSeconds(0.1),
+            PeakMemoryBytes: 1_048_576,
+            ExitCode: 1
+        );
+
+        string output = Formatting.FormatOneLine(result, useColor: true);
+
+        // Red ANSI escape for failed exit code
+        Assert.Contains("\x1b[31m", output);
+    }
 }
 
 public class FormatJsonTests

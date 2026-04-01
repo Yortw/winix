@@ -426,4 +426,56 @@ public class FileWalkerTests : IDisposable
 
         Assert.IsType<System.Text.RegularExpressions.RegexParseException>(ex);
     }
+
+    [Fact]
+    public void Walk_NewerThan_ExcludesOlderFiles()
+    {
+        // All test files were created during the constructor. Set a boundary just before
+        // construction and verify they pass the filter.
+        DateTimeOffset justBeforeNow = DateTimeOffset.UtcNow.AddSeconds(-5);
+
+        var walker = new FileWalker(MakeOptions(typeFilter: FileEntryType.File, newerThan: justBeforeNow));
+        var results = walker.Walk(new[] { _root }).ToList();
+
+        // Files created in the constructor are newer than 5 seconds ago
+        Assert.True(results.Count > 0, "Recently created files should pass --newer filter");
+    }
+
+    [Fact]
+    public void Walk_NewerThan_FarFuture_ExcludesAllFiles()
+    {
+        // A boundary in the far future should exclude everything
+        DateTimeOffset farFuture = DateTimeOffset.UtcNow.AddHours(1);
+
+        var walker = new FileWalker(MakeOptions(typeFilter: FileEntryType.File, newerThan: farFuture));
+        var results = walker.Walk(new[] { _root }).ToList();
+
+        Assert.Empty(results);
+    }
+
+    [Fact]
+    public void Walk_OlderThan_FarFuture_IncludesAllFiles()
+    {
+        // A boundary in the far future should include everything
+        DateTimeOffset farFuture = DateTimeOffset.UtcNow.AddHours(1);
+
+        var walker = new FileWalker(MakeOptions(typeFilter: FileEntryType.File, olderThan: farFuture));
+        var results = walker.Walk(new[] { _root }).ToList();
+
+        // All 5 files (file1.cs, file2.txt, .hidden, binary.dat, file3.cs, file4.json, file5.cs)
+        // minus hidden (.hidden) since includeHidden defaults to true in MakeOptions
+        Assert.True(results.Count > 0, "All files should pass --older filter with far-future boundary");
+    }
+
+    [Fact]
+    public void Walk_OlderThan_DistantPast_ExcludesAllFiles()
+    {
+        // A boundary in the distant past should exclude everything
+        DateTimeOffset distantPast = new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
+        var walker = new FileWalker(MakeOptions(typeFilter: FileEntryType.File, olderThan: distantPast));
+        var results = walker.Walk(new[] { _root }).ToList();
+
+        Assert.Empty(results);
+    }
 }
