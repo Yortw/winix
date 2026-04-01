@@ -275,6 +275,11 @@ internal sealed class Program
                     gitFilters[fullRoot] = filter;
                 }
             }
+
+            if (gitFilters.Count == 0)
+            {
+                Console.Error.WriteLine("files: warning: --gitignore specified but git not found on PATH or no roots are inside a git repository");
+            }
         }
 
         try
