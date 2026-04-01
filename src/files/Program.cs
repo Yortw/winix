@@ -321,6 +321,13 @@ internal sealed class Program
                     }
                 }
             }
+            catch (ArgumentException ex) when (ex is System.Text.RegularExpressions.RegexParseException)
+            {
+                // Invalid regex pattern — usage error, not a runtime failure
+                Console.Error.WriteLine($"files: invalid regex: {ex.Message}");
+                exitCode = ExitCode.UsageError;
+                exitReason = "usage_error";
+            }
             catch (Exception ex)
             {
                 Console.Error.WriteLine($"files: {ex.Message}");
