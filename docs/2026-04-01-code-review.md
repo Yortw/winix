@@ -237,7 +237,7 @@ var psi = new ProcessStartInfo("git", "check-ignore -z --stdin") { ... };
 
 ### 19. CommandLineParser: `BuildLookups` not thread-safe
 
-- [ ] **Fix**
+- [x] **Fixed** (fa57285)
 
 **File:** `src/Yort.ShellKit/CommandLineParser.cs:437-479`
 
@@ -249,7 +249,7 @@ Lazy init without synchronisation. Low practical risk since parsers are used sin
 
 ### 20. Wargs: `--line-buffered` + `--parallel > 1` not validated
 
-- [ ] **Fix**
+- [x] **Fixed** (fa57285)
 
 **File:** `src/wargs/Program.cs:117-121`
 
@@ -261,7 +261,7 @@ Line-buffered mode inherits stdio directly. Parallel line-buffered jobs interlea
 
 ### 21. Peep: permission errors on subsequent runs silently show stale output
 
-- [ ] **Fix**
+- [x] **Fixed** (fa57285)
 
 **File:** `src/Winix.Peep/InteractiveSession.cs:534-548`
 
@@ -273,7 +273,7 @@ Line-buffered mode inherits stdio directly. Parallel line-buffered jobs interlea
 
 ### 22. Duplicate exception types across TimeIt and Peep
 
-- [ ] **Fix**
+- [x] **Fixed** (fa57285)
 
 **Files:** `src/Winix.TimeIt/CommandRunner.cs:9-40`, `src/Winix.Peep/CommandNotFoundException.cs`, `src/Winix.Peep/CommandNotExecutableException.cs`
 
@@ -283,7 +283,7 @@ Identical purpose and nearly identical implementation. These belong in `Yort.She
 
 ### 23. Squeeze: exit code 2 deviation undocumented at call site
 
-- [ ] **Fix**
+- [x] **Fixed** (fa57285)
 
 **File:** `src/squeeze/Program.cs:38, 50-52`
 
@@ -295,7 +295,7 @@ Uses `UsageErrorCode(2)` for gzip compatibility instead of 125 (POSIX). Intentio
 
 ### 24. CommandLineParser: `\r\n` in section body produces trailing `\r`
 
-- [ ] **Fix**
+- [x] **Fixed** (fa57285)
 
 **File:** `src/Yort.ShellKit/CommandLineParser.cs:558`
 
@@ -307,7 +307,7 @@ Uses `UsageErrorCode(2)` for gzip compatibility instead of 125 (POSIX). Intentio
 
 ### 25. DisplayFormat: negative byte counts silently format
 
-- [ ] **Fix**
+- [x] **Fixed** (fa57285)
 
 **File:** `src/Yort.ShellKit/DisplayFormat.cs:20`
 
@@ -319,7 +319,7 @@ Uses `UsageErrorCode(2)` for gzip compatibility instead of 125 (POSIX). Intentio
 
 ### 26. TreeBuilder: sort always case-insensitive regardless of `--case-sensitive` flag
 
-- [ ] **Fix**
+- [x] **Fixed** (fa57285)
 
 **File:** `src/Winix.TreeX/TreeBuilder.cs:279`
 
