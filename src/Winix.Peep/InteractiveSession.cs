@@ -20,7 +20,7 @@ public sealed class InteractiveSession
     private bool _showHelp;
     private int _scrollOffset;
     private string _exitReason = "manual";
-    private bool _running;
+    private volatile bool _running;
     private SnapshotHistory _history;
     private bool _isTimeMachine;
     private bool _historyOverlayOpen;

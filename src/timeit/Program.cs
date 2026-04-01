@@ -71,7 +71,8 @@ internal sealed class Program
         {
             if (jsonOutput)
             {
-                writer.WriteLine(Formatting.FormatJsonError(ExitCode.NotExecutable, "command_not_executable", "timeit", version));
+                // Errors always go to stderr, even when --stdout redirects summary output
+                Console.Error.WriteLine(Formatting.FormatJsonError(ExitCode.NotExecutable, "command_not_executable", "timeit", version));
             }
             else
             {
@@ -83,13 +84,27 @@ internal sealed class Program
         {
             if (jsonOutput)
             {
-                writer.WriteLine(Formatting.FormatJsonError(ExitCode.NotFound, "command_not_found", "timeit", version));
+                // Errors always go to stderr, even when --stdout redirects summary output
+                Console.Error.WriteLine(Formatting.FormatJsonError(ExitCode.NotFound, "command_not_found", "timeit", version));
             }
             else
             {
                 Console.Error.WriteLine($"timeit: {ex.Message}");
             }
             return ExitCode.NotFound;
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Unexpected process start failure (bad EXE format, out of memory, etc.)
+            if (jsonOutput)
+            {
+                Console.Error.WriteLine(Formatting.FormatJsonError(ExitCode.UsageError, "start_error", "timeit", version));
+            }
+            else
+            {
+                Console.Error.WriteLine($"timeit: {ex.Message}");
+            }
+            return ExitCode.UsageError;
         }
 
         string output;

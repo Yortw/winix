@@ -83,13 +83,20 @@ public static class CommandRunner
             // Win32Exception is thrown on all .NET platforms (not just Windows).
             // .NET maps POSIX errors to Win32 error codes on Linux/macOS.
             // ERROR_ACCESS_DENIED (5) on Windows, EACCES (13) on Linux/macOS → not executable.
-            // ERROR_FILE_NOT_FOUND (2), ERROR_PATH_NOT_FOUND (3), ENOENT (2) → not found.
             if (ex.NativeErrorCode == 5 || ex.NativeErrorCode == 13)
             {
                 throw new CommandNotExecutableException(command);
             }
 
-            throw new CommandNotFoundException(command);
+            // ERROR_FILE_NOT_FOUND (2), ERROR_PATH_NOT_FOUND (3), ENOENT (2) → not found.
+            if (ex.NativeErrorCode == 2 || ex.NativeErrorCode == 3)
+            {
+                throw new CommandNotFoundException(command);
+            }
+
+            // Other errors (ERROR_BAD_EXE_FORMAT, ERROR_NOT_ENOUGH_MEMORY, etc.)
+            // — surface the original message rather than misreporting as "not found".
+            throw new InvalidOperationException($"failed to start '{command}': {ex.Message}", ex);
         }
 
         try

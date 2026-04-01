@@ -72,4 +72,32 @@ public class CommandRunnerTests
 
         Assert.Equal(0, result.ExitCode);
     }
+
+    [Fact]
+    public void Run_BadExecutableFormat_ThrowsInvalidOperationException()
+    {
+        // Create a temp file with invalid EXE content — triggers ERROR_BAD_EXE_FORMAT
+        // on Windows or ENOEXEC on Linux. Previously this was misreported as
+        // CommandNotFoundException; now it surfaces as InvalidOperationException.
+        string tempFile = Path.Combine(Path.GetTempPath(), $"timeit-test-{Guid.NewGuid()}.exe");
+        try
+        {
+            File.WriteAllText(tempFile, "this is not an executable");
+            if (!OperatingSystem.IsWindows())
+            {
+                // Make it executable on Unix so we get past the EACCES check
+                File.SetUnixFileMode(tempFile,
+                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            }
+
+            var ex = Assert.Throws<InvalidOperationException>(
+                () => CommandRunner.Run(tempFile, Array.Empty<string>()));
+
+            Assert.Contains("failed to start", ex.Message);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
 }

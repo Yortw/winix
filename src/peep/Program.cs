@@ -177,25 +177,25 @@ internal sealed class Program
         {
             if (jsonOutput)
             {
-                Console.Error.WriteLine(Formatting.FormatJsonError(127, "command_not_found", "peep", version));
+                Console.Error.WriteLine(Formatting.FormatJsonError(ExitCode.NotFound, "command_not_found", "peep", version));
             }
             else
             {
                 Console.Error.WriteLine($"peep: {ex.Message}");
             }
-            return 127;
+            return ExitCode.NotFound;
         }
         catch (CommandNotExecutableException ex)
         {
             if (jsonOutput)
             {
-                Console.Error.WriteLine(Formatting.FormatJsonError(126, "command_not_executable", "peep", version));
+                Console.Error.WriteLine(Formatting.FormatJsonError(ExitCode.NotExecutable, "command_not_executable", "peep", version));
             }
             else
             {
                 Console.Error.WriteLine($"peep: {ex.Message}");
             }
-            return 126;
+            return ExitCode.NotExecutable;
         }
     }
 
