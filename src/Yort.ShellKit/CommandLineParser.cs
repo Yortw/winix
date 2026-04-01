@@ -329,9 +329,39 @@ public sealed class CommandLineParser
                 }
             }
 
-            // Check aliases first
+            // Check aliases first (e.g. -9 → --level 9)
             if (_aliasLookup!.TryGetValue(arg, out AliasDef? alias))
             {
+                // Run the target option's type validation on the alias value so that
+                // aliases are subject to the same constraints as direct --option values.
+                if (_optionLookup!.TryGetValue(alias.TargetOption, out OptionDef? aliasTarget))
+                {
+                    if (aliasTarget.Type == OptionType.Int && aliasTarget.IntValidate is not null)
+                    {
+                        if (int.TryParse(alias.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int intVal))
+                        {
+                            string? validationError = aliasTarget.IntValidate(intVal);
+                            if (validationError is not null)
+                            {
+                                errors.Add($"{alias.TargetOption}: {validationError}");
+                                continue;
+                            }
+                        }
+                    }
+                    else if (aliasTarget.Type == OptionType.Double && aliasTarget.DoubleValidate is not null)
+                    {
+                        if (double.TryParse(alias.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double dblVal))
+                        {
+                            string? validationError = aliasTarget.DoubleValidate(dblVal);
+                            if (validationError is not null)
+                            {
+                                errors.Add($"{alias.TargetOption}: {validationError}");
+                                continue;
+                            }
+                        }
+                    }
+                }
+
                 optionValues[alias.TargetOption] = alias.Value;
                 continue;
             }
