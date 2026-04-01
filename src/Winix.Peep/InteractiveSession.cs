@@ -20,6 +20,7 @@ public sealed class InteractiveSession
     private bool _showHelp;
     private int _scrollOffset;
     private string _exitReason = "manual";
+    private int _failedExitCode;
     private volatile bool _running;
     private SnapshotHistory _history;
     private bool _isTimeMachine;
@@ -111,7 +112,8 @@ public sealed class InteractiveSession
             }
             else
             {
-                // Command not found on initial run -- exit immediately
+                // Command not found or not executable on initial run -- exit immediately
+                // with the appropriate POSIX exit code (127/126).
                 return HandleExit(sessionStopwatch);
             }
 
@@ -558,11 +560,15 @@ public sealed class InteractiveSession
         catch (CommandNotFoundException ex)
         {
             Console.Error.WriteLine($"peep: {ex.Message}");
+            _failedExitCode = ExitCode.NotFound;
+            _exitReason = "command_not_found";
             return null;
         }
         catch (CommandNotExecutableException ex)
         {
             Console.Error.WriteLine($"peep: {ex.Message}");
+            _failedExitCode = ExitCode.NotExecutable;
+            _exitReason = "command_not_executable";
             return null;
         }
         catch (OperationCanceledException)
@@ -684,7 +690,7 @@ public sealed class InteractiveSession
     {
         sessionStopwatch.Stop();
 
-        int exitCode = _lastResult?.ExitCode ?? 0;
+        int exitCode = _lastResult?.ExitCode ?? _failedExitCode;
 
         // For auto-exit conditions that represent success, use exit code 0
         if (_exitReason == "exit_on_change" || _exitReason == "exit_on_success")
