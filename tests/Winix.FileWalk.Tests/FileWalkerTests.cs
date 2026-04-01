@@ -191,8 +191,10 @@ public class FileWalkerTests : IDisposable
         var walker = new FileWalker(MakeOptions(absolutePaths: true));
         var results = walker.Walk(new[] { _root }).ToList();
 
+        // AbsolutePaths outputs forward-slash paths on all platforms.
+        // Path.IsPathRooted handles forward slashes correctly on all platforms.
         Assert.All(results, e => Assert.True(
-            Path.IsPathRooted(e.Path.Replace('/', '\\')),
+            Path.IsPathRooted(e.Path),
             $"Expected absolute path but got: {e.Path}"));
     }
 
