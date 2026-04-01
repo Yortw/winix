@@ -199,6 +199,12 @@ public sealed class JobRunner
         // Lock protects stdout/stderr writes so job outputs don't interleave
         var outputLock = new object();
 
+        // Linked CTS: cancels in-flight jobs when either the caller cancels OR
+        // --fail-fast triggers. The kill-on-cancel registration in ExecuteJobAsync
+        // ensures child processes are actually killed rather than just abandoned.
+        using var failFastCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        CancellationToken jobToken = failFastCts.Token;
+
         for (int i = 0; i < invocations.Count; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -258,6 +264,7 @@ public sealed class JobRunner
                             Skipped: true);
                     }
 
+
                     if (_options.Verbose)
                     {
                         lock (outputLock)
@@ -269,12 +276,12 @@ public sealed class JobRunner
                     JobResult result;
                     if (_options.Strategy == BufferStrategy.LineBuffered)
                     {
-                        result = await ExecuteJobLineBufferedAsync(capturedInvocation, capturedIndex, cancellationToken)
+                        result = await ExecuteJobLineBufferedAsync(capturedInvocation, capturedIndex, jobToken)
                             .ConfigureAwait(false);
                     }
                     else
                     {
-                        result = await ExecuteJobAsync(capturedInvocation, capturedIndex, cancellationToken)
+                        result = await ExecuteJobAsync(capturedInvocation, capturedIndex, jobToken)
                             .ConfigureAwait(false);
                     }
 
@@ -289,13 +296,26 @@ public sealed class JobRunner
                         }
                     }
 
-                    // Check for fail-fast trigger
+                    // Check for fail-fast trigger — cancel the linked CTS so in-flight
+                    // jobs are killed rather than running to completion.
                     if (result.ChildExitCode != 0 && _options.FailFast)
                     {
                         Volatile.Write(ref aborted, true);
+                        failFastCts.Cancel();
                     }
 
                     return result;
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    // Cancelled by fail-fast, not by the caller — treat as skipped
+                    return new JobResult(
+                        JobIndex: capturedIndex,
+                        ChildExitCode: -1,
+                        Output: null,
+                        Duration: TimeSpan.Zero,
+                        SourceItems: capturedInvocation.SourceItems,
+                        Skipped: true);
                 }
                 finally
                 {
@@ -304,7 +324,16 @@ public sealed class JobRunner
             }, cancellationToken);
         }
 
-        await Task.WhenAll(tasks).ConfigureAwait(false);
+        // Some tasks may have been cancelled by fail-fast — collect results
+        // without letting the aggregate exception propagate.
+        try
+        {
+            await Task.WhenAll(tasks).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // Fail-fast cancellation — tasks already returned Skipped results
+        }
 
         // Keep-order: write all output in input order after all jobs complete
         if (_options.Strategy == BufferStrategy.KeepOrder)

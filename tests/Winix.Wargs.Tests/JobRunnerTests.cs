@@ -309,4 +309,53 @@ public class JobRunnerTests
         Assert.Equal(1, result.Failed);
         Assert.Equal(-1, result.Jobs[0].ChildExitCode);
     }
+
+    [Fact]
+    public async Task RunAsync_ParallelFailFast_CancelsInFlightJobs()
+    {
+        // Job 1 fails immediately; jobs 2-4 are long-running sleeps.
+        // With --fail-fast + --parallel, the sleep jobs should be cancelled
+        // and the total wall time should be much less than 30 seconds.
+        var options = new JobRunnerOptions(Parallelism: 4, FailFast: true);
+        var runner = new JobRunner(options);
+
+        CommandInvocation sleepInvocation = MakeSleepInvocation(30, "slow");
+
+        var invocations = new[]
+        {
+            MakeExitInvocation(1, "fail"),
+            sleepInvocation,
+            sleepInvocation,
+            sleepInvocation,
+        };
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var result = await runner.RunAsync(invocations, TextWriter.Null, TextWriter.Null);
+        sw.Stop();
+
+        Assert.True(result.Failed >= 1, "At least one job should have failed");
+        // The key assertion: if fail-fast cancellation works, we finish in well under
+        // 30 seconds. The sleep jobs may show as Skipped (cancelled before start) or
+        // Failed (killed mid-flight), depending on timing — either is correct.
+        Assert.True(sw.Elapsed.TotalSeconds < 15, $"Expected fast completion but took {sw.Elapsed.TotalSeconds:F1}s");
+        int nonSucceeded = result.Failed + result.Skipped;
+        Assert.True(nonSucceeded >= 2, $"Expected at least 2 non-succeeded jobs but got {nonSucceeded}");
+    }
+
+    /// <summary>
+    /// Helper: cross-platform command that sleeps for the given number of seconds.
+    /// </summary>
+    private static CommandInvocation MakeSleepInvocation(int seconds, string item)
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            // ping -n N localhost has ~1 second per ping — crude but available everywhere
+            return new CommandInvocation(
+                "ping", new[] { "-n", (seconds + 1).ToString(), "127.0.0.1" },
+                $"ping -n {seconds + 1} 127.0.0.1", new[] { item });
+        }
+        return new CommandInvocation(
+            "sleep", new[] { seconds.ToString() },
+            $"sleep {seconds}", new[] { item });
+    }
 }
