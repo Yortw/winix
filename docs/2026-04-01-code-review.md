@@ -339,7 +339,7 @@ _ => string.Compare(a.Name, b.Name,
 
 ### 27. Scoop manifests broken for wargs, files, treex
 
-- [ ] **Fix**
+- [x] **Fixed** (092b019)
 
 **Files:** `bucket/wargs.json`, `bucket/files.json`, `bucket/treex.json`
 
@@ -351,7 +351,7 @@ Placeholder `v0.0.0` URLs and `0000...` hashes. Any Scoop install attempt for th
 
 ### 28. `peep.json` hash is 63 hex chars (invalid SHA-256)
 
-- [ ] **Fix**
+- [x] **False positive** — hash is 64 chars, reviewer miscounted
 
 **File:** `bucket/peep.json:9`
 
@@ -363,7 +363,7 @@ SHA-256 requires 64 hex chars. This hash is 63 chars. Scoop will reject with has
 
 ### 29. macOS x64 cross-compilation risk
 
-- [ ] **Fix**
+- [x] **Fixed** (092b019)
 
 **File:** `.github/workflows/release.yml:115-116`
 
@@ -375,7 +375,7 @@ Both `osx-x64` and `osx-arm64` use `macos-latest` (currently arm64). The x64 tar
 
 ### 30. `workflow_dispatch` version input not validated
 
-- [ ] **Fix**
+- [x] **Fixed** (092b019)
 
 **File:** `.github/workflows/release.yml:26-33`
 
@@ -392,7 +392,7 @@ fi
 
 ### 31. PackAsTool + PublishAot: NuGet is JIT, releases are AOT
 
-- [ ] **Fix/Document**
+- [x] **Documented** (092b019)
 
 **Files:** All console `.csproj` files
 
@@ -404,7 +404,7 @@ fi
 
 ### 32. `RuntimeFrameworkVersion=10.0.0` exact pin
 
-- [ ] **Fix**
+- [x] **Fixed** (092b019)
 
 **File:** `Directory.Build.props:10`
 
@@ -416,7 +416,7 @@ Exact pin to `10.0.0` is fragile if CI runner has only a later patch version. `g
 
 ### 33. Scoop bucket push has no conflict handling
 
-- [ ] **Fix**
+- [x] **Fixed** (092b019)
 
 **File:** `.github/workflows/release.yml:253-302`
 
@@ -428,7 +428,7 @@ Direct push to `main` with no conflict handling. Concurrent releases would fail 
 
 ### 34. CI workflow missing explicit `permissions` block
 
-- [ ] **Fix**
+- [x] **Fixed** (092b019)
 
 **File:** `.github/workflows/ci.yml`
 
@@ -446,7 +446,7 @@ permissions:
 
 ### 35. IntervalScheduler is unused dead code
 
-- [ ] **Fix**
+- [x] **Fixed** (092b019) — removed IntervalScheduler and its tests
 
 **File:** `src/Winix.Peep/IntervalScheduler.cs`
 
@@ -458,7 +458,7 @@ Fully built and tested but has no caller. `InteractiveSession` uses manual `Date
 
 ### 36. `CheckBatch` has zero test coverage
 
-- [ ] **Fix**
+- [x] **Fixed** (092b019) — added 3 tests: basic, empty input, over-chunk-size
 
 **File:** `tests/Yort.ShellKit.Tests/GitIgnoreFilterTests.cs`
 
@@ -468,7 +468,7 @@ Fully built and tested but has no caller. `InteractiveSession` uses manual `Date
 
 ### 37. `GetTerminalWidth`/`GetTerminalHeight` can return 0
 
-- [ ] **Fix**
+- [x] **Fixed** (092b019)
 
 **File:** `src/Yort.ShellKit/ConsoleEnv.cs:124-133`
 
@@ -480,7 +480,7 @@ Fully built and tested but has no caller. `InteractiveSession` uses manual `Date
 
 ### 38. Missing XML `<param>` docs on public records
 
-- [ ] **Fix**
+- [x] **Fixed** (092b019)
 
 **Files:** `src/Winix.FileWalk/FileWalkerOptions.cs`, `src/Winix.Peep/SessionConfig.cs`
 
@@ -490,7 +490,7 @@ Fully built and tested but has no caller. `InteractiveSession` uses manual `Date
 
 ### 39. Missing XML docs on CommandLineParser internal types
 
-- [ ] **Fix**
+- [x] **Fixed** (092b019)
 
 **File:** `src/Yort.ShellKit/CommandLineParser.cs:786-798`
 
@@ -500,7 +500,7 @@ Fully built and tested but has no caller. `InteractiveSession` uses manual `Date
 
 ### 40. CommandLineParser: post-parse mutation silently uses stale lookups
 
-- [ ] **Fix**
+- [x] **Already fixed by #19** (fa57285) — ThrowIfParsed guard
 
 **File:** `src/Yort.ShellKit/CommandLineParser.cs:436-439`
 
@@ -512,7 +512,7 @@ If a caller registers additional flags after the first `Parse()` call, `BuildLoo
 
 ### 41. Missing tests for exit code 126 and non-standard Win32Exception paths
 
-- [ ] **Fix**
+- [x] **Fixed** (092b019 + 16f455f) — permission-denied test (Unix), bad-exe test (all platforms)
 
 **File:** `tests/Winix.TimeIt.Tests/CommandRunnerTests.cs`
 
