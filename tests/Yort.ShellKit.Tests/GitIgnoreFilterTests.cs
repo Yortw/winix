@@ -120,6 +120,28 @@ public class GitIgnoreFilterTests : IDisposable
     }
 
     [Fact]
+    public void CheckBatch_DirectoryWithTrailingSlash_PreservesInputForm()
+    {
+        InitGitRepo();
+        File.WriteAllText(Path.Combine(_tempDir, ".gitignore"), "bin/\nobj/\n");
+        Directory.CreateDirectory(Path.Combine(_tempDir, "bin"));
+        Directory.CreateDirectory(Path.Combine(_tempDir, "obj"));
+        Directory.CreateDirectory(Path.Combine(_tempDir, "src"));
+
+        using GitIgnoreFilter? filter = GitIgnoreFilter.Create(_tempDir);
+        Assert.NotNull(filter);
+
+        // Callers (FileWalker) append trailing slash for directory queries so git
+        // evaluates directory-specific patterns. CheckBatch should return the input
+        // form (with trailing slash), not git's output form (trailing slash stripped).
+        HashSet<string> ignored = filter!.CheckBatch(new[] { "bin/", "obj/", "src/" });
+
+        Assert.Contains("bin/", ignored);
+        Assert.Contains("obj/", ignored);
+        Assert.DoesNotContain("src/", ignored);
+    }
+
+    [Fact]
     public void CheckBatch_EmptyInput_ReturnsEmptySet()
     {
         InitGitRepo();

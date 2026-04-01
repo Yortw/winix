@@ -66,11 +66,11 @@ public sealed class TreeBuilder
 
         // Track visited real paths for symlink cycle detection. Without this,
         // a symlink pointing to an ancestor directory causes infinite recursion
-        // and a StackOverflowException. Case-insensitive on Windows/macOS
-        // (NTFS/APFS), case-sensitive on Linux (ext4/xfs).
-        var visitedDirs = new HashSet<string>(OperatingSystem.IsLinux()
-            ? StringComparer.Ordinal
-            : StringComparer.OrdinalIgnoreCase);
+        // and a StackOverflowException. Case-insensitive on Windows (NTFS).
+        // Case-sensitive on Linux and macOS (macOS can run case-sensitive APFS).
+        var visitedDirs = new HashSet<string>(OperatingSystem.IsWindows()
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal);
         visitedDirs.Add(fullRoot);
 
         TreeNode root = new()

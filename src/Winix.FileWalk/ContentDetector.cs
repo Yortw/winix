@@ -1,3 +1,5 @@
+using System.Buffers;
+
 namespace Winix.FileWalk;
 
 /// <summary>
@@ -14,11 +16,11 @@ public static class ContentDetector
     /// </summary>
     public static bool IsTextFile(string path)
     {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(SampleSize);
         try
         {
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-            byte[] buffer = new byte[SampleSize];
-            int bytesRead = stream.Read(buffer, 0, buffer.Length);
+            int bytesRead = stream.Read(buffer, 0, SampleSize);
 
             for (int i = 0; i < bytesRead; i++)
             {
@@ -37,6 +39,10 @@ public static class ContentDetector
         catch (UnauthorizedAccessException)
         {
             return false;
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
         }
     }
 }

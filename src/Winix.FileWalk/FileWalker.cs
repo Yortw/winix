@@ -53,11 +53,15 @@ public sealed class FileWalker
             string fullRoot = Path.GetFullPath(root);
 
             // Track visited real paths for symlink cycle detection.
-            // Case-insensitive on Windows/macOS (NTFS/APFS), case-sensitive on Linux (ext4/xfs).
+            // Case-insensitive on Windows (NTFS is always case-insensitive).
+            // Case-sensitive on Linux and macOS — macOS can run case-sensitive APFS,
+            // and using Ordinal here is safe on case-insensitive APFS too (it just
+            // won't detect the rare scenario of two differently-cased paths pointing
+            // to the same case-insensitive directory, which is not a real-world concern).
             HashSet<string>? visitedDirs = _options.FollowSymlinks
-                ? new HashSet<string>(OperatingSystem.IsLinux()
-                    ? StringComparer.Ordinal
-                    : StringComparer.OrdinalIgnoreCase)
+                ? new HashSet<string>(OperatingSystem.IsWindows()
+                    ? StringComparer.OrdinalIgnoreCase
+                    : StringComparer.Ordinal)
                 : null;
 
             foreach (FileEntry entry in WalkDirectory(fullRoot, fullRoot, 0, visitedDirs))
