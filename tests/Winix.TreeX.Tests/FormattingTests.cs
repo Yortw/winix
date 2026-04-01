@@ -57,7 +57,7 @@ public class FormattingTests
     public void FormatNdjsonLine_ContainsStandardEnvelopeFields()
     {
         TreeNode node = MakeFile("app.cs", 2340);
-        string line = Formatting.FormatNdjsonLine(node, 1, ToolName, Version);
+        string line = Formatting.FormatNdjsonLine(node, 1, "/tmp", ToolName, Version);
 
         Assert.Contains("\"tool\":\"treex\"", line);
         Assert.Contains("\"version\":\"0.1.0\"", line);
@@ -69,9 +69,9 @@ public class FormattingTests
     public void FormatNdjsonLine_ContainsAllNodeFields()
     {
         TreeNode node = MakeFile("app.cs", 2340);
-        string line = Formatting.FormatNdjsonLine(node, 3, ToolName, Version);
+        string line = Formatting.FormatNdjsonLine(node, 3, "/tmp", ToolName, Version);
 
-        Assert.Contains("\"path\":\"/tmp/app.cs\"", line);
+        Assert.Contains("\"path\":\"app.cs\"", line);
         Assert.Contains("\"name\":\"app.cs\"", line);
         Assert.Contains("\"type\":\"file\"", line);
         Assert.Contains("\"size_bytes\":2340", line);
@@ -83,7 +83,7 @@ public class FormattingTests
     public void FormatNdjsonLine_DirectoryType_EmitsDir()
     {
         TreeNode node = MakeDir("src");
-        string line = Formatting.FormatNdjsonLine(node, 0, ToolName, Version);
+        string line = Formatting.FormatNdjsonLine(node, 0, "/tmp", ToolName, Version);
 
         Assert.Contains("\"type\":\"dir\"", line);
     }
@@ -92,7 +92,7 @@ public class FormattingTests
     public void FormatNdjsonLine_SymlinkType_EmitsLink()
     {
         TreeNode node = MakeSymlink("latest");
-        string line = Formatting.FormatNdjsonLine(node, 1, ToolName, Version);
+        string line = Formatting.FormatNdjsonLine(node, 1, "/tmp", ToolName, Version);
 
         Assert.Contains("\"type\":\"link\"", line);
     }
@@ -101,7 +101,7 @@ public class FormattingTests
     public void FormatNdjsonLine_IsValidJson()
     {
         TreeNode node = MakeFile("app.cs", 2340);
-        string line = Formatting.FormatNdjsonLine(node, 1, ToolName, Version);
+        string line = Formatting.FormatNdjsonLine(node, 1, "/tmp", ToolName, Version);
 
         // Will throw if invalid
         JsonDocument.Parse(line);
@@ -111,7 +111,7 @@ public class FormattingTests
     public void FormatNdjsonLine_ContainsNoNewlines()
     {
         TreeNode node = MakeFile("app.cs", 2340);
-        string line = Formatting.FormatNdjsonLine(node, 1, ToolName, Version);
+        string line = Formatting.FormatNdjsonLine(node, 1, "/tmp", ToolName, Version);
 
         Assert.DoesNotContain('\n', line);
     }
@@ -128,7 +128,7 @@ public class FormattingTests
             Modified = FixedDate
         };
 
-        string line = Formatting.FormatNdjsonLine(node, 0, ToolName, Version);
+        string line = Formatting.FormatNdjsonLine(node, 0, "/tmp", ToolName, Version);
 
         // Must be valid JSON even with quote in the path
         JsonDocument.Parse(line);

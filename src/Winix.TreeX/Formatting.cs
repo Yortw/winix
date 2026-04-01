@@ -11,14 +11,19 @@ public static class Formatting
     /// <summary>
     /// Returns a single NDJSON line (no trailing newline) for <paramref name="node"/>.
     /// Includes the standard Winix envelope fields (tool, version, exit_code:0, exit_reason:"success")
-    /// plus path, name, type, size_bytes, modified (ISO 8601), and depth.
+    /// plus path (relative to root, forward-slash separated), name, type, size_bytes, modified (ISO 8601), and depth.
     /// </summary>
     /// <param name="node">The tree node to serialise.</param>
     /// <param name="depth">Depth of this node relative to the tree root.</param>
+    /// <param name="rootPath">Absolute path of the tree root, used to compute relative paths.</param>
     /// <param name="toolName">Value for the <c>tool</c> envelope field.</param>
     /// <param name="version">Value for the <c>version</c> envelope field.</param>
-    public static string FormatNdjsonLine(TreeNode node, int depth, string toolName, string version)
+    public static string FormatNdjsonLine(TreeNode node, int depth, string rootPath, string toolName, string version)
     {
+        string relativePath = depth == 0
+            ? "."
+            : Path.GetRelativePath(rootPath, node.FullPath).Replace('\\', '/');
+
         var (writer, buffer) = JsonHelper.CreateWriter();
         using (writer)
         {
@@ -27,7 +32,7 @@ public static class Formatting
             writer.WriteString("version", version);
             writer.WriteNumber("exit_code", 0);
             writer.WriteString("exit_reason", "success");
-            writer.WriteString("path", node.FullPath);
+            writer.WriteString("path", relativePath);
             writer.WriteString("name", node.Name);
             writer.WriteString("type", FormatTypeString(node.Type));
             writer.WriteNumber("size_bytes", node.SizeBytes);

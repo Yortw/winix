@@ -291,7 +291,7 @@ internal sealed class Program
                     {
                         int ndjsonDirs = 0;
                         int ndjsonFiles = 0;
-                        WriteNdjsonTree(tree, 0, "treex", version, dirsOnly, ref ndjsonDirs, ref ndjsonFiles);
+                        WriteNdjsonTree(tree, 0, tree.FullPath, "treex", version, dirsOnly, ref ndjsonDirs, ref ndjsonFiles);
                         totalDirs += ndjsonDirs;
                         totalFiles += ndjsonFiles;
                     }
@@ -344,13 +344,14 @@ internal sealed class Program
     private static void WriteNdjsonTree(
         TreeNode node,
         int depth,
+        string rootPath,
         string toolName,
         string version,
         bool dirsOnly,
         ref int dirCount,
         ref int fileCount)
     {
-        Console.Out.WriteLine(Formatting.FormatNdjsonLine(node, depth, toolName, version));
+        Console.Out.WriteLine(Formatting.FormatNdjsonLine(node, depth, rootPath, toolName, version));
 
         foreach (TreeNode child in node.Children)
         {
@@ -364,7 +365,7 @@ internal sealed class Program
                 fileCount++;
             }
 
-            WriteNdjsonTree(child, depth + 1, toolName, version, dirsOnly, ref dirCount, ref fileCount);
+            WriteNdjsonTree(child, depth + 1, rootPath, toolName, version, dirsOnly, ref dirCount, ref fileCount);
         }
     }
 
