@@ -20,6 +20,7 @@ public sealed class FileWatcher : IDisposable
     private readonly Matcher _matcher;
     private Timer? _debounceTimer;
     private readonly object _lock = new();
+    private string? _basePath;
     private bool _disposed;
 
     /// <summary>
@@ -68,6 +69,7 @@ public sealed class FileWatcher : IDisposable
     public void Start()
     {
         string basePath = Directory.GetCurrentDirectory();
+        _basePath = basePath;
 
         // Determine root directories to watch. For each pattern, extract the leading
         // literal path segments before any wildcard. If the pattern starts with a wildcard,
@@ -170,12 +172,11 @@ public sealed class FileWatcher : IDisposable
 
     /// <summary>
     /// Tests whether a full file path matches any of the configured glob patterns.
-    /// The path is converted to a relative path (from the current directory) before matching.
+    /// The path is converted to a relative path (from the base directory captured at Start) before matching.
     /// </summary>
     private bool IsMatch(string fullPath)
     {
-        string basePath = Directory.GetCurrentDirectory();
-        string relativePath = Path.GetRelativePath(basePath, fullPath);
+        string relativePath = Path.GetRelativePath(_basePath!, fullPath);
 
         // Normalise separators for the matcher (it expects forward slashes)
         relativePath = relativePath.Replace('\\', '/');
