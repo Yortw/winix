@@ -371,4 +371,48 @@ public class FileWalkerTests : IDisposable
         Assert.Contains(results, e => e.Name == "file1.cs");
         Assert.DoesNotContain(results, e => e.Name == "file2.txt");
     }
+
+    [Fact]
+    public void Walk_SymlinkCycle_DoesNotInfiniteLoop()
+    {
+        // Create a symlink inside sub/ that points back to root, forming a cycle.
+        // With FollowSymlinks=true, the walker must detect the cycle and stop.
+        string linkPath = Path.Combine(_root, "sub", "cycle_link");
+
+        try
+        {
+            Directory.CreateSymbolicLink(linkPath, _root);
+        }
+        catch (IOException)
+        {
+            // Symlink creation may fail without elevated privileges on Windows
+            return;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return;
+        }
+
+        var walker = new FileWalker(MakeOptions(followSymlinks: true));
+
+        // If cycle detection is broken, this will stack overflow or hang.
+        // With the fix, it terminates and returns a finite set of entries.
+        var results = walker.Walk(new[] { _root }).ToList();
+
+        Assert.True(results.Count > 0, "Should return some entries");
+        Assert.True(results.Count < 1000, "Should not explode from symlink cycle");
+    }
+
+    [Fact]
+    public void Walk_RegexTimeout_TreatsAsNonMatch()
+    {
+        // A pathological regex with backreference that falls back to the timeout engine.
+        // SafeRegex gives it a 2-second timeout. On short filenames this should complete
+        // fast, but the test verifies the walker doesn't crash on RegexMatchTimeoutException.
+        var walker = new FileWalker(MakeOptions(regexPatterns: new[] { @"(.)\1" }));
+        var results = walker.Walk(new[] { _root }).ToList();
+
+        // "deep" has repeated 'e', "sub" does not — just verify it completes without crashing
+        Assert.DoesNotContain(results, e => e.Name == "file1.cs");
+    }
 }

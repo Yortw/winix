@@ -266,4 +266,39 @@ public class FileWatcherIntegrationTests
             }
         }
     }
+
+    [Fact]
+    public async Task GitIgnoreChanged_FiresWhenGitIgnoreModified()
+    {
+        string tempDir = Path.Combine(Path.GetTempPath(), $"peep-test-{Guid.NewGuid():N}");
+        string subDir = Path.Combine(tempDir, "src");
+        Directory.CreateDirectory(subDir);
+
+        string originalDir = Directory.GetCurrentDirectory();
+        FileWatcher? watcher = null;
+        try
+        {
+            Directory.SetCurrentDirectory(tempDir);
+
+            // Watch all files so the FSW sees .gitignore changes in the watched root
+            watcher = new FileWatcher(new[] { "**/*" }, debounceMs: 50);
+            var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            watcher.GitIgnoreChanged += () => tcs.TrySetResult();
+            watcher.Start();
+
+            // Create a .gitignore file — should fire GitIgnoreChanged
+            await Task.Delay(100); // Brief delay to ensure watcher is ready
+            string gitIgnorePath = Path.Combine(tempDir, ".gitignore");
+            await File.WriteAllTextAsync(gitIgnorePath, "*.log\n");
+
+            var completed = await Task.WhenAny(tcs.Task, Task.Delay(5000));
+            Assert.Same(tcs.Task, completed);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDir);
+            watcher?.Dispose();
+            TryDeleteDirectory(tempDir);
+        }
+    }
 }

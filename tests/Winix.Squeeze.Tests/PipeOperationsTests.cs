@@ -80,4 +80,35 @@ public class PipeOperationsTests : IDisposable
         Assert.Equal(1, result.ExitCode);
         Assert.NotNull(result.ErrorMessage);
     }
+
+    [Fact]
+    public async Task ProcessAsync_ByteCounts_AreCorrect()
+    {
+        byte[] original = "Byte counting regression test — verify ReadCountingStream and CountingStream report correctly."u8.ToArray();
+
+        using var compressInput = new MemoryStream(original);
+        using var compressed = new MemoryStream();
+        var compressResult = await PipeOperations.ProcessAsync(
+            compressInput, compressed,
+            decompress: false, CompressionFormat.Gzip, level: 6, explicitFormat: null);
+
+        Assert.Equal(0, compressResult.ExitCode);
+        Assert.NotNull(compressResult.Result);
+        Assert.Equal(original.Length, compressResult.Result!.InputBytes);
+        Assert.True(compressResult.Result.OutputBytes > 0, "Output bytes should be positive");
+        Assert.Equal(compressed.Length, compressResult.Result.OutputBytes);
+
+        // Decompress and verify counts in the other direction
+        compressed.Position = 0;
+        long compressedLength = compressed.Length;
+        using var decompressed = new MemoryStream();
+        var decompressResult = await PipeOperations.ProcessAsync(
+            compressed, decompressed,
+            decompress: true, CompressionFormat.Gzip, level: 6, explicitFormat: null);
+
+        Assert.Equal(0, decompressResult.ExitCode);
+        Assert.NotNull(decompressResult.Result);
+        Assert.Equal(compressedLength, decompressResult.Result!.InputBytes);
+        Assert.Equal(original.Length, decompressResult.Result.OutputBytes);
+    }
 }
