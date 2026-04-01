@@ -22,7 +22,7 @@ Peep's `CommandExecutor.RunAsync` has the correct pattern with `cancellationToke
 
 ### 2. TimeIt: Linux `ru_maxrss` delta can be zero or misleading
 
-- [ ] **Fix**
+- [x] **Fixed** (8b951b8)
 
 **File:** `src/Winix.TimeIt/NativeMetrics.Linux.cs:83`
 
@@ -52,7 +52,7 @@ var psi = new ProcessStartInfo("git")
 
 ### 4. TreeBuilder: no symlink cycle detection — StackOverflowException
 
-- [ ] **Fix**
+- [x] **Fixed** (8b951b8)
 
 **File:** `src/Winix.TreeX/TreeBuilder.cs:144-174`
 
