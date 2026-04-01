@@ -460,6 +460,11 @@ public sealed class JobRunner
                 {
                     // Process already exited between the check and the kill — safe to ignore.
                 }
+                catch (Win32Exception)
+                {
+                    // Kill failed (e.g. access denied on elevated child, zombie process on Linux).
+                    // Swallow to avoid tearing down the process from an unhandled callback exception.
+                }
             });
 
             // Read stdout and stderr concurrently to avoid deadlock when the child
@@ -585,6 +590,11 @@ public sealed class JobRunner
                 catch (InvalidOperationException)
                 {
                     // Process already exited between the check and the kill — safe to ignore.
+                }
+                catch (Win32Exception)
+                {
+                    // Kill failed (e.g. access denied on elevated child, zombie process on Linux).
+                    // Swallow to avoid tearing down the process from an unhandled callback exception.
                 }
             });
 

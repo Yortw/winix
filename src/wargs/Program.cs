@@ -159,8 +159,17 @@ internal sealed class Program
         List<CommandInvocation> invocations = commandBuilder.Build(items).ToList();
 
         // --- Execute ---
+        // Wire Ctrl+C to a CancellationToken so the kill-on-cancel registrations in
+        // JobRunner activate and cleanly terminate child process trees.
+        using var cts = new CancellationTokenSource();
+        Console.CancelKeyPress += (_, e) =>
+        {
+            e.Cancel = true;  // Prevent immediate process termination — let RunAsync clean up
+            cts.Cancel();
+        };
+
         WargsResult wargsResult = await jobRunner.RunAsync(
-            invocations, Console.Out, Console.Error).ConfigureAwait(false);
+            invocations, Console.Out, Console.Error, cts.Token).ConfigureAwait(false);
 
         // --- Determine exit code ---
         if (dryRun)
