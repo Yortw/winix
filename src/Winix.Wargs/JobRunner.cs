@@ -692,9 +692,12 @@ public sealed class JobRunner
         else
         {
             // sh -c takes a single string command, so join command + args with shell quoting.
+            // Build the shell command string directly from Command/Arguments rather than
+            // reusing DisplayString, so that future display formatting changes (colour,
+            // truncation, etc.) don't silently break shell execution.
             startInfo.FileName = "sh";
             startInfo.ArgumentList.Add("-c");
-            startInfo.ArgumentList.Add(invocation.DisplayString);
+            startInfo.ArgumentList.Add(CommandBuilder.FormatDisplayString(invocation.Command, invocation.Arguments));
         }
 
         return startInfo;
