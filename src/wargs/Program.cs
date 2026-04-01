@@ -161,15 +161,27 @@ internal sealed class Program
         // --- Execute ---
         // Wire Ctrl+C to a CancellationToken so the kill-on-cancel registrations in
         // JobRunner activate and cleanly terminate child process trees.
+        // Named delegate so we can unregister before the CTS is disposed.
         using var cts = new CancellationTokenSource();
-        Console.CancelKeyPress += (_, e) =>
+        ConsoleCancelEventHandler cancelHandler = (_, e) =>
         {
             e.Cancel = true;  // Prevent immediate process termination — let RunAsync clean up
             cts.Cancel();
         };
+        Console.CancelKeyPress += cancelHandler;
 
-        WargsResult wargsResult = await jobRunner.RunAsync(
-            invocations, Console.Out, Console.Error, cts.Token).ConfigureAwait(false);
+        WargsResult wargsResult;
+        try
+        {
+            wargsResult = await jobRunner.RunAsync(
+                invocations, Console.Out, Console.Error, cts.Token).ConfigureAwait(false);
+        }
+        finally
+        {
+            // Unregister before 'using' disposes cts, so a late Ctrl+C
+            // doesn't call Cancel() on a disposed CancellationTokenSource.
+            Console.CancelKeyPress -= cancelHandler;
+        }
 
         // --- Determine exit code ---
         if (dryRun)

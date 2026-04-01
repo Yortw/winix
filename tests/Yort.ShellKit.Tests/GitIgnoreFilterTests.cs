@@ -197,13 +197,13 @@ public class GitIgnoreFilterTests : IDisposable
     private void InitGitRepo()
     {
         RunGit("init");
-        RunGit("config user.email test@test.com");
-        RunGit("config user.name Test");
+        RunGit("config", "user.email", "test@test.com");
+        RunGit("config", "user.name", "Test");
     }
 
-    private void RunGit(string arguments)
+    private void RunGit(params string[] arguments)
     {
-        var psi = new ProcessStartInfo("git", arguments)
+        var psi = new ProcessStartInfo("git")
         {
             WorkingDirectory = _tempDir,
             RedirectStandardOutput = true,
@@ -211,6 +211,10 @@ public class GitIgnoreFilterTests : IDisposable
             UseShellExecute = false,
             CreateNoWindow = true
         };
+        foreach (string arg in arguments)
+        {
+            psi.ArgumentList.Add(arg);
+        }
         using var process = Process.Start(psi)!;
         process.WaitForExit(10000);
     }

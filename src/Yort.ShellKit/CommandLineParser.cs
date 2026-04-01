@@ -332,13 +332,18 @@ public sealed class CommandLineParser
             // Check aliases first (e.g. -9 → --level 9)
             if (_aliasLookup!.TryGetValue(arg, out AliasDef? alias))
             {
-                // Run the target option's type validation on the alias value so that
-                // aliases are subject to the same constraints as direct --option values.
+                // Run the same type-check and validation as the direct --option path so
+                // that aliases are subject to identical constraints.
                 if (_optionLookup!.TryGetValue(alias.TargetOption, out OptionDef? aliasTarget))
                 {
-                    if (aliasTarget.Type == OptionType.Int && aliasTarget.IntValidate is not null)
+                    if (aliasTarget.Type == OptionType.Int)
                     {
-                        if (int.TryParse(alias.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int intVal))
+                        if (!int.TryParse(alias.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int intVal))
+                        {
+                            errors.Add($"{alias.TargetOption}: '{alias.Value}' is not a valid integer");
+                            continue;
+                        }
+                        if (aliasTarget.IntValidate is not null)
                         {
                             string? validationError = aliasTarget.IntValidate(intVal);
                             if (validationError is not null)
@@ -348,9 +353,14 @@ public sealed class CommandLineParser
                             }
                         }
                     }
-                    else if (aliasTarget.Type == OptionType.Double && aliasTarget.DoubleValidate is not null)
+                    else if (aliasTarget.Type == OptionType.Double)
                     {
-                        if (double.TryParse(alias.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double dblVal))
+                        if (!double.TryParse(alias.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double dblVal))
+                        {
+                            errors.Add($"{alias.TargetOption}: '{alias.Value}' is not a valid number");
+                            continue;
+                        }
+                        if (aliasTarget.DoubleValidate is not null)
                         {
                             string? validationError = aliasTarget.DoubleValidate(dblVal);
                             if (validationError is not null)

@@ -192,7 +192,11 @@ public sealed class GitIgnoreFilter : IDisposable
             // -z output is NUL-delimited. Git may normalise paths (e.g. strip
             // trailing slashes from directories), so match output entries back to
             // input paths. Build a lookup from normalised form -> input path.
-            var normalised = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            // Case-insensitive on Windows (NTFS), case-sensitive on Linux/macOS
+            var pathComparer = OperatingSystem.IsWindows()
+                ? StringComparer.OrdinalIgnoreCase
+                : StringComparer.Ordinal;
+            var normalised = new Dictionary<string, string>(pathComparer);
             for (int i = offset; i < offset + count; i++)
             {
                 string key = paths[i].TrimEnd('/');
