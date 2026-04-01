@@ -235,17 +235,26 @@ internal sealed class Program
             }
         }
 
-        // --- Create GitIgnoreFilter if requested ---
-        GitIgnoreFilter? gitFilter = null;
+        // --- Create per-root GitIgnoreFilters if requested ---
+        // Each root needs its own filter so that git check-ignore runs in the correct
+        // working directory. Using a single filter anchored to roots[0] would produce
+        // wrong results for paths under other roots.
+        var gitFilters = new Dictionary<string, GitIgnoreFilter>();
         if (useGitIgnore)
         {
-            string firstRoot = Path.GetFullPath(roots[0]);
-            gitFilter = GitIgnoreFilter.Create(firstRoot);
+            foreach (string root in roots)
+            {
+                string fullRoot = Path.GetFullPath(root);
+                GitIgnoreFilter? filter = GitIgnoreFilter.Create(fullRoot);
+                if (filter is not null)
+                {
+                    gitFilters[fullRoot] = filter;
+                }
+            }
         }
 
         try
         {
-            Func<string, bool>? isIgnored = gitFilter is not null ? gitFilter.IsIgnored : null;
             int exitCode = 0;
             string exitReason = "success";
             int totalDirs = 0;
@@ -266,6 +275,13 @@ internal sealed class Program
                     if (i > 0)
                     {
                         Console.Out.WriteLine();
+                    }
+
+                    string fullRoot = Path.GetFullPath(roots[i]);
+                    Func<string, bool>? isIgnored = null;
+                    if (gitFilters.TryGetValue(fullRoot, out GitIgnoreFilter? rootFilter))
+                    {
+                        isIgnored = rootFilter.IsIgnored;
                     }
 
                     var builder = new TreeBuilder(options, isIgnored);
@@ -314,7 +330,10 @@ internal sealed class Program
         }
         finally
         {
-            gitFilter?.Dispose();
+            foreach (GitIgnoreFilter filter in gitFilters.Values)
+            {
+                filter.Dispose();
+            }
         }
     }
 

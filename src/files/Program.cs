@@ -259,46 +259,66 @@ internal sealed class Program
             }
         }
 
-        // --- Create GitIgnoreFilter if requested ---
-        GitIgnoreFilter? gitFilter = null;
+        // --- Create per-root GitIgnoreFilters if requested ---
+        // Each root needs its own filter so that git check-ignore runs in the correct
+        // working directory. Using a single filter anchored to roots[0] would produce
+        // wrong results for paths under other roots.
+        var gitFilters = new Dictionary<string, GitIgnoreFilter>();
         if (useGitIgnore)
         {
-            string firstRoot = Path.GetFullPath(roots[0]);
-            gitFilter = GitIgnoreFilter.Create(firstRoot);
+            foreach (string root in roots)
+            {
+                string fullRoot = Path.GetFullPath(root);
+                GitIgnoreFilter? filter = GitIgnoreFilter.Create(fullRoot);
+                if (filter is not null)
+                {
+                    gitFilters[fullRoot] = filter;
+                }
+            }
         }
 
         try
         {
-            // --- Walk and output ---
-            Func<string, bool>? isIgnored = gitFilter is not null ? gitFilter.IsIgnored : null;
-            var walker = new FileWalker(options, isIgnored);
             int count = 0;
             int exitCode = 0;
             string exitReason = "success";
 
             try
             {
-                foreach (FileEntry entry in walker.Walk(roots))
+                // Walk each root with its own gitignore filter to ensure git check-ignore
+                // runs in the correct working directory for each root.
+                foreach (string root in roots)
                 {
-                    if (ndjson)
+                    string fullRoot = Path.GetFullPath(root);
+                    Func<string, bool>? isIgnored = null;
+                    if (gitFilters.TryGetValue(fullRoot, out GitIgnoreFilter? rootFilter))
                     {
-                        Console.Out.WriteLine(Formatting.FormatNdjsonLine(entry, "files", version));
-                    }
-                    else if (longOutput)
-                    {
-                        Console.Out.WriteLine(Formatting.FormatLong(entry, useColor));
-                    }
-                    else if (print0)
-                    {
-                        Console.Out.Write(entry.Path);
-                        Console.Out.Write('\0');
-                    }
-                    else
-                    {
-                        Console.Out.WriteLine(Formatting.FormatPath(entry, useColor));
+                        isIgnored = rootFilter.IsIgnored;
                     }
 
-                    count++;
+                    var walker = new FileWalker(options, isIgnored);
+                    foreach (FileEntry entry in walker.Walk(new[] { root }))
+                    {
+                        if (ndjson)
+                        {
+                            Console.Out.WriteLine(Formatting.FormatNdjsonLine(entry, "files", version));
+                        }
+                        else if (longOutput)
+                        {
+                            Console.Out.WriteLine(Formatting.FormatLong(entry, useColor));
+                        }
+                        else if (print0)
+                        {
+                            Console.Out.Write(entry.Path);
+                            Console.Out.Write('\0');
+                        }
+                        else
+                        {
+                            Console.Out.WriteLine(Formatting.FormatPath(entry, useColor));
+                        }
+
+                        count++;
+                    }
                 }
             }
             catch (Exception ex)
@@ -319,7 +339,10 @@ internal sealed class Program
         }
         finally
         {
-            gitFilter?.Dispose();
+            foreach (GitIgnoreFilter filter in gitFilters.Values)
+            {
+                filter.Dispose();
+            }
         }
     }
 
