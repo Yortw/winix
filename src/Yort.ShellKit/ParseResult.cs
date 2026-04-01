@@ -158,7 +158,7 @@ public sealed class ParseResult
     {
         if (_hasJson)
         {
-            writer.WriteLine(FormatUsageErrorJson());
+            writer.WriteLine(FormatUsageErrorJson(Errors));
         }
         else
         {
@@ -173,14 +173,14 @@ public sealed class ParseResult
 
     /// <summary>
     /// Writes a single error message and returns the usage error exit code.
-    /// If --json was set, writes a JSON error object instead of plain text.
+    /// If --json was set, writes a JSON error object including the message.
     /// Use for post-parse validation errors (e.g. "no command specified").
     /// </summary>
     public int WriteError(string message, TextWriter writer)
     {
         if (_hasJson)
         {
-            writer.WriteLine(FormatUsageErrorJson());
+            writer.WriteLine(FormatUsageErrorJson(new[] { message }));
         }
         else
         {
@@ -190,7 +190,7 @@ public sealed class ParseResult
         return _usageErrorCode;
     }
 
-    private string FormatUsageErrorJson()
+    private string FormatUsageErrorJson(IEnumerable<string> errors)
     {
         var (w, buffer) = JsonHelper.CreateWriter();
         using (w)
@@ -200,6 +200,12 @@ public sealed class ParseResult
             w.WriteString("version", _version);
             w.WriteNumber("exit_code", _usageErrorCode);
             w.WriteString("exit_reason", "usage_error");
+            w.WriteStartArray("errors");
+            foreach (string error in errors)
+            {
+                w.WriteStringValue(error);
+            }
+            w.WriteEndArray();
             w.WriteEndObject();
         }
 
