@@ -324,8 +324,8 @@ public sealed class JobRunner
             }, cancellationToken);
         }
 
-        // Some tasks may have been cancelled by fail-fast — collect results
-        // without letting the aggregate exception propagate.
+        // Some tasks may have been cancelled by fail-fast or faulted unexpectedly.
+        // Collect results without letting the aggregate exception propagate.
         try
         {
             await Task.WhenAll(tasks).ConfigureAwait(false);
@@ -334,16 +334,25 @@ public sealed class JobRunner
         {
             // Fail-fast cancellation — tasks already returned Skipped results
         }
+        catch (Exception)
+        {
+            // Unexpected exception from a task body. Faulted tasks are handled below
+            // by checking task status before accessing .Result.
+        }
 
-        // Keep-order: write all output in input order after all jobs complete
+        // Keep-order: write all output in input order after all jobs complete.
+        // Check task status before accessing .Result — a faulted task would re-throw.
         if (_options.Strategy == BufferStrategy.KeepOrder)
         {
             for (int i = 0; i < tasks.Length; i++)
             {
-                JobResult r = tasks[i].Result;
-                if (r.Output != null)
+                if (tasks[i].IsCompletedSuccessfully)
                 {
-                    stdout.Write(r.Output);
+                    JobResult r = tasks[i].Result;
+                    if (r.Output != null)
+                    {
+                        stdout.Write(r.Output);
+                    }
                 }
             }
         }
@@ -358,7 +367,23 @@ public sealed class JobRunner
 
         for (int i = 0; i < tasks.Length; i++)
         {
-            JobResult result = tasks[i].Result;
+            JobResult result;
+            if (tasks[i].IsCompletedSuccessfully)
+            {
+                result = tasks[i].Result;
+            }
+            else
+            {
+                // Task faulted with an unexpected exception — treat as failed
+                result = new JobResult(
+                    JobIndex: i + 1,
+                    ChildExitCode: -1,
+                    Output: null,
+                    Duration: TimeSpan.Zero,
+                    SourceItems: invocations[i].SourceItems,
+                    Skipped: false);
+            }
+
             jobs.Add(result);
 
             if (result.Skipped)
