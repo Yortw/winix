@@ -113,17 +113,25 @@ public sealed class InteractiveSession
             // Poll every 50ms for keys, check interval and file-change signals.
             // No competing Task.WhenAny -- avoids orphaned tasks eating key presses.
             var nextRunTime = DateTime.UtcNow.AddSeconds(_config.IntervalSeconds);
-            bool fileChangeSignalled = false;
+            int fileChangeFlag = 0; // 0 = no change, 1 = changed (Interlocked for thread safety)
 
             if (fileChangeSemaphore is not null)
             {
-                // Drain any pre-existing signals and set up a monitor
+                // Drain any pre-existing signals and set up a monitor.
+                // Uses Interlocked to safely communicate between the monitor task and main loop.
                 _ = Task.Run(async () =>
                 {
-                    while (!ct.IsCancellationRequested)
+                    try
                     {
-                        await fileChangeSemaphore.WaitAsync(ct);
-                        fileChangeSignalled = true;
+                        while (!ct.IsCancellationRequested)
+                        {
+                            await fileChangeSemaphore.WaitAsync(ct);
+                            Interlocked.Exchange(ref fileChangeFlag, 1);
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Expected on shutdown
                     }
                 }, ct);
             }
@@ -153,9 +161,8 @@ public sealed class InteractiveSession
                 bool shouldRun = false;
                 TriggerSource trigger = TriggerSource.Interval;
 
-                if (fileChangeSignalled && !_running)
+                if (Interlocked.CompareExchange(ref fileChangeFlag, 0, 1) == 1 && !_running)
                 {
-                    fileChangeSignalled = false;
                     shouldRun = true;
                     trigger = TriggerSource.FileChange;
                 }
