@@ -39,7 +39,7 @@ public sealed class GitIgnoreFilter : IDisposable
         // Verify git is available and the directory is inside a git repo before constructing.
         try
         {
-            var checkPsi = new ProcessStartInfo("git", "rev-parse --git-dir")
+            var checkPsi = new ProcessStartInfo("git")
             {
                 WorkingDirectory = rootPath,
                 RedirectStandardOutput = true,
@@ -47,6 +47,9 @@ public sealed class GitIgnoreFilter : IDisposable
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
+            checkPsi.ArgumentList.Add("rev-parse");
+            checkPsi.ArgumentList.Add("--git-dir");
+
             using var checkProcess = Process.Start(checkPsi);
             if (checkProcess is null) { return null; }
             checkProcess.WaitForExit(5000);
@@ -72,7 +75,7 @@ public sealed class GitIgnoreFilter : IDisposable
         try
         {
             // -q: no output, exit code only. Exit 0 = ignored, 1 = not ignored, 128 = error.
-            var psi = new ProcessStartInfo("git", $"check-ignore -q -- {EscapeArg(relativePath)}")
+            var psi = new ProcessStartInfo("git")
             {
                 WorkingDirectory = _rootPath,
                 RedirectStandardOutput = true,
@@ -80,6 +83,11 @@ public sealed class GitIgnoreFilter : IDisposable
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
+            psi.ArgumentList.Add("check-ignore");
+            psi.ArgumentList.Add("-q");
+            psi.ArgumentList.Add("--");
+            psi.ArgumentList.Add(relativePath);
+
             using var process = Process.Start(psi);
             if (process is null) { return false; }
             process.WaitForExit(5000);
@@ -121,7 +129,9 @@ public sealed class GitIgnoreFilter : IDisposable
     {
         try
         {
-            var psi = new ProcessStartInfo("git", "check-ignore --stdin")
+            // -z: NUL-delimited input and output. This avoids ambiguity from path separator
+            // normalization and filenames containing newlines.
+            var psi = new ProcessStartInfo("git")
             {
                 WorkingDirectory = _rootPath,
                 RedirectStandardInput = true,
@@ -130,25 +140,35 @@ public sealed class GitIgnoreFilter : IDisposable
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
+            psi.ArgumentList.Add("check-ignore");
+            psi.ArgumentList.Add("-z");
+            psi.ArgumentList.Add("--stdin");
+
             using var process = Process.Start(psi);
             if (process is null) { return; }
 
             for (int i = offset; i < offset + count; i++)
             {
-                process.StandardInput.WriteLine(paths[i]);
+                // -z expects NUL-delimited input
+                process.StandardInput.Write(paths[i]);
+                process.StandardInput.Write('\0');
             }
             process.StandardInput.Close();
 
+            // Read stdout and stderr concurrently to avoid the two-pipe deadlock:
+            // if git writes enough to stderr to fill the OS pipe buffer while we're
+            // blocked reading stdout, both sides block forever.
+            Task<string> stderrTask = process.StandardError.ReadToEndAsync();
             string stdout = process.StandardOutput.ReadToEnd();
-            process.StandardError.ReadToEnd();
+            stderrTask.Wait(5000);
             process.WaitForExit(5000);
 
-            foreach (string line in stdout.Split('\n'))
+            // -z output is NUL-delimited; split and add non-empty entries
+            foreach (string entry in stdout.Split('\0'))
             {
-                string trimmed = line.Trim();
-                if (trimmed.Length > 0)
+                if (entry.Length > 0)
                 {
-                    ignored.Add(trimmed);
+                    ignored.Add(entry);
                 }
             }
         }
@@ -164,10 +184,4 @@ public sealed class GitIgnoreFilter : IDisposable
         _disposed = true;
     }
 
-    // Wraps the path in double quotes and escapes any embedded double quotes.
-    // git on Windows handles this correctly when UseShellExecute = false.
-    private static string EscapeArg(string path)
-    {
-        return "\"" + path.Replace("\"", "\\\"") + "\"";
-    }
 }

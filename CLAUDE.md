@@ -30,6 +30,7 @@ dotnet publish src/timeit/timeit.csproj -c Release -r win-x64
 
 - TDD: write failing test, implement, verify, commit
 - AOT-compatible: no unconstrained reflection, use trim analyzers
+- Always use `ProcessStartInfo.ArgumentList` for passing arguments to child processes — never build argument strings via interpolation or concatenation. String-based `Arguments` is prone to quoting/escaping bugs (especially trailing-backslash injection on Windows). If a framework or OS bug forces using the string `Arguments` property, document the reason in the code with a comment explaining why `ArgumentList` cannot be used.
 - All output formatting in class library (testable), all I/O in console app
 - Summary output goes to stderr by default (don't pollute piped command output)
 - Respect `NO_COLOR` env var (no-color.org)

@@ -15,15 +15,17 @@ public static class GitIgnoreChecker
     {
         try
         {
-            using var process = Process.Start(new ProcessStartInfo
+            var psi = new ProcessStartInfo("git")
             {
-                FileName = "git",
-                Arguments = "rev-parse --is-inside-work-tree",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 CreateNoWindow = true,
-            });
+            };
+            psi.ArgumentList.Add("rev-parse");
+            psi.ArgumentList.Add("--is-inside-work-tree");
+
+            using var process = Process.Start(psi);
 
             if (process is null)
             {
@@ -48,15 +50,19 @@ public static class GitIgnoreChecker
     {
         try
         {
-            using var process = Process.Start(new ProcessStartInfo
+            var psi = new ProcessStartInfo("git")
             {
-                FileName = "git",
-                Arguments = $"check-ignore -q \"{filePath}\"",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 CreateNoWindow = true,
-            });
+            };
+            psi.ArgumentList.Add("check-ignore");
+            psi.ArgumentList.Add("-q");
+            psi.ArgumentList.Add("--");
+            psi.ArgumentList.Add(filePath);
+
+            using var process = Process.Start(psi);
 
             if (process is null)
             {
