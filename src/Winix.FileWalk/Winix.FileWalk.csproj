@@ -7,6 +7,9 @@
     <PackageId>Winix.FileWalk.Library</PackageId>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Winix.FileWalk.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\Yort.ShellKit\Yort.ShellKit.csproj" />
   </ItemGroup>
 </Project>

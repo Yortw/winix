@@ -49,7 +49,12 @@ public static class DurationParser
             return false;
         }
 
-        // Use MinValue as a sentinel for an unrecognised suffix; it can't arise from valid input.
+        // Validate suffix before computing, avoiding a sentinel value pattern.
+        if (suffix is not 's' and not 'm' and not 'h' and not 'd' and not 'w')
+        {
+            return false;
+        }
+
         // Overflow is possible for very large values (e.g. 999999999999w).
         try
         {
@@ -60,7 +65,7 @@ public static class DurationParser
                 'h' => TimeSpan.FromHours(raw),
                 'd' => TimeSpan.FromDays(raw),
                 'w' => TimeSpan.FromDays(checked(raw * 7)),
-                _ => TimeSpan.MinValue
+                _ => throw new InvalidOperationException("Unreachable — suffix validated above")
             };
         }
         catch (OverflowException)
@@ -71,12 +76,6 @@ public static class DurationParser
         catch (ArgumentOutOfRangeException)
         {
             // TimeSpan.FromDays/FromHours etc. throw this for values outside TimeSpan range
-            duration = TimeSpan.Zero;
-            return false;
-        }
-
-        if (duration == TimeSpan.MinValue)
-        {
             duration = TimeSpan.Zero;
             return false;
         }

@@ -22,7 +22,7 @@ public sealed class InteractiveSession
     private string _exitReason = "manual";
     private int _failedExitCode;
     private volatile bool _running;
-    private SnapshotHistory _history;
+    private readonly SnapshotHistory _history;
     private bool _isTimeMachine;
     private bool _historyOverlayOpen;
     private int _historyOverlaySelection;

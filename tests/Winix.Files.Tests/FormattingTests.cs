@@ -164,7 +164,7 @@ public class FormattingTests
         string line = Formatting.FormatLong(SampleFile);
         string[] parts = line.Split('\t');
 
-        Assert.Equal("file", parts[^1]);
+        Assert.Equal("file", parts[parts.Length - 1]);
     }
 
     // --- FormatNdjsonLine ---

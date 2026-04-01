@@ -15,5 +15,5 @@ public sealed record WargsResult(
     int Failed,
     int Skipped,
     TimeSpan WallTime,
-    List<JobResult> Jobs
+    IReadOnlyList<JobResult> Jobs
 );

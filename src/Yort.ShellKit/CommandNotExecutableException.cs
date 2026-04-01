@@ -5,11 +5,22 @@ namespace Yort.ShellKit;
 /// </summary>
 public sealed class CommandNotExecutableException : Exception
 {
-    /// <inheritdoc />
+    /// <summary>
+    /// Initialises with the command name that could not be executed.
+    /// </summary>
     public CommandNotExecutableException(string command)
         : base($"permission denied: {command}")
     {
         Command = command;
+    }
+
+    /// <summary>
+    /// Initialises with a message and inner exception for re-throw scenarios.
+    /// </summary>
+    public CommandNotExecutableException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+        Command = string.Empty;
     }
 
     /// <summary>

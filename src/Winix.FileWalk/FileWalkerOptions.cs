@@ -15,7 +15,11 @@ namespace Winix.FileWalk;
 /// <param name="MaxDepth">Maximum directory recursion depth, or null for unlimited.</param>
 /// <param name="IncludeHidden">Whether to include hidden files and directories.</param>
 /// <param name="FollowSymlinks">Whether to follow symbolic links into target directories.</param>
-/// <param name="UseGitIgnore">Whether gitignore filtering is enabled (caller provides the predicate).</param>
+/// <param name="UseGitIgnore">
+/// Whether gitignore filtering was requested by the user. <see cref="FileWalker"/> does not
+/// read this property — it exists so the console app can track the user's intent and
+/// construct the appropriate <c>isIgnored</c> predicate at the call site.
+/// </param>
 /// <param name="AbsolutePaths">Whether to output absolute paths instead of relative.</param>
 /// <param name="CaseInsensitive">Whether glob and regex matching is case-insensitive.</param>
 public sealed record FileWalkerOptions(

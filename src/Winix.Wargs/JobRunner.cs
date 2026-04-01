@@ -195,6 +195,9 @@ public sealed class JobRunner
         int maxParallelism = _options.Parallelism == 0 ? int.MaxValue : _options.Parallelism;
         var semaphore = new SemaphoreSlim(maxParallelism, maxParallelism);
         var tasks = new Task<JobResult>[invocations.Count];
+        // Volatile.Read/Write on this captured local is intentional: the compiler hoists
+        // it to a closure class field (heap allocation shared across all task closures),
+        // and Volatile provides the cross-thread visibility guarantee we need.
         bool aborted = false;
         // Lock protects stdout/stderr writes so job outputs don't interleave
         var outputLock = new object();

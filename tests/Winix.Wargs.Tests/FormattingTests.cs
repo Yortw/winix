@@ -78,7 +78,7 @@ public class FormattingTests
     public void FormatNdjsonLine_FailedJob_ExitCodeReflectsFailure()
     {
         var job = new JobResult(
-            JobIndex: 0, ChildExitCode: 42, Output: null,
+            JobIndex: 1, ChildExitCode: 42, Output: null,
             Duration: TimeSpan.FromSeconds(0.1),
             SourceItems: new[] { "bad.cs" }, Skipped: false);
 
