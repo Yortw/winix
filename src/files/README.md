@@ -113,7 +113,7 @@ files . --glob '*.log' --print0 | xargs -0 rm
 
 ### Size Units
 
-`--min-size` and `--max-size` accept values with optional unit suffix: `b` (bytes), `k` (kilobytes, 1024), `M` (megabytes), `G` (gigabytes). No suffix = bytes. Examples: `500`, `10k`, `2M`, `1G`.
+`--min-size` and `--max-size` accept values with optional unit suffix: `k` (kilobytes, 1024), `M` (megabytes), `G` (gigabytes). No suffix = bytes. Examples: `500`, `10k`, `2M`, `1G`.
 
 ### Duration Units
 

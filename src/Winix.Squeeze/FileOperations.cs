@@ -106,7 +106,7 @@ public static class FileOperations
             TryDeleteFile(inputPath);
         }
 
-        var result = new SqueezeResult(inputPath, resolvedOutput, inputBytes, outputBytes, format, stopwatch.Elapsed);
+        var result = new SqueezeResult(inputPath, resolvedOutput, inputBytes, outputBytes, format, level, stopwatch.Elapsed);
         return new FileOperationResult(0, "success", result, null);
     }
 
@@ -200,7 +200,7 @@ public static class FileOperations
             TryDeleteFile(inputPath);
         }
 
-        var result = new SqueezeResult(inputPath, resolvedOutput, inputBytes, outputBytes, detectedFormat, stopwatch.Elapsed);
+        var result = new SqueezeResult(inputPath, resolvedOutput, inputBytes, outputBytes, detectedFormat, 0, stopwatch.Elapsed);
         return new FileOperationResult(0, "success", result, null);
     }
 
@@ -271,7 +271,7 @@ public static class FileOperations
             stopwatch.Stop();
 
             var result = new SqueezeResult(inputPath, "<stdout>", inputBytes, outputBytes,
-                format, stopwatch.Elapsed);
+                format, decompress ? 0 : level, stopwatch.Elapsed);
             return new FileOperationResult(0, "success", result, null);
         }
         catch (Exception ex)

@@ -9,6 +9,7 @@ public sealed record SqueezeResult(
     long InputBytes,
     long OutputBytes,
     CompressionFormat Format,
+    int Level,
     TimeSpan Elapsed
 )
 {

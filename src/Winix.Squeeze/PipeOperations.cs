@@ -84,7 +84,7 @@ public static class PipeOperations
         stopwatch.Stop();
 
         var result = new SqueezeResult("<stdin>", "<stdout>", inputBytes, outputBytes,
-            format, stopwatch.Elapsed);
+            format, decompress ? 0 : level, stopwatch.Elapsed);
         return new FileOperationResult(0, "success", result, null);
     }
 }

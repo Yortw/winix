@@ -24,12 +24,15 @@ jobs:
     steps:
       - name: Resolve version
         id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION="${{ inputs.version }}"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            VERSION="$INPUT_VERSION"
           else
-            TAG="${{ github.ref_name }}"
-            VERSION="${TAG#v}"
+            VERSION="${REF_NAME#v}"
           fi
 
           # Validate semver format (prevents typos like "v0.2.0" producing "vv0.2.0" tags,

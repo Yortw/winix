@@ -64,11 +64,11 @@ internal sealed class Program
                 valueOnUnix: "Combines watch + entr in one tool with diff highlighting")
             .StdinDescription("Not used")
             .StdoutDescription("Child process output displayed on refreshing screen")
-            .StderrDescription("Errors and diagnostics. NDJSON with --ndjson.")
+            .StderrDescription("Errors and diagnostics")
             .Example("peep -- git status", "Watch git status every 2 seconds")
             .Example("peep -n 5 -- kubectl get pods", "Watch pods every 5 seconds")
             .Example("peep -w 'src/**/*.cs' -- dotnet test", "Re-run tests on file change")
-            .Example("peep --ndjson -- dotnet test", "Stream test results as NDJSON")
+            .Example("peep -w 'src/**/*.cs' -e 0 -- dotnet test", "Run tests on file change, exit on first success")
             .ComposesWith("files", "peep -- files . --newer 5m --type f", "Watch for recently created files")
             .ComposesWith("timeit", "peep -- timeit dotnet build", "Monitor build times")
             .JsonField("tool", "string", "Tool name (\"peep\")")
@@ -160,7 +160,7 @@ internal sealed class Program
             if (jsonOutput)
             {
                 Console.Error.WriteLine(Formatting.FormatJson(
-                    exitCode: peepResult.ExitCode == 0 ? 0 : peepResult.ExitCode,
+                    exitCode: peepResult.ExitCode,
                     exitReason: "once",
                     runs: 1,
                     lastChildExitCode: peepResult.ExitCode,

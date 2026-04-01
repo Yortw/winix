@@ -85,7 +85,7 @@ data.csv → data.csv.gz  1,234,567 → 456,789 (63.0% saved)  gzip/6  0.12s
 
 **JSON** (`--json`, stderr):
 ```json
-{"tool":"squeeze","version":"0.1.0","exit_code":0,"exit_reason":"success","files":[{"input":"data.csv","output":"data.csv.gz","input_bytes":1234567,"output_bytes":456789,"format":"gzip","level":6,"seconds":0.12}]}
+{"tool":"squeeze","version":"0.1.0","exit_code":0,"exit_reason":"success","files":[{"input":"data.csv","output":"data.csv.gz","input_bytes":1234567,"output_bytes":456789,"ratio":0.630,"format":"gz","level":6,"seconds":0.120}]}
 ```
 
 ## Options

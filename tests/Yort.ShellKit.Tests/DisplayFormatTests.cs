@@ -52,4 +52,10 @@ public class DisplayFormatDurationTests
         var timeSpan = TimeSpan.FromSeconds(seconds);
         Assert.Equal(expected, DisplayFormat.FormatDuration(timeSpan));
     }
+
+    [Fact]
+    public void FormatDuration_NegativeValue_ThrowsArgumentOutOfRange()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => DisplayFormat.FormatDuration(TimeSpan.FromSeconds(-1)));
+    }
 }

@@ -75,6 +75,10 @@ public static class Formatting
                 writer.WriteNumber("output_bytes", r.OutputBytes);
                 JsonHelper.WriteFixedDecimal(writer, "ratio", r.Ratio, 3);
                 writer.WriteString("format", CompressionFormatInfo.GetShortName(r.Format));
+                if (r.Level > 0)
+                {
+                    writer.WriteNumber("level", r.Level);
+                }
                 JsonHelper.WriteFixedDecimal(writer, "seconds", r.Elapsed.TotalSeconds, 3);
                 writer.WriteEndObject();
             }

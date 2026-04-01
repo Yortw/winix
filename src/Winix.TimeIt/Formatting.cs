@@ -12,6 +12,12 @@ public static class Formatting
     /// <summary>
     /// Formats a <see cref="TimeItResult"/> as a multi-line human-readable summary.
     /// </summary>
+    /// <param name="result">The timing result to format.</param>
+    /// <param name="useColor">
+    /// Whether to include ANSI colour escapes. The caller must resolve this from
+    /// <c>NO_COLOR</c>, terminal detection, and <c>--color</c>/<c>--no-color</c> flags
+    /// before calling — the formatter does not check the environment.
+    /// </param>
     public static string FormatDefault(TimeItResult result, bool useColor)
     {
         string dim = AnsiColor.Dim(useColor);
@@ -30,6 +36,12 @@ public static class Formatting
     /// <summary>
     /// Formats a <see cref="TimeItResult"/> as a single compact line.
     /// </summary>
+    /// <param name="result">The timing result to format.</param>
+    /// <param name="useColor">
+    /// Whether to include ANSI colour escapes. The caller must resolve this from
+    /// <c>NO_COLOR</c>, terminal detection, and <c>--color</c>/<c>--no-color</c> flags
+    /// before calling — the formatter does not check the environment.
+    /// </param>
     public static string FormatOneLine(TimeItResult result, bool useColor)
     {
         string exitColor = result.ExitCode == 0

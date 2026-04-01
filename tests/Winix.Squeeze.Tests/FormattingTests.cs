@@ -14,6 +14,7 @@ public class FormatHumanStatsTests
             InputBytes: 1048576,
             OutputBytes: 524288,
             Format: CompressionFormat.Gzip,
+            Level: 6,
             Elapsed: TimeSpan.FromSeconds(0.12));
 
         string output = Formatting.FormatHuman(result, useColor: false);
@@ -36,6 +37,7 @@ public class FormatHumanStatsTests
             InputBytes: 1000,
             OutputBytes: 400,
             Format: CompressionFormat.Gzip,
+            Level: 6,
             Elapsed: TimeSpan.FromSeconds(0.01));
 
         string output = Formatting.FormatHuman(result, useColor: true);
@@ -53,6 +55,7 @@ public class FormatHumanStatsTests
             InputBytes: 1000,
             OutputBytes: 800,
             Format: CompressionFormat.Gzip,
+            Level: 6,
             Elapsed: TimeSpan.FromSeconds(0.01));
 
         string output = Formatting.FormatHuman(result, useColor: true);
@@ -76,6 +79,7 @@ public class FormatHumanStatsTests
             InputBytes: 0,
             OutputBytes: 20,
             Format: CompressionFormat.Gzip,
+            Level: 6,
             Elapsed: TimeSpan.FromSeconds(0.001));
 
         string output = Formatting.FormatHuman(result, useColor: false);
@@ -97,6 +101,7 @@ public class FormatJsonTests
                 InputBytes: 1000,
                 OutputBytes: 500,
                 Format: CompressionFormat.Gzip,
+                Level: 6,
                 Elapsed: TimeSpan.FromSeconds(0.123))
         };
 
@@ -120,6 +125,7 @@ public class FormatJsonTests
                 InputBytes: 1000,
                 OutputBytes: 500,
                 Format: CompressionFormat.Gzip,
+                Level: 6,
                 Elapsed: TimeSpan.FromSeconds(0.123))
         };
 
@@ -131,7 +137,28 @@ public class FormatJsonTests
         Assert.Contains("\"output_bytes\":500", json);
         Assert.Contains("\"ratio\":0.500", json);
         Assert.Contains("\"format\":\"gz\"", json);
+        Assert.Contains("\"level\":6", json);
         Assert.Contains("\"seconds\":0.123", json);
+    }
+
+    [Fact]
+    public void DecompressResult_OmitsLevelField()
+    {
+        var results = new[]
+        {
+            new SqueezeResult(
+                InputPath: "/tmp/data.txt.gz",
+                OutputPath: "/tmp/data.txt",
+                InputBytes: 500,
+                OutputBytes: 1000,
+                Format: CompressionFormat.Gzip,
+                Level: 0,
+                Elapsed: TimeSpan.FromSeconds(0.05))
+        };
+
+        string json = Formatting.FormatJson(results, exitCode: 0, exitReason: "success", toolName: "squeeze", version: "0.1.0");
+
+        Assert.DoesNotContain("\"level\"", json);
     }
 
     [Fact]
@@ -145,6 +172,7 @@ public class FormatJsonTests
                 InputBytes: 100,
                 OutputBytes: 50,
                 Format: CompressionFormat.Gzip,
+                Level: 6,
                 Elapsed: TimeSpan.FromSeconds(0.01)),
             new SqueezeResult(
                 InputPath: "b.txt",
@@ -152,6 +180,7 @@ public class FormatJsonTests
                 InputBytes: 200,
                 OutputBytes: 80,
                 Format: CompressionFormat.Brotli,
+                Level: 4,
                 Elapsed: TimeSpan.FromSeconds(0.02))
         };
 
@@ -174,6 +203,7 @@ public class FormatJsonTests
                 InputBytes: 1000,
                 OutputBytes: 500,
                 Format: CompressionFormat.Gzip,
+                Level: 6,
                 Elapsed: TimeSpan.FromSeconds(0.1))
         };
 
@@ -194,6 +224,7 @@ public class FormatJsonTests
                 InputBytes: 0,
                 OutputBytes: 20,
                 Format: CompressionFormat.Gzip,
+                Level: 6,
                 Elapsed: TimeSpan.FromSeconds(0.001))
         };
 
@@ -213,6 +244,7 @@ public class FormatJsonTests
                 InputBytes: 1000,
                 OutputBytes: 500,
                 Format: CompressionFormat.Gzip,
+                Level: 6,
                 Elapsed: TimeSpan.FromSeconds(0.1))
         };
 
@@ -230,7 +262,7 @@ public class FormatJsonWithErrorsTests
         var results = new[]
         {
             new SqueezeResult("a.txt", "a.txt.gz", 1000, 500,
-                CompressionFormat.Gzip, TimeSpan.FromMilliseconds(50))
+                CompressionFormat.Gzip, 6, TimeSpan.FromMilliseconds(50))
         };
         var errors = new[] { "squeeze: b.txt: No such file" };
 
@@ -251,7 +283,7 @@ public class FormatJsonWithErrorsTests
         var results = new[]
         {
             new SqueezeResult("a.txt", "a.txt.gz", 1000, 500,
-                CompressionFormat.Gzip, TimeSpan.FromMilliseconds(50))
+                CompressionFormat.Gzip, 6, TimeSpan.FromMilliseconds(50))
         };
 
         string json = Formatting.FormatJson(results, exitCode: 0, exitReason: "success",

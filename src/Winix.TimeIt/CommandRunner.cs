@@ -17,6 +17,10 @@ public static class CommandRunner
     /// <param name="arguments">Arguments to pass to the process. Each element is quoted correctly per platform.</param>
     /// <returns>A <see cref="TimeItResult"/> with timing and resource metrics from the child process.</returns>
     /// <exception cref="CommandNotFoundException">The command was not found on PATH.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// The process could not be started for reasons other than missing or non-executable file
+    /// (e.g. bad executable format, insufficient memory).
+    /// </exception>
     public static TimeItResult Run(string command, string[] arguments)
     {
         var startInfo = new ProcessStartInfo

@@ -161,7 +161,13 @@ public sealed class GitIgnoreFilter : IDisposable
             Task<string> stderrTask = process.StandardError.ReadToEndAsync();
             string stdout = process.StandardOutput.ReadToEnd();
             stderrTask.Wait(5000);
-            process.WaitForExit(5000);
+
+            if (!process.WaitForExit(5000))
+            {
+                // Git process is hung — kill it to avoid leaving a zombie.
+                try { process.Kill(entireProcessTree: true); }
+                catch (InvalidOperationException) { /* already exited */ }
+            }
 
             // -z output is NUL-delimited; split and add non-empty entries
             foreach (string entry in stdout.Split('\0'))

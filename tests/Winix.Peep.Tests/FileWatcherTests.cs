@@ -236,24 +236,33 @@ public class FileWatcherIntegrationTests
     /// <summary>
     /// Best-effort temp directory cleanup. On Windows, FileSystemWatcher can hold directory
     /// handles briefly after Dispose, causing IOException on immediate delete. Retry with
-    /// increasing pauses to let the OS release handles.
+    /// pauses to let the OS release handles. Swallows exceptions on final attempt because
+    /// cleanup failures should not mask passing test assertions.
     /// </summary>
     private static void TryDeleteDirectory(string path)
     {
-        for (int i = 0; i < 10; i++)
+        for (int i = 0; i < 20; i++)
         {
             try
             {
                 Directory.Delete(path, recursive: true);
                 return;
             }
-            catch (IOException) when (i < 9)
+            catch (IOException) when (i < 19)
             {
-                Thread.Sleep(200);
+                Thread.Sleep(250);
             }
-            catch (UnauthorizedAccessException) when (i < 9)
+            catch (UnauthorizedAccessException) when (i < 19)
             {
-                Thread.Sleep(200);
+                Thread.Sleep(250);
+            }
+            catch (IOException)
+            {
+                // Final attempt — swallow so cleanup doesn't mask the real test result.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Final attempt — swallow so cleanup doesn't mask the real test result.
             }
         }
     }

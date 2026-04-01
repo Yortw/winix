@@ -90,23 +90,35 @@ public static class Compressor
             return format.Value;
         }
 
-        // No magic bytes or extension match — try brotli then raw deflate as fallbacks
+        // No magic bytes or extension match — try brotli then raw deflate as fallbacks.
+        // Buffer each attempt into a local MemoryStream so that:
+        //  (a) partial writes from a failed attempt don't corrupt the real output stream
+        //  (b) we don't call SetLength(0) on the output, which may not support seeking (e.g. CountingStream)
         if (input.CanSeek)
         {
             long savedPosition = input.Position;
 
-            if (await TryDecompressBrotliAsync(headerBytes, input, output).ConfigureAwait(false))
+            using (var probe = new MemoryStream())
             {
-                return CompressionFormat.Brotli;
+                if (await TryDecompressBrotliAsync(headerBytes, input, probe).ConfigureAwait(false))
+                {
+                    probe.Position = 0;
+                    await probe.CopyToAsync(output, BufferSize).ConfigureAwait(false);
+                    return CompressionFormat.Brotli;
+                }
             }
 
-            output.SetLength(0);
             input.Position = savedPosition;
 
-            if (await TryDecompressRawDeflateAsync(headerBytes, input, output).ConfigureAwait(false))
+            using (var probe = new MemoryStream())
             {
-                // Raw deflate is not a named format — return null to indicate unknown wrapper
-                return null;
+                if (await TryDecompressRawDeflateAsync(headerBytes, input, probe).ConfigureAwait(false))
+                {
+                    probe.Position = 0;
+                    await probe.CopyToAsync(output, BufferSize).ConfigureAwait(false);
+                    // Raw deflate is not a named format — return null to indicate unknown wrapper
+                    return null;
+                }
             }
         }
         else
@@ -117,16 +129,25 @@ public static class Compressor
             byte[] remainingBytes = buffered.ToArray();
 
             using var brotliAttempt = new MemoryStream(remainingBytes);
-            if (await TryDecompressBrotliAsync(headerBytes, brotliAttempt, output).ConfigureAwait(false))
+            using (var probe = new MemoryStream())
             {
-                return CompressionFormat.Brotli;
+                if (await TryDecompressBrotliAsync(headerBytes, brotliAttempt, probe).ConfigureAwait(false))
+                {
+                    probe.Position = 0;
+                    await probe.CopyToAsync(output, BufferSize).ConfigureAwait(false);
+                    return CompressionFormat.Brotli;
+                }
             }
 
-            output.SetLength(0);
             using var deflateAttempt = new MemoryStream(remainingBytes);
-            if (await TryDecompressRawDeflateAsync(headerBytes, deflateAttempt, output).ConfigureAwait(false))
+            using (var probe = new MemoryStream())
             {
-                return null;
+                if (await TryDecompressRawDeflateAsync(headerBytes, deflateAttempt, probe).ConfigureAwait(false))
+                {
+                    probe.Position = 0;
+                    await probe.CopyToAsync(output, BufferSize).ConfigureAwait(false);
+                    return null;
+                }
             }
         }
 

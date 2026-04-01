@@ -49,6 +49,11 @@ public static class DisplayFormat
     /// </summary>
     public static string FormatDuration(TimeSpan duration)
     {
+        if (duration < TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(duration), duration, "Duration cannot be negative.");
+        }
+
         double totalSeconds = duration.TotalSeconds;
 
         if (totalSeconds < 1.0)

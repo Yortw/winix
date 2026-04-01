@@ -75,6 +75,23 @@ public class FormattingTests
     }
 
     [Fact]
+    public void FormatNdjsonLine_FailedJob_ExitCodeReflectsFailure()
+    {
+        var job = new JobResult(
+            JobIndex: 0, ChildExitCode: 42, Output: null,
+            Duration: TimeSpan.FromSeconds(0.1),
+            SourceItems: new[] { "bad.cs" }, Skipped: false);
+
+        int exitCode = job.ChildExitCode == 0 ? 0 : 1;
+        string exitReason = job.ChildExitCode == 0 ? "success" : "child_failed";
+        string line = Formatting.FormatNdjsonLine(job, exitCode, exitReason, "wargs", Version);
+
+        Assert.Contains("\"exit_code\":1", line);
+        Assert.Contains("\"exit_reason\":\"child_failed\"", line);
+        Assert.Contains("\"child_exit_code\":42", line);
+    }
+
+    [Fact]
     public void FormatJsonError_ReturnsValidJson()
     {
         string json = Formatting.FormatJsonError(125, "usage_error", "wargs", Version);

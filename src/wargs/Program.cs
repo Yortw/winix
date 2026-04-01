@@ -110,9 +110,9 @@ internal sealed class Program
         }
 
         // --- Validate flag combinations ---
-        if (confirm && parallelism > 1)
+        if (confirm && parallelism != 1)
         {
-            return result.WriteError("--confirm cannot be used with --parallel > 1", Console.Error);
+            return result.WriteError("--confirm cannot be used with parallel execution", Console.Error);
         }
 
         if (lineBuffered && keepOrder)
@@ -120,9 +120,9 @@ internal sealed class Program
             return result.WriteError("--line-buffered and --keep-order cannot be combined", Console.Error);
         }
 
-        if (lineBuffered && parallelism > 1)
+        if (lineBuffered && parallelism != 1)
         {
-            return result.WriteError("--line-buffered cannot be used with --parallel > 1 (output would interleave)", Console.Error);
+            return result.WriteError("--line-buffered cannot be used with parallel execution (output would interleave)", Console.Error);
         }
 
         if (ndjsonOutput && lineBuffered)
@@ -190,9 +190,10 @@ internal sealed class Program
             {
                 if (!job.Skipped)
                 {
+                    int jobExitCode = job.ChildExitCode == 0 ? 0 : WargsExitCode.ChildFailed;
                     string jobExitReason = job.ChildExitCode == 0 ? "success" : "child_failed";
                     Console.Error.WriteLine(
-                        Formatting.FormatNdjsonLine(job, 0, jobExitReason, "wargs", version));
+                        Formatting.FormatNdjsonLine(job, jobExitCode, jobExitReason, "wargs", version));
                 }
             }
         }

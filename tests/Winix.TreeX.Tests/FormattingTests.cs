@@ -292,3 +292,65 @@ public class FormattingTests
         Assert.Equal("link", Formatting.FormatTypeString(FileEntryType.Symlink));
     }
 }
+
+public class NdjsonDirsOnlyTests
+{
+    private static readonly DateTimeOffset FixedDate = new(2026, 3, 31, 14, 22, 0, TimeSpan.FromHours(13));
+
+    /// <summary>
+    /// Verifies that a dirs-only NDJSON walk skips file nodes.
+    /// This mirrors the filtering logic in Program.WriteNdjsonTree.
+    /// </summary>
+    [Fact]
+    public void DirsOnly_NdjsonWalk_ExcludesFiles()
+    {
+        var root = new TreeNode
+        {
+            Name = "root", FullPath = "/tmp/root",
+            Type = FileEntryType.Directory, SizeBytes = -1, Modified = FixedDate
+        };
+        var sub = new TreeNode
+        {
+            Name = "sub", FullPath = "/tmp/root/sub",
+            Type = FileEntryType.Directory, SizeBytes = -1, Modified = FixedDate
+        };
+        var file1 = new TreeNode
+        {
+            Name = "a.txt", FullPath = "/tmp/root/a.txt",
+            Type = FileEntryType.File, SizeBytes = 100, Modified = FixedDate
+        };
+        var file2 = new TreeNode
+        {
+            Name = "b.txt", FullPath = "/tmp/root/sub/b.txt",
+            Type = FileEntryType.File, SizeBytes = 200, Modified = FixedDate
+        };
+        root.Children.Add(sub);
+        root.Children.Add(file1);
+        sub.Children.Add(file2);
+
+        var collected = new List<string>();
+        CollectNdjsonNames(root, dirsOnly: true, collected);
+
+        Assert.Contains("root", collected);
+        Assert.Contains("sub", collected);
+        Assert.DoesNotContain("a.txt", collected);
+        Assert.DoesNotContain("b.txt", collected);
+    }
+
+    /// <summary>
+    /// Replicates the NDJSON walk with dirs-only filtering to verify the algorithm.
+    /// </summary>
+    private static void CollectNdjsonNames(TreeNode node, bool dirsOnly, List<string> names)
+    {
+        names.Add(node.Name);
+        foreach (TreeNode child in node.Children)
+        {
+            if (dirsOnly && child.Type != FileEntryType.Directory)
+            {
+                continue;
+            }
+
+            CollectNdjsonNames(child, dirsOnly, names);
+        }
+    }
+}

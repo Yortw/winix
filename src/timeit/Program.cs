@@ -51,7 +51,7 @@ internal sealed class Program
         bool oneLine = result.Has("--oneline");
         bool jsonOutput = result.Has("--json");
         bool useStdout = result.Has("--stdout");
-        bool useColor = result.ResolveColor();
+        bool useColor = result.ResolveColor(checkStdErr: !useStdout);
         TextWriter writer = useStdout ? Console.Out : Console.Error;
 
         if (result.Command.Length == 0)

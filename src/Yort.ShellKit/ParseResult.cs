@@ -54,7 +54,7 @@ public sealed class ParseResult
     /// <summary>Parse error messages.</summary>
     public IReadOnlyList<string> Errors { get; }
 
-    /// <summary>True if --help or --version was handled (output already printed).</summary>
+    /// <summary>True if --help, --version, or --describe was handled (output already printed).</summary>
     public bool IsHandled { get; }
 
     /// <summary>Exit code when IsHandled is true.</summary>
