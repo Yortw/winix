@@ -265,8 +265,8 @@ public static class FileOperations
                     .ConfigureAwait(false);
             }
 
-            long outputBytes = countingOutput.BytesWritten;
             await countingOutput.FlushAsync().ConfigureAwait(false);
+            long outputBytes = countingOutput.BytesWritten;
 
             stopwatch.Stop();
 
