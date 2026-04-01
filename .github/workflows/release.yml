@@ -67,7 +67,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-results-release-${{ matrix.os }}
           path: '**/TestResults/*.trx'
@@ -103,7 +103,7 @@ jobs:
         run: dotnet pack src/treex/treex.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
 
       - name: Upload NuGet packages
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nuget-packages
           path: packages/*.nupkg
@@ -185,7 +185,7 @@ jobs:
           Compress-Archive -Path winix-combined/* -DestinationPath winix-${{ matrix.rid }}.zip
 
       - name: Upload AOT binaries
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: aot-${{ matrix.rid }}
           path: '*.zip'
@@ -385,7 +385,7 @@ jobs:
           generate_manifests "treex" "TreeX" "Enhanced directory tree with colour, filtering, size rollups, gitignore, and clickable hyperlinks."
 
       - name: Upload winget manifests
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: winget-manifests
           path: winget-manifests/
