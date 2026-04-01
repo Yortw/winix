@@ -105,7 +105,7 @@ internal sealed class Program
         try
         {
             exitOnMatchRegexes = result.GetList("--exit-on-match")
-                .Select(p => CreateSafeRegex(p))
+                .Select(p => SafeRegex.Create(p, RegexOptions.None))
                 .ToArray();
         }
         catch (RegexParseException ex)
@@ -206,19 +206,4 @@ internal sealed class Program
             ?.InformationalVersion ?? "0.0.0";
     }
 
-    /// <summary>
-    /// Creates a regex safe against catastrophic backtracking. Tries NonBacktracking
-    /// first; falls back to a 2-second timeout for patterns needing backtracking features.
-    /// </summary>
-    private static Regex CreateSafeRegex(string pattern)
-    {
-        try
-        {
-            return new Regex(pattern, RegexOptions.NonBacktracking);
-        }
-        catch (NotSupportedException)
-        {
-            return new Regex(pattern, RegexOptions.None, TimeSpan.FromSeconds(2));
-        }
-    }
 }

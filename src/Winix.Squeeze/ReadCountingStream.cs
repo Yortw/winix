@@ -91,4 +91,11 @@ internal sealed class ReadCountingStream : Stream
     public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
     /// <inheritdoc />
     public override void SetLength(long value) => throw new NotSupportedException();
+
+    /// <inheritdoc />
+    protected override void Dispose(bool disposing)
+    {
+        // Don't dispose inner stream — caller owns it.
+        base.Dispose(disposing);
+    }
 }

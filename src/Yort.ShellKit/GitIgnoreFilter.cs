@@ -169,12 +169,30 @@ public sealed class GitIgnoreFilter : IDisposable
                 catch (InvalidOperationException) { /* already exited */ }
             }
 
-            // -z output is NUL-delimited; split and add non-empty entries
+            // -z output is NUL-delimited. Git may normalise paths (e.g. strip
+            // trailing slashes from directories), so match output entries back to
+            // input paths. Build a lookup from normalised form -> input path.
+            var normalised = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            for (int i = offset; i < offset + count; i++)
+            {
+                string key = paths[i].TrimEnd('/');
+                normalised.TryAdd(key, paths[i]);
+            }
+
             foreach (string entry in stdout.Split('\0'))
             {
                 if (entry.Length > 0)
                 {
-                    ignored.Add(entry);
+                    string key = entry.TrimEnd('/');
+                    if (normalised.TryGetValue(key, out string? inputPath))
+                    {
+                        ignored.Add(inputPath);
+                    }
+                    else
+                    {
+                        // Fallback: add git's output as-is
+                        ignored.Add(entry);
+                    }
                 }
             }
         }

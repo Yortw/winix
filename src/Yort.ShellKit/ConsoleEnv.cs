@@ -5,7 +5,7 @@ namespace Yort.ShellKit;
 /// <summary>
 /// Terminal environment detection — colour support, pipe detection, NO_COLOR handling.
 /// </summary>
-public static class ConsoleEnv
+public static partial class ConsoleEnv
 {
     /// <summary>
     /// Enables ANSI/VT100 escape sequence processing on Windows. No-op on other platforms.
@@ -58,14 +58,16 @@ public static class ConsoleEnv
     private static readonly nint InvalidHandle = new(-1);
     private const uint EnableVirtualTerminalProcessing = 0x0004;
 
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern nint GetStdHandle(int nStdHandle);
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    private static partial nint GetStdHandle(int nStdHandle);
 
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool GetConsoleMode(nint hConsoleHandle, out uint lpMode);
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool GetConsoleMode(nint hConsoleHandle, out uint lpMode);
 
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool SetConsoleMode(nint hConsoleHandle, uint dwMode);
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool SetConsoleMode(nint hConsoleHandle, uint dwMode);
 
     /// <summary>
     /// Returns true if the <c>NO_COLOR</c> environment variable is set (any value, including empty).

@@ -4,6 +4,7 @@
     <IsTrimmable>true</IsTrimmable>
     <IsAotCompatible>true</IsAotCompatible>
     <IsPackable>false</IsPackable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <PackageId>Yort.ShellKit.Library</PackageId>
   </PropertyGroup>
   <ItemGroup>
