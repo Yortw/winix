@@ -36,15 +36,20 @@ public static class PipeOperations
 
             if (decompress)
             {
+                // Decompress into an intermediate buffer to capture output byte count,
+                // then copy to the real output. Mirrors the compression path.
+                // Without this, non-seekable streams (stdout) would report 0 output bytes.
+                using var countingOutput = new MemoryStream();
+
                 if (explicitFormat.HasValue)
                 {
-                    await Compressor.DecompressAsync(inputBuffer, output, explicitFormat.Value)
+                    await Compressor.DecompressAsync(inputBuffer, countingOutput, explicitFormat.Value)
                         .ConfigureAwait(false);
                 }
                 else
                 {
                     CompressionFormat? detected = await Compressor.DecompressAutoDetectAsync(
-                        inputBuffer, output, filename: null).ConfigureAwait(false);
+                        inputBuffer, countingOutput, filename: null).ConfigureAwait(false);
 
                     if (!detected.HasValue)
                     {
@@ -55,7 +60,9 @@ public static class PipeOperations
                     format = detected.Value;
                 }
 
-                outputBytes = output.CanSeek ? output.Position : 0;
+                outputBytes = countingOutput.Length;
+                countingOutput.Position = 0;
+                await countingOutput.CopyToAsync(output).ConfigureAwait(false);
             }
             else
             {
