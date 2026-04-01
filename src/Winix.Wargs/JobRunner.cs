@@ -416,6 +416,23 @@ public sealed class JobRunner
 
         try
         {
+            // Kill the child process tree if cancellation is requested, so we don't
+            // leak long-running children after wargs exits.
+            using var killReg = cancellationToken.Register(() =>
+            {
+                try
+                {
+                    if (!process.HasExited)
+                    {
+                        process.Kill(entireProcessTree: true);
+                    }
+                }
+                catch (InvalidOperationException)
+                {
+                    // Process already exited between the check and the kill — safe to ignore.
+                }
+            });
+
             // Read stdout and stderr concurrently to avoid deadlock when the child
             // writes enough to fill one pipe's buffer while we're only reading the other.
             var output = new StringBuilder();
@@ -525,6 +542,23 @@ public sealed class JobRunner
 
         try
         {
+            // Kill the child process tree if cancellation is requested, so we don't
+            // leak long-running children after wargs exits.
+            using var killReg = cancellationToken.Register(() =>
+            {
+                try
+                {
+                    if (!process.HasExited)
+                    {
+                        process.Kill(entireProcessTree: true);
+                    }
+                }
+                catch (InvalidOperationException)
+                {
+                    // Process already exited between the check and the kill — safe to ignore.
+                }
+            });
+
             await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
             stopwatch.Stop();
             return new JobResult(

@@ -135,8 +135,11 @@ public sealed class TreeBuilder
 
             string relativePath = FileSystemHelper.GetRelativePath(rootPath, fullPath);
 
-            // Gitignore check — skip ignored entries
-            if (_isIgnored != null && _isIgnored(relativePath))
+            // Gitignore check — skip ignored entries.
+            // Directories need a trailing slash so git evaluates directory-specific
+            // patterns (e.g. "bin/" in .gitignore only matches directories).
+            string ignorePath = isDirectory ? relativePath + "/" : relativePath;
+            if (_isIgnored != null && _isIgnored(ignorePath))
             {
                 continue;
             }

@@ -143,7 +143,9 @@ public sealed class FileWalker
                 // Gitignore check for directories — skip entire subtree if ignored.
                 // This is the key performance optimisation: one check per directory
                 // eliminates all per-file checks for ignored subtrees like bin/ and obj/.
-                if (_isIgnored != null && _isIgnored(relativePath))
+                // Trailing slash is required so git evaluates directory-specific patterns
+                // (e.g. "bin/" in .gitignore only matches directories, not files named "bin").
+                if (_isIgnored != null && _isIgnored(relativePath + "/"))
                 {
                     continue;
                 }
