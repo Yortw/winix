@@ -618,10 +618,19 @@ public sealed class InteractiveSession
             string stripped = Formatting.StripAnsi(_lastResult.Output);
             foreach (Regex regex in _config.ExitOnMatchRegexes)
             {
-                if (regex.IsMatch(stripped))
+                try
                 {
-                    _exitReason = "exit_on_match";
-                    return true;
+                    if (regex.IsMatch(stripped))
+                    {
+                        _exitReason = "exit_on_match";
+                        return true;
+                    }
+                }
+                catch (RegexMatchTimeoutException)
+                {
+                    // Pattern timed out against this output — treat as non-match rather
+                    // than hanging the session. Only fires for patterns that fell back to
+                    // the standard engine (NonBacktracking never times out).
                 }
             }
         }
