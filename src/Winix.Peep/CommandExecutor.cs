@@ -95,13 +95,16 @@ public static class CommandExecutor
             });
 
             await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
-            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+
+            // Use CancellationToken.None so WaitForExitAsync waits for the kill
+            // (triggered by the Register callback above) to fully complete, giving
+            // us a valid ExitCode. Passing cancellationToken here could throw OCE
+            // before the process has fully exited, making ExitCode unreliable.
+            await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
 
             stopwatch.Stop();
 
-            // If the process was killed by our cancellation callback, WaitForExitAsync
-            // may return without throwing because the process already exited. Honour the
-            // caller's cancellation request explicitly.
+            // Now that the process has fully exited, honour the caller's cancellation.
             cancellationToken.ThrowIfCancellationRequested();
 
             string captured;
