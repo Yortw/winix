@@ -52,7 +52,14 @@ public sealed class GitIgnoreFilter : IDisposable
 
             using var checkProcess = Process.Start(checkPsi);
             if (checkProcess is null) { return null; }
-            checkProcess.WaitForExit(5000);
+
+            if (!checkProcess.WaitForExit(5000))
+            {
+                try { checkProcess.Kill(entireProcessTree: true); }
+                catch (InvalidOperationException) { /* already exited */ }
+                return null;
+            }
+
             if (checkProcess.ExitCode != 0) { return null; }
         }
         catch { return null; }
@@ -90,7 +97,14 @@ public sealed class GitIgnoreFilter : IDisposable
 
             using var process = Process.Start(psi);
             if (process is null) { return false; }
-            process.WaitForExit(5000);
+
+            if (!process.WaitForExit(5000))
+            {
+                try { process.Kill(entireProcessTree: true); }
+                catch (InvalidOperationException) { /* already exited */ }
+                return false;
+            }
+
             return process.ExitCode == 0;
         }
         catch { return false; }
@@ -160,7 +174,13 @@ public sealed class GitIgnoreFilter : IDisposable
             // blocked reading stdout, both sides block forever.
             Task<string> stderrTask = process.StandardError.ReadToEndAsync();
             string stdout = process.StandardOutput.ReadToEnd();
-            stderrTask.Wait(5000);
+
+            // Wait for stderr drain. If it times out, the task is abandoned but the
+            // process kill below will close the pipe, causing the read to complete.
+            if (!stderrTask.Wait(5000))
+            {
+                // stderr drain timed out — process kill below handles cleanup
+            }
 
             if (!process.WaitForExit(5000))
             {
