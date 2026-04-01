@@ -19,14 +19,6 @@ Winix is a suite of small, focused command-line tools built with .NET and compil
 | [**files**](src/files/README.md) | Find files by name, size, date, type, and content | `find` | Shipped |
 | [**treex**](src/treex/README.md) | Enhanced directory tree with colour, filtering, sizes | `tree` | Shipped |
 
-### Planned
-
-| Tool | What it does | *nix equivalent |
-|------|-------------|-----------------|
-| **schedule** | Crontab + RRULE over Windows Task Scheduler | `crontab` |
-
-*See [design notes](docs/plans/2026-03-28-winix-design-notes.md) for more ideas.*
-
 ## Install
 
 ### Scoop (Windows)
