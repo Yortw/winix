@@ -92,17 +92,24 @@ public static class CommandRunner
             throw new CommandNotFoundException(command);
         }
 
-        process.WaitForExit();
-        stopwatch.Stop();
+        try
+        {
+            process.WaitForExit();
+            stopwatch.Stop();
 
-        var metrics = NativeMetrics.GetMetrics(process, baseline);
+            var metrics = NativeMetrics.GetMetrics(process, baseline);
 
-        return new TimeItResult(
-            WallTime: stopwatch.Elapsed,
-            UserCpuTime: metrics.UserCpuTime,
-            SystemCpuTime: metrics.SystemCpuTime,
-            PeakMemoryBytes: metrics.PeakMemoryBytes,
-            ExitCode: process.ExitCode
-        );
+            return new TimeItResult(
+                WallTime: stopwatch.Elapsed,
+                UserCpuTime: metrics.UserCpuTime,
+                SystemCpuTime: metrics.SystemCpuTime,
+                PeakMemoryBytes: metrics.PeakMemoryBytes,
+                ExitCode: process.ExitCode
+            );
+        }
+        finally
+        {
+            process.Dispose();
+        }
     }
 }
