@@ -104,7 +104,7 @@ if (_isIgnored != null && _isIgnored(ignoreQuery))
 
 ### 8. Wargs: `--fail-fast` with `--parallel` doesn't cancel in-flight jobs
 
-- [ ] **Fix**
+- [x] **Fixed** (93e6679)
 
 **File:** `src/Winix.Wargs/JobRunner.cs:293-296`
 
@@ -116,7 +116,7 @@ Setting `Volatile.Write(ref aborted, true)` prevents new jobs from starting but 
 
 ### 9. `--gitignore` with multiple roots uses only the first root's filter
 
-- [ ] **Fix**
+- [x] **Fixed** (523ad19)
 
 **Files:** `src/files/Program.cs:266`, `src/treex/Program.cs:242`
 
@@ -128,7 +128,7 @@ Setting `Volatile.Write(ref aborted, true)` prevents new jobs from starting but 
 
 ### 10. Squeeze: `--stdout` buffers entire result into MemoryStream
 
-- [ ] **Fix**
+- [x] **Fixed** (8756423)
 
 **File:** `src/Winix.Squeeze/FileOperations.cs:236-267`
 
@@ -138,7 +138,7 @@ Setting `Volatile.Write(ref aborted, true)` prevents new jobs from starting but 
 
 ### 11. Squeeze: partial-failure JSON output is two separate objects
 
-- [ ] **Fix**
+- [x] **Fixed** (8756423)
 
 **File:** `src/squeeze/Program.cs:183-213`
 
@@ -150,7 +150,7 @@ When processing multiple files and one fails, stderr gets a `FormatJsonError` ob
 
 ### 12. Peep: synchronous `git check-ignore` per FileSystemWatcher event
 
-- [ ] **Fix**
+- [x] **Fixed** (bc4e826)
 
 **Files:** `src/Winix.Peep/GitIgnoreChecker.cs:47-75`, `src/Winix.Peep/FileWatcher.cs:186`
 
@@ -162,7 +162,7 @@ When processing multiple files and one fails, stderr gets a `FormatJsonError` ob
 
 ### 13. Peep: `_running` flag not volatile across async continuations
 
-- [ ] **Fix**
+- [x] **Fixed** (16f455f)
 
 **File:** `src/Winix.Peep/InteractiveSession.cs:166, 311, 482, 512`
 
@@ -174,7 +174,7 @@ In a console app without a `SynchronizationContext`, `await` continuations can r
 
 ### 14. TimeIt: `Win32Exception` fall-through maps all errors to "command not found"
 
-- [ ] **Fix**
+- [x] **Fixed** (16f455f)
 
 **File:** `src/Winix.TimeIt/CommandRunner.cs:86-93`
 
@@ -186,7 +186,7 @@ Error codes 5/13 correctly map to `CommandNotExecutableException`. Everything el
 
 ### 15. TimeIt: JSON errors go to stdout when `--stdout` is active
 
-- [ ] **Fix**
+- [x] **Fixed** (16f455f)
 
 **File:** `src/timeit/Program.cs:74-79, 86-91`
 
@@ -198,7 +198,7 @@ When `--stdout --json` is combined, error JSON goes to `writer` (stdout). Every 
 
 ### 16. Peep: magic exit code literals instead of constants
 
-- [ ] **Fix**
+- [x] **Fixed** (16f455f)
 
 **File:** `src/peep/Program.cs:186, 198`
 
