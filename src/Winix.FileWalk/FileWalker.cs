@@ -36,7 +36,7 @@ public sealed class FileWalker
         }
 
         _regexes = options.RegexPatterns
-            .Select(p => new Regex(p, regexOptions))
+            .Select(p => SafeRegex.Create(p, regexOptions))
             .ToArray();
     }
 
@@ -73,17 +73,23 @@ public sealed class FileWalker
         int depth,
         HashSet<string>? visitedDirs)
     {
-        // Track this directory for symlink cycle detection
+        // Track this directory for symlink cycle detection.
+        // ResolveLinkTarget resolves symlinks to their real target so that a symlink
+        // pointing to an ancestor directory is detected as a cycle. Path.GetFullPath
+        // only normalises "." and ".." — it does NOT resolve symlinks.
         if (visitedDirs != null)
         {
-            string realPath = currentDir;
+            string realPath;
             try
             {
-                realPath = Path.GetFullPath(currentDir);
+                var dirInfo = new DirectoryInfo(currentDir);
+                string? resolved = dirInfo.ResolveLinkTarget(returnFinalTarget: true)?.FullName;
+                realPath = resolved ?? Path.GetFullPath(currentDir);
             }
             catch
             {
-                // Fall back to the path as-is
+                // Permission error or invalid path — fall back to canonical form
+                realPath = Path.GetFullPath(currentDir);
             }
 
             if (!visitedDirs.Add(realPath))
@@ -307,9 +313,18 @@ public sealed class FileWalker
     {
         foreach (Regex regex in _regexes)
         {
-            if (regex.IsMatch(fileName))
+            try
             {
-                return true;
+                if (regex.IsMatch(fileName))
+                {
+                    return true;
+                }
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                // Pattern timed out on this filename — treat as non-match rather than
+                // hanging the process. Only fires for patterns that fell back to the
+                // standard engine (NonBacktracking never times out).
             }
         }
 

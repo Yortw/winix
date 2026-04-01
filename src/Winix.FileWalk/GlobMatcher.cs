@@ -41,8 +41,10 @@ public sealed class GlobMatcher
             options |= RegexOptions.IgnoreCase;
         }
 
+        // Glob-generated patterns are simple (no backreferences/lookahead), so
+        // NonBacktracking is always compatible and guarantees linear-time matching.
         _regexes = patterns
-            .Select(p => new Regex(GlobToRegex(p.Replace('\\', '/')), options))
+            .Select(p => new Regex(GlobToRegex(p.Replace('\\', '/')), options | RegexOptions.NonBacktracking))
             .ToArray();
     }
 
