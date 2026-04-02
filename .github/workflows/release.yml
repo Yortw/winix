@@ -123,7 +123,7 @@ jobs:
           - rid: linux-x64
             os: ubuntu-latest
           - rid: osx-x64
-            os: macos-13        # Intel runner — native x64 build, no cross-compilation
+            os: macos-latest    # Cross-compile x64 on ARM runner; macos-13 Intel runners retired
           - rid: osx-arm64
             os: macos-latest    # Apple Silicon runner (macos-14+)
     runs-on: ${{ matrix.os }}
