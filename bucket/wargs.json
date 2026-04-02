@@ -1,12 +1,12 @@
 {
-  "version": "0.1.0-preview.4",
+  "version": "0.1.0",
   "description": "Cross-platform xargs replacement with sane defaults.",
   "homepage": "https://github.com/Yortw/winix",
   "license": "MIT",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/Yortw/winix/releases/download/v0.1.0-preview.4/wargs-win-x64.zip",
-      "hash": "placeholder-updated-by-release-pipeline"
+      "url": "https://github.com/Yortw/winix/releases/download/v0.1.0/wargs-win-x64.zip",
+      "hash": "d28df23a1ddf37a256915d6e09a7c1c887c149cb827aa684305f73a27cbff6de"
     }
   },
   "bin": "wargs.exe",

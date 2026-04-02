@@ -1,12 +1,12 @@
 {
-  "version": "0.1.0-preview.4",
+  "version": "0.1.0",
   "description": "Winix CLI tool suite — timeit, squeeze, peep, wargs, files, treex.",
   "homepage": "https://github.com/Yortw/winix",
   "license": "MIT",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/Yortw/winix/releases/download/v0.1.0-preview.4/winix-win-x64.zip",
-      "hash": "cbd12ad154b9bf5e57284e1c5019e578b7913e8d5c278413af6672fce86725e0"
+      "url": "https://github.com/Yortw/winix/releases/download/v0.1.0/winix-win-x64.zip",
+      "hash": "58a3323e41959b01a089ead6ea69882ab77f299bf5fbeb8342ffda10f2d73cba"
     }
   },
   "bin": [

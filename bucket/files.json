@@ -1,12 +1,12 @@
 {
-  "version": "0.1.0-preview.1",
+  "version": "0.1.0",
   "description": "Find files by name, size, date, type, and content. A cross-platform find replacement.",
   "homepage": "https://github.com/Yortw/winix",
   "license": "MIT",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/Yortw/winix/releases/download/v0.1.0-preview.1/files-win-x64.zip",
-      "hash": "placeholder-updated-by-release-pipeline"
+      "url": "https://github.com/Yortw/winix/releases/download/v0.1.0/files-win-x64.zip",
+      "hash": "e3d94986c9aa0f7f5561018704ebd258b4479d71addd27cf65fd7d55d483a29e"
     }
   },
   "bin": "files.exe",
