@@ -346,14 +346,18 @@ jobs:
             mkdir -p "$dir"
 
             printf '%s\n' \
+              "# yaml-language-server: \$schema=https://aka.ms/winget-manifest.version.1.12.0.schema.json" \
+              "" \
               "PackageIdentifier: ${pkg_id}" \
               "PackageVersion: ${VERSION}" \
               "DefaultLocale: en-US" \
               "ManifestType: version" \
-              "ManifestVersion: 1.9.0" \
+              "ManifestVersion: 1.12.0" \
               > "${dir}/${pkg_id}.yaml"
 
             printf '%s\n' \
+              "# yaml-language-server: \$schema=https://aka.ms/winget-manifest.installer.1.12.0.schema.json" \
+              "" \
               "PackageIdentifier: ${pkg_id}" \
               "PackageVersion: ${VERSION}" \
               "InstallerType: zip" \
@@ -365,21 +369,31 @@ jobs:
               "  - Architecture: x64" \
               "    InstallerUrl: https://github.com/Yortw/winix/releases/download/v${VERSION}/${tool}-win-x64.zip" \
               "    InstallerSha256: ${hash}" \
+              "    UpgradeBehavior: uninstallPrevious" \
               "ManifestType: installer" \
-              "ManifestVersion: 1.9.0" \
+              "ManifestVersion: 1.12.0" \
               > "${dir}/${pkg_id}.installer.yaml"
 
             printf '%s\n' \
+              "# yaml-language-server: \$schema=https://aka.ms/winget-manifest.defaultLocale.1.12.0.schema.json" \
+              "" \
               "PackageIdentifier: ${pkg_id}" \
               "PackageVersion: ${VERSION}" \
-              "PackageName: Winix ${tool_title}" \
+              "PackageLocale: en-US" \
               "Publisher: Troy Willmot" \
+              "PublisherUrl: https://github.com/Yortw" \
+              "PublisherSupportUrl: https://github.com/Yortw/winix/issues" \
+              "PackageName: Winix ${tool_title}" \
+              "PackageUrl: https://github.com/Yortw/winix" \
               "License: MIT" \
               "LicenseUrl: https://github.com/Yortw/winix/blob/main/LICENSE" \
               "ShortDescription: ${description}" \
-              "PackageUrl: https://github.com/Yortw/winix" \
+              "Tags:" \
+              "  - cli" \
+              "  - developer-tools" \
+              "ReleaseNotesUrl: https://github.com/Yortw/winix/releases/tag/v${VERSION}" \
               "ManifestType: defaultLocale" \
-              "ManifestVersion: 1.9.0" \
+              "ManifestVersion: 1.12.0" \
               > "${dir}/${pkg_id}.locale.en-US.yaml"
           }
 
