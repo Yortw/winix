@@ -105,6 +105,9 @@ jobs:
       - name: Pack treex
         run: dotnet pack src/treex/treex.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
 
+      - name: Pack man
+        run: dotnet pack src/man/man.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
+
       - name: Pack winix
         run: dotnet pack src/winix/winix.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
 
@@ -156,6 +159,9 @@ jobs:
       - name: Publish treex
         run: dotnet publish src/treex/treex.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
 
+      - name: Publish man
+        run: dotnet publish src/man/man.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
+
       - name: Publish winix
         run: dotnet publish src/winix/winix.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
 
@@ -168,6 +174,7 @@ jobs:
           cd src/wargs/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/wargs-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
           cd src/files/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/files-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
           cd src/treex/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/treex-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
+          cd src/man/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/man-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
           cd src/winix/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/winix-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
 
       - name: Zip binaries (Windows)
@@ -180,6 +187,7 @@ jobs:
           Compress-Archive -Path src/wargs/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath wargs-${{ matrix.rid }}.zip
           Compress-Archive -Path src/files/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath files-${{ matrix.rid }}.zip
           Compress-Archive -Path src/treex/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath treex-${{ matrix.rid }}.zip
+          Compress-Archive -Path src/man/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath man-${{ matrix.rid }}.zip
           Compress-Archive -Path src/winix/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath winix-${{ matrix.rid }}.zip
 
       - name: Create combined Winix zip (Windows)
@@ -193,6 +201,7 @@ jobs:
           Copy-Item src/wargs/bin/Release/net10.0/${{ matrix.rid }}/publish/wargs.exe winix-combined/
           Copy-Item src/files/bin/Release/net10.0/${{ matrix.rid }}/publish/files.exe winix-combined/
           Copy-Item src/treex/bin/Release/net10.0/${{ matrix.rid }}/publish/treex.exe winix-combined/
+          Copy-Item src/man/bin/Release/net10.0/${{ matrix.rid }}/publish/man.exe winix-combined/
           Copy-Item src/winix/bin/Release/net10.0/${{ matrix.rid }}/publish/winix.exe winix-combined/
           Compress-Archive -Path winix-combined/* -DestinationPath winix-${{ matrix.rid }}.zip -Force
 
@@ -257,7 +266,8 @@ jobs:
                 peep:    { description: "Run a command repeatedly and display output on a refreshing screen.",                                      packages: { winget: "Winix.Peep",    scoop: "peep",    brew: "peep",    dotnet: "Winix.Peep"    } },
                 wargs:   { description: "Cross-platform xargs replacement with sane defaults.",                                                    packages: { winget: "Winix.Wargs",   scoop: "wargs",   brew: "wargs",   dotnet: "Winix.Wargs"   } },
                 files:   { description: "Find files by name, size, date, type, and content.",                                                      packages: { winget: "Winix.Files",   scoop: "files",   brew: "files",   dotnet: "Winix.Files"   } },
-                treex:   { description: "Enhanced directory tree with colour, filtering, size rollups, and clickable hyperlinks.",                  packages: { winget: "Winix.TreeX",   scoop: "treex",   brew: "treex",   dotnet: "Winix.TreeX"   } }
+                treex:   { description: "Enhanced directory tree with colour, filtering, size rollups, and clickable hyperlinks.",                  packages: { winget: "Winix.TreeX",   scoop: "treex",   brew: "treex",   dotnet: "Winix.TreeX"   } },
+                man:     { description: "Cross-platform man page viewer with colour, hyperlinks, and pager support.",                                packages: { winget: "Winix.Man",     scoop: "man",     brew: "man",     dotnet: "Winix.Man"     } }
               }
             }' > winix-manifest.json
 
@@ -329,6 +339,7 @@ jobs:
           update_manifest bucket/wargs.json aot/wargs-win-x64.zip
           update_manifest bucket/files.json aot/files-win-x64.zip
           update_manifest bucket/treex.json aot/treex-win-x64.zip
+          update_manifest bucket/man.json aot/man-win-x64.zip
           update_manifest bucket/winix.json aot/winix-win-x64.zip
 
       - name: Commit and push scoop bucket
@@ -430,6 +441,7 @@ jobs:
           generate_manifests "wargs" "Wargs" "Cross-platform xargs replacement with sane defaults."
           generate_manifests "files" "Files" "Find files by name, size, date, type, and content. A cross-platform find replacement."
           generate_manifests "treex" "TreeX" "Enhanced directory tree with colour, filtering, size rollups, gitignore, and clickable hyperlinks."
+          generate_manifests "man" "Man" "Cross-platform man page viewer with colour, hyperlinks, and pager support."
           generate_manifests "winix" "Winix" "Cross-platform installer for the Winix CLI tool suite."
 
       - name: Upload winget manifests
