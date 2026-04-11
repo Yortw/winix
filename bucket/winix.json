@@ -1,22 +1,16 @@
 {
-  "version": "0.1.0",
-  "description": "Winix CLI tool suite — timeit, squeeze, peep, wargs, files, treex.",
+  "version": "0.2.0",
+  "description": "Winix CLI tool suite installer — installs, updates, and manages all Winix tools.",
   "homepage": "https://github.com/Yortw/winix",
   "license": "MIT",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/Yortw/winix/releases/download/v0.1.0/winix-win-x64.zip",
-      "hash": "58a3323e41959b01a089ead6ea69882ab77f299bf5fbeb8342ffda10f2d73cba"
+      "url": "https://github.com/Yortw/winix/releases/download/v0.2.0/winix-win-x64.zip",
+      "hash": ""
     }
   },
-  "bin": [
-    "timeit.exe",
-    "squeeze.exe",
-    "peep.exe",
-    "wargs.exe",
-    "files.exe",
-    "treex.exe"
-  ],
+  "bin": "winix.exe",
+  "post_install": "winix install --via scoop",
   "checkver": "github",
   "autoupdate": {
     "architecture": {
