@@ -165,6 +165,17 @@ jobs:
       - name: Publish winix
         run: dotnet publish src/winix/winix.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
 
+      - name: Bundle man pages alongside man binary
+        shell: bash
+        run: |
+          PUBLISH_DIR="src/man/bin/Release/net10.0/${{ matrix.rid }}/publish"
+          mkdir -p "$PUBLISH_DIR/man/man1"
+          for tool in timeit squeeze peep wargs files treex winix man; do
+            if [ -f "src/$tool/man/man1/$tool.1" ]; then
+              cp "src/$tool/man/man1/$tool.1" "$PUBLISH_DIR/man/man1/"
+            fi
+          done
+
       - name: Zip binaries (Linux/macOS)
         if: runner.os != 'Windows'
         run: |
