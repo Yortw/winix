@@ -105,6 +105,9 @@ jobs:
       - name: Pack treex
         run: dotnet pack src/treex/treex.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
 
+      - name: Pack winix
+        run: dotnet pack src/winix/winix.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
+
       - name: Upload NuGet packages
         uses: actions/upload-artifact@v7
         with:
@@ -153,6 +156,9 @@ jobs:
       - name: Publish treex
         run: dotnet publish src/treex/treex.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
 
+      - name: Publish winix
+        run: dotnet publish src/winix/winix.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
+
       - name: Zip binaries (Linux/macOS)
         if: runner.os != 'Windows'
         run: |
@@ -162,6 +168,7 @@ jobs:
           cd src/wargs/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/wargs-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
           cd src/files/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/files-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
           cd src/treex/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/treex-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
+          cd src/winix/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/winix-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
 
       - name: Zip binaries (Windows)
         if: runner.os == 'Windows'
@@ -173,6 +180,7 @@ jobs:
           Compress-Archive -Path src/wargs/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath wargs-${{ matrix.rid }}.zip
           Compress-Archive -Path src/files/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath files-${{ matrix.rid }}.zip
           Compress-Archive -Path src/treex/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath treex-${{ matrix.rid }}.zip
+          Compress-Archive -Path src/winix/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath winix-${{ matrix.rid }}.zip
 
       - name: Create combined Winix zip (Windows)
         if: runner.os == 'Windows' && matrix.rid == 'win-x64'
@@ -185,7 +193,8 @@ jobs:
           Copy-Item src/wargs/bin/Release/net10.0/${{ matrix.rid }}/publish/wargs.exe winix-combined/
           Copy-Item src/files/bin/Release/net10.0/${{ matrix.rid }}/publish/files.exe winix-combined/
           Copy-Item src/treex/bin/Release/net10.0/${{ matrix.rid }}/publish/treex.exe winix-combined/
-          Compress-Archive -Path winix-combined/* -DestinationPath winix-${{ matrix.rid }}.zip
+          Copy-Item src/winix/bin/Release/net10.0/${{ matrix.rid }}/publish/winix.exe winix-combined/
+          Compress-Archive -Path winix-combined/* -DestinationPath winix-${{ matrix.rid }}.zip -Force
 
       - name: Upload AOT binaries
         uses: actions/upload-artifact@v7
@@ -235,6 +244,23 @@ jobs:
           name: aot-osx-arm64
           path: aot
 
+      - name: Generate winix-manifest.json
+        run: |
+          VERSION="${{ needs.resolve-version.outputs.version }}"
+          jq -n \
+            --arg version "$VERSION" \
+            '{
+              version: $version,
+              tools: {
+                timeit:  { description: "Time a command \u2014 wall clock, CPU time, peak memory, exit code.",                                      packages: { winget: "Winix.TimeIt",  scoop: "timeit",  brew: "timeit",  dotnet: "Winix.TimeIt"  } },
+                squeeze: { description: "Compress and decompress files using gzip, brotli, or zstd.",                                              packages: { winget: "Winix.Squeeze", scoop: "squeeze", brew: "squeeze", dotnet: "Winix.Squeeze" } },
+                peep:    { description: "Run a command repeatedly and display output on a refreshing screen.",                                      packages: { winget: "Winix.Peep",    scoop: "peep",    brew: "peep",    dotnet: "Winix.Peep"    } },
+                wargs:   { description: "Cross-platform xargs replacement with sane defaults.",                                                    packages: { winget: "Winix.Wargs",   scoop: "wargs",   brew: "wargs",   dotnet: "Winix.Wargs"   } },
+                files:   { description: "Find files by name, size, date, type, and content.",                                                      packages: { winget: "Winix.Files",   scoop: "files",   brew: "files",   dotnet: "Winix.Files"   } },
+                treex:   { description: "Enhanced directory tree with colour, filtering, size rollups, and clickable hyperlinks.",                  packages: { winget: "Winix.TreeX",   scoop: "treex",   brew: "treex",   dotnet: "Winix.TreeX"   } }
+              }
+            }' > winix-manifest.json
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -255,7 +281,8 @@ jobs:
             --title "v${VERSION}" \
             --generate-notes \
             packages/*.nupkg \
-            aot/*.zip
+            aot/*.zip \
+            winix-manifest.json
 
       - name: Publish to NuGet.org
         env:
@@ -403,6 +430,7 @@ jobs:
           generate_manifests "wargs" "Wargs" "Cross-platform xargs replacement with sane defaults."
           generate_manifests "files" "Files" "Find files by name, size, date, type, and content. A cross-platform find replacement."
           generate_manifests "treex" "TreeX" "Enhanced directory tree with colour, filtering, size rollups, gitignore, and clickable hyperlinks."
+          generate_manifests "winix" "Winix" "Cross-platform installer for the Winix CLI tool suite."
 
       - name: Upload winget manifests
         uses: actions/upload-artifact@v7
