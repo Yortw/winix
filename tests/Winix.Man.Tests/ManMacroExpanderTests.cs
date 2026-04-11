@@ -253,12 +253,12 @@ Suppress summary output.";
     }
 
     [Fact]
-    public void EnDashSpecial_ResolvedToUnicode()
+    public void EnDashSpecial_ResolvedToDoubleDash()
     {
-        // Pandoc uses \(en for -- flags
+        // Pandoc uses \(en for -- flags; terminal renders as --
         var blocks = Expand("\\(enverbose");
         var para = Assert.IsType<Paragraph>(blocks[0]);
         string fullText = string.Join("", para.Content.Select(s => s.Text));
-        Assert.Contains("\u2013", fullText);
+        Assert.Contains("--verbose", fullText);
     }
 }

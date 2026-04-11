@@ -498,7 +498,7 @@ public sealed class ManMacroExpander
                     string replacement = special switch
                     {
                         "em" => "\u2014",   // em dash
-                        "en" => "\u2013",   // en dash —  pandoc uses for -- (double-hyphen flags)
+                        "en" => "--",       // en dash — render as -- on terminal (matches traditional man)
                         "bu" => "\u2022",   // bullet
                         "lq" => "\u201C",   // left double quote
                         "rq" => "\u201D",   // right double quote
