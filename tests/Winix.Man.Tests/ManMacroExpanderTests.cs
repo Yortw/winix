@@ -234,4 +234,31 @@ Suppress summary output.";
         var tagged = blocks.OfType<TaggedParagraph>().ToList();
         Assert.Equal(2, tagged.Count);
     }
+
+    [Fact]
+    public void BracketFormFontEscapes_ParsedCorrectly()
+    {
+        // Pandoc generates \f[B] instead of \fB
+        var blocks = Expand("\\f[B]timeit\\f[R] \\f[I]command\\f[R]");
+        Assert.Single(blocks);
+        var para = Assert.IsType<Paragraph>(blocks[0]);
+
+        var boldSpan = para.Content.FirstOrDefault(s => s.Style == FontStyle.Bold);
+        Assert.NotNull(boldSpan);
+        Assert.Equal("timeit", boldSpan!.Text);
+
+        var italicSpan = para.Content.FirstOrDefault(s => s.Style == FontStyle.Italic);
+        Assert.NotNull(italicSpan);
+        Assert.Equal("command", italicSpan!.Text);
+    }
+
+    [Fact]
+    public void EnDashSpecial_ResolvedToUnicode()
+    {
+        // Pandoc uses \(en for -- flags
+        var blocks = Expand("\\(enverbose");
+        var para = Assert.IsType<Paragraph>(blocks[0]);
+        string fullText = string.Join("", para.Content.Select(s => s.Text));
+        Assert.Contains("\u2013", fullText);
+    }
 }

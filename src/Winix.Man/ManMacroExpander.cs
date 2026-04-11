@@ -410,25 +410,60 @@ public sealed class ManMacroExpander
 
                 if (next == 'f' && i + 2 < text.Length)
                 {
-                    // Font change
+                    // Font change — handle both \fB (single-char) and \f[B] (bracket) forms
                     if (currentText.Length > 0)
                     {
                         spans.Add(new StyledSpan(currentText.ToString(), currentStyle));
                         currentText.Clear();
                     }
 
-                    char fontChar = text[i + 2];
-                    var newStyle = fontChar switch
+                    FontStyle newStyle;
+                    int advance;
+
+                    if (text[i + 2] == '[')
                     {
-                        'B' => FontStyle.Bold,
-                        'I' => FontStyle.Italic,
-                        'R' => FontStyle.Roman,
-                        'P' => previousStyle,
-                        _ => currentStyle
-                    };
+                        // Bracket form: \f[B], \f[I], \f[R], \f[BI], etc.
+                        int close = text.IndexOf(']', i + 3);
+                        if (close > i + 3)
+                        {
+                            string fontName = text.Substring(i + 3, close - (i + 3));
+                            newStyle = fontName switch
+                            {
+                                "B" => FontStyle.Bold,
+                                "I" => FontStyle.Italic,
+                                "R" => FontStyle.Roman,
+                                "P" => previousStyle,
+                                "BI" => FontStyle.Bold | FontStyle.Italic,
+                                "IB" => FontStyle.Bold | FontStyle.Italic,
+                                _ => currentStyle
+                            };
+                            advance = close - i + 1;
+                        }
+                        else
+                        {
+                            // Malformed — skip \f[
+                            newStyle = currentStyle;
+                            advance = 3;
+                        }
+                    }
+                    else
+                    {
+                        // Single-char form: \fB, \fI, \fR, \fP
+                        char fontChar = text[i + 2];
+                        newStyle = fontChar switch
+                        {
+                            'B' => FontStyle.Bold,
+                            'I' => FontStyle.Italic,
+                            'R' => FontStyle.Roman,
+                            'P' => previousStyle,
+                            _ => currentStyle
+                        };
+                        advance = 3;
+                    }
+
                     previousStyle = currentStyle;
                     currentStyle = newStyle;
-                    i += 3;
+                    i += advance;
                     continue;
                 }
 
@@ -463,12 +498,15 @@ public sealed class ManMacroExpander
                     string replacement = special switch
                     {
                         "em" => "\u2014",   // em dash
-                        "en" => "\u2013",   // en dash
+                        "en" => "\u2013",   // en dash —  pandoc uses for -- (double-hyphen flags)
                         "bu" => "\u2022",   // bullet
                         "lq" => "\u201C",   // left double quote
                         "rq" => "\u201D",   // right double quote
                         "aq" => "'",        // apostrophe quote
-                        _ => ""
+                        "cq" => "\u2019",   // right single quote (pandoc uses for curly apostrophe)
+                        "dq" => "\"",       // double quote
+                        "oq" => "\u2018",   // left single quote
+                        _ => special        // pass through unknown specials as-is
                     };
                     currentText.Append(replacement);
                     i += 4;
