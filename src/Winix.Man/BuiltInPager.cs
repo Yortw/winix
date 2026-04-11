@@ -29,7 +29,9 @@ internal sealed class BuiltInPager
     /// <param name="content">The ANSI-formatted text to display.</param>
     public void Display(string content)
     {
-        var lines = content.Split('\n');
+        // Split on both \r\n and \n — AppendLine() produces \r\n on Windows,
+        // and a trailing \r would cause Console.Write to overwrite the line content.
+        var lines = content.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
         var topLine = 0;
         var searchTerm = "";
         var searchMatchLine = -1;
