@@ -10,6 +10,7 @@ Cross-platform CLI tool suite for the gaps between Windows and *nix. Native bina
 - [wargs](docs/ai/wargs.md): Build and execute commands from stdin. Replaces `xargs` with sane defaults.
 - [files](docs/ai/files.md): Find files by name, size, date, type, and content. Replaces `find` with glob patterns and clean output.
 - [treex](docs/ai/treex.md): Enhanced directory tree with colour, filtering, sizes, and clickable links. Replaces `tree`.
+- [winix](docs/ai/winix.md): Installer and lifecycle manager for the Winix CLI tool suite. Installs, updates, and uninstalls all tools via your platform's native package manager.
 
 ## Key Features for AI Agents
 
