@@ -214,6 +214,7 @@ jobs:
           Copy-Item src/treex/bin/Release/net10.0/${{ matrix.rid }}/publish/treex.exe winix-combined/
           Copy-Item src/man/bin/Release/net10.0/${{ matrix.rid }}/publish/man.exe winix-combined/
           Copy-Item src/winix/bin/Release/net10.0/${{ matrix.rid }}/publish/winix.exe winix-combined/
+          Copy-Item src/man/bin/Release/net10.0/${{ matrix.rid }}/publish/man -Recurse -Destination winix-combined/man
           Compress-Archive -Path winix-combined/* -DestinationPath winix-${{ matrix.rid }}.zip -Force
 
       - name: Upload AOT binaries
