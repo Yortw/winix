@@ -63,9 +63,19 @@ public sealed class Pager
             int displayRows = LineWrapper.CalculateDisplayRows(lines, termWidth);
             if (displayRows <= viewHeight)
             {
-                foreach (string line in lines)
+                // Write lines without a trailing newline on the last line —
+                // Console.WriteLine on the final line would scroll the screen
+                // when content exactly fills the terminal height.
+                for (int i = 0; i < lines.Count; i++)
                 {
-                    Console.WriteLine(line);
+                    if (i < lines.Count - 1)
+                    {
+                        Console.WriteLine(lines[i]);
+                    }
+                    else
+                    {
+                        Console.Write(lines[i]);
+                    }
                 }
 
                 return 0;
