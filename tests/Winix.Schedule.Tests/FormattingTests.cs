@@ -117,7 +117,7 @@ public sealed class FormattingTests
 
         string output = Formatting.FormatNextOccurrences("0 2 * * *", times);
 
-        Assert.Contains("Expression: 0 2 * * *", output);
+        Assert.Contains("Next 2 occurrences of: 0 2 * * *", output);
         Assert.Contains("2026-04-13", output);
         Assert.Contains("2026-04-14", output);
     }

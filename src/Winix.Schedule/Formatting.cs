@@ -184,12 +184,19 @@ public static class Formatting
     public static string FormatNextOccurrences(string cronExpression, IReadOnlyList<DateTimeOffset> times)
     {
         var sb = new StringBuilder();
-        sb.Append("Expression: ");
+        sb.Append("Next ");
+        sb.Append(times.Count);
+        sb.Append(" occurrences of: ");
         sb.AppendLine(cronExpression);
         sb.AppendLine();
         foreach (DateTimeOffset t in times)
         {
-            sb.AppendLine(t.ToString(DateFormat, CultureInfo.InvariantCulture));
+            string dayName = t.ToString("ddd", CultureInfo.InvariantCulture);
+            sb.Append("  ");
+            sb.Append(t.ToString(DateFormat, CultureInfo.InvariantCulture));
+            sb.Append("  (");
+            sb.Append(dayName);
+            sb.AppendLine(")");
         }
 
         return sb.ToString();
