@@ -83,9 +83,11 @@ public sealed class SchtasksBackend : ISchedulerBackend
     {
         string queryFolder = folder ?? @"\Winix";
 
+        // schtasks /Query /TN requires the folder path without trailing backslash
+        // to list all tasks in that folder. A trailing backslash causes "not found".
         var args = all
             ? new[] { "/Query", "/FO", "CSV", "/V", "/NH" }
-            : new[] { "/Query", "/TN", queryFolder + "\\", "/FO", "CSV", "/V", "/NH" };
+            : new[] { "/Query", "/TN", queryFolder, "/FO", "CSV", "/V", "/NH" };
 
         var result = RunSchtasks(args);
 

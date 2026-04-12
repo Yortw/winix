@@ -19,13 +19,17 @@ public static class SchtasksCsvParser
     // 2: Next Run Time
     // 3: Status
     // 8: Task To Run
-    // 10: Comment (we store cron expression here)
+    // 10: Comment
     // 11: Scheduled Task State (Enabled/Disabled)
+    // 17: Schedule (native schedule description)
+    // 18: Schedule Type (e.g. "Daily", "Weekly")
     private const int ColTaskName = 1;
     private const int ColNextRunTime = 2;
     private const int ColTaskToRun = 8;
     private const int ColComment = 10;
     private const int ColState = 11;
+    private const int ColScheduleDesc = 17;
+    private const int ColScheduleType = 18;
     private const int MinColumns = 12;
 
     /// <summary>
@@ -72,13 +76,29 @@ public static class SchtasksCsvParser
             string nextRunStr = fields[ColNextRunTime];
             if (!string.IsNullOrEmpty(nextRunStr) && nextRunStr != "N/A")
             {
-                if (DateTime.TryParse(nextRunStr, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out DateTime parsed))
+                // schtasks uses the system locale for date formatting. Use CurrentCulture
+                // (not InvariantCulture) so that dd/MM/yyyy locales parse correctly.
+                if (DateTime.TryParse(nextRunStr, CultureInfo.CurrentCulture, DateTimeStyles.AssumeLocal, out DateTime parsed))
                 {
                     nextRun = parsed;
                 }
             }
 
-            string schedule = fields[ColComment]; // We store cron expression in the Comment field.
+            // Try the Comment field first (we store cron there if possible),
+            // fall back to the native Schedule Type description.
+            string schedule = fields[ColComment];
+            if (string.IsNullOrEmpty(schedule) || schedule == "N/A")
+            {
+                // Use native schedule description from schtasks
+                if (fields.Length > ColScheduleType)
+                {
+                    string schedType = fields[ColScheduleType].Trim();
+                    if (!string.IsNullOrEmpty(schedType) && schedType != "N/A")
+                    {
+                        schedule = schedType;
+                    }
+                }
+            }
             string status = fields[ColState];     // "Enabled" or "Disabled"
             string command = fields[ColTaskToRun];
 
