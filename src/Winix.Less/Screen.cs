@@ -151,6 +151,9 @@ internal sealed class Screen : IDisposable
         }
 
         // Draw the status bar in reverse video on the last row.
+        // Use SetCursorPosition to ensure exact placement — relying on
+        // accumulated Console.WriteLine calls can overshoot by one row.
+        Console.SetCursorPosition(0, ViewHeight);
         string statusText = BuildStatusBar(sourceName, topLine, totalLines, searchPattern, isFollowing, isAtEnd);
         string paddedStatus = PadToWidth(statusText);
 

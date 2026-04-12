@@ -104,6 +104,9 @@ internal sealed class Program
             return 1;
         }
 
+        // After reading piped content, reattach console input so ReadKey works
+        ConsoleInput.ReattachIfRedirected();
+
         // Run the pager
         var pager = new Pager(options);
         return pager.Run(source);
