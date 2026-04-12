@@ -18,7 +18,7 @@ public static class Formatting
     private const string DateFormat = "yyyy-MM-dd HH:mm:ss";
 
     private const string HeaderName    = "Name";
-    private const string HeaderCron    = "Cron";
+    private const string HeaderCron    = "Schedule";
     private const string HeaderNext    = "Next Run";
     private const string HeaderStatus  = "Status";
     private const string HeaderCommand = "Command";
