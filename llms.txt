@@ -9,6 +9,7 @@ Cross-platform CLI tool suite for the gaps between Windows and *nix. Native bina
 - [peep](docs/ai/peep.md): Watch a command on interval + re-run on file changes. Replaces `watch` + `entr`.
 - [wargs](docs/ai/wargs.md): Build and execute commands from stdin. Replaces `xargs` with sane defaults.
 - [files](docs/ai/files.md): Find files by name, size, date, type, and content. Replaces `find` with glob patterns and clean output.
+- [less](docs/ai/less.md): Native terminal pager with ANSI colour passthrough, search, follow mode, and modern defaults. Replaces `less` on Windows and improves defaults on all platforms.
 - [man](docs/ai/man.md): Cross-platform man page viewer with colour, hyperlinks, and pager support. Fills the gap on Windows where no `man` command exists.
 - [treex](docs/ai/treex.md): Enhanced directory tree with colour, filtering, sizes, and clickable links. Replaces `tree`.
 - [winix](docs/ai/winix.md): Installer and lifecycle manager for the Winix CLI tool suite. Installs, updates, and uninstalls all tools via your platform's native package manager.
