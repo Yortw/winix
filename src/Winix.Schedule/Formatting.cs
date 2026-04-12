@@ -45,6 +45,12 @@ public static class Formatting
         int cmdW     = HeaderCommand.Length;
         int folderW  = HeaderFolder.Length;
 
+        // Cap column widths to keep the table readable on typical terminals.
+        const int maxNameW = 40;
+        const int maxCronW = 25;
+        const int maxCmdW = 60;
+        const int maxFolderW = 30;
+
         foreach (ScheduledTask t in tasks)
         {
             if (t.Name.Length > nameW)    { nameW   = t.Name.Length; }
@@ -58,6 +64,12 @@ public static class Formatting
 
             if (showFolder && t.Folder.Length > folderW) { folderW = t.Folder.Length; }
         }
+
+        // Apply caps
+        if (nameW > maxNameW) { nameW = maxNameW; }
+        if (cronW > maxCronW) { cronW = maxCronW; }
+        if (cmdW > maxCmdW) { cmdW = maxCmdW; }
+        if (folderW > maxFolderW) { folderW = maxFolderW; }
 
         string dim   = AnsiColor.Dim(useColor);
         string reset = AnsiColor.Reset(useColor);
@@ -88,9 +100,9 @@ public static class Formatting
         {
             string nextStr = t.NextRun?.ToString(DateFormat, CultureInfo.InvariantCulture) ?? "";
 
-            sb.Append(t.Name.PadRight(nameW));
+            sb.Append(Truncate(t.Name, nameW).PadRight(nameW));
             sb.Append("  ");
-            sb.Append(t.Schedule.PadRight(cronW));
+            sb.Append(Truncate(t.Schedule, cronW).PadRight(cronW));
             sb.Append("  ");
             sb.Append(nextStr.PadRight(nextW));
             sb.Append("  ");
@@ -98,7 +110,7 @@ public static class Formatting
             sb.Append("  ");
             if (showFolder)
             {
-                sb.Append(t.Folder.PadRight(folderW));
+                sb.Append(Truncate(t.Folder, folderW).PadRight(folderW));
                 sb.Append("  ");
             }
             sb.AppendLine(t.Command);
@@ -167,9 +179,12 @@ public static class Formatting
     /// <c>yyyy-MM-dd HH:mm:ss</c> format.
     /// </summary>
     /// <param name="times">Occurrence times to display. Must not be null.</param>
-    public static string FormatNextOccurrences(IReadOnlyList<DateTimeOffset> times)
+    public static string FormatNextOccurrences(string cronExpression, IReadOnlyList<DateTimeOffset> times)
     {
         var sb = new StringBuilder();
+        sb.Append("Expression: ");
+        sb.AppendLine(cronExpression);
+        sb.AppendLine();
         foreach (DateTimeOffset t in times)
         {
             sb.AppendLine(t.ToString(DateFormat, CultureInfo.InvariantCulture));
@@ -419,5 +434,23 @@ public static class Formatting
         }
 
         return (seconds / 3600).ToString("0.0", CultureInfo.InvariantCulture) + "h";
+    }
+
+    /// <summary>
+    /// Truncates a string to the given max length, appending "…" if truncated.
+    /// </summary>
+    private static string Truncate(string value, int maxLength)
+    {
+        if (value.Length <= maxLength)
+        {
+            return value;
+        }
+
+        if (maxLength <= 1)
+        {
+            return value.Substring(0, maxLength);
+        }
+
+        return value.Substring(0, maxLength - 1) + "\u2026";
     }
 }

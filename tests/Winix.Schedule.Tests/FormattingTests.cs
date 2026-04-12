@@ -115,8 +115,9 @@ public sealed class FormattingTests
             new DateTimeOffset(2026, 4, 14, 2, 0, 0, TimeSpan.FromHours(12)),
         };
 
-        string output = Formatting.FormatNextOccurrences(times);
+        string output = Formatting.FormatNextOccurrences("0 2 * * *", times);
 
+        Assert.Contains("Expression: 0 2 * * *", output);
         Assert.Contains("2026-04-13", output);
         Assert.Contains("2026-04-14", output);
     }

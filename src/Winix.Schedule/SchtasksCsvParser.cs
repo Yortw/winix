@@ -62,12 +62,23 @@ public static class SchtasksCsvParser
                 continue;
             }
 
-            string taskName = fields[ColTaskName];
+            string fullTaskName = fields[ColTaskName];
 
-            // Strip folder prefix from name.
-            if (taskName.StartsWith(folderPrefix, StringComparison.OrdinalIgnoreCase))
+            // Extract the folder and short name from the full task path.
+            // e.g. "\Winix\health-check" → folder="\Winix", name="health-check"
+            // e.g. "\Apple\AppleSoftwareUpdate" → folder="\Apple", name="AppleSoftwareUpdate"
+            string taskName;
+            string taskFolder;
+            int lastSlash = fullTaskName.LastIndexOf('\\');
+            if (lastSlash > 0)
             {
-                taskName = taskName.Substring(folderPrefix.Length);
+                taskFolder = fullTaskName.Substring(0, lastSlash);
+                taskName = fullTaskName.Substring(lastSlash + 1);
+            }
+            else
+            {
+                taskFolder = "";
+                taskName = fullTaskName.TrimStart('\\');
             }
 
             // Parse next run time. schtasks uses locale-dependent date formats, but typically
@@ -84,25 +95,25 @@ public static class SchtasksCsvParser
                 }
             }
 
-            // Try the Comment field first (we store cron there if possible),
-            // fall back to the native Schedule Type description.
-            string schedule = fields[ColComment];
-            if (string.IsNullOrEmpty(schedule) || schedule == "N/A")
+            // Determine the schedule description.
+            // 1. If Comment looks like a cron expression (starts with * or digit or @), use it.
+            // 2. Otherwise use the native Schedule Type (col 18) like "Daily", "Weekly".
+            // 3. Fall back to empty.
+            string comment = fields[ColComment];
+            string schedule;
+            if (!string.IsNullOrEmpty(comment) && comment != "N/A" && LooksLikeCron(comment))
             {
-                // Use native schedule description from schtasks
-                if (fields.Length > ColScheduleType)
-                {
-                    string schedType = fields[ColScheduleType].Trim();
-                    if (!string.IsNullOrEmpty(schedType) && schedType != "N/A")
-                    {
-                        schedule = schedType;
-                    }
-                }
+                schedule = comment;
+            }
+            else
+            {
+                // Build a description from native schedule columns.
+                schedule = BuildNativeScheduleDescription(fields);
             }
             string status = fields[ColState];     // "Enabled" or "Disabled"
             string command = fields[ColTaskToRun];
 
-            tasks.Add(new ScheduledTask(taskName, schedule, nextRun, status, command, folder));
+            tasks.Add(new ScheduledTask(taskName, schedule, nextRun, status, command, taskFolder));
         }
 
         return tasks;
@@ -182,5 +193,73 @@ public static class SchtasksCsvParser
         }
 
         return fields.ToArray();
+    }
+
+    // Additional column indices for building schedule descriptions.
+    private const int ColStartTime = 19;
+    private const int ColDays = 22;
+
+    /// <summary>
+    /// Builds a concise schedule description from the native schtasks CSV columns.
+    /// E.g. "Daily 02:00", "Weekly Mon-Fri 09:00", "Every 5 min".
+    /// </summary>
+    private static string BuildNativeScheduleDescription(string[] fields)
+    {
+        string schedType = fields.Length > ColScheduleType
+            ? fields[ColScheduleType].Trim()
+            : "";
+
+        if (string.IsNullOrEmpty(schedType) || schedType == "N/A"
+            || schedType.StartsWith("Scheduling data", StringComparison.OrdinalIgnoreCase))
+        {
+            return "";
+        }
+
+        // Try to append the start time for daily/weekly/monthly
+        string startTime = fields.Length > ColStartTime
+            ? fields[ColStartTime].Trim()
+            : "";
+
+        // Clean up time: "02:00:00 AM" → "02:00"
+        if (!string.IsNullOrEmpty(startTime) && startTime != "N/A")
+        {
+            if (DateTime.TryParse(startTime, CultureInfo.CurrentCulture, DateTimeStyles.AssumeLocal, out DateTime parsed))
+            {
+                startTime = parsed.ToString("HH:mm");
+            }
+            else
+            {
+                startTime = "";
+            }
+        }
+        else
+        {
+            startTime = "";
+        }
+
+        // Clean up schedule type: remove trailing whitespace, "One Time Only, " prefix
+        schedType = schedType.TrimEnd();
+
+        if (!string.IsNullOrEmpty(startTime))
+        {
+            return schedType + " " + startTime;
+        }
+
+        return schedType;
+    }
+
+    /// <summary>
+    /// Returns true if the string looks like a cron expression rather than a
+    /// human-readable description. Cron expressions start with *, a digit, or @.
+    /// </summary>
+    private static bool LooksLikeCron(string value)
+    {
+        if (value.Length == 0)
+        {
+            return false;
+        }
+
+        char first = value[0];
+        return first == '*' || first == '@' || (first >= '0' && first <= '9');
     }
 }

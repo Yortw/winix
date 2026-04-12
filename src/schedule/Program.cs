@@ -386,7 +386,7 @@ internal sealed class Program
         }
         else
         {
-            Console.Error.Write(Formatting.FormatNextOccurrences(occurrences));
+            Console.Error.Write(Formatting.FormatNextOccurrences(cron.Expression, occurrences));
         }
 
         return 0;
