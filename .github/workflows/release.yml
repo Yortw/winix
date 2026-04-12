@@ -111,6 +111,9 @@ jobs:
       - name: Pack less
         run: dotnet pack src/less/less.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
 
+      - name: Pack whoholds
+        run: dotnet pack src/whoholds/whoholds.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
+
       - name: Pack winix
         run: dotnet pack src/winix/winix.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
 
@@ -168,6 +171,9 @@ jobs:
       - name: Publish less
         run: dotnet publish src/less/less.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
 
+      - name: Publish whoholds
+        run: dotnet publish src/whoholds/whoholds.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
+
       - name: Publish winix
         run: dotnet publish src/winix/winix.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
 
@@ -194,6 +200,7 @@ jobs:
           cd src/treex/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/treex-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
           cd src/man/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/man-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
           cd src/less/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/less-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
+          cd src/whoholds/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/whoholds-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
           cd src/winix/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/winix-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
 
       - name: Zip binaries (Windows)
@@ -208,6 +215,7 @@ jobs:
           Compress-Archive -Path src/treex/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath treex-${{ matrix.rid }}.zip
           Compress-Archive -Path src/man/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath man-${{ matrix.rid }}.zip
           Compress-Archive -Path src/less/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath less-${{ matrix.rid }}.zip
+          Compress-Archive -Path src/whoholds/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath whoholds-${{ matrix.rid }}.zip
           Compress-Archive -Path src/winix/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath winix-${{ matrix.rid }}.zip
 
       - name: Create combined Winix zip (Windows)
@@ -223,6 +231,7 @@ jobs:
           Copy-Item src/treex/bin/Release/net10.0/${{ matrix.rid }}/publish/treex.exe winix-combined/
           Copy-Item src/man/bin/Release/net10.0/${{ matrix.rid }}/publish/man.exe winix-combined/
           Copy-Item src/less/bin/Release/net10.0/${{ matrix.rid }}/publish/less.exe winix-combined/
+          Copy-Item src/whoholds/bin/Release/net10.0/${{ matrix.rid }}/publish/whoholds.exe winix-combined/
           Copy-Item src/winix/bin/Release/net10.0/${{ matrix.rid }}/publish/winix.exe winix-combined/
           Copy-Item src/man/bin/Release/net10.0/${{ matrix.rid }}/publish/man -Recurse -Destination winix-combined/man
           Compress-Archive -Path winix-combined/* -DestinationPath winix-${{ matrix.rid }}.zip -Force
@@ -290,7 +299,8 @@ jobs:
                 files:   { description: "Find files by name, size, date, type, and content.",                                                      packages: { winget: "Winix.Files",   scoop: "files",   brew: "files",   dotnet: "Winix.Files"   } },
                 treex:   { description: "Enhanced directory tree with colour, filtering, size rollups, and clickable hyperlinks.",                  packages: { winget: "Winix.TreeX",   scoop: "treex",   brew: "treex",   dotnet: "Winix.TreeX"   } },
                 man:     { description: "Cross-platform man page viewer with colour, hyperlinks, and pager support.",                                packages: { winget: "Winix.Man",     scoop: "man",     brew: "man",     dotnet: "Winix.Man"     } },
-                less:    { description: "Native terminal pager with ANSI colour, search, follow mode, and modern defaults.",                           packages: { winget: "Winix.Less",    scoop: "less",    brew: "less",    dotnet: "Winix.Less"    } }
+                less:     { description: "Native terminal pager with ANSI colour, search, follow mode, and modern defaults.",                              packages: { winget: "Winix.Less",     scoop: "less",     brew: "less",     dotnet: "Winix.Less"     } },
+                whoholds: { description: "Find which processes are holding a file lock or binding a network port.",                                         packages: { winget: "Winix.WhoHolds", scoop: "whoholds", brew: "whoholds", dotnet: "Winix.WhoHolds" } }
               }
             }' > winix-manifest.json
 
@@ -364,6 +374,7 @@ jobs:
           update_manifest bucket/treex.json aot/treex-win-x64.zip
           update_manifest bucket/man.json aot/man-win-x64.zip
           update_manifest bucket/less.json aot/less-win-x64.zip
+          update_manifest bucket/whoholds.json aot/whoholds-win-x64.zip
           update_manifest bucket/winix.json aot/winix-win-x64.zip
 
       - name: Commit and push scoop bucket
@@ -467,6 +478,7 @@ jobs:
           generate_manifests "treex" "TreeX" "Enhanced directory tree with colour, filtering, size rollups, gitignore, and clickable hyperlinks."
           generate_manifests "man" "Man" "Cross-platform man page viewer with colour, hyperlinks, and pager support."
           generate_manifests "less" "Less" "Native terminal pager with ANSI colour, search, follow mode, and modern defaults."
+          generate_manifests "whoholds" "WhoHolds" "Find which processes are holding a file lock or binding a network port."
           generate_manifests "winix" "Winix" "Cross-platform installer for the Winix CLI tool suite."
 
       - name: Upload winget manifests
