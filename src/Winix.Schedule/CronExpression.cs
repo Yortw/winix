@@ -108,14 +108,118 @@ public sealed class CronExpression
     }
 
     /// <summary>
-    /// Returns the next occurrence of this cron schedule after <paramref name="after"/>.
+    /// Returns the next occurrence of this cron schedule strictly after <paramref name="after"/>.
+    /// Searches up to 8 years ahead; throws <see cref="InvalidOperationException"/> if no match is found
+    /// within that horizon (e.g. Feb 29 with no leap year in range).
     /// </summary>
     /// <param name="after">The reference point; the returned time will be strictly after this value.</param>
-    /// <returns>The next matching <see cref="DateTimeOffset"/>.</returns>
-    /// <exception cref="NotImplementedException">Not yet implemented; will be added in a future task.</exception>
+    /// <returns>The next matching <see cref="DateTimeOffset"/>, with the same UTC offset as <paramref name="after"/>.</returns>
+    /// <exception cref="InvalidOperationException">No matching occurrence found within 8 years.</exception>
     public DateTimeOffset GetNextOccurrence(DateTimeOffset after)
     {
-        throw new NotImplementedException("GetNextOccurrence is not yet implemented.");
+        // Start from the next whole minute after 'after' (strictly after semantics).
+        DateTimeOffset candidate = new DateTimeOffset(
+            after.Year, after.Month, after.Day,
+            after.Hour, after.Minute, 0, after.Offset).AddMinutes(1);
+
+        // Safety limit: don't search more than 8 years ahead.
+        DateTimeOffset limit = after.AddYears(8);
+
+        bool domRestricted = DayOfMonth.Values.Count < 31;
+        bool dowRestricted = DayOfWeek.Values.Count < 7;
+
+        while (candidate <= limit)
+        {
+            // Check month first (coarsest).
+            if (!Month.Contains(candidate.Month))
+            {
+                candidate = NextMonth(candidate);
+                continue;
+            }
+
+            // Check day: standard cron OR logic for DOM/DOW.
+            // If both DOM and DOW are restricted, either matching satisfies.
+            // If only one is restricted, that one must match.
+            // If neither is restricted (both wildcard), any day matches.
+            bool domMatch = DayOfMonth.Contains(candidate.Day);
+            bool dowMatch = DayOfWeek.Contains((int)candidate.DayOfWeek);
+
+            bool dayMatch;
+            if (domRestricted && dowRestricted)
+            {
+                dayMatch = domMatch || dowMatch;
+            }
+            else if (domRestricted)
+            {
+                dayMatch = domMatch;
+            }
+            else if (dowRestricted)
+            {
+                dayMatch = dowMatch;
+            }
+            else
+            {
+                dayMatch = true;
+            }
+
+            if (!dayMatch)
+            {
+                candidate = NextDay(candidate);
+                continue;
+            }
+
+            // Check hour.
+            if (!Hour.Contains(candidate.Hour))
+            {
+                candidate = NextHour(candidate);
+                continue;
+            }
+
+            // Check minute.
+            if (!Minute.Contains(candidate.Minute))
+            {
+                candidate = candidate.AddMinutes(1);
+                continue;
+            }
+
+            return candidate;
+        }
+
+        throw new InvalidOperationException(
+            $"No matching occurrence found within 8 years for cron expression '{Expression}'.");
+    }
+
+    /// <summary>
+    /// Advances to midnight on the 1st of the next month, preserving the UTC offset.
+    /// </summary>
+    private static DateTimeOffset NextMonth(DateTimeOffset dt)
+    {
+        int year = dt.Year;
+        int month = dt.Month + 1;
+        if (month > 12)
+        {
+            month = 1;
+            year++;
+        }
+
+        return new DateTimeOffset(year, month, 1, 0, 0, 0, dt.Offset);
+    }
+
+    /// <summary>
+    /// Advances to midnight of the next day, preserving the UTC offset.
+    /// Uses <see cref="DateTimeOffset.AddDays"/> so month/year rollover is handled automatically.
+    /// </summary>
+    private static DateTimeOffset NextDay(DateTimeOffset dt)
+    {
+        return new DateTimeOffset(dt.Year, dt.Month, dt.Day, 0, 0, 0, dt.Offset).AddDays(1);
+    }
+
+    /// <summary>
+    /// Advances to the start of the next hour, preserving the UTC offset.
+    /// </summary>
+    private static DateTimeOffset NextHour(DateTimeOffset dt)
+    {
+        return new DateTimeOffset(dt.Year, dt.Month, dt.Day, dt.Hour, 0, 0, dt.Offset).AddHours(1);
     }
 
     /// <summary>
