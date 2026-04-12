@@ -257,9 +257,8 @@ Unset and empty string (`LESS=""` or `LESS=`) are treated identically — both m
 | `n` | Next search match |
 | `N` | Previous search match |
 | `F` | Enter follow mode |
-| `-N` | Toggle line numbers |
-| `-S` | Toggle chop long lines |
-| Mouse wheel | Scroll up/down (3 lines per tick) |
+| `-N` | Toggle line numbers (press `-` then `N`) |
+| `-S` | Toggle chop long lines (press `-` then `S`) |
 
 ---
 
@@ -345,9 +344,12 @@ The sibling check (`{exe_dir}/less` or `{exe_dir}/less.exe`) already exists in `
 - Line numbers (`-N`)
 - `LESS` env var support
 - GNU-compatible common flags: `-N`, `-S`, `-R`, `-F`, `-X`, `-i`, `-I`, `+F`, `+/pattern`, `+G`
-- Mouse wheel scrolling
+- Runtime toggle of `-N` and `-S` via dash-key sequences
 - Quit-if-one-screen default
 - Status bar
+
+**Deferred (v1.1):**
+- Mouse wheel scrolling — requires Win32 `ReadConsoleInput` with `ENABLE_MOUSE_INPUT`; .NET `Console.ReadKey` doesn't capture mouse events. Worth adding but needs platform-specific code.
 
 **Out of scope (v1):**
 - Multiple file support (`:n`/`:p`)
