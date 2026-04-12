@@ -230,7 +230,14 @@ public static class Formatting
     /// </summary>
     public static string FormatHistoryNotAvailable()
     {
-        return "Run history not available on this platform. Check syslog for cron output.";
+        if (OperatingSystem.IsWindows())
+        {
+            return "No run history available.\n" +
+                   "Windows Task Scheduler history may be disabled. To enable:\n" +
+                   "  taskschd.msc → Actions → Enable All Tasks History";
+        }
+
+        return "Run history is not available. Check syslog for cron output.";
     }
 
     // --- JSON ---
