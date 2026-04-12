@@ -71,7 +71,8 @@ whoholds --describe
 | Option | Description |
 |--------|-------------|
 | `--pid-only` | Output only PIDs (one per line). Suitable for piping to `wargs` or `kill`. |
-| `--json` | Output results as a JSON array. Each entry includes `pid`, `name`, `owner`, and `target`. |
+| `--full-path`, `-l` | Show the full executable path instead of just the process name. Requires elevation for system processes. |
+| `--json` | Output results as a JSON object. Each process entry includes `pid`, `name`, `path`, `state`, and `resource`. |
 | `--describe` | Output structured tool metadata as JSON (flags, examples, composability). |
 | `--color` | Force coloured output (overrides `NO_COLOR`). |
 | `--no-color` | Disable coloured output. |
@@ -97,6 +98,17 @@ Warning: not running as administrator — results may be incomplete.
 ```
 
 This prevents the frustrating "it says nothing is holding the file, but I still can't delete it" scenario. If you see no holders but the problem persists, re-run elevated.
+
+### What changes when elevated
+
+| Feature | Normal | Elevated |
+|---------|--------|----------|
+| File lock detection | Current user's processes only | All processes |
+| Port binding detection | Current user's processes only | All processes |
+| `--full-path` / `-l` | May show empty paths for system processes (access denied) | Full executable paths for all processes |
+| TCP state column | Always shown for port queries | Always shown for port queries |
+
+For most developer workflows (your IDE, build tools, dev servers), normal mode is sufficient. Elevation is needed when a system service or another user's process holds the lock.
 
 ## Platform Notes
 
