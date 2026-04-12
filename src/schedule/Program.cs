@@ -328,7 +328,7 @@ internal sealed class Program
         }
         else
         {
-            if (records.Count == 0 && !RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            if (records.Count == 0)
             {
                 Console.Error.WriteLine(Formatting.FormatHistoryNotAvailable());
             }
