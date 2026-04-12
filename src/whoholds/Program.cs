@@ -18,6 +18,7 @@ internal sealed class Program
         var parser = new CommandLineParser("whoholds", version)
             .Description("Find which processes are holding a file lock or binding a network port.")
             .Flag("--pid-only", "Force one-PID-per-line output (auto when piped)")
+            .Flag("--full-path", "-l", "Show full executable path instead of process name")
             .StandardFlags()
             .Positional("<file-or-port>")
             .Platform("cross-platform",
@@ -38,6 +39,8 @@ internal sealed class Program
             .JsonField("processes", "array", "Array of locking process objects")
             .JsonField("processes[].pid", "int", "Process ID")
             .JsonField("processes[].name", "string", "Process name")
+            .JsonField("processes[].path", "string", "Full executable path (empty if unavailable)")
+            .JsonField("processes[].state", "string", "TCP state (e.g. LISTEN); empty for files and UDP")
             .JsonField("processes[].resource", "string", "Locked file path or port specifier")
             .ExitCodes(
                 (ExitCode.Success, "Success (includes no-results)"),
@@ -69,6 +72,7 @@ internal sealed class Program
         // The elevation warning goes to stderr, so check stderr for colour support.
         bool useColor = result.ResolveColor(checkStdErr: true);
         bool pidOnly = result.Has("--pid-only") || Console.IsOutputRedirected;
+        bool showFullPath = result.Has("--full-path");
 
         // --- Elevation warning ---
         // Both Windows (Restart Manager) and lsof on Unix only see processes in the current
@@ -113,7 +117,7 @@ internal sealed class Program
         }
         else
         {
-            Console.Out.Write(Formatting.FormatTable(locks, useColor));
+            Console.Out.Write(Formatting.FormatTable(locks, useColor, showFullPath));
         }
 
         return ExitCode.Success;

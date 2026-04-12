@@ -84,6 +84,62 @@ public sealed class FormattingTests
         Assert.Contains("TCP :8080", output);
     }
 
+    [Fact]
+    public void FormatTable_WithFullPath_ShowsPath()
+    {
+        var results = new List<LockInfo>
+        {
+            new LockInfo(1234, "devenv.exe", @"D:\test.dll", @"C:\Program Files\VS\devenv.exe")
+        };
+
+        string output = Formatting.FormatTable(results, useColor: false, showFullPath: true);
+
+        // The full path should appear in the output.
+        Assert.Contains(@"C:\Program Files\VS\devenv.exe", output);
+        // The header "Process" should still be present.
+        Assert.Contains("Process", output);
+    }
+
+    [Fact]
+    public void FormatTable_WithFullPath_FallsBackToNameWhenPathEmpty()
+    {
+        var results = new List<LockInfo>
+        {
+            new LockInfo(1234, "devenv.exe", @"D:\test.dll", "")
+        };
+
+        string output = Formatting.FormatTable(results, useColor: false, showFullPath: true);
+
+        Assert.Contains("devenv.exe", output);
+    }
+
+    [Fact]
+    public void FormatTable_WithState_ShowsStateColumn()
+    {
+        var results = new List<LockInfo>
+        {
+            new LockInfo(1234, "system", "TCP :80", "", "LISTEN")
+        };
+
+        string output = Formatting.FormatTable(results, useColor: false);
+
+        Assert.Contains("State", output);
+        Assert.Contains("LISTEN", output);
+    }
+
+    [Fact]
+    public void FormatTable_NoState_OmitsStateColumn()
+    {
+        var results = new List<LockInfo>
+        {
+            new LockInfo(1234, "devenv.exe", @"D:\test.dll")
+        };
+
+        string output = Formatting.FormatTable(results, useColor: false);
+
+        Assert.DoesNotContain("State", output);
+    }
+
     // -----------------------------------------------------------------------
     // FormatPidOnly
     // -----------------------------------------------------------------------
@@ -189,6 +245,9 @@ public sealed class FormattingTests
         Assert.True(first.MoveNext());
         Assert.True(first.Current.TryGetProperty("pid", out _));
         Assert.True(first.Current.TryGetProperty("name", out _));
+        Assert.True(first.Current.TryGetProperty("path", out _));
+        Assert.True(first.Current.TryGetProperty("state", out _));
+        Assert.True(first.Current.TryGetProperty("resource", out _));
     }
 
     // -----------------------------------------------------------------------

@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace Winix.WhoHolds;
@@ -72,10 +73,25 @@ public static class FileLockFinder
             for (uint i = 0; i < count; i++)
             {
                 var info = processInfo[i];
+                int pid = (int)info.Process.dwProcessId;
+
+                string processPath = string.Empty;
+                try
+                {
+                    // MainModule requires same-user or elevated access; failures are expected
+                    // for system processes and are intentionally swallowed.
+                    processPath = Process.GetProcessById(pid).MainModule?.FileName ?? string.Empty;
+                }
+                catch
+                {
+                    // Access denied or process exited — path stays empty.
+                }
+
                 results.Add(new LockInfo(
-                    (int)info.Process.dwProcessId,
+                    pid,
                     info.strAppName ?? string.Empty,
-                    filePath));
+                    filePath,
+                    processPath));
             }
         }
         catch

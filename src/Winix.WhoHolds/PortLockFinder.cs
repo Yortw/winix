@@ -102,7 +102,7 @@ public static class PortLockFinder
                     int rowPort = NetworkPortToHostOrder(row.dwLocalPort);
                     if (rowPort == port)
                     {
-                        AddResult(results, seen, (int)row.dwOwningPid, "TCP", port);
+                        AddResult(results, seen, (int)row.dwOwningPid, "TCP", port, row.dwState);
                     }
                     rowPtr += rowSize;
                 }
@@ -116,7 +116,7 @@ public static class PortLockFinder
                     int rowPort = NetworkPortToHostOrder(row.dwLocalPort);
                     if (rowPort == port)
                     {
-                        AddResult(results, seen, (int)row.dwOwningPid, "TCP", port);
+                        AddResult(results, seen, (int)row.dwOwningPid, "TCP", port, row.dwState);
                     }
                     rowPtr += rowSize;
                 }
@@ -164,7 +164,8 @@ public static class PortLockFinder
                     int rowPort = NetworkPortToHostOrder(row.dwLocalPort);
                     if (rowPort == port)
                     {
-                        AddResult(results, seen, (int)row.dwOwningPid, "UDP", port);
+                        // UDP has no connection state — pass 0 (maps to empty string).
+                        AddResult(results, seen, (int)row.dwOwningPid, "UDP", port, 0);
                     }
                     rowPtr += rowSize;
                 }
@@ -178,7 +179,8 @@ public static class PortLockFinder
                     int rowPort = NetworkPortToHostOrder(row.dwLocalPort);
                     if (rowPort == port)
                     {
-                        AddResult(results, seen, (int)row.dwOwningPid, "UDP", port);
+                        // UDP has no connection state — pass 0 (maps to empty string).
+                        AddResult(results, seen, (int)row.dwOwningPid, "UDP", port, 0);
                     }
                     rowPtr += rowSize;
                 }
@@ -200,11 +202,15 @@ public static class PortLockFinder
     }
 
     /// <summary>
-    /// Looks up the process name for <paramref name="pid"/> and appends a <see cref="LockInfo"/>
+    /// Looks up the process name and path for <paramref name="pid"/>, converts the TCP
+    /// <paramref name="dwState"/> to a human-readable string, and appends a <see cref="LockInfo"/>
     /// to <paramref name="results"/> if the PID has not already been added (tracked via
     /// <paramref name="seen"/>).
     /// </summary>
-    private static void AddResult(List<LockInfo> results, HashSet<int> seen, int pid, string protocol, int port)
+    /// <param name="dwState">
+    /// Raw TCP state from the MIB row (1–12). Pass 0 for UDP (no state concept).
+    /// </param>
+    private static void AddResult(List<LockInfo> results, HashSet<int> seen, int pid, string protocol, int port, uint dwState)
     {
         if (!seen.Add(pid))
         {
@@ -212,16 +218,53 @@ public static class PortLockFinder
         }
 
         string processName = string.Empty;
+        string processPath = string.Empty;
         try
         {
-            processName = Process.GetProcessById(pid).ProcessName;
+            var process = Process.GetProcessById(pid);
+            processName = process.ProcessName;
+            try
+            {
+                // MainModule requires the same-user/elevated access on Windows; wrap separately
+                // so a name can still be returned even when the path lookup is denied.
+                processPath = process.MainModule?.FileName ?? string.Empty;
+            }
+            catch
+            {
+                // Access denied or system process — path stays empty.
+            }
         }
         catch
         {
-            // Process may have exited or access may be denied — leave name empty.
+            // Process may have exited or access may be denied — leave name and path empty.
         }
 
-        results.Add(new LockInfo(pid, processName, $"{protocol} :{port}"));
+        string state = TcpStateToString(dwState);
+        results.Add(new LockInfo(pid, processName, $"{protocol} :{port}", processPath, state));
+    }
+
+    /// <summary>
+    /// Converts a raw MIB TCP state value to its human-readable name.
+    /// Returns an empty string for 0 (used as a sentinel for UDP and unknown states).
+    /// </summary>
+    private static string TcpStateToString(uint dwState)
+    {
+        return dwState switch
+        {
+            1  => "CLOSED",
+            2  => "LISTEN",
+            3  => "SYN_SENT",
+            4  => "SYN_RCVD",
+            5  => "ESTABLISHED",
+            6  => "FIN_WAIT1",
+            7  => "FIN_WAIT2",
+            8  => "CLOSE_WAIT",
+            9  => "CLOSING",
+            10 => "LAST_ACK",
+            11 => "TIME_WAIT",
+            12 => "DELETE_TCB",
+            _  => string.Empty,
+        };
     }
 
     // -------------------------------------------------------------------------

@@ -15,27 +15,53 @@ public static class Formatting
 {
     private const string HeaderPid      = "PID";
     private const string HeaderProcess  = "Process";
+    private const string HeaderState    = "State";
     private const string HeaderResource = "Resource";
 
     /// <summary>
-    /// Returns a formatted table string listing each result with columns: PID, Process, Resource.
+    /// Returns a formatted table string listing each result with columns: PID, Process (or Path),
+    /// optionally State, and Resource.
     /// Column widths are derived from the widest value in each column.
     /// The header row is dimmed when <paramref name="useColor"/> is <see langword="true"/>.
+    /// A State column is automatically included when any result carries a non-empty
+    /// <see cref="LockInfo.State"/> value (i.e. TCP port queries).
     /// </summary>
     /// <param name="results">The lock results to display. Must not be null.</param>
     /// <param name="useColor">When <see langword="true"/>, ANSI colour codes are included.</param>
-    public static string FormatTable(IReadOnlyList<LockInfo> results, bool useColor)
+    /// <param name="showFullPath">
+    /// When <see langword="true"/>, the Process column shows the full executable path
+    /// from <see cref="LockInfo.ProcessPath"/>, falling back to <see cref="LockInfo.ProcessName"/>
+    /// when the path is empty.
+    /// </param>
+    public static string FormatTable(IReadOnlyList<LockInfo> results, bool useColor, bool showFullPath = false)
     {
+        // Determine whether any result has a TCP state — if so, show the State column.
+        bool showState = false;
+        foreach (LockInfo item in results)
+        {
+            if (item.State.Length > 0)
+            {
+                showState = true;
+                break;
+            }
+        }
+
         // Compute column widths from data, floored at header widths.
         int pidWidth      = HeaderPid.Length;
         int processWidth  = HeaderProcess.Length;
+        int stateWidth    = HeaderState.Length;
         int resourceWidth = HeaderResource.Length;
 
         foreach (LockInfo item in results)
         {
             int pidLen = item.ProcessId.ToString(CultureInfo.InvariantCulture).Length;
             if (pidLen > pidWidth) { pidWidth = pidLen; }
-            if (item.ProcessName.Length > processWidth) { processWidth = item.ProcessName.Length; }
+
+            // When --full-path is active, use the path if available; otherwise fall back to name.
+            string processCell = (showFullPath && item.ProcessPath.Length > 0) ? item.ProcessPath : item.ProcessName;
+            if (processCell.Length > processWidth) { processWidth = processCell.Length; }
+
+            if (showState && item.State.Length > stateWidth) { stateWidth = item.State.Length; }
             if (item.Resource.Length > resourceWidth) { resourceWidth = item.Resource.Length; }
         }
 
@@ -50,6 +76,11 @@ public static class Formatting
         sb.Append("  ");
         sb.Append(HeaderProcess.PadRight(processWidth));
         sb.Append("  ");
+        if (showState)
+        {
+            sb.Append(HeaderState.PadRight(stateWidth));
+            sb.Append("  ");
+        }
         sb.Append(HeaderResource);
         sb.Append(reset);
         sb.AppendLine();
@@ -58,10 +89,16 @@ public static class Formatting
         foreach (LockInfo item in results)
         {
             string pid = item.ProcessId.ToString(CultureInfo.InvariantCulture);
+            string processCell = (showFullPath && item.ProcessPath.Length > 0) ? item.ProcessPath : item.ProcessName;
             sb.Append(pid.PadRight(pidWidth));
             sb.Append("  ");
-            sb.Append(item.ProcessName.PadRight(processWidth));
+            sb.Append(processCell.PadRight(processWidth));
             sb.Append("  ");
+            if (showState)
+            {
+                sb.Append(item.State.PadRight(stateWidth));
+                sb.Append("  ");
+            }
             sb.AppendLine(item.Resource);
         }
 
@@ -108,7 +145,8 @@ public static class Formatting
     /// <summary>
     /// Returns a JSON object containing the standard Winix envelope fields and a
     /// <c>processes</c> array with one object per <see cref="LockInfo"/> entry.
-    /// Each process object has <c>pid</c>, <c>name</c>, and <c>resource</c> fields.
+    /// Each process object has <c>pid</c>, <c>name</c>, <c>path</c>, <c>state</c>,
+    /// and <c>resource</c> fields.
     /// </summary>
     /// <param name="results">The lock results to serialise. Must not be null.</param>
     /// <param name="exitCode">Process exit code written into the envelope.</param>
@@ -136,6 +174,8 @@ public static class Formatting
                 writer.WriteStartObject();
                 writer.WriteNumber("pid", item.ProcessId);
                 writer.WriteString("name", item.ProcessName);
+                writer.WriteString("path", item.ProcessPath);
+                writer.WriteString("state", item.State);
                 writer.WriteString("resource", item.Resource);
                 writer.WriteEndObject();
             }
