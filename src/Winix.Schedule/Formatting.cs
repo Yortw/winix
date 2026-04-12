@@ -48,8 +48,9 @@ public static class Formatting
         // Cap column widths to keep the table readable on typical terminals.
         const int maxNameW = 40;
         const int maxCronW = 25;
+        const int maxStatusW = 10;
+        const int maxFolderW = 20;
         const int maxCmdW = 60;
-        const int maxFolderW = 30;
 
         foreach (ScheduledTask t in tasks)
         {
@@ -68,8 +69,9 @@ public static class Formatting
         // Apply caps
         if (nameW > maxNameW) { nameW = maxNameW; }
         if (cronW > maxCronW) { cronW = maxCronW; }
-        if (cmdW > maxCmdW) { cmdW = maxCmdW; }
+        if (statusW > maxStatusW) { statusW = maxStatusW; }
         if (folderW > maxFolderW) { folderW = maxFolderW; }
+        if (cmdW > maxCmdW) { cmdW = maxCmdW; }
 
         string dim   = AnsiColor.Dim(useColor);
         string reset = AnsiColor.Reset(useColor);
@@ -106,14 +108,14 @@ public static class Formatting
             sb.Append("  ");
             sb.Append(nextStr.PadRight(nextW));
             sb.Append("  ");
-            sb.Append(t.Status.PadRight(statusW));
+            sb.Append(Truncate(t.Status, statusW).PadRight(statusW));
             sb.Append("  ");
             if (showFolder)
             {
                 sb.Append(Truncate(t.Folder, folderW).PadRight(folderW));
                 sb.Append("  ");
             }
-            sb.AppendLine(t.Command);
+            sb.AppendLine(Truncate(t.Command, maxCmdW));
         }
 
         return sb.ToString();
