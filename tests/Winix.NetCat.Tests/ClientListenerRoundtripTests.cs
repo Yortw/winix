@@ -64,4 +64,33 @@ public sealed class ClientListenerRoundtripTests
             await echoTask.WaitAsync(System.TimeSpan.FromSeconds(2));
         }
     }
+
+    [Fact]
+    public async Task TcpClient_NothingListening_ReturnsExitOne()
+    {
+        // Find a port nothing is bound to.
+        var probe = new TcpListener(IPAddress.Loopback, 0);
+        probe.Start();
+        int port = ((IPEndPoint)probe.LocalEndpoint).Port;
+        probe.Stop();
+
+        var options = new NetCatOptions
+        {
+            Mode = NetCatMode.Connect,
+            Protocol = NetCatProtocol.Tcp,
+            Host = "127.0.0.1",
+            Ports = new[] { new PortRange(port) },
+            Timeout = System.TimeSpan.FromSeconds(5),
+        };
+
+        using var stdin = new MemoryStream();
+        using var stdout = new MemoryStream();
+        using var stderr = new StringWriter();
+
+        var client = new NetCatClient();
+        RunResult result = await client.RunAsync(options, stdin, stdout, stderr, CancellationToken.None);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Equal("connection_refused", result.ExitReason);
+    }
 }
