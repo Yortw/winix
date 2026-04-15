@@ -61,49 +61,73 @@ public sealed class NetCatClient
         using (tcp)
         {
             string remote = tcp.Client.RemoteEndPoint?.ToString() ?? "";
-            using NetworkStream stream = tcp.GetStream();
 
-            var pump = new RelayPump();
-            // Capture tcp into a local for the closure (avoids capturing `this`-style surprises).
-            TcpClient capturedTcp = tcp;
-            Func<Task> onSendComplete = () =>
+            Stream stream;
+            if (options.UseTls)
             {
-                // Close the write half of the socket so the peer sees EOF and can respond.
-                // Must fire BEFORE awaiting the receive direction — otherwise request/response
-                // protocols deadlock (peer waits for our EOF before sending their reply).
+                if (options.InsecureTls)
+                {
+                    stderr.WriteLine(Formatting.FormatWarningLine("TLS certificate validation disabled", options.UseColor));
+                }
                 try
                 {
-                    capturedTcp.Client.Shutdown(SocketShutdown.Send);
+                    stream = await TlsWrapper.WrapClientAsync(tcp.GetStream(), options.Host!, options.InsecureTls, ct).ConfigureAwait(false);
                 }
-                catch (SocketException)
+                catch (Exception ex)
                 {
-                    // Peer already gone — harmless.
+                    stderr.WriteLine(Formatting.FormatErrorLine($"TLS — handshake failed: {ex.Message}", options.UseColor));
+                    return new RunResult { ExitCode = 1, ExitReason = "tls_failed", DurationMilliseconds = sw.Elapsed.TotalMilliseconds };
                 }
-                return Task.CompletedTask;
-            };
-
-            try
-            {
-                await pump.RunAsync(stream, stream, stdin, stdout, halfCloseOnStdinEof: !options.NoShutdown, ct, onSendComplete).ConfigureAwait(false);
             }
-            catch (OperationCanceledException)
+            else
             {
+                stream = tcp.GetStream();
+            }
+
+            using (stream)
+            {
+                var pump = new RelayPump();
+                // Capture tcp into a local for the closure (avoids capturing `this`-style surprises).
+                TcpClient capturedTcp = tcp;
+                Func<Task> onSendComplete = () =>
+                {
+                    // Close the write half of the socket so the peer sees EOF and can respond.
+                    // Must fire BEFORE awaiting the receive direction — otherwise request/response
+                    // protocols deadlock (peer waits for our EOF before sending their reply).
+                    try
+                    {
+                        capturedTcp.Client.Shutdown(SocketShutdown.Send);
+                    }
+                    catch (SocketException)
+                    {
+                        // Peer already gone — harmless.
+                    }
+                    return Task.CompletedTask;
+                };
+
+                try
+                {
+                    await pump.RunAsync(stream, stream, stdin, stdout, halfCloseOnStdinEof: !options.NoShutdown, ct, onSendComplete).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    sw.Stop();
+                    return new RunResult { ExitCode = 130, ExitReason = "interrupted",
+                        BytesSent = pump.BytesSent, BytesReceived = pump.BytesReceived,
+                        DurationMilliseconds = sw.Elapsed.TotalMilliseconds, RemoteAddress = remote };
+                }
+
                 sw.Stop();
-                return new RunResult { ExitCode = 130, ExitReason = "interrupted",
-                    BytesSent = pump.BytesSent, BytesReceived = pump.BytesReceived,
-                    DurationMilliseconds = sw.Elapsed.TotalMilliseconds, RemoteAddress = remote };
+                return new RunResult
+                {
+                    ExitCode = 0,
+                    ExitReason = "success",
+                    BytesSent = pump.BytesSent,
+                    BytesReceived = pump.BytesReceived,
+                    DurationMilliseconds = sw.Elapsed.TotalMilliseconds,
+                    RemoteAddress = remote,
+                };
             }
-
-            sw.Stop();
-            return new RunResult
-            {
-                ExitCode = 0,
-                ExitReason = "success",
-                BytesSent = pump.BytesSent,
-                BytesReceived = pump.BytesReceived,
-                DurationMilliseconds = sw.Elapsed.TotalMilliseconds,
-                RemoteAddress = remote,
-            };
         }
     }
 
