@@ -120,6 +120,9 @@ jobs:
       - name: Pack winix
         run: dotnet pack src/winix/winix.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
 
+      - name: Pack nc
+        run: dotnet pack src/nc/nc.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
+
       - name: Upload NuGet packages
         uses: actions/upload-artifact@v7
         with:
@@ -183,6 +186,9 @@ jobs:
       - name: Publish winix
         run: dotnet publish src/winix/winix.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
 
+      - name: Publish nc
+        run: dotnet publish src/nc/nc.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
+
       - name: Bundle man pages alongside man binary
         shell: bash
         run: |
@@ -212,6 +218,7 @@ jobs:
           cd src/whoholds/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/whoholds-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
           cd src/schedule/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/schedule-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
           cd src/winix/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/winix-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
+          cd src/nc/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/nc-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
 
       - name: Zip binaries (Windows)
         if: runner.os == 'Windows'
@@ -228,6 +235,7 @@ jobs:
           Compress-Archive -Path src/whoholds/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath whoholds-${{ matrix.rid }}.zip
           Compress-Archive -Path src/schedule/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath schedule-${{ matrix.rid }}.zip
           Compress-Archive -Path src/winix/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath winix-${{ matrix.rid }}.zip
+          Compress-Archive -Path src/nc/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath nc-${{ matrix.rid }}.zip
 
       - name: Create combined Winix zip (Windows)
         if: runner.os == 'Windows' && matrix.rid == 'win-x64'
@@ -245,6 +253,7 @@ jobs:
           Copy-Item src/whoholds/bin/Release/net10.0/${{ matrix.rid }}/publish/whoholds.exe winix-combined/
           Copy-Item src/schedule/bin/Release/net10.0/${{ matrix.rid }}/publish/schedule.exe winix-combined/
           Copy-Item src/winix/bin/Release/net10.0/${{ matrix.rid }}/publish/winix.exe winix-combined/
+          Copy-Item src/nc/bin/Release/net10.0/${{ matrix.rid }}/publish/nc.exe winix-combined/
           Copy-Item src/man/bin/Release/net10.0/${{ matrix.rid }}/publish/share -Recurse -Destination winix-combined/share
           Compress-Archive -Path winix-combined/* -DestinationPath winix-${{ matrix.rid }}.zip -Force
 
@@ -313,7 +322,8 @@ jobs:
                 man:     { description: "Cross-platform man page viewer with colour, hyperlinks, and pager support.",                                packages: { winget: "Winix.Man",     scoop: "man",     brew: "man",     dotnet: "Winix.Man"     } },
                 less:     { description: "Native terminal pager with ANSI colour, search, follow mode, and modern defaults.",                              packages: { winget: "Winix.Less",     scoop: "less",     brew: "less",     dotnet: "Winix.Less"     } },
                 whoholds: { description: "Find which processes are holding a file lock or binding a network port.",                                         packages: { winget: "Winix.WhoHolds", scoop: "whoholds", brew: "whoholds", dotnet: "Winix.WhoHolds" } },
-                schedule: { description: "Cross-platform task scheduler with cron expressions.",                                                             packages: { winget: "Winix.Schedule", scoop: "schedule", brew: "schedule", dotnet: "Winix.Schedule" } }
+                schedule: { description: "Cross-platform task scheduler with cron expressions.",                                                             packages: { winget: "Winix.Schedule", scoop: "schedule", brew: "schedule", dotnet: "Winix.Schedule" } },
+                nc:       { description: "Cross-platform netcat \u2014 TCP/UDP send/receive, port checks, TLS clients.",                                     packages: { winget: "Winix.NetCat",   scoop: "nc",       brew: "nc",       dotnet: "Winix.NetCat"   } }
               }
             }' > winix-manifest.json
 
