@@ -87,6 +87,22 @@ public sealed class PortCheckerTests
         }
     }
 
+    [Fact]
+    public async Task CheckAsync_UnresolvableHost_ReturnsError()
+    {
+        var checker = new PortChecker();
+        IReadOnlyList<PortCheckResult> results = await checker.CheckAsync(
+            host: "this-host-does-not-exist.invalid",
+            ranges: new[] { new PortRange(80) },
+            timeout: System.TimeSpan.FromSeconds(5),
+            maxConcurrency: 1,
+            ct: CancellationToken.None);
+
+        Assert.Single(results);
+        Assert.Equal(PortCheckStatus.Error, results[0].Status);
+        Assert.NotNull(results[0].ErrorMessage);
+    }
+
     private static int GetEphemeralPortNoLongerBound()
     {
         var listener = new TcpListener(IPAddress.Loopback, 0);
