@@ -77,7 +77,17 @@ for ZIP_PATH in "${ZIPS[@]}"; do
   EXTRACT_DIR="$WORK_DIR/$TOOL_NAME"
 
   mkdir -p "$EXTRACT_DIR"
+  # unzip returns exit code 1 for harmless warnings (e.g., Windows zips using
+  # backslashes as path separators). With 'set -e' that would kill the script,
+  # so capture the exit code and only fail on real errors (rc > 1).
+  set +e
   unzip -q -o "$ZIP_PATH" -d "$EXTRACT_DIR"
+  unzip_rc=$?
+  set -e
+  if [ $unzip_rc -gt 1 ]; then
+    echo "ERROR: unzip failed for $ZIP_PATH (exit code $unzip_rc)" >&2
+    exit $unzip_rc
+  fi
 
   # Find all .exe files (including in subdirectories for combined winix zip)
   mapfile -t EXE_FILES < <(find "$EXTRACT_DIR" -name '*.exe' -type f)
@@ -87,23 +97,29 @@ for ZIP_PATH in "${ZIPS[@]}"; do
   fi
 
   echo "  Signing $ZIP_NAME (${#EXE_FILES[@]} exe)..."
+  # Use '-' flag prefix instead of '/' so MSYS/Git Bash doesn't mangle them
+  # into Windows paths (e.g., /fd -> D:\fd) when invoking the .exe.
   "$SIGNTOOL_EXE" sign \
-    /sha1 "$THUMBPRINT" \
-    /fd sha256 \
-    /tr "$TIMESTAMP_URL" \
-    /td sha256 \
-    /q \
+    -sha1 "$THUMBPRINT" \
+    -fd sha256 \
+    -tr "$TIMESTAMP_URL" \
+    -td sha256 \
+    -q \
     "${EXE_FILES[@]}"
 
   # Verify signatures
   for exe in "${EXE_FILES[@]}"; do
-    "$SIGNTOOL_EXE" verify /pa /q "$exe"
+    "$SIGNTOOL_EXE" verify -pa -q "$exe"
   done
 
   # Re-zip preserving directory structure (important for combined winix zip
-  # which contains a man/ subdirectory)
+  # which contains a share/ subdirectory). Use PowerShell's Compress-Archive
+  # because Git Bash doesn't ship a 'zip' tool by default — Compress-Archive
+  # is always available on Windows 10+.
   rm "$ZIP_PATH"
-  (cd "$EXTRACT_DIR" && zip -q -r "$ZIP_PATH" .)
+  EXTRACT_WIN=$(cygpath -w "$EXTRACT_DIR")
+  ZIP_WIN=$(cygpath -w "$ZIP_PATH")
+  powershell.exe -NoProfile -Command "Compress-Archive -Path '${EXTRACT_WIN}\\*' -DestinationPath '${ZIP_WIN}' -Force"
 done
 
 echo ""
