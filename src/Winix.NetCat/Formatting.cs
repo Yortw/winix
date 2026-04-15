@@ -24,6 +24,58 @@ public static class Formatting
     public static string FormatTimeoutPortLine(int port, bool useColor)
         => Wrap($"{port.ToString(CultureInfo.InvariantCulture)} timeout", AnsiColor.Yellow(useColor), useColor);
 
+    /// <summary>
+    /// Returns a JSON summary for a Check-mode run. Schema:
+    /// <code>
+    /// { "tool":"nc", "version":"...", "mode":"check", "host":"...",
+    ///   "ports":[ { "port":int, "status":"open|closed|timeout|error",
+    ///               "latency_ms":number?, "error":string? }, ... ],
+    ///   "exit_code":int, "exit_reason":"all_open|some_closed|some_timeout|all_failed" }
+    /// </code>
+    /// </summary>
+    public static string FormatCheckJson(string version, string host, IReadOnlyList<PortCheckResult> results,
+                                         int exitCode, string exitReason)
+    {
+        (var writer, var buffer) = JsonHelper.CreateWriter();
+        writer.WriteStartObject();
+        writer.WriteString("tool", "nc");
+        writer.WriteString("version", version);
+        writer.WriteString("mode", "check");
+        writer.WriteString("host", host);
+        writer.WritePropertyName("ports");
+        writer.WriteStartArray();
+        foreach (PortCheckResult r in results)
+        {
+            writer.WriteStartObject();
+            writer.WriteNumber("port", r.Port);
+            writer.WriteString("status", StatusName(r.Status));
+            if (r.Status == PortCheckStatus.Open)
+            {
+                JsonHelper.WriteFixedDecimal(writer, "latency_ms", r.LatencyMilliseconds, decimals: 2);
+            }
+            if (r.Status == PortCheckStatus.Error && r.ErrorMessage is not null)
+            {
+                writer.WriteString("error", r.ErrorMessage);
+            }
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+        writer.WriteNumber("exit_code", exitCode);
+        writer.WriteString("exit_reason", exitReason);
+        writer.WriteEndObject();
+        writer.Flush();
+        return JsonHelper.GetString(buffer);
+    }
+
+    private static string StatusName(PortCheckStatus status) => status switch
+    {
+        PortCheckStatus.Open => "open",
+        PortCheckStatus.Closed => "closed",
+        PortCheckStatus.Timeout => "timeout",
+        PortCheckStatus.Error => "error",
+        _ => "unknown",
+    };
+
     private static string Wrap(string text, string colorOpen, bool useColor)
         => useColor ? colorOpen + text + AnsiColor.Reset(true) : text;
 }

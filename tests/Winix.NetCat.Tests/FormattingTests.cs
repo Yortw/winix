@@ -41,4 +41,28 @@ public sealed class FormattingTests
 
         Assert.Equal("8080 timeout", line);
     }
+
+    [Fact]
+    public void FormatCheckJson_OpenAndClosed_ContainsExpectedFields()
+    {
+        var results = new[]
+        {
+            PortCheckResult.Open(80, 23.5),
+            PortCheckResult.Closed(81),
+        };
+
+        string json = Formatting.FormatCheckJson("0.2.0", "target.com", results, 1, "some_closed");
+
+        Assert.Contains("\"tool\":\"nc\"", json);
+        Assert.Contains("\"version\":\"0.2.0\"", json);
+        Assert.Contains("\"mode\":\"check\"", json);
+        Assert.Contains("\"host\":\"target.com\"", json);
+        Assert.Contains("\"port\":80", json);
+        Assert.Contains("\"status\":\"open\"", json);
+        Assert.Contains("\"latency_ms\":23.50", json);
+        Assert.Contains("\"port\":81", json);
+        Assert.Contains("\"status\":\"closed\"", json);
+        Assert.Contains("\"exit_code\":1", json);
+        Assert.Contains("\"exit_reason\":\"some_closed\"", json);
+    }
 }
