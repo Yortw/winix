@@ -91,4 +91,27 @@ public sealed class RelayPumpTests
 
         Assert.False(pump.ShouldShutdownSend);
     }
+
+    [Fact]
+    public async Task RunAsync_CancellationDuringIdle_Throws()
+    {
+        // Use anonymous pipes so reads block until something arrives or cancellation fires.
+        var stdinPipe = new System.IO.Pipelines.Pipe();
+        var socketReadPipe = new System.IO.Pipelines.Pipe();
+        using var socketWrite = new MemoryStream();
+        using var stdout = new MemoryStream();
+
+        using var cts = new CancellationTokenSource();
+        cts.CancelAfter(System.TimeSpan.FromMilliseconds(50));
+
+        var pump = new RelayPump();
+        await Assert.ThrowsAnyAsync<System.OperationCanceledException>(() =>
+            pump.RunAsync(
+                socketReadPipe.Reader.AsStream(),
+                socketWrite,
+                stdinPipe.Reader.AsStream(),
+                stdout,
+                halfCloseOnStdinEof: false,
+                cts.Token));
+    }
 }
