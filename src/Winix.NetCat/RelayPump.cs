@@ -1,5 +1,6 @@
 #nullable enable
 
+using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -37,9 +38,17 @@ public sealed class RelayPump
     /// <param name="stdin">Console stdin (or a stand-in stream).</param>
     /// <param name="stdout">Console stdout (or a stand-in stream).</param>
     /// <param name="halfCloseOnStdinEof">
-    /// When true, after stdin reaches EOF the caller should close the write side of the socket
-    /// so the peer sees end-of-stream. This pump signals that intent by leaving
-    /// <see cref="ShouldShutdownSend"/> true; the caller (which owns the actual Socket) does it.
+    /// When true, the pump signals the caller (via <paramref name="onSendComplete"/> and
+    /// <see cref="ShouldShutdownSend"/>) to close the write side of the socket after stdin
+    /// reaches EOF. Without this, peers waiting for EOF to process a request would hang.
+    /// </param>
+    /// <param name="onSendComplete">
+    /// Optional callback invoked after <c>stdin → socketWrite</c> copy finishes and before
+    /// the pump awaits the receive direction. When <paramref name="halfCloseOnStdinEof"/>
+    /// is true, this is the hook point for the caller to issue
+    /// <c>Socket.Shutdown(SocketShutdown.Send)</c>. Invoking shutdown here (rather than
+    /// after the pump returns) is required: the receive direction cannot terminate until
+    /// the peer sends EOF, which it typically won't do until it sees our EOF first.
     /// </param>
     public async Task RunAsync(
         Stream socketRead,
@@ -47,13 +56,18 @@ public sealed class RelayPump
         Stream stdin,
         Stream stdout,
         bool halfCloseOnStdinEof,
-        CancellationToken ct)
+        CancellationToken ct,
+        Func<Task>? onSendComplete = null)
     {
         Task sendTask = CopyAsync(stdin, socketWrite, isReceive: false, ct);
         Task recvTask = CopyAsync(socketRead, stdout, isReceive: true, ct);
 
         await sendTask.ConfigureAwait(false);
         ShouldShutdownSend = halfCloseOnStdinEof;
+        if (halfCloseOnStdinEof && onSendComplete is not null)
+        {
+            await onSendComplete().ConfigureAwait(false);
+        }
         await recvTask.ConfigureAwait(false);
     }
 

@@ -65,9 +65,27 @@ public sealed class NetCatClient
             using NetworkStream stream = tcp.GetStream();
 
             var pump = new RelayPump();
+            // Capture tcp into a local for the closure (avoids capturing `this`-style surprises).
+            TcpClient capturedTcp = tcp;
+            Func<Task> onSendComplete = () =>
+            {
+                // Close the write half of the socket so the peer sees EOF and can respond.
+                // Must fire BEFORE awaiting the receive direction — otherwise request/response
+                // protocols deadlock (peer waits for our EOF before sending their reply).
+                try
+                {
+                    capturedTcp.Client.Shutdown(SocketShutdown.Send);
+                }
+                catch (SocketException)
+                {
+                    // Peer already gone — harmless.
+                }
+                return Task.CompletedTask;
+            };
+
             try
             {
-                await pump.RunAsync(stream, stream, stdin, stdout, halfCloseOnStdinEof: !options.NoShutdown, ct).ConfigureAwait(false);
+                await pump.RunAsync(stream, stream, stdin, stdout, halfCloseOnStdinEof: !options.NoShutdown, ct, onSendComplete).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -75,11 +93,6 @@ public sealed class NetCatClient
                 return new RunResult { ExitCode = 130, ExitReason = "interrupted",
                     BytesSent = pump.BytesSent, BytesReceived = pump.BytesReceived,
                     DurationMilliseconds = sw.Elapsed.TotalMilliseconds, RemoteAddress = remote };
-            }
-
-            if (pump.ShouldShutdownSend)
-            {
-                try { tcp.Client.Shutdown(SocketShutdown.Send); } catch (SocketException) { /* peer already gone */ }
             }
 
             sw.Stop();
