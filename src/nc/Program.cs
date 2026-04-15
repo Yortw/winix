@@ -1,0 +1,11 @@
+#nullable enable
+
+namespace Nc;
+
+internal sealed class Program
+{
+    static int Main(string[] args)
+    {
+        return 0;
+    }
+}
