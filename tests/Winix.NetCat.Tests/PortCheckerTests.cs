@@ -57,6 +57,36 @@ public sealed class PortCheckerTests
         }
     }
 
+    [Fact]
+    public async Task CheckAsync_MultiplePortsMixedOpenClosed_ReturnsCorrectStatuses()
+    {
+        var openListener = new TcpListener(IPAddress.Loopback, 0);
+        openListener.Start();
+        int openPort = ((IPEndPoint)openListener.LocalEndpoint).Port;
+        int closedPort = GetEphemeralPortNoLongerBound();
+
+        try
+        {
+            var checker = new PortChecker();
+            IReadOnlyList<PortCheckResult> results = await checker.CheckAsync(
+                host: "127.0.0.1",
+                ranges: new[] { new PortRange(openPort), new PortRange(closedPort) },
+                timeout: System.TimeSpan.FromSeconds(5),
+                maxConcurrency: 4,
+                ct: CancellationToken.None);
+
+            Assert.Equal(2, results.Count);
+            Assert.Equal(openPort, results[0].Port);
+            Assert.Equal(PortCheckStatus.Open, results[0].Status);
+            Assert.Equal(closedPort, results[1].Port);
+            Assert.Equal(PortCheckStatus.Closed, results[1].Status);
+        }
+        finally
+        {
+            openListener.Stop();
+        }
+    }
+
     private static int GetEphemeralPortNoLongerBound()
     {
         var listener = new TcpListener(IPAddress.Loopback, 0);
