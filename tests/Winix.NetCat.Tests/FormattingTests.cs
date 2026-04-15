@@ -65,4 +65,38 @@ public sealed class FormattingTests
         Assert.Contains("\"exit_code\":1", json);
         Assert.Contains("\"exit_reason\":\"some_closed\"", json);
     }
+
+    [Fact]
+    public void FormatRunJson_Connect_ContainsExpectedFields()
+    {
+        var options = new NetCatOptions
+        {
+            Mode = NetCatMode.Connect,
+            Protocol = NetCatProtocol.Tcp,
+            Host = "target.com",
+            Ports = new[] { new PortRange(80) },
+        };
+        var result = new RunResult
+        {
+            ExitCode = 0,
+            ExitReason = "success",
+            BytesSent = 42,
+            BytesReceived = 1305,
+            DurationMilliseconds = 187.0,
+            RemoteAddress = "93.184.216.34",
+        };
+
+        string json = Formatting.FormatRunJson("0.2.0", options, result);
+
+        Assert.Contains("\"mode\":\"connect\"", json);
+        Assert.Contains("\"host\":\"target.com\"", json);
+        Assert.Contains("\"port\":80", json);
+        Assert.Contains("\"protocol\":\"tcp\"", json);
+        Assert.Contains("\"tls\":false", json);
+        Assert.Contains("\"remote_address\":\"93.184.216.34\"", json);
+        Assert.Contains("\"bytes_sent\":42", json);
+        Assert.Contains("\"bytes_received\":1305", json);
+        Assert.Contains("\"exit_code\":0", json);
+        Assert.Contains("\"exit_reason\":\"success\"", json);
+    }
 }

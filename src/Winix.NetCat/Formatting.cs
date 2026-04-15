@@ -67,6 +67,41 @@ public static class Formatting
         return JsonHelper.GetString(buffer);
     }
 
+    /// <summary>
+    /// Returns a JSON summary for a Connect or Listen run.
+    /// </summary>
+    public static string FormatRunJson(string version, NetCatOptions options, RunResult result)
+    {
+        (var writer, var buffer) = JsonHelper.CreateWriter();
+        writer.WriteStartObject();
+        writer.WriteString("tool", "nc");
+        writer.WriteString("version", version);
+        writer.WriteString("mode", options.Mode == NetCatMode.Listen ? "listen" : "connect");
+        if (options.Host is not null)
+        {
+            writer.WriteString("host", options.Host);
+        }
+        writer.WriteNumber("port", options.Ports[0].Low);
+        writer.WriteString("protocol", options.Protocol == NetCatProtocol.Udp ? "udp" : "tcp");
+        writer.WriteBoolean("tls", options.UseTls);
+        if (result.RemoteAddress is not null)
+        {
+            writer.WriteString("remote_address", result.RemoteAddress);
+        }
+        if (result.LocalAddress is not null)
+        {
+            writer.WriteString("local_address", result.LocalAddress);
+        }
+        writer.WriteNumber("bytes_sent", result.BytesSent);
+        writer.WriteNumber("bytes_received", result.BytesReceived);
+        JsonHelper.WriteFixedDecimal(writer, "duration_ms", result.DurationMilliseconds, decimals: 2);
+        writer.WriteNumber("exit_code", result.ExitCode);
+        writer.WriteString("exit_reason", result.ExitReason);
+        writer.WriteEndObject();
+        writer.Flush();
+        return JsonHelper.GetString(buffer);
+    }
+
     private static string StatusName(PortCheckStatus status) => status switch
     {
         PortCheckStatus.Open => "open",
