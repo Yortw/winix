@@ -63,4 +63,32 @@ public sealed class RelayPumpTests
         Assert.Equal(4, pump.BytesSent);
         Assert.Equal(5, pump.BytesReceived);
     }
+
+    [Fact]
+    public async Task RunAsync_HalfCloseRequested_FlagsShouldShutdownSendAfterStdinEof()
+    {
+        using var stdin = new MemoryStream(new byte[] { 1, 2, 3 });
+        using var socketWrite = new MemoryStream();
+        using var socketRead = new MemoryStream();
+        using var stdout = new MemoryStream();
+
+        var pump = new RelayPump();
+        await pump.RunAsync(socketRead, socketWrite, stdin, stdout, halfCloseOnStdinEof: true, CancellationToken.None);
+
+        Assert.True(pump.ShouldShutdownSend);
+    }
+
+    [Fact]
+    public async Task RunAsync_HalfCloseNotRequested_LeavesShouldShutdownSendFalse()
+    {
+        using var stdin = new MemoryStream(new byte[] { 1, 2, 3 });
+        using var socketWrite = new MemoryStream();
+        using var socketRead = new MemoryStream();
+        using var stdout = new MemoryStream();
+
+        var pump = new RelayPump();
+        await pump.RunAsync(socketRead, socketWrite, stdin, stdout, halfCloseOnStdinEof: false, CancellationToken.None);
+
+        Assert.False(pump.ShouldShutdownSend);
+    }
 }
