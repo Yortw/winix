@@ -60,4 +60,40 @@ public sealed class PortRangeParserTests
         Assert.Equal(new PortRange(443), ranges[1]);
         Assert.Equal(new PortRange(8080, 8090), ranges[2]);
     }
+
+    [Fact]
+    public void Parse_Empty_Throws()
+    {
+        Assert.Throws<FormatException>(() => PortRangeParser.Parse(""));
+    }
+
+    [Fact]
+    public void Parse_Whitespace_Throws()
+    {
+        Assert.Throws<FormatException>(() => PortRangeParser.Parse("   "));
+    }
+
+    [Fact]
+    public void Parse_NonNumeric_Throws()
+    {
+        Assert.Throws<FormatException>(() => PortRangeParser.Parse("abc"));
+    }
+
+    [Fact]
+    public void Parse_PortZero_Throws()
+    {
+        Assert.Throws<FormatException>(() => PortRangeParser.Parse("0"));
+    }
+
+    [Fact]
+    public void Parse_PortTooLarge_Throws()
+    {
+        Assert.Throws<FormatException>(() => PortRangeParser.Parse("70000"));
+    }
+
+    [Fact]
+    public void Parse_DescendingRange_Throws()
+    {
+        Assert.Throws<FormatException>(() => PortRangeParser.Parse("100-80"));
+    }
 }
