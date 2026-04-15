@@ -43,8 +43,16 @@ public static class NameGenerator
         // Split on whitespace and take the first two tokens.
         string[] tokens = command.Trim().Split(new char[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
 
-        // Strip path and extension from the executable (first token).
-        string baseName = Path.GetFileNameWithoutExtension(tokens[0]);
+        // Strip path from the executable (first token). Handle both '/' and '\' explicitly
+        // because Path.GetFileNameWithoutExtension only recognises the platform's native
+        // separator — on Linux/macOS, '\' is a valid filename character, so a Windows-style
+        // path like "C:\tools\backup.bat" would not be split correctly.
+        string firstToken = tokens[0];
+        int lastSeparator = Math.Max(firstToken.LastIndexOf('/'), firstToken.LastIndexOf('\\'));
+        string fileNameWithExtension = lastSeparator >= 0
+            ? firstToken.Substring(lastSeparator + 1)
+            : firstToken;
+        string baseName = Path.GetFileNameWithoutExtension(fileNameWithExtension);
 
         // Append the second token only when it looks like a bare sub-command word (letters, digits,
         // hyphens, underscores). URLs, file paths, and flags are skipped so they don't pollute the name.
