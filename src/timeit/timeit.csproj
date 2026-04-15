@@ -20,6 +20,6 @@
     <None Include="README.md" Pack="true" PackagePath="/" />
   </ItemGroup>
   <ItemGroup>
-    <Content Include="man\man1\timeit.1" CopyToPublishDirectory="PreserveNewest" LinkBase="man\man1" />
+    <Content Include="man\man1\timeit.1" CopyToPublishDirectory="PreserveNewest" LinkBase="share\man\man1" />
   </ItemGroup>
 </Project>

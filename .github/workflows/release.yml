@@ -186,12 +186,15 @@ jobs:
       - name: Bundle man pages alongside man binary
         shell: bash
         run: |
+          # Use share/man/man1 (FHS standard) rather than man/man1 because the
+          # man tool's binary is named "man" on Linux/macOS — putting man pages
+          # under a "man" directory would collide with the binary file name.
           PUBLISH_DIR="src/man/bin/Release/net10.0/${{ matrix.rid }}/publish"
-          mkdir -p "$PUBLISH_DIR/man/man1"
+          mkdir -p "$PUBLISH_DIR/share/man/man1"
           # Glob-based: any tool with a man page gets bundled automatically
           for page in src/*/man/man1/*.1; do
             if [ -f "$page" ]; then
-              cp "$page" "$PUBLISH_DIR/man/man1/"
+              cp "$page" "$PUBLISH_DIR/share/man/man1/"
             fi
           done
 
@@ -242,7 +245,7 @@ jobs:
           Copy-Item src/whoholds/bin/Release/net10.0/${{ matrix.rid }}/publish/whoholds.exe winix-combined/
           Copy-Item src/schedule/bin/Release/net10.0/${{ matrix.rid }}/publish/schedule.exe winix-combined/
           Copy-Item src/winix/bin/Release/net10.0/${{ matrix.rid }}/publish/winix.exe winix-combined/
-          Copy-Item src/man/bin/Release/net10.0/${{ matrix.rid }}/publish/man -Recurse -Destination winix-combined/man
+          Copy-Item src/man/bin/Release/net10.0/${{ matrix.rid }}/publish/share -Recurse -Destination winix-combined/share
           Compress-Archive -Path winix-combined/* -DestinationPath winix-${{ matrix.rid }}.zip -Force
 
       - name: Upload AOT binaries
