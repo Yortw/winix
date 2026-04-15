@@ -102,6 +102,18 @@ public static class Formatting
         return JsonHelper.GetString(buffer);
     }
 
+    /// <summary>Formats an error message for stderr (red when colour enabled).</summary>
+    public static string FormatErrorLine(string message, bool useColor)
+        => useColor
+            ? AnsiColor.Red(true) + "nc: " + message + AnsiColor.Reset(true)
+            : "nc: " + message;
+
+    /// <summary>Formats a warning message for stderr (yellow when colour enabled).</summary>
+    public static string FormatWarningLine(string message, bool useColor)
+        => useColor
+            ? AnsiColor.Yellow(true) + "nc: warning — " + message + AnsiColor.Reset(true)
+            : "nc: warning — " + message;
+
     private static string StatusName(PortCheckStatus status) => status switch
     {
         PortCheckStatus.Open => "open",

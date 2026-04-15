@@ -99,4 +99,17 @@ public sealed class FormattingTests
         Assert.Contains("\"exit_code\":0", json);
         Assert.Contains("\"exit_reason\":\"success\"", json);
     }
+
+    [Fact]
+    public void FormatErrorLine_NoColor_PrependsToolName()
+    {
+        Assert.Equal("nc: connection refused", Formatting.FormatErrorLine("connection refused", useColor: false));
+    }
+
+    [Fact]
+    public void FormatWarningLine_NoColor_PrependsWarningPrefix()
+    {
+        Assert.Equal("nc: warning — TLS validation disabled",
+            Formatting.FormatWarningLine("TLS validation disabled", useColor: false));
+    }
 }
