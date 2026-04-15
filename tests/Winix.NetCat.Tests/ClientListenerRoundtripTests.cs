@@ -93,4 +93,40 @@ public sealed class ClientListenerRoundtripTests
         Assert.Equal(1, result.ExitCode);
         Assert.Equal("connection_refused", result.ExitReason);
     }
+
+    [Fact]
+    public async Task UdpClient_SendsDatagram_AndReceivesReply()
+    {
+        // Tiny UDP echo server on an ephemeral port.
+        using var server = new UdpClient(0, AddressFamily.InterNetwork);
+        int port = ((IPEndPoint)server.Client.LocalEndPoint!).Port;
+
+        Task serverTask = Task.Run(async () =>
+        {
+            UdpReceiveResult rx = await server.ReceiveAsync();
+            await server.SendAsync(rx.Buffer, rx.Buffer.Length, rx.RemoteEndPoint);
+        });
+
+        var options = new NetCatOptions
+        {
+            Mode = NetCatMode.Connect,
+            Protocol = NetCatProtocol.Udp,
+            Host = "127.0.0.1",
+            Ports = new[] { new PortRange(port) },
+            Timeout = System.TimeSpan.FromSeconds(2),
+        };
+
+        byte[] payload = Encoding.ASCII.GetBytes("hello-udp");
+        using var stdin = new MemoryStream(payload);
+        using var stdout = new MemoryStream();
+        using var stderr = new StringWriter();
+
+        var client = new NetCatClient();
+        RunResult result = await client.RunAsync(options, stdin, stdout, stderr, CancellationToken.None);
+        await serverTask.WaitAsync(System.TimeSpan.FromSeconds(2));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(payload.Length, result.BytesSent);
+        Assert.Equal(payload, stdout.ToArray());
+    }
 }

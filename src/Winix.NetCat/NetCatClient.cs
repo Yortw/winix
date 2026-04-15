@@ -28,8 +28,7 @@ public sealed class NetCatClient
     {
         if (options.Protocol == NetCatProtocol.Udp)
         {
-            // UDP path is implemented in a later task; throw to fail fast in this commit's tests.
-            throw new System.NotImplementedException("UDP client is implemented in Phase 6.");
+            return await RunUdpAsync(options, stdin, stdout, stderr, ct).ConfigureAwait(false);
         }
 
         var sw = Stopwatch.StartNew();
@@ -106,6 +105,55 @@ public sealed class NetCatClient
                 RemoteAddress = remote,
             };
         }
+    }
+
+    private static async Task<RunResult> RunUdpAsync(NetCatOptions options, Stream stdin, Stream stdout, TextWriter stderr, CancellationToken ct)
+    {
+        var sw = Stopwatch.StartNew();
+        if (options.Host is null) { throw new ArgumentException("Host is required for Connect mode.", nameof(options)); }
+        int port = options.Ports[0].Low;
+
+        using var udp = new UdpClient(0, options.AddressFamily ?? AddressFamily.InterNetwork);
+        udp.Connect(options.Host, port);
+
+        // Read all of stdin and send each buffer as a datagram.
+        long sent = 0;
+        var buf = new byte[65507];
+        while (true)
+        {
+            int n = await stdin.ReadAsync(buf.AsMemory(), ct).ConfigureAwait(false);
+            if (n == 0) { break; }
+            int chunkSent = await udp.SendAsync(buf.AsMemory(0, n), ct).ConfigureAwait(false);
+            sent += chunkSent;
+        }
+
+        // Optionally wait briefly for a single response (timeout > 0 = wait).
+        long received = 0;
+        if (options.Timeout > TimeSpan.Zero)
+        {
+            using var receiveCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            receiveCts.CancelAfter(options.Timeout);
+            try
+            {
+                UdpReceiveResult rx = await udp.ReceiveAsync(receiveCts.Token).ConfigureAwait(false);
+                await stdout.WriteAsync(rx.Buffer.AsMemory(), ct).ConfigureAwait(false);
+                received = rx.Buffer.Length;
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                // No response within timeout — exit cleanly anyway.
+            }
+        }
+
+        sw.Stop();
+        return new RunResult
+        {
+            ExitCode = 0,
+            ExitReason = "success",
+            BytesSent = sent,
+            BytesReceived = received,
+            DurationMilliseconds = sw.Elapsed.TotalMilliseconds,
+        };
     }
 
     private static string MapSocketError(SocketException ex) => ex.SocketErrorCode switch
