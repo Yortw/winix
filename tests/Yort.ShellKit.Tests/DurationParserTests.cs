@@ -1,9 +1,7 @@
-#nullable enable
-
-using Winix.FileWalk;
 using Xunit;
+using Yort.ShellKit;
 
-namespace Winix.FileWalk.Tests;
+namespace Yort.ShellKit.Tests;
 
 public class DurationParserTests
 {
@@ -100,5 +98,33 @@ public class DurationParserTests
     public void Parse_Overflow_ThrowsFormatException(string input)
     {
         Assert.Throws<FormatException>(() => DurationParser.Parse(input));
+    }
+
+    [Fact]
+    public void Parse_Milliseconds_ReturnsCorrectTimeSpan()
+    {
+        Assert.Equal(TimeSpan.FromMilliseconds(500), DurationParser.Parse("500ms"));
+    }
+
+    [Fact]
+    public void Parse_OneMillisecond_ReturnsCorrectTimeSpan()
+    {
+        Assert.Equal(TimeSpan.FromMilliseconds(1), DurationParser.Parse("1ms"));
+    }
+
+    [Fact]
+    public void TryParse_Milliseconds_ReturnsTrue()
+    {
+        bool ok = DurationParser.TryParse("200ms", out TimeSpan duration);
+        Assert.True(ok);
+        Assert.Equal(TimeSpan.FromMilliseconds(200), duration);
+    }
+
+    [Fact]
+    public void TryParse_ZeroMs_ReturnsTrue()
+    {
+        bool ok = DurationParser.TryParse("0ms", out TimeSpan duration);
+        Assert.True(ok);
+        Assert.Equal(TimeSpan.Zero, duration);
     }
 }
