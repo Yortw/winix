@@ -2,6 +2,7 @@
 
 using System.Globalization;
 using System.Text;
+using System.Text.Json;
 using Yort.ShellKit;
 
 namespace Winix.When;
@@ -141,6 +142,158 @@ public static class Formatting
     public static string FormatDiffIso(TimeSpan duration)
     {
         return IsoDurationParser.Format(duration);
+    }
+
+    /// <summary>
+    /// JSON output for conversion mode. Follows the standard Winix JSON envelope.
+    /// </summary>
+    /// <param name="timestamp">The resolved timestamp.</param>
+    /// <param name="localTz">The local (system) timezone.</param>
+    /// <param name="extraTz">An additional timezone from <c>--tz</c>, or null.</param>
+    /// <param name="now">The current time for relative formatting.</param>
+    /// <param name="inputStr">The raw input string provided by the user.</param>
+    /// <param name="offsetStr">The raw offset string from <c>--offset</c>, or null.</param>
+    /// <param name="toolName">The tool's executable name.</param>
+    /// <param name="version">The tool's version string.</param>
+    public static string FormatJson(DateTimeOffset timestamp, TimeZoneInfo localTz,
+        TimeZoneInfo? extraTz, DateTimeOffset now, string? inputStr, string? offsetStr,
+        string toolName, string version)
+    {
+        var (writer, buffer) = JsonHelper.CreateWriter();
+        using (writer)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("tool", toolName);
+            writer.WriteString("version", version);
+            writer.WriteNumber("exit_code", 0);
+            writer.WriteString("exit_reason", "success");
+            writer.WriteString("input", inputStr);
+            if (offsetStr != null)
+            {
+                writer.WriteString("offset", offsetStr);
+            }
+            else
+            {
+                writer.WriteNull("offset");
+            }
+
+            string utcStr = timestamp.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
+            writer.WriteString("utc", utcStr);
+
+            DateTimeOffset localTime = TimeZoneInfo.ConvertTime(timestamp, localTz);
+            string localStr;
+            if (localTime.Offset == TimeSpan.Zero)
+            {
+                localStr = localTime.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
+            }
+            else
+            {
+                localStr = localTime.ToString("yyyy-MM-ddTHH:mm:sszzz", CultureInfo.InvariantCulture);
+            }
+            writer.WriteString("local", localStr);
+
+            string localAbbr = TimezoneResolver.GetAbbreviation(localTz, timestamp);
+            writer.WriteString("local_timezone", localAbbr);
+
+            writer.WriteNumber("unix_seconds", timestamp.ToUnixTimeSeconds());
+            writer.WriteNumber("unix_milliseconds", timestamp.ToUnixTimeMilliseconds());
+
+            string relative = RelativeFormatter.Format(timestamp, now);
+            writer.WriteString("relative", relative);
+
+            if (extraTz != null)
+            {
+                string extraAbbr = TimezoneResolver.GetAbbreviation(extraTz, timestamp);
+                writer.WriteString("target_timezone", extraAbbr);
+                DateTimeOffset extraTime = TimeZoneInfo.ConvertTime(timestamp, extraTz);
+                string targetStr;
+                if (extraTime.Offset == TimeSpan.Zero)
+                {
+                    targetStr = extraTime.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
+                }
+                else
+                {
+                    targetStr = extraTime.ToString("yyyy-MM-ddTHH:mm:sszzz", CultureInfo.InvariantCulture);
+                }
+                writer.WriteString("target", targetStr);
+            }
+
+            writer.WriteEndObject();
+        }
+        return JsonHelper.GetString(buffer);
+    }
+
+    /// <summary>
+    /// JSON output for diff mode. Values are signed (negative when time1 &gt; time2).
+    /// From/to preserve argument order (not reordered).
+    /// </summary>
+    /// <param name="duration">The raw duration (signed).</param>
+    /// <param name="from">The first timestamp (time1), as provided by the user.</param>
+    /// <param name="to">The second timestamp (time2), as provided by the user.</param>
+    /// <param name="toolName">The tool's executable name.</param>
+    /// <param name="version">The tool's version string.</param>
+    public static string FormatDiffJson(TimeSpan duration, DateTimeOffset from, DateTimeOffset to,
+        string toolName, string version)
+    {
+        var (writer, buffer) = JsonHelper.CreateWriter();
+        using (writer)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("tool", toolName);
+            writer.WriteString("version", version);
+            writer.WriteNumber("exit_code", 0);
+            writer.WriteString("exit_reason", "success");
+
+            string fromStr = from.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
+            writer.WriteString("from", fromStr);
+
+            string toStr = to.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
+            writer.WriteString("to", toStr);
+
+            string isoStr = IsoDurationParser.Format(duration);
+            writer.WriteString("duration_iso", isoStr);
+
+            long totalSeconds = (long)duration.TotalSeconds;
+            writer.WriteNumber("total_seconds", totalSeconds);
+
+            // Signed component breakdown
+            bool negative = duration < TimeSpan.Zero;
+            TimeSpan absDuration = negative ? duration.Negate() : duration;
+            int sign = negative ? -1 : 1;
+
+            writer.WriteNumber("days", absDuration.Days * sign);
+            writer.WriteNumber("hours", absDuration.Hours);
+            writer.WriteNumber("minutes", absDuration.Minutes);
+            writer.WriteNumber("seconds", absDuration.Seconds);
+
+            writer.WriteEndObject();
+        }
+        return JsonHelper.GetString(buffer);
+    }
+
+    /// <summary>
+    /// JSON error output with standard Winix envelope.
+    /// </summary>
+    /// <param name="exitCode">The tool's exit code (125, 126, or 127 per POSIX convention).</param>
+    /// <param name="exitReason">Machine-readable snake_case reason (e.g. "parse_error").</param>
+    /// <param name="message">Human-readable error message.</param>
+    /// <param name="toolName">The tool's executable name.</param>
+    /// <param name="version">The tool's version string.</param>
+    public static string FormatJsonError(int exitCode, string exitReason, string message,
+        string toolName, string version)
+    {
+        var (writer, buffer) = JsonHelper.CreateWriter();
+        using (writer)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("tool", toolName);
+            writer.WriteString("version", version);
+            writer.WriteNumber("exit_code", exitCode);
+            writer.WriteString("exit_reason", exitReason);
+            writer.WriteString("message", message);
+            writer.WriteEndObject();
+        }
+        return JsonHelper.GetString(buffer);
     }
 
     private static string FormatWithTimezone(DateTimeOffset timestamp, TimeZoneInfo tz)
