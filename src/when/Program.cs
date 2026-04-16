@@ -1,6 +1,3 @@
-// src/when/Program.cs
-#nullable enable
-
 using System.Reflection;
 using Winix.When;
 using Yort.ShellKit;
@@ -158,6 +155,13 @@ internal sealed class Program
                 }
 
                 timestamp = timestamp.Add(offset);
+
+                // Reject extra positionals after offset
+                if (result.Positionals.Length > 2)
+                {
+                    return WriteError(result, jsonOutput, "when", version,
+                        $"unexpected argument '{result.Positionals[2]}'. Expected: when <input> [+/-offset]");
+                }
             }
             else
             {
@@ -216,6 +220,13 @@ internal sealed class Program
         {
             return WriteError(result, jsonOutput, "when", version,
                 "diff mode requires two timestamps: when diff <time1> <time2>");
+        }
+
+        // Reject extra positionals after the two timestamps
+        if (result.Positionals.Length > 3)
+        {
+            return WriteError(result, jsonOutput, "when", version,
+                $"unexpected argument '{result.Positionals[3]}'. Expected: when diff <time1> <time2>");
         }
 
         string input1 = result.Positionals[1];

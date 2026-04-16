@@ -1,4 +1,3 @@
-#nullable enable
 using System.Globalization;
 
 namespace Winix.When;
@@ -144,6 +143,13 @@ public static class IsoDurationParser
         if (numStart >= 0)
         {
             error = "ISO 8601 duration has trailing digits with no designator (D, H, M, or S).";
+            return false;
+        }
+
+        // Reject empty durations like "P" or "PT" (no actual components specified)
+        if (days == 0 && hours == 0 && minutes == 0 && seconds == 0 && span.Length <= 1)
+        {
+            error = "Empty ISO 8601 duration — no components specified.";
             return false;
         }
 

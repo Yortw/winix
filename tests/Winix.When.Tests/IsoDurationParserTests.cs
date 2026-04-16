@@ -105,6 +105,22 @@ public class IsoDurationParserTryParseTests
     }
 
     [Fact]
+    public void TryParse_BareP_Rejected()
+    {
+        bool ok = IsoDurationParser.TryParse("P", out _, out string? error);
+        Assert.False(ok);
+        Assert.NotNull(error);
+    }
+
+    [Fact]
+    public void TryParse_BarePT_Rejected()
+    {
+        bool ok = IsoDurationParser.TryParse("PT", out _, out string? error);
+        Assert.False(ok);
+        Assert.NotNull(error);
+    }
+
+    [Fact]
     public void TryParse_NoPPrefix_Rejected()
     {
         bool ok = IsoDurationParser.TryParse("3DT4H", out _, out string? error);

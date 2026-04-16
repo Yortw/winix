@@ -1,5 +1,3 @@
-#nullable enable
-
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
@@ -262,9 +260,9 @@ public static class Formatting
             int sign = negative ? -1 : 1;
 
             writer.WriteNumber("days", absDuration.Days * sign);
-            writer.WriteNumber("hours", absDuration.Hours);
-            writer.WriteNumber("minutes", absDuration.Minutes);
-            writer.WriteNumber("seconds", absDuration.Seconds);
+            writer.WriteNumber("hours", absDuration.Hours * sign);
+            writer.WriteNumber("minutes", absDuration.Minutes * sign);
+            writer.WriteNumber("seconds", absDuration.Seconds * sign);
 
             writer.WriteEndObject();
         }
