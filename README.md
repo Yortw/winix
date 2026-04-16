@@ -10,7 +10,7 @@
 
 **Cross-platform CLI tools for the gaps between Windows and \*nix.**
 
-Winix is a suite of small, focused command-line tools compiled to native binaries via .NET AOT. Each tool fills a gap where a standard Unix utility either doesn't exist on Windows, has no good cross-platform implementation, or where a modern take can genuinely improve on the original. Every tool ships as a single binary with no runtime dependency.
+Winix is a suite of small, focused command-line tools compiled to native binaries via .NET AOT. Each tool fills a gap where a standard Unix utility either doesn't exist on Windows, has no good cross-platform implementation, or where a modern take can genuinely improve on the original. Tools are designed to be composable — piping, exit codes, and structured output work the way Unix users expect — while also being readable by humans in the terminal with colour, tables, and clear error messages. Windows has powerful scripting, but many of its built-in tools produce output that's difficult to pipe, parse, or read at a glance. Every Winix tool ships as a single native binary with no runtime dependency.
 
 ## Tools
 
