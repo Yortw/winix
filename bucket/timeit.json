@@ -1,12 +1,12 @@
 {
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Time a command — wall clock, CPU time, peak memory, exit code.",
   "homepage": "https://github.com/Yortw/winix",
   "license": "MIT",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/Yortw/winix/releases/download/v0.1.0/timeit-win-x64.zip",
-      "hash": "2519a2e27745997b4aaad8a2d592989ced99c46c1cd9d4ba850414019a726c7d"
+      "url": "https://github.com/Yortw/winix/releases/download/v0.2.0/timeit-win-x64.zip",
+      "hash": "f87b7b867d2afe2a063754df09f10df5812e79481de371d6fd6c9926f2e3ae4d"
     }
   },
   "bin": "timeit.exe",
