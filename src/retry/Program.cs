@@ -116,8 +116,17 @@ internal sealed class Program
         bool jitter = result.Has("--jitter");
 
         // --- Parse --on and --until ---
-        HashSet<int>? retryCodes = ParseCodeList(result.Has("--on") ? result.GetString("--on") : null);
-        HashSet<int>? stopCodes = ParseCodeList(result.Has("--until") ? result.GetString("--until") : null);
+        HashSet<int>? retryCodes = ParseCodeList(result.Has("--on") ? result.GetString("--on") : null, out string? onInvalid);
+        if (onInvalid != null)
+        {
+            return result.WriteError($"invalid --on value: '{onInvalid}' is not an integer.", writer);
+        }
+
+        HashSet<int>? stopCodes = ParseCodeList(result.Has("--until") ? result.GetString("--until") : null, out string? untilInvalid);
+        if (untilInvalid != null)
+        {
+            return result.WriteError($"invalid --until value: '{untilInvalid}' is not an integer.", writer);
+        }
 
         if (retryCodes != null && stopCodes != null)
         {
@@ -188,6 +197,17 @@ internal sealed class Program
 
         var runner = new RetryRunner(runProcess);
 
+        // --- Ctrl+C handling ---
+        // Wire up CancelKeyPress so Ctrl+C breaks the retry loop immediately,
+        // including during delay waits (the default delay action in RetryRunner
+        // uses WaitHandle.WaitOne which responds to cancellation).
+        using var cts = new CancellationTokenSource();
+        Console.CancelKeyPress += (_, e) =>
+        {
+            e.Cancel = true;
+            cts.Cancel();
+        };
+
         // --- Progress callback ---
         Action<AttemptInfo>? onAttempt = null;
         if (!jsonOutput)
@@ -199,7 +219,8 @@ internal sealed class Program
         RetryResult retryResult;
         try
         {
-            retryResult = runner.Run(command, commandArgs, options, onAttempt);
+            retryResult = runner.Run(command, commandArgs, options, onAttempt,
+                cancellationToken: cts.Token);
         }
         catch (CommandNotExecutableException ex)
         {
@@ -257,13 +278,22 @@ internal sealed class Program
             ?.InformationalVersion ?? "0.0.0";
     }
 
-    private static HashSet<int>? ParseCodeList(string? value)
+    private static HashSet<int>? ParseCodeList(string? value, out string? invalidEntry)
     {
+        invalidEntry = null;
         if (string.IsNullOrEmpty(value)) { return null; }
         var codes = new HashSet<int>();
         foreach (string part in value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-            if (int.TryParse(part, out int code)) { codes.Add(code); }
+            if (int.TryParse(part, out int code))
+            {
+                codes.Add(code);
+            }
+            else
+            {
+                invalidEntry = part;
+                return null;
+            }
         }
         return codes.Count > 0 ? codes : null;
     }

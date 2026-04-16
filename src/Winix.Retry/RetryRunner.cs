@@ -1,8 +1,4 @@
-#nullable enable
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Threading;
 
 namespace Winix.Retry;
 
@@ -34,7 +30,8 @@ public sealed class RetryRunner
     /// <param name="options">Retry configuration.</param>
     /// <param name="onAttempt">Optional callback invoked after each attempt with progress info.</param>
     /// <param name="delayAction">
-    /// Optional delay delegate (for testing). Defaults to <see cref="Thread.Sleep(TimeSpan)"/>.
+    /// Optional delay delegate (for testing). When null, uses a cancellation-aware wait
+    /// via <see cref="CancellationToken.WaitHandle"/> so that Ctrl+C interrupts delays immediately.
     /// </param>
     /// <param name="cancellationToken">Token to abort the retry loop between attempts.</param>
     /// <returns>The final result describing how the loop terminated.</returns>
@@ -46,7 +43,10 @@ public sealed class RetryRunner
         Action<TimeSpan>? delayAction = null,
         CancellationToken cancellationToken = default)
     {
-        delayAction ??= Thread.Sleep;
+        // Default delay is cancellation-aware: WaitHandle.WaitOne returns immediately
+        // when the token is signalled (e.g. Ctrl+C), unlike Thread.Sleep which blocks
+        // for the full duration regardless.
+        delayAction ??= (duration) => cancellationToken.WaitHandle.WaitOne(duration);
         Random? random = options.Jitter ? new Random() : null;
 
         int maxAttempts = options.MaxRetries + 1;

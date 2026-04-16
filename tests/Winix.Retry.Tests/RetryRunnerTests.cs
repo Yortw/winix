@@ -1,7 +1,3 @@
-#nullable enable
-using System;
-using System.Collections.Generic;
-using System.Threading;
 using Winix.Retry;
 using Xunit;
 
@@ -94,6 +90,20 @@ public class RetryRunnerTests
         Assert.Equal(RetryOutcome.NotRetryable, result.Outcome);
         Assert.Equal(2, result.Attempts);
         Assert.Equal(137, result.ChildExitCode);
+    }
+
+    [Fact]
+    public void Run_WithOnCodes_SucceedsOnFirstAttempt()
+    {
+        var runner = new RetryRunner(ExitCodeSequence(0));
+        var options = new RetryOptions(maxRetries: 5, delay: TimeSpan.Zero,
+            retryOnCodes: new HashSet<int> { 1 });
+
+        var result = runner.Run("cmd", Array.Empty<string>(), options);
+
+        Assert.Equal(RetryOutcome.Succeeded, result.Outcome);
+        Assert.Equal(1, result.Attempts);
+        Assert.Equal(0, result.ChildExitCode);
     }
 
     [Fact]
