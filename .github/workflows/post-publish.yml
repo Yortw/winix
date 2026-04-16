@@ -84,6 +84,7 @@ jobs:
         run: |
           mkdir -p aot
           gh release download "${{ github.event.release.tag_name }}" \
+            --repo "${{ github.repository }}" \
             --pattern "*-win-x64.zip" \
             --dir aot
 
