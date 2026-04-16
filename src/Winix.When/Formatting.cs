@@ -88,6 +88,70 @@ public static class Formatting
     }
 
     /// <summary>
+    /// Multi-line default output for diff mode.
+    /// Duration is always displayed as absolute (positive). From/To lines are shown only
+    /// when <paramref name="displayTz"/> is specified, and are ordered earliest-first.
+    /// </summary>
+    /// <param name="duration">The raw duration (may be negative if time1 &gt; time2).</param>
+    /// <param name="from">The first timestamp (time1).</param>
+    /// <param name="to">The second timestamp (time2).</param>
+    /// <param name="displayTz">Optional timezone for From/To display lines.</param>
+    /// <param name="useColor">Whether to include ANSI colour escapes.</param>
+    public static string FormatDiff(TimeSpan duration, DateTimeOffset from, DateTimeOffset to,
+        TimeZoneInfo? displayTz, bool useColor)
+    {
+        string dim = AnsiColor.Dim(useColor);
+        string reset = AnsiColor.Reset(useColor);
+
+        var sb = new StringBuilder();
+
+        // For human output, reorder so "from" is the earlier timestamp
+        DateTimeOffset displayFrom = from < to ? from : to;
+        DateTimeOffset displayTo = from < to ? to : from;
+        TimeSpan absDuration = duration < TimeSpan.Zero ? duration.Negate() : duration;
+
+        // From/To lines only shown when --tz is specified
+        if (displayTz != null)
+        {
+            string fromStr = FormatWithTimezone(displayFrom, displayTz);
+            string toStr = FormatWithTimezone(displayTo, displayTz);
+            sb.AppendLine($"  {dim}From:{reset}      {fromStr}");
+            sb.AppendLine($"  {dim}To:{reset}        {toStr}");
+        }
+
+        // Duration line (human-friendly, absolute)
+        string humanDuration = DurationFormatter.FormatHuman(absDuration);
+        sb.AppendLine($"  {dim}Duration:{reset}  {humanDuration}");
+
+        // ISO 8601 line (absolute for human display)
+        string isoDuration = IsoDurationParser.Format(absDuration);
+        sb.AppendLine($"  {dim}ISO 8601:{reset}  {isoDuration}");
+
+        // Seconds line (absolute for human display)
+        long totalSeconds = (long)absDuration.TotalSeconds;
+        sb.Append($"  {dim}Seconds:{reset}   {totalSeconds.ToString(CultureInfo.InvariantCulture)}");
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Single ISO 8601 duration string for <c>--iso</c> flag.
+    /// Uses signed duration (negative when time1 &gt; time2).
+    /// </summary>
+    public static string FormatDiffIso(TimeSpan duration)
+    {
+        return IsoDurationParser.Format(duration);
+    }
+
+    private static string FormatWithTimezone(DateTimeOffset timestamp, TimeZoneInfo tz)
+    {
+        DateTimeOffset converted = TimeZoneInfo.ConvertTime(timestamp, tz);
+        string abbr = TimezoneResolver.GetAbbreviation(tz, timestamp);
+        string offsetStr = FormatOffset(tz.GetUtcOffset(timestamp));
+        return $"{converted.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)} {abbr} ({offsetStr})";
+    }
+
+    /// <summary>
     /// Formats a UTC offset as <c>+HH:MM</c> or <c>-HH:MM</c>.
     /// </summary>
     internal static string FormatOffset(TimeSpan offset)
