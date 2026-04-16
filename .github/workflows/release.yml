@@ -126,6 +126,9 @@ jobs:
       - name: Pack retry
         run: dotnet pack src/retry/retry.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
 
+      - name: Pack when
+        run: dotnet pack src/when/when.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
+
       - name: Upload NuGet packages
         uses: actions/upload-artifact@v7
         with:
@@ -195,6 +198,9 @@ jobs:
       - name: Publish retry
         run: dotnet publish src/retry/retry.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
 
+      - name: Publish when
+        run: dotnet publish src/when/when.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
+
       - name: Bundle man pages alongside man binary
         shell: bash
         run: |
@@ -226,6 +232,7 @@ jobs:
           cd src/winix/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/winix-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
           cd src/nc/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/nc-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
           cd src/retry/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/retry-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
+          cd src/when/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/when-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
 
       - name: Zip binaries (Windows)
         if: runner.os == 'Windows'
@@ -244,6 +251,7 @@ jobs:
           Compress-Archive -Path src/winix/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath winix-${{ matrix.rid }}.zip
           Compress-Archive -Path src/nc/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath nc-${{ matrix.rid }}.zip
           Compress-Archive -Path src/retry/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath retry-${{ matrix.rid }}.zip
+          Compress-Archive -Path src/when/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath when-${{ matrix.rid }}.zip
 
       - name: Create combined Winix zip (Windows)
         if: runner.os == 'Windows' && matrix.rid == 'win-x64'
@@ -263,6 +271,7 @@ jobs:
           Copy-Item src/winix/bin/Release/net10.0/${{ matrix.rid }}/publish/winix.exe winix-combined/
           Copy-Item src/nc/bin/Release/net10.0/${{ matrix.rid }}/publish/nc.exe winix-combined/
           Copy-Item src/retry/bin/Release/net10.0/${{ matrix.rid }}/publish/retry.exe winix-combined/
+          Copy-Item src/when/bin/Release/net10.0/${{ matrix.rid }}/publish/when.exe winix-combined/
           Copy-Item src/man/bin/Release/net10.0/${{ matrix.rid }}/publish/share -Recurse -Destination winix-combined/share
           Compress-Archive -Path winix-combined/* -DestinationPath winix-${{ matrix.rid }}.zip -Force
 
@@ -333,7 +342,8 @@ jobs:
                 whoholds: { description: "Find which processes are holding a file lock or binding a network port.",                                         packages: { winget: "Winix.WhoHolds", scoop: "whoholds", brew: "whoholds", dotnet: "Winix.WhoHolds" } },
                 schedule: { description: "Cross-platform task scheduler with cron expressions.",                                                             packages: { winget: "Winix.Schedule", scoop: "schedule", brew: "schedule", dotnet: "Winix.Schedule" } },
                 nc:       { description: "Cross-platform netcat \u2014 TCP/UDP send/receive, port checks, TLS clients.",                                     packages: { winget: "Winix.NetCat",   scoop: "nc",       brew: "nc",       dotnet: "Winix.NetCat"   } },
-                retry:    { description: "Run a command with automatic retries, backoff, and exit-code filtering.",                                    packages: { winget: "Winix.Retry",    scoop: "retry",    brew: "retry",    dotnet: "Winix.Retry"    } }
+                retry:    { description: "Run a command with automatic retries, backoff, and exit-code filtering.",                                    packages: { winget: "Winix.Retry",    scoop: "retry",    brew: "retry",    dotnet: "Winix.Retry"    } },
+                when:     { description: "Convert timestamps between formats, apply time arithmetic, and calculate durations.",                         packages: { winget: "Winix.When",     scoop: "when",     brew: "when",     dotnet: "Winix.When"     } }
               }
             }' > winix-manifest.json
 
