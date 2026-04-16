@@ -5,6 +5,7 @@ obj/
 .vs/
 TestResults/
 tmp_*/
+tmp-*/
 .worktrees/
 .superpowers/
 /.claude/settings.local.json
