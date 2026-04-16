@@ -11,6 +11,12 @@ internal sealed class Program
         ConsoleEnv.EnableAnsiIfNeeded();
         string version = GetVersion();
 
+        // Pre-process args: negative offsets like -3h start with '-' which the parser
+        // treats as flags. Insert '--' before offset-like args so the parser passes
+        // them through as positionals. An offset-like arg starts with '-' followed by
+        // a digit (e.g. -3h, -86400) or '-P' (ISO duration like -P3DT4H).
+        args = InjectDoubleDashBeforeNegativeOffsets(args);
+
         var parser = new CommandLineParser("when", version)
             .Description("Convert timestamps between formats, apply time arithmetic, and calculate durations.")
             .StandardFlags()
@@ -55,9 +61,9 @@ internal sealed class Program
             .JsonField("duration_iso", "string", "ISO 8601 duration, signed (diff mode)")
             .JsonField("total_seconds", "int", "Total seconds, signed (diff mode)")
             .JsonField("days", "int", "Day component, signed (diff mode)")
-            .JsonField("hours", "int", "Hour component (diff mode)")
-            .JsonField("minutes", "int", "Minute component (diff mode)")
-            .JsonField("seconds", "int", "Second component (diff mode)");
+            .JsonField("hours", "int", "Hour component, signed (diff mode)")
+            .JsonField("minutes", "int", "Minute component, signed (diff mode)")
+            .JsonField("seconds", "int", "Second component, signed (diff mode)");
 
         var result = parser.Parse(args);
         if (result.IsHandled) { return result.ExitCode; }
@@ -294,6 +300,52 @@ internal sealed class Program
             Console.Error.WriteLine($"when: {message}");
         }
         return ExitCode.UsageError;
+    }
+
+    /// <summary>
+    /// Inserts <c>--</c> before arguments that look like negative time offsets so the
+    /// parser treats them as positionals rather than unknown flags.
+    /// A negative offset starts with <c>-</c> followed by a digit (e.g. <c>-3h</c>,
+    /// <c>-86400</c>) or <c>-P</c> (ISO duration like <c>-P3DT4H</c>).
+    /// Only applies after the first positional arg has been seen (the timestamp input).
+    /// </summary>
+    private static string[] InjectDoubleDashBeforeNegativeOffsets(string[] args)
+    {
+        bool seenPositional = false;
+        for (int i = 0; i < args.Length; i++)
+        {
+            string arg = args[i];
+
+            // Track when we've passed the first positional (the timestamp or "diff")
+            if (!arg.StartsWith('-') && !arg.StartsWith('+'))
+            {
+                seenPositional = true;
+                continue;
+            }
+
+            // Already have '--' in the args — no need to inject
+            if (arg == "--")
+            {
+                return args;
+            }
+
+            // Only inject after seeing a positional (the input timestamp)
+            if (!seenPositional)
+            {
+                continue;
+            }
+
+            // Check if this looks like a negative offset: -<digit> or -P
+            if (arg.Length >= 2 && arg[0] == '-' && (char.IsDigit(arg[1]) || arg[1] == 'P'))
+            {
+                var result = new string[args.Length + 1];
+                Array.Copy(args, 0, result, 0, i);
+                result[i] = "--";
+                Array.Copy(args, i, result, i + 1, args.Length - i);
+                return result;
+            }
+        }
+        return args;
     }
 
     private static string GetVersion()

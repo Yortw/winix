@@ -172,6 +172,19 @@ public class FormattingJsonDiffTests
     }
 
     [Fact]
+    public void FormatDiffJson_NegativeDuration_AllComponentsSigned()
+    {
+        // Duration with non-zero hours/minutes/seconds to verify all get the sign
+        var from = new DateTimeOffset(2024, 6, 18, 3, 15, 30, TimeSpan.Zero);
+        var to = new DateTimeOffset(2024, 6, 18, 0, 0, 0, TimeSpan.Zero);
+        var duration = to - from; // -3h15m30s
+        string json = Formatting.FormatDiffJson(duration, from, to, "when", "0.3.0");
+        Assert.Contains("\"hours\":-3", json);
+        Assert.Contains("\"minutes\":-15", json);
+        Assert.Contains("\"seconds\":-30", json);
+    }
+
+    [Fact]
     public void FormatDiffJson_PreservesArgumentOrder()
     {
         // Even when From > To, JSON preserves argument order
