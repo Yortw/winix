@@ -15,6 +15,7 @@ Cross-platform CLI tool suite for the gaps between Windows and *nix. Native bina
 - [whoholds](docs/ai/whoholds.md): Find which processes are holding a file lock or binding a network port. Replaces `handle.exe` (Sysinternals) on Windows and wraps `lsof` on Linux/macOS.
 - [schedule](docs/ai/schedule.md): Cross-platform task scheduler with cron expressions. Unified interface over Windows Task Scheduler (`schtasks.exe`) and Unix `crontab`.
 - [nc](docs/ai/nc.md): Cross-platform netcat replacement — TCP/UDP send/receive, port checks (single/range/list), and TLS clients. Replaces verbose `Test-NetConnection` on Windows and normalises behaviour across BSD/GNU/ncat forks on Unix.
+- [retry](docs/ai/retry.md): Run a command with automatic retries, backoff, and exit-code filtering. Replaces ad-hoc shell retry loops.
 - [winix](docs/ai/winix.md): Installer and lifecycle manager for the Winix CLI tool suite. Installs, updates, and uninstalls all tools via your platform's native package manager.
 
 ## Key Features for AI Agents

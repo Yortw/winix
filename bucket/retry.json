@@ -1,0 +1,21 @@
+{
+  "version": "0.2.0",
+  "description": "Run a command with automatic retries, backoff, and exit-code filtering.",
+  "homepage": "https://github.com/Yortw/winix",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/Yortw/winix/releases/download/v0.2.0/retry-win-x64.zip",
+      "hash": "",
+      "bin": "retry.exe"
+    }
+  },
+  "checkver": "github",
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/Yortw/winix/releases/download/v$version/retry-win-x64.zip"
+      }
+    }
+  }
+}
