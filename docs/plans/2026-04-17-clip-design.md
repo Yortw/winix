@@ -82,6 +82,8 @@ Conflicting flags (e.g. `-c` with `-p`, `--clear` with `-c`, `--clear` with redi
 - **Copy:** stdin bytes are treated as UTF-8 and written to the clipboard unchanged. No normalisation. (Windows apps that require CRLF handle LF just fine in modern use; forcing CRLF would surprise users piping binary-adjacent text.)
 - **Paste:** by default, strip exactly one trailing `\n` or `\r\n`. This mirrors `$(...)` shell behaviour and the `wl-paste --no-newline` default. Use `--raw` to preserve every byte. Multi-line content retains internal newlines — only the final one is stripped.
 
+**Documentation requirement:** this asymmetry (copy preserves bytes, paste strips one trailing newline by default) MUST be called out prominently in `src/clip/README.md` — ideally with a short "Newline handling" section right after the basic usage examples — including the `--raw`/`-r` override. It's the one place `clip` is opinionated about content, and users hitting a byte-inexact round-trip without knowing why will be confused. Also mention it in the man page and the AI guide.
+
 ### Primary Selection (Linux)
 
 On Linux, X11 and Wayland each expose two selections: `CLIPBOARD` (the standard Ctrl+C/V one) and `PRIMARY` (middle-click / last-selected-text). Default targets `CLIPBOARD`. `--primary` targets `PRIMARY`. On Windows and macOS the flag is silently ignored (documented behaviour) because those platforms have no equivalent concept.
