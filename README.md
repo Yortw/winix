@@ -31,7 +31,7 @@ Winix is a suite of small, focused command-line tools compiled to native binarie
 
 ## Why each tool, on each platform
 
-The biggest value is on **Windows**, where many of these tools simply don't exist. On Linux and macOS the tools still earn their keep by combining multiple utilities, improving defaults, or providing a consistent interface across platforms.
+The biggest value is on **Windows**, where many of these tools simply don't exist. On Linux and macOS the tools still earn their keep by combining multiple utilities, improving defaults, or providing a consistent interface across platforms. Even where a native equivalent exists, there's value in a single set of tools that behaves identically everywhere — scripts, CI pipelines, and muscle memory transfer across platforms without adaptation.
 
 | Tool | Windows | Linux / macOS |
 |------|---------|---------------|
