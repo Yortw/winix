@@ -37,9 +37,10 @@ public class Uuid7GeneratorTests
             var id = gen.Generate(IdsOptions.Defaults with { Type = IdType.Uuid7 });
             if (prev is not null)
             {
-                // Ordinal compare is equivalent to byte-compare on the hex form when
-                // both strings are the same length (always true for UUIDs).
-                Assert.True(string.CompareOrdinal(prev, id) <= 0,
+                // Strict <: the generator is documented to produce a value strictly greater
+                // than its predecessor (either a fresher v7 or an increment). An equal value
+                // would indicate an off-by-one in the increment path and must fail the test.
+                Assert.True(string.CompareOrdinal(prev, id) < 0,
                     $"UUID v7 order regression at i={i}: prev={prev}, curr={id}");
             }
             prev = id;

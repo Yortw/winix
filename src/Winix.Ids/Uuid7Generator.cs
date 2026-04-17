@@ -8,14 +8,14 @@ namespace Winix.Ids;
 /// </summary>
 /// <remarks>
 /// <see cref="Guid.CreateVersion7()"/> does not guarantee strict monotonic ordering
-/// within the same millisecond — successive calls can produce descending random bits.
-/// This class tracks the last-issued GUID and, when a newly generated value would
-/// compare ≤ the previous one, increments the 128-bit representation by 1 (carrying
-/// through bytes in little-endian Guid memory layout) so the output is always ≥ prev.
-/// Version (nibble at offset 7 hi-bits) and variant (nibble at offset 8 hi-bits) are
-/// preserved by the increment since regressions only occur within the same millisecond
-/// and the counter overflow into those nibbles is astronomically unlikely in practice.
-/// Thread safety: a lock serialises access so the generator is safe to share.
+/// within the same millisecond — successive calls re-randomise the sub-timestamp bits
+/// and can produce descending values. This generator compares each candidate against
+/// the last issued value in canonical big-endian byte order; if the candidate would
+/// sort ≤ the predecessor, the predecessor is incremented by 1 (as a 128-bit big-endian
+/// integer) and returned instead. The version nibble (bit 52 of the 128-bit value) and
+/// variant bits (bits 62–63) are preserved in practice because an intra-ms increment
+/// burst of that magnitude is impossible (requires 2^76+ calls in one millisecond).
+/// Thread-safe — a single lock serialises compare-and-increment and the shared state.
 /// </remarks>
 public sealed class Uuid7Generator : IIdGenerator
 {
@@ -35,9 +35,16 @@ public sealed class Uuid7Generator : IIdGenerator
         {
             Guid candidate = Guid.CreateVersion7();
 
-            // If the new candidate doesn't sort strictly after the last issued GUID,
-            // increment the last value by 1 to preserve monotonic order.
-            if (string.CompareOrdinal(candidate.ToString("D"), _last.ToString("D")) <= 0)
+            // Guid.CompareTo orders by mixed-endian struct layout, not canonical UUID
+            // byte order, so it does not match how UUID strings sort. Compare via
+            // big-endian byte arrays instead — Guid.TryWriteBytes(..., bigEndian: true)
+            // gives us the canonical order with zero heap allocations (stackalloc).
+            Span<byte> candidateBytes = stackalloc byte[16];
+            Span<byte> lastBytes = stackalloc byte[16];
+            candidate.TryWriteBytes(candidateBytes, bigEndian: true, out _);
+            _last.TryWriteBytes(lastBytes, bigEndian: true, out _);
+
+            if (candidateBytes.SequenceCompareTo(lastBytes) <= 0)
             {
                 candidate = Increment(_last);
             }
@@ -48,34 +55,22 @@ public sealed class Uuid7Generator : IIdGenerator
     }
 
     /// <summary>
-    /// Returns the UUID immediately following <paramref name="guid"/> in lexicographic
-    /// (ordinal string / byte-value) order by adding 1 to the big-endian byte sequence.
+    /// Returns the UUID immediately following <paramref name="guid"/> in canonical
+    /// big-endian byte order by adding 1 to its 128-bit representation. Allocation-free.
     /// </summary>
     private static Guid Increment(Guid guid)
     {
-        // Guid bytes in memory are stored in a mixed-endian layout that differs from
-        // the canonical string order. We round-trip through the "D" string format so
-        // the arithmetic is on the canonical big-endian hex representation, then parse
-        // the result back. This avoids manual byte-swap arithmetic on the struct layout.
-        string hex = guid.ToString("N"); // 32 lowercase hex chars, no hyphens
-        Span<char> chars = stackalloc char[32];
-        hex.AsSpan().CopyTo(chars);
+        Span<byte> bytes = stackalloc byte[16];
+        guid.TryWriteBytes(bytes, bigEndian: true, out _);
 
-        // Add 1 to the 128-bit big-endian value represented as 32 hex digits.
         int carry = 1;
-        for (int i = 31; i >= 0 && carry > 0; i--)
+        for (int i = 15; i >= 0 && carry > 0; i--)
         {
-            int digit = HexVal(chars[i]) + carry;
-            chars[i] = HexChar(digit & 0xF);
-            carry = digit >> 4;
+            int sum = bytes[i] + carry;
+            bytes[i] = (byte)(sum & 0xFF);
+            carry = sum >> 8;
         }
 
-        return Guid.Parse(chars);
+        return new Guid(bytes, bigEndian: true);
     }
-
-    private static int HexVal(char c) =>
-        c >= '0' && c <= '9' ? c - '0' : c - 'a' + 10;
-
-    private static char HexChar(int v) =>
-        (char)(v < 10 ? '0' + v : 'a' + v - 10);
 }
