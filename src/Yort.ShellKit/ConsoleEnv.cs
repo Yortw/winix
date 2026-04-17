@@ -115,24 +115,6 @@ public static partial class ConsoleEnv
     }
 
     /// <summary>
-    /// Resolves a <see cref="ColorMode"/> value to a boolean indicating whether colour output
-    /// should be used, applying the precedence rules:
-    /// <see cref="ColorMode.Always"/> or <see cref="ColorMode.Never"/> override everything;
-    /// <see cref="ColorMode.Auto"/> falls back to terminal detection and NO_COLOR.
-    /// </summary>
-    /// <param name="mode">The colour mode from the parsed command line.</param>
-    /// <param name="checkStdErr">Whether to probe stderr rather than stdout for terminal detection.</param>
-    public static bool ResolveColorMode(ColorMode mode, bool checkStdErr = false)
-    {
-        return mode switch
-        {
-            ColorMode.Always => true,
-            ColorMode.Never => false,
-            _ => ResolveUseColor(false, false, IsNoColorEnvSet(), IsTerminal(checkStdErr)),
-        };
-    }
-
-    /// <summary>
     /// Returns the terminal height in rows, or 24 if not attached to a terminal.
     /// </summary>
     public static int GetTerminalHeight()

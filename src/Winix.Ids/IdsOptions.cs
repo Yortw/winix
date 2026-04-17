@@ -1,5 +1,3 @@
-using Yort.ShellKit;
-
 namespace Winix.Ids;
 
 /// <summary>
@@ -16,8 +14,7 @@ public sealed record IdsOptions(
     bool Json,
     bool Help,
     bool Version,
-    bool Describe,
-    ColorMode Color)
+    bool Describe)
 {
     /// <summary>Default option values used when flags are omitted.</summary>
     public static IdsOptions Defaults => new(
@@ -30,6 +27,5 @@ public sealed record IdsOptions(
         Json: false,
         Help: false,
         Version: false,
-        Describe: false,
-        Color: ColorMode.Auto);
+        Describe: false);
 }
