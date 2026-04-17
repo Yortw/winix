@@ -70,21 +70,17 @@ public class ClipboardBackendFactoryTests
     }
 
     [Fact]
-    public void Linux_XclipPreferredOverXsel()
+    public void Linux_XclipPreferredOverXsel_ObservedViaFakeRunner()
     {
         var probe = new FakePlatformProbe { Os = ClipPlatform.Linux };
         probe.PresentBinaries.Add("xclip");
         probe.PresentBinaries.Add("xsel");
+        var runner = new FakeProcessRunner();
 
-        var backend = ClipboardBackendFactory.Create(probe, primary: false, out _);
+        var backend = ClipboardBackendFactory.Create(probe, primary: false, out _, runner);
         Assert.NotNull(backend);
 
-        // Indirectly verify xclip was chosen by invoking via a fake runner and
-        // asserting the binary name. Construct an equivalent backend explicitly
-        // for cross-check, since we can't peek into the factory's choice.
-        var runner = new FakeProcessRunner();
-        var explicitly = new ShellOutClipboardBackend(HelperSets.XClip, runner);
-        explicitly.CopyText("x");
+        backend!.CopyText("x");
         Assert.Equal("xclip", runner.Invocations[0].File);
     }
 
@@ -94,11 +90,15 @@ public class ClipboardBackendFactoryTests
         var probe = new FakePlatformProbe { Os = ClipPlatform.Linux };
         probe.Env["WAYLAND_DISPLAY"] = "wayland-0";
         probe.PresentBinaries.Add("xclip");
+        var runner = new FakeProcessRunner();
 
-        var backend = ClipboardBackendFactory.Create(probe, primary: false, out string? error);
+        var backend = ClipboardBackendFactory.Create(probe, primary: false, out string? error, runner);
 
         Assert.NotNull(backend);
         Assert.Null(error);
+
+        backend!.CopyText("x");
+        Assert.Equal("xclip", runner.Invocations[0].File);
     }
 
     [Fact]
@@ -124,5 +124,62 @@ public class ClipboardBackendFactoryTests
 
         Assert.Null(backend);
         Assert.NotNull(error);
+    }
+
+    [Fact]
+    public void Primary_MacOs_PbWithPrimary_IsNoOp()
+    {
+        var probe = new FakePlatformProbe { Os = ClipPlatform.MacOS };
+        var runner = new FakeProcessRunner();
+
+        var backend = ClipboardBackendFactory.Create(probe, primary: true, out _, runner);
+        Assert.NotNull(backend);
+
+        backend!.CopyText("x");
+        // pbcopy has no primary concept — args vector unchanged (empty).
+        Assert.Empty(runner.Invocations[0].Args);
+    }
+
+    [Fact]
+    public void Primary_Linux_WlClipboard_AppliesWithPrimary()
+    {
+        var probe = new FakePlatformProbe { Os = ClipPlatform.Linux };
+        probe.Env["WAYLAND_DISPLAY"] = "wayland-0";
+        probe.PresentBinaries.Add("wl-copy");
+        var runner = new FakeProcessRunner();
+
+        var backend = ClipboardBackendFactory.Create(probe, primary: true, out _, runner);
+        Assert.NotNull(backend);
+
+        backend!.CopyText("x");
+        Assert.Equal(new[] { "--primary" }, runner.Invocations[0].Args);
+    }
+
+    [Fact]
+    public void Primary_Linux_Xclip_AppliesWithPrimary()
+    {
+        var probe = new FakePlatformProbe { Os = ClipPlatform.Linux };
+        probe.PresentBinaries.Add("xclip");
+        var runner = new FakeProcessRunner();
+
+        var backend = ClipboardBackendFactory.Create(probe, primary: true, out _, runner);
+        Assert.NotNull(backend);
+
+        backend!.CopyText("x");
+        Assert.Equal(new[] { "-selection", "primary", "-i" }, runner.Invocations[0].Args);
+    }
+
+    [Fact]
+    public void Primary_Linux_Xsel_AppliesWithPrimary()
+    {
+        var probe = new FakePlatformProbe { Os = ClipPlatform.Linux };
+        probe.PresentBinaries.Add("xsel");
+        var runner = new FakeProcessRunner();
+
+        var backend = ClipboardBackendFactory.Create(probe, primary: true, out _, runner);
+        Assert.NotNull(backend);
+
+        backend!.CopyText("x");
+        Assert.Equal(new[] { "--primary", "--input" }, runner.Invocations[0].Args);
     }
 }

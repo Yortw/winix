@@ -11,11 +11,14 @@ public static class ClipboardBackendFactory
     /// <summary>
     /// Creates a backend. On failure, returns <c>null</c> and writes a human-readable
     /// reason to <paramref name="error"/>. A non-null return always has a null error.
+    /// Optionally inject a custom <see cref="IProcessRunner"/> for testing; when null,
+    /// a <see cref="DefaultProcessRunner"/> is used.
     /// </summary>
-    public static IClipboardBackend? Create(IPlatformProbe probe, bool primary, out string? error)
+    public static IClipboardBackend? Create(IPlatformProbe probe, bool primary, out string? error, IProcessRunner? runner = null)
     {
         ArgumentNullException.ThrowIfNull(probe);
 
+        runner ??= new DefaultProcessRunner();
         error = null;
 
         switch (probe.Os)
@@ -28,10 +31,10 @@ public static class ClipboardBackendFactory
                 // pbcopy/pbpaste are always present on macOS; no probing needed.
                 return new ShellOutClipboardBackend(
                     primary ? HelperSets.Pb.WithPrimary() : HelperSets.Pb,
-                    new DefaultProcessRunner());
+                    runner);
 
             case ClipPlatform.Linux:
-                return CreateLinux(probe, primary, out error);
+                return CreateLinux(probe, primary, runner, out error);
 
             default:
                 error = "clip: unsupported platform.";
@@ -39,10 +42,9 @@ public static class ClipboardBackendFactory
         }
     }
 
-    private static IClipboardBackend? CreateLinux(IPlatformProbe probe, bool primary, out string? error)
+    private static IClipboardBackend? CreateLinux(IPlatformProbe probe, bool primary, IProcessRunner runner, out string? error)
     {
         error = null;
-        var runner = new DefaultProcessRunner();
 
         bool wayland = !string.IsNullOrEmpty(probe.GetEnv("WAYLAND_DISPLAY"));
 
