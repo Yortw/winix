@@ -26,7 +26,8 @@ public sealed class DefaultPlatformProbe : IPlatformProbe
 
         char sep = Path.PathSeparator;
         bool isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
-        string[] exts = isWindows
+        bool hasExt = Path.HasExtension(binary);
+        string[] exts = isWindows && !hasExt
             ? (Environment.GetEnvironmentVariable("PATHEXT") ?? ".EXE;.CMD;.BAT").Split(';', StringSplitOptions.RemoveEmptyEntries)
             : new[] { "" };
 

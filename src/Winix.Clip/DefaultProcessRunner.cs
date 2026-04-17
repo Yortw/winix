@@ -25,16 +25,19 @@ public sealed class DefaultProcessRunner : IProcessRunner
         using var process = Process.Start(psi)
             ?? throw new ClipboardException($"failed to launch '{fileName}'");
 
+        // Start draining both pipes before writing stdin, otherwise a child that
+        // fills its stdout/stderr pipe buffer can deadlock waiting for a reader.
+        var stdoutTask = process.StandardOutput.ReadToEndAsync();
+        var stderrTask = process.StandardError.ReadToEndAsync();
+
         if (stdin is not null)
         {
             process.StandardInput.Write(stdin);
             process.StandardInput.Close();
         }
 
-        string stdout = process.StandardOutput.ReadToEnd();
-        string stderr = process.StandardError.ReadToEnd();
         process.WaitForExit();
 
-        return new ProcessRunResult(process.ExitCode, stdout, stderr);
+        return new ProcessRunResult(process.ExitCode, stdoutTask.Result, stderrTask.Result);
     }
 }

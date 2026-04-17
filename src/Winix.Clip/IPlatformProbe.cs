@@ -12,7 +12,11 @@ public interface IPlatformProbe
     /// <summary>Returns the value of the named environment variable, or <c>null</c> if unset.</summary>
     string? GetEnv(string name);
 
-    /// <summary>Returns true if <paramref name="binary"/> is found on <c>PATH</c>.</summary>
+    /// <summary>
+    /// Returns true if <paramref name="binary"/> is found on <c>PATH</c>.
+    /// On Windows, bare names are expanded via <c>PATHEXT</c>; names with an
+    /// explicit extension (e.g. <c>wl-copy.exe</c>) are matched literally.
+    /// </summary>
     bool HasBinary(string binary);
 }
 
