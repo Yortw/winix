@@ -1,0 +1,103 @@
+.TH CLIP 1 "2026-04-17" "Winix" "User Commands"
+.SH NAME
+clip \- cross-platform clipboard bridge
+
+.SH SYNOPSIS
+.B clip
+[\fIOPTIONS\fR]
+.br
+\fIcommand\fR | \fBclip\fR
+.br
+.B clip
+\fB--clear\fR
+
+.SH DESCRIPTION
+.B clip
+reads from and writes to the system clipboard with identical behaviour on Windows, macOS, and Linux.
+With no arguments and a terminal stdin, it pastes the clipboard to stdout.
+With stdin redirected, it copies stdin to the clipboard.
+Explicit \fB--copy\fR and \fB--paste\fR flags override autodetection.
+
+.SH OPTIONS
+.TP
+.BR \-c ", " \-\-copy
+Force copy mode regardless of stdin state.
+.TP
+.BR \-p ", " \-\-paste
+Force paste mode regardless of stdin state.
+.TP
+.B \-\-clear
+Empty the clipboard and exit.
+.TP
+.BR \-r ", " \-\-raw
+Do not strip the trailing newline on paste.
+.TP
+.B \-\-primary
+Target the X11/Wayland PRIMARY selection on Linux. Silently ignored elsewhere.
+.TP
+.B \-\-color " " \fIWHEN\fR
+\fBauto\fR, \fBalways\fR, or \fBnever\fR. Respects \fBNO_COLOR\fR.
+.TP
+.B \-\-describe
+Emit structured JSON for AI discoverability.
+.TP
+.BR \-h ", " \-\-help
+Show help and exit.
+.TP
+.B \-\-version
+Show version and exit.
+
+.SH NEWLINE HANDLING
+Copy is byte-preserving. Paste strips exactly one trailing \fB\\n\fR or \fB\\r\\n\fR by default to match \fB$(...)\fR shell-substitution semantics. Pass \fB--raw\fR to disable the strip.
+
+.SH EXIT STATUS
+.TP
+.B 0
+Success. Empty clipboard on paste also returns 0 with empty stdout.
+.TP
+.B 125
+Invalid flags, conflicting modes, or invalid UTF-8 input.
+.TP
+.B 126
+Clipboard busy (Windows) or helper binary failed (Linux/macOS).
+.TP
+.B 127
+No clipboard helper found on Linux (install \fBwl-clipboard\fR, \fBxclip\fR, or \fBxsel\fR).
+
+.SH EXAMPLES
+Paste:
+.RS
+.nf
+clip
+.fi
+.RE
+
+Copy:
+.RS
+.nf
+echo hello | clip
+.fi
+.RE
+
+Clear:
+.RS
+.nf
+clip --clear
+.fi
+.RE
+
+.SH ENVIRONMENT
+.TP
+.B WAYLAND_DISPLAY
+On Linux, if set, clip prefers \fBwl-copy\fR/\fBwl-paste\fR over X11 helpers.
+.TP
+.B NO_COLOR
+Disables colour output (clip has no colour itself; flag accepted for suite consistency).
+
+.SH SEE ALSO
+.BR pbcopy (1),
+.BR pbpaste (1),
+.BR xclip (1),
+.BR xsel (1),
+.BR wl-copy (1),
+.BR wl-paste (1)
