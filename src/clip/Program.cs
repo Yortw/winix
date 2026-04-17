@@ -10,6 +10,17 @@ internal sealed class Program
     static int Main(string[] args)
     {
         ConsoleEnv.EnableAnsiIfNeeded();
+
+        // Force UTF-8 on the console streams so non-ASCII clipboard content (emoji,
+        // CJK, accented letters) round-trips through a Windows cmd.exe terminal.
+        // On Windows this calls SetConsoleCP/SetConsoleOutputCP(65001). On *nix the
+        // setters are effectively no-ops (the console is already UTF-8). Doesn't
+        // rescue the cmd.exe `echo X | clip` path — cmd replaces non-OEM chars
+        // with `?` BEFORE piping — users still need `chcp 65001` for that case.
+        // But it does fix the display side when clip's paste output reaches a
+        // terminal with a non-UTF-8 code page.
+        TrySetConsoleEncoding(Encoding.UTF8);
+
         string version = GetVersion();
 
         var parser = new CommandLineParser("clip", version)
@@ -132,5 +143,15 @@ internal sealed class Program
         string raw = attr?.InformationalVersion ?? "0.0.0";
         int plus = raw.IndexOf('+');
         return plus >= 0 ? raw[..plus] : raw;
+    }
+
+    private static void TrySetConsoleEncoding(Encoding encoding)
+    {
+        // Both setters can throw IOException when the underlying handle rejects
+        // a code-page change (unusual redirection chains, locked down containers).
+        // Failing silently is fine — worst case is a terminal decoding our UTF-8
+        // output in its native code page, which is the same as pre-fix behaviour.
+        try { Console.OutputEncoding = encoding; } catch (IOException) { }
+        try { Console.InputEncoding = encoding; } catch (IOException) { }
     }
 }

@@ -87,6 +87,27 @@ clip -p
 
 `cmd.exe`, PowerShell, and Windows Terminal's native consoles do not have this quirk — bare `clip` pastes correctly there.
 
+## Unicode and `cmd.exe` on Windows
+
+`clip` stores text on the clipboard as UTF-16 (via `CF_UNICODETEXT`) and reads/writes stdin/stdout as UTF-8. Non-ASCII content (emoji, CJK, accented letters) round-trips correctly when the shell and terminal agree on UTF-8.
+
+Legacy `cmd.exe` defaults to an OEM code page (usually 437 or 850). In that mode:
+
+- **Copy via pipe:** `echo 🌏 | clip` does **not** work — `echo` itself replaces the emoji with `?` **before** the bytes reach `clip`. Confirm with `echo 🌏 > test.txt; type test.txt` (no clip involved).
+- **Paste to terminal:** `clip` writes UTF-8 bytes to stdout; `clip` also asks the console to switch to code page 65001 so those bytes render correctly. Older tooling that hasn't followed this may still mojibake, but the clipboard is correct.
+
+**Fixes for cmd.exe emoji round-trip:**
+
+```
+chcp 65001
+echo 🌏 | clip.exe
+clip.exe
+```
+
+Or use PowerShell 7+, Windows Terminal, or Git Bash — all three default to UTF-8. (Git Bash has a separate stdin quirk — see above.)
+
+Copying via Ctrl+C from any GUI app (browser, Word, VS Code) into `clip` via paste always works — no shell is involved.
+
 ## Options
 
 | Option | Description |
