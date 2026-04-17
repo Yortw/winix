@@ -37,8 +37,11 @@ public static class NanoidAlphabetExtensions
 
     private static readonly char[] UpperChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".ToCharArray();
 
-    /// <summary>Returns the character set for the specified alphabet.</summary>
-    public static char[] ToChars(this NanoidAlphabet alphabet) => alphabet switch
+    /// <summary>
+    /// Returns the character set for the specified alphabet as a read-only span.
+    /// Callers must not cache or copy into mutable storage — the backing array is shared.
+    /// </summary>
+    public static ReadOnlySpan<char> ToChars(this NanoidAlphabet alphabet) => alphabet switch
     {
         NanoidAlphabet.UrlSafe => UrlSafeChars,
         NanoidAlphabet.Alphanum => AlphanumChars,

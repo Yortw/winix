@@ -16,8 +16,8 @@ public sealed record IdsOptions(
     bool Version,
     bool Describe)
 {
-    /// <summary>Default option values used when flags are omitted.</summary>
-    public static IdsOptions Defaults => new(
+    /// <summary>Default option values used when flags are omitted. Shared singleton — safe because the record is immutable.</summary>
+    public static readonly IdsOptions Defaults = new(
         Type: IdType.Uuid7,
         Count: 1,
         Length: 21,
