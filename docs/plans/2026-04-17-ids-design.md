@@ -173,7 +173,7 @@ Future: `digest` will add hex, base64, more encoders plus `ConstantTimeEquals(Re
 
 - **`Uuid4Generator`:** `Formatting.FormatGuid(Guid.NewGuid(), opts.Format, opts.Uppercase)`. Uses OS CSPRNG via BCL. Stateless.
 
-- **`Uuid7Generator`:** `Formatting.FormatGuid(Guid.CreateVersion7(), opts.Format, opts.Uppercase)`. .NET 10's native implementation packs Unix ms timestamp + version/variant bits + CSPRNG bytes, and maintains an internal monotonic counter so successive calls within the same ms stay in generation order. Stateless to callers.
+- **`Uuid7Generator`:** wraps `Guid.CreateVersion7()` with an application-level monotonicity guard. Despite what earlier drafts of this design claimed, **.NET 10's `Guid.CreateVersion7()` does NOT guarantee intra-ms monotonicity** — successive calls re-randomise the sub-timestamp bits and can produce descending values. Empirically verified: without a guard, the test `Generate_1000SequentialCalls_AreMonotonicallyOrdered` fails at iteration 1. The generator holds a `_last` field behind a lock; if a fresh candidate compares ≤ `_last` in canonical big-endian byte order (`Guid.TryWriteBytes(..., bigEndian: true)` + `SequenceCompareTo`), we increment `_last` by 1 as a 128-bit integer and return that. Allocation-free on the hot path.
 
 - **`UlidGenerator`:** hand-rolled, ~45 lines, monotonic within the same ms.
   1. Read `ISystemClock.UnixMsNow()` → 48-bit big-endian timestamp (6 bytes).
@@ -182,7 +182,7 @@ Future: `digest` will add hex, base64, more encoders plus `ConstantTimeEquals(Re
      - Else: `_lastMs = ms`; `_random.Fill(_lastRandom)`.
   3. Concatenate `ms (6 bytes)` + `_lastRandom (10 bytes)` → 16 bytes → `Base32Crockford.Encode` → 26 uppercase chars.
 
-  **Monotonicity guarantee:** within the same millisecond, generation order equals sort order. Matches UUID v7's built-in monotonic counter so both time-ordered types behave consistently. Crucial for `ids --type ulid --count 1000 > ids.txt` producing a genuinely sorted file — without monotonicity, the ~1000 IDs generated within the first few ms bucket would sort by random portion, not generation order.
+  **Monotonicity guarantee:** within the same millisecond, generation order equals sort order. UUID v7 gets the same guarantee via the application-level guard in `Uuid7Generator`, so both time-ordered types behave consistently. Crucial for `ids --type ulid --count 1000 > ids.txt` producing a genuinely sorted file — without monotonicity, the ~1000 IDs generated within the first few ms bucket would sort by random portion, not generation order.
 
   **Thread safety:** lock is uncontended in CLI single-process usage. Library callers using the generator from multiple threads get correctness for free.
 
