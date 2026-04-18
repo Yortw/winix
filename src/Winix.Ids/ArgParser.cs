@@ -17,6 +17,12 @@ public static class ArgParser
     /// Parse result: success (<see cref="Options"/> populated), usage error
     /// (<see cref="Error"/> populated), or ShellKit-handled (<see cref="IsHandled"/>).
     /// </summary>
+    /// <remarks>
+    /// <see cref="Error"/> is a bare message (no tool-name prefix) — the caller
+    /// should pass it through <c>ParseResult.WriteError</c> which prepends
+    /// <c>"ids: "</c> automatically, consistent with how ShellKit formats its own
+    /// parse errors.
+    /// </remarks>
     public sealed record Result(
         IdsOptions? Options,
         string? Error,
@@ -38,6 +44,17 @@ public static class ArgParser
         var parser = BuildParser();
         var parsed = parser.Parse(argv);
 
+        // Resolve colour once — we need it in every return path, including error paths
+        // so that `ids --color --type bad` still produces coloured error output.
+        bool useColor = parsed.ResolveColor(checkStdErr: false);
+
+        Result Fail(string error) => new(
+            Options: null,
+            Error: error,
+            IsHandled: false,
+            HandledExitCode: 0,
+            UseColor: useColor);
+
         if (parsed.IsHandled)
         {
             return new Result(
@@ -45,7 +62,7 @@ public static class ArgParser
                 Error: null,
                 IsHandled: true,
                 HandledExitCode: parsed.ExitCode,
-                UseColor: parsed.ResolveColor(checkStdErr: false));
+                UseColor: useColor);
         }
 
         if (parsed.HasErrors)
@@ -67,12 +84,12 @@ public static class ArgParser
             string raw = parsed.GetString("--count");
             if (!int.TryParse(raw, out count))
             {
-                return Fail($"ids: --count must be an integer (got '{raw}')");
+                return Fail($"--count must be an integer (got '{raw}')");
             }
 
             if (count < 1)
             {
-                return Fail("ids: --count must be ≥ 1");
+                return Fail("--count must be ≥ 1");
             }
         }
 
@@ -83,12 +100,12 @@ public static class ArgParser
             string raw = parsed.GetString("--length");
             if (!int.TryParse(raw, out length))
             {
-                return Fail($"ids: --length must be an integer (got '{raw}')");
+                return Fail($"--length must be an integer (got '{raw}')");
             }
 
             if (length < 1)
             {
-                return Fail("ids: --length must be ≥ 1");
+                return Fail("--length must be ≥ 1");
             }
         }
 
@@ -121,27 +138,27 @@ public static class ArgParser
 
         if (!isNanoid && parsed.Has("--length"))
         {
-            return Fail("ids: --length only applies to --type nanoid");
+            return Fail("--length only applies to --type nanoid");
         }
 
         if (!isNanoid && parsed.Has("--alphabet"))
         {
-            return Fail("ids: --alphabet only applies to --type nanoid");
+            return Fail("--alphabet only applies to --type nanoid");
         }
 
         if (!isUuid && parsed.Has("--format"))
         {
-            return Fail("ids: --format only applies to --type uuid4 or uuid7");
+            return Fail("--format only applies to --type uuid4 or uuid7");
         }
 
         if (uppercase && type == IdType.Ulid)
         {
-            return Fail("ids: ULID output is already uppercase");
+            return Fail("ULID output is already uppercase");
         }
 
         if (uppercase && type == IdType.Nanoid)
         {
-            return Fail("ids: use --alphabet upper for uppercase NanoID");
+            return Fail("use --alphabet upper for uppercase NanoID");
         }
 
         var options = new IdsOptions(
@@ -161,13 +178,8 @@ public static class ArgParser
             Error: null,
             IsHandled: false,
             HandledExitCode: 0,
-            UseColor: parsed.ResolveColor(checkStdErr: false));
+            UseColor: useColor);
     }
-
-    // --- helpers ---
-
-    private static Result Fail(string error) =>
-        new(Options: null, Error: error, IsHandled: false, HandledExitCode: 0, UseColor: false);
 
     private static CommandLineParser BuildParser()
     {
@@ -204,7 +216,7 @@ public static class ArgParser
                 return true;
             default:
                 type = default;
-                error = $"ids: unknown --type '{value}' (expected: uuid4, uuid7, ulid, nanoid)";
+                error = $"unknown --type '{value}' (expected: uuid4, uuid7, ulid, nanoid)";
                 return false;
         }
     }
@@ -231,7 +243,7 @@ public static class ArgParser
                 return true;
             default:
                 alphabet = default;
-                error = $"ids: unknown --alphabet '{value}' (expected: url-safe, alphanum, hex, lower, upper)";
+                error = $"unknown --alphabet '{value}' (expected: url-safe, alphanum, hex, lower, upper)";
                 return false;
         }
     }
@@ -255,7 +267,7 @@ public static class ArgParser
                 return true;
             default:
                 format = default;
-                error = $"ids: unknown --format '{value}' (expected: default, hex, braces, urn)";
+                error = $"unknown --format '{value}' (expected: default, hex, braces, urn)";
                 return false;
         }
     }

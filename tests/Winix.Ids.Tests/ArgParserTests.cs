@@ -16,6 +16,19 @@ public class ArgParserTests
         Assert.True(r.Success);
         Assert.Equal(IdType.Uuid7, r.Options!.Type);
         Assert.Equal(1, r.Options.Count);
+        Assert.Equal(21, r.Options.Length);
+        Assert.Equal(NanoidAlphabet.UrlSafe, r.Options.Alphabet);
+        Assert.Equal(UuidFormat.Default, r.Options.Format);
+        Assert.False(r.Options.Uppercase);
+        Assert.False(r.Options.Json);
+    }
+
+    [Fact]
+    public void Parse_JsonFlag_SetsJson()
+    {
+        var r = ArgParser.Parse(new[] { "--json" });
+        Assert.True(r.Success);
+        Assert.True(r.Options!.Json);
     }
 
     [Theory]
