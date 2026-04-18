@@ -13,12 +13,22 @@ public sealed class NanoidGenerator : IIdGenerator
     private readonly ISecureRandom _random;
 
     /// <summary>Constructs a new generator with an injectable random source.</summary>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="random"/> is null.</exception>
     public NanoidGenerator(ISecureRandom random)
     {
+        ArgumentNullException.ThrowIfNull(random);
         _random = random;
     }
 
-    /// <inheritdoc />
+    /// <summary>
+    /// Generates a NanoID of <see cref="IdsOptions.Length"/> characters drawn from
+    /// <see cref="IdsOptions.Alphabet"/>. Uses per-byte rejection sampling: one CSPRNG
+    /// byte per attempt, masked to the next power of two, retried if the masked value
+    /// lands outside the alphabet. Expected iterations are <c>Length × (nextPow2 / alphabetSize)</c>
+    /// — at most ~1.78× for the named alphabets (Lower/Upper at 36 chars), so the
+    /// loop always terminates in bounded expected time. Thread-safe if the injected
+    /// <see cref="ISecureRandom"/> is thread-safe.
+    /// </summary>
     public string Generate(IdsOptions options)
     {
         ReadOnlySpan<char> alphabet = options.Alphabet.ToChars();

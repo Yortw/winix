@@ -37,8 +37,11 @@ public sealed class UlidGenerator : IIdGenerator
     private readonly byte[] _lastRandom = new byte[10];
 
     /// <summary>Constructs a new generator with injectable random and clock sources.</summary>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="random"/> or <paramref name="clock"/> is null.</exception>
     public UlidGenerator(ISecureRandom random, ISystemClock clock)
     {
+        ArgumentNullException.ThrowIfNull(random);
+        ArgumentNullException.ThrowIfNull(clock);
         _random = random;
         _clock = clock;
     }
