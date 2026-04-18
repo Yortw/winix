@@ -11,10 +11,7 @@ public sealed record IdsOptions(
     NanoidAlphabet Alphabet,
     UuidFormat Format,
     bool Uppercase,
-    bool Json,
-    bool Help,
-    bool Version,
-    bool Describe)
+    bool Json)
 {
     /// <summary>Default option values used when flags are omitted. Shared singleton — safe because the record is immutable.</summary>
     public static readonly IdsOptions Defaults = new(
@@ -24,8 +21,5 @@ public sealed record IdsOptions(
         Alphabet: NanoidAlphabet.UrlSafe,
         Format: UuidFormat.Default,
         Uppercase: false,
-        Json: false,
-        Help: false,
-        Version: false,
-        Describe: false);
+        Json: false);
 }

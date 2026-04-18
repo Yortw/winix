@@ -168,10 +168,7 @@ public static class ArgParser
             Alphabet: alphabet,
             Format: format,
             Uppercase: uppercase,
-            Json: json,
-            Help: false,
-            Version: false,
-            Describe: false);
+            Json: json);
 
         return new Result(
             Options: options,
@@ -183,12 +180,34 @@ public static class ArgParser
 
     private static CommandLineParser BuildParser()
     {
-        // Version string — for now, hardcode "0.3.0" (matches Directory.Build.props).
-        // Task 11 will establish the reflection-based VersionInfo pattern; until then
-        // a literal avoids blocking this task on that.
+        // Version string — hardcoded to match Directory.Build.props until reflection-based
+        // VersionInfo is established in a later task.
         return new CommandLineParser("ids", "0.3.0")
             .Description("Cross-platform identifier generator — UUID v4, UUID v7, ULID, NanoID.")
             .StandardFlags()
+            .Platform("cross-platform",
+                replaces: new[] { "uuidgen" },
+                valueOnWindows: "Replaces the slow PowerShell `[guid]::NewGuid()` and adds UUID v7, ULID, NanoID support absent from the Windows platform.",
+                valueOnUnix: "Adds UUID v7, ULID, and NanoID which `uuidgen` (v1/v4-only on Linux, v4-only on macOS) cannot produce.")
+            .ExitCodes(
+                (0, "Success"),
+                (ExitCode.UsageError, "Usage error: bad flags, unknown value, or flag/type mismatch"),
+                (ExitCode.NotExecutable, "Internal error"))
+            .StdinDescription("Not used")
+            .StdoutDescription("One identifier per line (plain), or a JSON array (--json)")
+            .StderrDescription("Errors on invalid input; empty on success")
+            .Example("ids", "Generate one UUID v7 (default)")
+            .Example("ids --type ulid --count 100", "100 time-ordered ULIDs, one per line")
+            .Example("ids --type nanoid --length 12", "A 12-char URL-safe NanoID")
+            .Example("ids --type uuid7 --format braces --uppercase", "Windows-registry-style braced uppercase GUID")
+            .Example("ids --type nanoid --alphabet hex --length 16", "Short random hex token")
+            .Example("ids --count 5 --json", "Five UUID v7 IDs as a JSON array")
+            .ComposesWith("clip", "ids | clip", "Generate an ID and copy it to the clipboard")
+            .ComposesWith("xargs", "ids --type nanoid --count 5 | xargs -I{} curl http://host/{}", "Feed generated IDs into another command")
+            .JsonField("id", "string", "The generated identifier")
+            .JsonField("type", "string", "ID type: uuid4, uuid7, ulid, nanoid")
+            .JsonField("length", "int", "(nanoid only) output length")
+            .JsonField("alphabet", "string", "(nanoid only) alphabet name: url-safe, alphanum, hex, lower, upper")
             .Option("--type", "-t", "TYPE", "Identifier type: uuid4, uuid7, ulid, nanoid (default: uuid7)")
             .Option("--count", "-n", "N", "Number of IDs to generate (default: 1)")
             .Option("--length", "-l", "N", "NanoID length (default: 21, nanoid only)")

@@ -1,4 +1,7 @@
 using System;
+using System.IO;
+using System.Text;
+using System.Text.Json;
 
 namespace Winix.Ids;
 
@@ -30,5 +33,49 @@ public static class Formatting
         }
 
         return format == UuidFormat.Urn ? $"urn:uuid:{hex}" : hex;
+    }
+
+    /// <summary>
+    /// Emits a single JSON object representing a generated identifier, including
+    /// type-specific metadata (<c>length</c> and <c>alphabet</c> for NanoID, omitted for others).
+    /// The console app wraps multiple elements into an array for <c>--json</c> output.
+    /// </summary>
+    /// <param name="id">The generated identifier string.</param>
+    /// <param name="options">The active options; used to populate type and NanoID metadata fields.</param>
+    /// <returns>A UTF-8 JSON object string with at minimum <c>id</c> and <c>type</c> fields.</returns>
+    public static string JsonElementFor(string id, IdsOptions options)
+    {
+        using var buffer = new MemoryStream();
+        using (var w = new Utf8JsonWriter(buffer))
+        {
+            w.WriteStartObject();
+            w.WriteString("id", id);
+            w.WriteString("type", options.Type switch
+            {
+                IdType.Uuid4  => "uuid4",
+                IdType.Uuid7  => "uuid7",
+                IdType.Ulid   => "ulid",
+                IdType.Nanoid => "nanoid",
+                _ => throw new ArgumentOutOfRangeException(nameof(options), options.Type, null),
+            });
+
+            if (options.Type == IdType.Nanoid)
+            {
+                w.WriteNumber("length", options.Length);
+                w.WriteString("alphabet", options.Alphabet switch
+                {
+                    NanoidAlphabet.UrlSafe  => "url-safe",
+                    NanoidAlphabet.Alphanum => "alphanum",
+                    NanoidAlphabet.Hex      => "hex",
+                    NanoidAlphabet.Lower    => "lower",
+                    NanoidAlphabet.Upper    => "upper",
+                    _ => throw new ArgumentOutOfRangeException(nameof(options), options.Alphabet, null),
+                });
+            }
+
+            w.WriteEndObject();
+        }
+
+        return Encoding.UTF8.GetString(buffer.ToArray());
     }
 }
