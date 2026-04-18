@@ -15,9 +15,13 @@ public class UlidGeneratorTests
     [Fact]
     public void Generate_DeterministicInputs_ProducesKnownOutput()
     {
-        // ms = 42 → 6-byte big-endian timestamp 0x00_00_00_00_00_2A.
-        // 10 random bytes all 0x00 → the whole 16-byte payload is mostly zero
-        // with a single 0x2A at position 5.
+        // ms=42 → 6-byte big-endian timestamp 0x00_00_00_00_00_2A.
+        // 10 random bytes all 0x00 → 10 zero random bytes.
+        // Under the canonical ULID encoding (leading 2 zero pad bits + 128 payload
+        // bits = 130 bits → 26 × 5-bit groups), ms=42=0x2A encodes as "000000001A"
+        // (where '1' = value 1, 'A' = value 10 in Crockford base32), followed by
+        // 16 zero chars for the random portion. Any bit-packing, endianness, or
+        // padding-placement regression would change this string.
         var clock = new FakeSystemClock { CurrentMs = 42 };
         var random = new FakeSecureRandom(
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00);
@@ -25,9 +29,7 @@ public class UlidGeneratorTests
 
         var id = gen.Generate(Opts);
 
-        // Shape check: 26 uppercase Crockford base32 chars.
-        Assert.Equal(26, id.Length);
-        Assert.Matches("^[0-9A-Z]{26}$", id);
+        Assert.Equal("000000001A0000000000000000", id);
     }
 
     [Fact]
@@ -72,6 +74,32 @@ public class UlidGeneratorTests
         // common random suffix. (A coarse shape test — exact byte assertion is the
         // deterministic-input test above.)
         Assert.NotEqual(first[10..], second[10..]);
+    }
+
+    [Fact]
+    public void Generate_ClockGoesBackward_ClampsToLastMs()
+    {
+        // Simulates NTP correction / VM snapshot / DST bug — clock returns an
+        // earlier timestamp after an ID has already been issued at a later one.
+        // The generator must clamp to the prior timestamp and route through the
+        // increment branch so monotonicity holds.
+        var clock = new FakeSystemClock { CurrentMs = 1000 };
+        var random = new FakeSecureRandom();
+        for (int i = 0; i < 10; i++) random.Enqueue(0x00);
+        var gen = new UlidGenerator(random, clock);
+
+        var first = gen.Generate(Opts);
+
+        // Clock jumps backward by 500ms. If the guard is missing, the generator
+        // would set _lastMs to the lower value, re-fill random, and emit an ID
+        // with a smaller timestamp prefix — breaking sort order. With the guard,
+        // ms is clamped and the increment path fires; no additional random bytes
+        // are requested (FakeSecureRandom would throw if they were).
+        clock.CurrentMs = 500;
+        var second = gen.Generate(Opts);
+
+        Assert.True(string.CompareOrdinal(first, second) < 0,
+            $"clock skew broke monotonicity: first={first}, second={second}");
     }
 
     [Fact]
