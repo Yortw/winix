@@ -10,6 +10,7 @@ internal sealed class Program
     static int Main(string[] args)
     {
         ConsoleEnv.EnableAnsiIfNeeded();
+        ConsoleEnv.UseUtf8Streams();
         string version = GetVersion();
 
         var parser = new CommandLineParser("treex", version)

@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Text;
 using Winix.Ids;
 using Yort.ShellKit;
 
@@ -11,12 +10,7 @@ internal sealed class Program
     static int Main(string[] args)
     {
         ConsoleEnv.EnableAnsiIfNeeded();
-
-        // Force UTF-8 on the console streams so non-ASCII output (em-dash in
-        // --describe, future non-ASCII in --json) round-trips through a Windows
-        // cmd.exe pipe. On Windows this calls SetConsoleCP/SetConsoleOutputCP(65001).
-        // On *nix the setters are effectively no-ops. Same pattern as src/clip/Program.cs.
-        TrySetConsoleEncoding(Encoding.UTF8);
+        ConsoleEnv.UseUtf8Streams();
 
         var r = ArgParser.Parse(args);
 
@@ -81,13 +75,4 @@ internal sealed class Program
         }
     }
 
-    private static void TrySetConsoleEncoding(Encoding encoding)
-    {
-        // Both setters can throw IOException when the underlying handle rejects
-        // a code-page change (unusual redirection chains, locked down containers).
-        // Failing silently is fine — worst case is a terminal decoding our UTF-8
-        // output in its native code page, which is the same as pre-fix behaviour.
-        try { Console.OutputEncoding = encoding; } catch (IOException) { }
-        try { Console.InputEncoding = encoding; } catch (IOException) { }
-    }
 }
