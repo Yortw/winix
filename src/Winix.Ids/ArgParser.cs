@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Reflection;
 using Yort.ShellKit;
 
 namespace Winix.Ids;
@@ -22,6 +23,11 @@ public static class ArgParser
     /// should pass it through <c>ParseResult.WriteError</c> which prepends
     /// <c>"ids: "</c> automatically, consistent with how ShellKit formats its own
     /// parse errors.
+    /// <para/>
+    /// <see cref="UseColor"/> is resolved from <c>--color</c>/<c>--no-color</c>
+    /// flags, <c>NO_COLOR</c>, and terminal detection. Currently unused by <c>ids</c>
+    /// (output is plain) but included on the result so the console app honours the
+    /// user's preference if coloured output is added later.
     /// </remarks>
     public sealed record Result(
         IdsOptions? Options,
@@ -180,9 +186,7 @@ public static class ArgParser
 
     private static CommandLineParser BuildParser()
     {
-        // Version string — hardcoded to match Directory.Build.props until reflection-based
-        // VersionInfo is established in a later task.
-        return new CommandLineParser("ids", "0.3.0")
+        return new CommandLineParser("ids", ResolveVersion())
             .Description("Cross-platform identifier generator — UUID v4, UUID v7, ULID, NanoID.")
             .StandardFlags()
             .Platform("cross-platform",
@@ -213,6 +217,19 @@ public static class ArgParser
             .Option("--alphabet", null, "ALPHA", "NanoID alphabet: url-safe, alphanum, hex, lower, upper (nanoid only)")
             .Option("--format", null, "FORMAT", "UUID shape: default, hex, braces, urn (uuid only)")
             .Flag("--uppercase", "-u", "Uppercase UUID hex output");
+    }
+
+    private static string ResolveVersion()
+    {
+        // Read the assembly's InformationalVersion attribute — the release pipeline
+        // injects this via /p:Version=X.Y.Z at publish time. Strip the "+<gitsha>"
+        // build-metadata suffix SourceLink appends so --version output stays clean.
+        // AOT-safe: GetCustomAttribute<T>() with a statically-known T is trim-friendly.
+        string raw = typeof(ArgParser).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+            ?.InformationalVersion ?? "0.0.0";
+        int plus = raw.IndexOf('+');
+        return plus >= 0 ? raw[..plus] : raw;
     }
 
     private static bool TryParseType(string value, out IdType type, out string error)
