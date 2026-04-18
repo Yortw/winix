@@ -1,7 +1,5 @@
 using System;
-using System.IO;
-using System.Text;
-using System.Text.Json;
+using Yort.ShellKit;
 
 namespace Winix.Ids;
 
@@ -45,8 +43,11 @@ public static class Formatting
     /// <returns>A UTF-8 JSON object string with at minimum <c>id</c> and <c>type</c> fields.</returns>
     public static string JsonElementFor(string id, IdsOptions options)
     {
-        using var buffer = new MemoryStream();
-        using (var w = new Utf8JsonWriter(buffer))
+        // Uses the shared JsonHelper so escaping (UnsafeRelaxedJsonEscaping) matches every
+        // other Winix tool's JSON output. Keep in sync with TryParseAlphabet in ArgParser
+        // if alphabets are added.
+        var (w, buffer) = JsonHelper.CreateWriter();
+        using (w)
         {
             w.WriteStartObject();
             w.WriteString("id", id);
@@ -76,6 +77,6 @@ public static class Formatting
             w.WriteEndObject();
         }
 
-        return Encoding.UTF8.GetString(buffer.ToArray());
+        return JsonHelper.GetString(buffer);
     }
 }

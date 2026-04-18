@@ -191,8 +191,7 @@ public static class ArgParser
                 valueOnUnix: "Adds UUID v7, ULID, and NanoID which `uuidgen` (v1/v4-only on Linux, v4-only on macOS) cannot produce.")
             .ExitCodes(
                 (0, "Success"),
-                (ExitCode.UsageError, "Usage error: bad flags, unknown value, or flag/type mismatch"),
-                (ExitCode.NotExecutable, "Internal error"))
+                (ExitCode.UsageError, "Usage error: bad flags, unknown value, or flag/type mismatch"))
             .StdinDescription("Not used")
             .StdoutDescription("One identifier per line (plain), or a JSON array (--json)")
             .StderrDescription("Errors on invalid input; empty on success")
