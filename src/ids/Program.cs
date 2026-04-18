@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using Winix.Ids;
 using Yort.ShellKit;
 
@@ -53,6 +54,15 @@ internal sealed class Program
                 }
             }
 
+            return ExitCode.Success;
+        }
+        catch (IOException)
+        {
+            // Downstream reader closed the pipe (e.g. `ids --count 10000 | head -5`).
+            // Not an error on our side — exit silently with success. For --json, this
+            // may leave the consumer with a truncated array; that's inherent to
+            // streaming output and the alternative (buffer the full array) doesn't
+            // scale to arbitrary --count.
             return ExitCode.Success;
         }
         catch (Exception ex)
