@@ -48,6 +48,6 @@ public static class NanoidAlphabetExtensions
         NanoidAlphabet.Hex => HexChars,
         NanoidAlphabet.Lower => LowerChars,
         NanoidAlphabet.Upper => UpperChars,
-        _ => throw new ArgumentOutOfRangeException(nameof(alphabet)),
+        _ => throw new ArgumentOutOfRangeException(nameof(alphabet), alphabet, null),
     };
 }

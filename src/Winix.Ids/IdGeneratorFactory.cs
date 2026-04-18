@@ -17,6 +17,6 @@ public static class IdGeneratorFactory
         IdType.Uuid7  => new Uuid7Generator(),
         IdType.Ulid   => new UlidGenerator(SecureRandom.Default, SystemClock.Instance),
         IdType.Nanoid => new NanoidGenerator(SecureRandom.Default),
-        _ => throw new ArgumentOutOfRangeException(nameof(type)),
+        _ => throw new ArgumentOutOfRangeException(nameof(type), type, null),
     };
 }

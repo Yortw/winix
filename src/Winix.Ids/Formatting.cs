@@ -21,7 +21,7 @@ public static class Formatting
             UuidFormat.Hex     => "N",
             UuidFormat.Braces  => "B",
             UuidFormat.Urn     => "D",
-            _ => throw new ArgumentOutOfRangeException(nameof(format)),
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, null),
         });
 
         if (uppercase)
