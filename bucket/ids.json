@@ -1,0 +1,21 @@
+{
+  "version": "0.3.0",
+  "description": "Cross-platform identifier generator — UUID v4, UUID v7, ULID, NanoID.",
+  "homepage": "https://github.com/Yortw/winix",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/Yortw/winix/releases/download/v0.3.0/ids-win-x64.zip",
+      "hash": "",
+      "bin": "ids.exe"
+    }
+  },
+  "checkver": "github",
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/Yortw/winix/releases/download/v$version/ids-win-x64.zip"
+      }
+    }
+  }
+}
