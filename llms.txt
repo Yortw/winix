@@ -18,6 +18,7 @@ Cross-platform CLI tool suite for the gaps between Windows and *nix. Native bina
 - [nc](docs/ai/nc.md): Cross-platform netcat replacement — TCP/UDP send/receive, port checks (single/range/list), and TLS clients. Replaces verbose `Test-NetConnection` on Windows and normalises behaviour across BSD/GNU/ncat forks on Unix.
 - [retry](docs/ai/retry.md): Run a command with automatic retries, backoff, and exit-code filtering. Replaces ad-hoc shell retry loops.
 - [clip](docs/ai/clip.md): Cross-platform clipboard bridge — copy from stdin, paste to stdout, clear. Replaces the write-only Windows `clip.exe`, unifies Linux `xclip`/`xsel`/`wl-copy`, wraps macOS `pbcopy`/`pbpaste`.
+- [ids](docs/ai/ids.md): Generate identifiers — UUID v4, UUID v7, ULID, NanoID. Cross-platform successor to `uuidgen` with modern ID types (v7, ULID, NanoID) that existing tools can't produce.
 - [winix](docs/ai/winix.md): Installer and lifecycle manager for the Winix CLI tool suite. Installs, updates, and uninstalls all tools via your platform's native package manager.
 
 ## Key Features for AI Agents

@@ -1,0 +1,155 @@
+.TH IDS 1 "2026-04-18" "Winix" "User Commands"
+.SH NAME
+ids \- cross-platform identifier generator
+
+.SH SYNOPSIS
+.B ids
+[\fIOPTIONS\fR]
+
+.SH DESCRIPTION
+.B ids
+generates identifiers from four types: UUID v4, UUID v7 (default), ULID, and NanoID.
+It runs on Windows, Linux, and macOS as a single AOT-compiled native binary with no runtime dependency.
+Output is one ID per line by default; use \fB--json\fR for a JSON array.
+
+UUID v7 and ULID are time-ordered and monotonic within each millisecond, making them suitable as database primary keys.
+NanoID produces short, URL-safe strings with configurable length and alphabet.
+
+.SH OPTIONS
+.TP
+.BR \-t " " \fIT\fR ", " \-\-type " " \fIT\fR
+ID type to generate.
+Valid values: \fBuuid4\fR, \fBuuid7\fR (default), \fBulid\fR, \fBnanoid\fR.
+.TP
+.BR \-n " " \fIN\fR ", " \-\-count " " \fIN\fR
+Number of IDs to generate (default 1, must be \(>= 1).
+.TP
+.BR \-l " " \fIN\fR ", " \-\-length " " \fIN\fR
+Output length for NanoID (default 21, must be \(>= 1).
+Exit 125 if used with \fBuuid4\fR, \fBuuid7\fR, or \fBulid\fR.
+.TP
+.B \-\-alphabet " " \fIA\fR
+NanoID alphabet preset.
+Valid values: \fBurl-safe\fR (default, A\(enZa\(en z0\(en9_\(en), \fBalphanum\fR (A\(enZa\(enz0\(en9), \fBhex\fR (0\(en9a\(enf), \fBlower\fR (a\(enz0\(en9), \fBupper\fR (A\(enZ0\(en9).
+Exit 125 if used with \fBuuid4\fR, \fBuuid7\fR, or \fBulid\fR.
+.TP
+.B \-\-format " " \fIF\fR
+UUID output format.
+Valid values: \fBdefault\fR (hyphenated, lowercase), \fBhex\fR (32 hex chars, no hyphens), \fBbraces\fR (\fB{xxxxxxxx-\&...\&}\fR), \fBurn\fR (\fBurn:uuid:xxxxxxxx-\&...\&\fR).
+Exit 125 if used with \fBulid\fR or \fBnanoid\fR.
+.TP
+.BR \-u ", " \-\-uppercase
+Uppercase UUID output.
+Exit 125 if used with \fBulid\fR (already uppercase) or \fBnanoid\fR (use \fB--alphabet upper\fR instead).
+.TP
+.B \-\-json
+Emit a single JSON array to stdout.
+Each element has \fB"id"\fR and \fB"type"\fR fields.
+NanoID elements also include \fB"length"\fR and \fB"alphabet"\fR.
+.TP
+.B \-\-describe
+Emit structured JSON metadata for AI discoverability.
+.TP
+.B \-\-color " " \fIWHEN\fR
+\fBauto\fR, \fBalways\fR, or \fBnever\fR. Respects \fBNO_COLOR\fR.
+.TP
+.B \-\-no\-color
+Equivalent to \fB--color never\fR.
+.TP
+.BR \-h ", " \-\-help
+Show help and exit.
+.TP
+.BR \-v ", " \-\-version
+Show version and exit.
+
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 125
+Usage error \(em invalid flags, unknown type/format/alphabet value, flag/type mismatch, or count/length \(<= 0.
+
+.SH EXAMPLES
+Generate one UUID v7 (default):
+.RS
+.nf
+ids
+.fi
+.RE
+
+Generate a random UUID v4:
+.RS
+.nf
+ids --type uuid4
+.fi
+.RE
+
+Generate one ULID:
+.RS
+.nf
+ids --type ulid
+.fi
+.RE
+
+Generate five UUID v7s:
+.RS
+.nf
+ids --count 5
+.fi
+.RE
+
+Generate a 12-character hex NanoID:
+.RS
+.nf
+ids --type nanoid --length 12 --alphabet hex
+.fi
+.RE
+
+Windows-registry-style GUID (braces, uppercase):
+.RS
+.nf
+ids --type uuid7 --format braces --uppercase
+.fi
+.RE
+
+URN-prefixed UUID:
+.RS
+.nf
+ids --type uuid7 --format urn
+.fi
+.RE
+
+JSON array of three IDs:
+.RS
+.nf
+ids --count 3 --json
+.fi
+.RE
+
+Pipe an ID to the clipboard:
+.RS
+.nf
+ids | clip
+.fi
+.RE
+
+Verify monotonic ordering of 1000 ULIDs:
+.RS
+.nf
+ids --type ulid --count 1000 | sort -c
+.fi
+.RE
+
+.SH MONOTONICITY
+For time-ordered types (\fBuuid7\fR and \fBulid\fR), IDs generated within the same millisecond sort strictly in generation order.
+UUID v7 monotonicity is enforced with an application-level guard because .NET 10's \fBGuid.CreateVersion7()\fR does not guarantee intra-millisecond ordering on its own.
+
+.SH ENVIRONMENT
+.TP
+.B NO_COLOR
+Disables colour output. \fBids\fR output is plain; this flag is accepted for suite consistency.
+
+.SH SEE ALSO
+.BR uuidgen (1),
+.BR clip (1)
