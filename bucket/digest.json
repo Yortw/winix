@@ -1,0 +1,21 @@
+{
+  "version": "0.4.0",
+  "description": "Cross-platform cryptographic hashing and HMAC — SHA-2/SHA-3/BLAKE2b with safe key handling.",
+  "homepage": "https://github.com/Yortw/winix",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/Yortw/winix/releases/download/v0.4.0/digest-win-x64.zip",
+      "hash": "",
+      "bin": "digest.exe"
+    }
+  },
+  "checkver": "github",
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/Yortw/winix/releases/download/v$version/digest-win-x64.zip"
+      }
+    }
+  }
+}
