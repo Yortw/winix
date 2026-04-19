@@ -6,7 +6,7 @@
 
 **Architecture:** Three-project pattern: `Winix.Digest` class library (options, generators, parser, formatting), `digest` thin console app (parse → run → stdout → exit), `Winix.Digest.Tests` xUnit. Extends the existing `Winix.Codec` shared library with three files (Hex, Base64, ConstantTimeCompare) — the first extension since ids shipped it. All hash primitives from .NET BCL `System.Security.Cryptography` except BLAKE2b (via `Blake2Fast` NuGet, the first external crypto dep in Winix — see ADR §3). HMAC key resolution has four sources (env/file/stdin/literal) with the unsafe literal emitting a non-suppressible stderr warning. Positional arguments are always file paths (no auto-detect); literal-string hashing uses explicit `--string VALUE`.
 
-**Tech Stack:** .NET 10, AOT, xUnit, ShellKit (`CommandLineParser`, `ExitCode`, `ConsoleEnv`, `JsonHelper`), Winix.Codec (Crockford base32 + new Hex/Base64/ConstantTimeCompare), `Blake2Fast.Blake2b` NuGet package.
+**Tech Stack:** .NET 10, AOT, xUnit, ShellKit (`CommandLineParser`, `ExitCode`, `ConsoleEnv`, `JsonHelper`), Winix.Codec (Crockford base32 + new Hex/Base64/ConstantTimeCompare), `SauceControl.Blake2Fast` NuGet package (namespace `SauceControl.Blake2Fast`, class `Blake2b`).
 
 **Related:**
 - Design: `docs/plans/2026-04-19-digest-design.md`
@@ -41,7 +41,7 @@ Create the three new projects, add to solution, stub Program.cs. Add `Blake2Fast
   <ItemGroup>
     <ProjectReference Include="..\Yort.ShellKit\Yort.ShellKit.csproj" />
     <ProjectReference Include="..\Winix.Codec\Winix.Codec.csproj" />
-    <PackageReference Include="Blake2Fast" Version="2.*" />
+    <PackageReference Include="SauceControl.Blake2Fast" Version="2.*" />
   </ItemGroup>
 </Project>
 ```
@@ -796,7 +796,7 @@ Expected: `HashFactory` doesn't exist.
 using System;
 using System.IO;
 using System.Security.Cryptography;
-using Blake2Fast;
+using SauceControl.Blake2Fast;
 using CryptoAlgo = System.Security.Cryptography;
 
 namespace Winix.Digest;
@@ -1016,7 +1016,7 @@ Expected: compile error.
 using System;
 using System.IO;
 using System.Security.Cryptography;
-using Blake2Fast;
+using SauceControl.Blake2Fast;
 
 namespace Winix.Digest;
 
