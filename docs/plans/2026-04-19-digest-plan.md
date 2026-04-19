@@ -41,7 +41,7 @@ Create the three new projects, add to solution, stub Program.cs. Add `Blake2Fast
   <ItemGroup>
     <ProjectReference Include="..\Yort.ShellKit\Yort.ShellKit.csproj" />
     <ProjectReference Include="..\Winix.Codec\Winix.Codec.csproj" />
-    <PackageReference Include="SauceControl.Blake2Fast" Version="2.*" />
+    <PackageReference Include="SauceControl.Blake2Fast" Version="2.0.*" />
   </ItemGroup>
 </Project>
 ```
