@@ -6,7 +6,7 @@
 
 **Architecture:** Three-project pattern: `Winix.Digest` class library (options, generators, parser, formatting), `digest` thin console app (parse → run → stdout → exit), `Winix.Digest.Tests` xUnit. Extends the existing `Winix.Codec` shared library with three files (Hex, Base64, ConstantTimeCompare) — the first extension since ids shipped it. All hash primitives from .NET BCL `System.Security.Cryptography` except BLAKE2b (via `Blake2Fast` NuGet, the first external crypto dep in Winix — see ADR §3). HMAC key resolution has four sources (env/file/stdin/literal) with the unsafe literal emitting a non-suppressible stderr warning. Positional arguments are always file paths (no auto-detect); literal-string hashing uses explicit `--string VALUE`.
 
-**Tech Stack:** .NET 10, AOT, xUnit, ShellKit (`CommandLineParser`, `ExitCode`, `ConsoleEnv`, `JsonHelper`), Winix.Codec (Crockford base32 + new Hex/Base64/ConstantTimeCompare), `SauceControl.Blake2Fast` NuGet package (namespace `SauceControl.Blake2Fast`, class `Blake2b`).
+**Tech Stack:** .NET 10, AOT, xUnit, ShellKit (`CommandLineParser`, `ExitCode`, `ConsoleEnv`, `JsonHelper`), Winix.Codec (Crockford base32 + new Hex/Base64/ConstantTimeCompare), `SauceControl.Blake2Fast` NuGet package (namespace `Blake2Fast`, class `Blake2b`, incremental state is `Blake2bHashState` struct — confirmed at T4).
 
 **Related:**
 - Design: `docs/plans/2026-04-19-digest-design.md`
@@ -794,7 +794,7 @@ Expected: `HashFactory` doesn't exist.
 using System;
 using System.IO;
 using System.Security.Cryptography;
-using SauceControl.Blake2Fast;
+using Blake2Fast;
 using CryptoAlgo = System.Security.Cryptography;
 
 namespace Winix.Digest;
@@ -852,7 +852,12 @@ public static class HashFactory
 }
 ```
 
-**Verification note:** the exact `Blake2b.ComputeHash` / `Blake2b.CreateIncrementalHasher` / `IBlake2Incremental.Update`/`Finish` method names above are my best guess at the `Blake2Fast` API. **Before running tests, verify against the Blake2Fast NuGet docs on nuget.org** (search "Blake2Fast" → "readme") and adjust. If the API is different, update the `Blake2bHasher` implementation — the rest of the class is independent.
+**Verified API (confirmed at T4 implementation time):**
+- Namespace: `Blake2Fast` (not `SauceControl.Blake2Fast` — the package ID and namespace differ).
+- `Blake2b.ComputeHash(ReadOnlySpan<byte> input) → byte[]` (default 64-byte output).
+- `Blake2b.CreateIncrementalHasher() → Blake2bHashState` (a struct in `Blake2Fast.Implementation`).
+- `Blake2bHashState.Update<T>(ReadOnlySpan<T>) where T : unmanaged` and `.Finish() → byte[]`.
+- There's also `Blake2b.CreateHMAC(…)` returning `System.Security.Cryptography.HMAC` but it's less efficient; prefer the native keyed mode.
 
 The `BclHasher` uses `Func<byte[], byte[]>` for `Hash(ReadOnlySpan<byte>)` because BCL's `HashData(byte[])` takes an array; for zero-copy, pass `stackalloc`-backed spans, but the `.ToArray()` is acceptable for CLI-sized inputs.
 
@@ -1014,7 +1019,7 @@ Expected: compile error.
 using System;
 using System.IO;
 using System.Security.Cryptography;
-using SauceControl.Blake2Fast;
+using Blake2Fast;
 
 namespace Winix.Digest;
 
@@ -1079,7 +1084,7 @@ public static class HmacFactory
 }
 ```
 
-**Verification note:** as with Task 4, the `Blake2b.ComputeHash(outputLength, key, data)` and `Blake2b.CreateIncrementalHasher(outputLength, key)` overloads are my best guess at the `Blake2Fast` API. Verify and adjust if the method signatures differ.
+**Verified API (from Task 4):** `Blake2b.ComputeHash(int digestLength, ReadOnlySpan<byte> key, ReadOnlySpan<byte> input)` — this is the keyed-hash call. `Blake2b.CreateIncrementalHasher(int digestLength, ReadOnlySpan<byte> key)` returns a `Blake2bHashState` struct (NOT an interface). Struct has `Update<T>(ReadOnlySpan<T>)` (generic unmanaged) and `Finish() → byte[]`. Namespace is `Blake2Fast`. The `Blake2bKeyedHasher` implementation can use either the incremental path shown or the one-shot `ComputeHash(64, key, input)` overload for byte-span hashing.
 
 - [ ] **Step 4: Run tests — expect pass**
 
