@@ -148,4 +148,39 @@ public class HmacFactoryTests
         Assert.Equal(32, hash.Length);
         Assert.NotEqual(new byte[32], hash);
     }
+
+    [Fact]
+    public void HmacSha3_512_Available()
+    {
+        if (!System.Security.Cryptography.HMACSHA3_512.IsSupported) return;
+
+        byte[] key = Encoding.UTF8.GetBytes("key");
+        byte[] data = Encoding.UTF8.GetBytes("data");
+        var hasher = HmacFactory.Create(HashAlgorithm.Sha3_512, key);
+        byte[] hash = hasher.Hash(data);
+        Assert.Equal(64, hash.Length);
+        Assert.NotEqual(new byte[64], hash);
+    }
+
+    [Fact]
+    public void Blake2b_KeyOver64Bytes_Throws()
+    {
+        byte[] key = new byte[65];
+        Array.Fill(key, (byte)0xAB);
+        var ex = Assert.Throws<ArgumentOutOfRangeException>(
+            () => HmacFactory.Create(HashAlgorithm.Blake2b, key));
+        Assert.Contains("64 bytes", ex.Message);
+    }
+
+    [Fact]
+    public void Blake2b_Key64Bytes_IsAllowed()
+    {
+        // Exactly-at-boundary should succeed.
+        byte[] key = new byte[64];
+        Array.Fill(key, (byte)0xCD);
+        byte[] data = Encoding.UTF8.GetBytes("payload");
+        var hasher = HmacFactory.Create(HashAlgorithm.Blake2b, key);
+        byte[] hash = hasher.Hash(data);
+        Assert.Equal(64, hash.Length);
+    }
 }

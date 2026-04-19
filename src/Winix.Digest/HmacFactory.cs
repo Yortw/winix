@@ -16,14 +16,22 @@ public static class HmacFactory
     /// Creates an HMAC hasher using the given hash algorithm and key.
     /// </summary>
     /// <param name="algorithm">The hash algorithm to use as the HMAC primitive.</param>
-    /// <param name="key">The HMAC key. A defensive copy is taken; the caller's array is not retained.</param>
+    /// <param name="key">
+    /// The HMAC key. A defensive copy is taken; the caller's array is not retained.
+    /// For BLAKE2b, RFC 7693 §2.9 caps keyed-mode keys at 64 bytes — longer keys
+    /// are rejected with <see cref="ArgumentOutOfRangeException"/>. SHA-family HMACs
+    /// accept any key length (per RFC 2104, oversized keys are hashed to block size first).
+    /// </param>
     /// <returns>An <see cref="IHasher"/> that computes HMAC over bytes or a stream.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="key"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// Thrown when <paramref name="algorithm"/> is <see cref="HashAlgorithm.Blake2b"/> and
+    /// <paramref name="key"/> exceeds 64 bytes; also for unrecognised <paramref name="algorithm"/> values.
+    /// </exception>
     /// <exception cref="PlatformNotSupportedException">
     /// Thrown for <see cref="HashAlgorithm.Sha3_256"/> or <see cref="HashAlgorithm.Sha3_512"/> on
     /// platforms where the OS crypto backend does not support SHA-3.
     /// </exception>
-    /// <exception cref="ArgumentOutOfRangeException">Thrown for an unrecognised <paramref name="algorithm"/> value.</exception>
     public static IHasher Create(HashAlgorithm algorithm, byte[] key)
     {
         ArgumentNullException.ThrowIfNull(key);
@@ -79,7 +87,18 @@ public static class HmacFactory
     private sealed class Blake2bKeyedHasher : IHasher
     {
         private readonly byte[] _key;
-        public Blake2bKeyedHasher(byte[] key) => _key = (byte[])key.Clone();
+        public Blake2bKeyedHasher(byte[] key)
+        {
+            if (key.Length > 64)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(key),
+                    key.Length,
+                    "BLAKE2b keyed mode accepts at most 64 bytes per RFC 7693 §2.9. " +
+                    "For longer keys, use --hmac sha256 (or another SHA-family algorithm) which auto-hashes oversized keys.");
+            }
+            _key = (byte[])key.Clone();
+        }
 
         public byte[] Hash(ReadOnlySpan<byte> input) => Blake2b.ComputeHash(64, _key, input);
 
