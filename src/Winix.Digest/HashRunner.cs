@@ -73,8 +73,10 @@ public static class HashRunner
             error = $"'{path}' not found";
             return Array.Empty<HashResult>();
         }
-        using var stream = File.OpenRead(path);
-        return new[] { new HashResult(hasher.Hash(stream), path) };
+        using (var stream = File.OpenRead(path))
+        {
+            return new[] { new HashResult(hasher.Hash(stream), path) };
+        }
     }
 
     private static IReadOnlyList<HashResult> HashMultiFile(IReadOnlyList<string> paths, IHasher hasher, out string? error)
@@ -91,8 +93,10 @@ public static class HashRunner
         var results = new List<HashResult>(paths.Count);
         foreach (string path in paths)
         {
-            using var stream = File.OpenRead(path);
-            results.Add(new HashResult(hasher.Hash(stream), path));
+            using (var stream = File.OpenRead(path))
+            {
+                results.Add(new HashResult(hasher.Hash(stream), path));
+            }
         }
         return results;
     }

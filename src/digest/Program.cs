@@ -75,8 +75,11 @@ internal sealed class Program
             }
             catch (ArgumentOutOfRangeException ex)
             {
-                // e.g. BLAKE2b key over 64 bytes — surface the library's helpful message.
-                Console.Error.WriteLine($"digest: {ex.Message.Split('\n')[0]}");
+                // e.g. BLAKE2b key over 64 bytes — surface the library's helpful message,
+                // trimmed to first line to avoid a noisy multi-line dump.
+                int nl = ex.Message.IndexOf('\n');
+                string msg = nl >= 0 ? ex.Message.Substring(0, nl) : ex.Message;
+                Console.Error.WriteLine($"digest: {msg}");
                 return ExitCode.UsageError;
             }
 

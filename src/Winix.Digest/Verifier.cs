@@ -1,4 +1,5 @@
 #nullable enable
+using System;
 using Winix.Codec;
 
 namespace Winix.Digest;
@@ -28,7 +29,7 @@ public static class Verifier
             OutputFormat.Base64    => Base64.Encode(computed, urlSafe: false),
             OutputFormat.Base64Url => Base64.Encode(computed, urlSafe: true),
             OutputFormat.Base32    => Base32Crockford.Encode(computed),
-            _                      => "",
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, null),
         };
         bool caseInsensitive = format == OutputFormat.Hex;
         return ConstantTimeCompare.StringEqualsAscii(computedStr, expected, caseInsensitive);

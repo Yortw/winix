@@ -214,4 +214,42 @@ public class ArgParserTests
         Assert.True(r.Success);
         Assert.True(r.StripKeyNewline);
     }
+
+    [Theory]
+    [InlineData("--key-env", "K")]
+    [InlineData("--key-file", "/tmp/k")]
+    [InlineData("--key", "secret")]
+    public void Parse_KeyOption_WithoutHmac_Errors(string flag, string value)
+    {
+        var r = ArgParser.Parse(new[] { flag, value, "-s", "abc" });
+        Assert.False(r.Success);
+        Assert.Contains("--key* options require --hmac", r.Error);
+    }
+
+    [Fact]
+    public void Parse_KeyStdin_WithoutHmac_Errors()
+    {
+        var r = ArgParser.Parse(new[] { "--key-stdin", "-s", "abc" });
+        Assert.False(r.Success);
+        Assert.Contains("--key* options require --hmac", r.Error);
+    }
+
+    [Fact]
+    public void Parse_KeyRaw_WithoutHmac_Errors()
+    {
+        var r = ArgParser.Parse(new[] { "--key-raw", "-s", "abc" });
+        Assert.False(r.Success);
+        Assert.Contains("--key* options require --hmac", r.Error);
+    }
+
+    [Theory]
+    [InlineData("--base64")]
+    [InlineData("--base64-url")]
+    [InlineData("--base32")]
+    public void Parse_Uppercase_WithNonHexFormat_Errors(string formatFlag)
+    {
+        var r = ArgParser.Parse(new[] { formatFlag, "--uppercase", "-s", "abc" });
+        Assert.False(r.Success);
+        Assert.Contains("--uppercase only applies to hex", r.Error);
+    }
 }

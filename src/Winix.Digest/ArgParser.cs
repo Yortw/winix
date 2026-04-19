@@ -140,6 +140,16 @@ public static class ArgParser
             else if (parsed.Has("--key-stdin")) keySource = KeySource.Stdin();
             else keySource = KeySource.Literal(parsed.GetString("--key"));
         }
+        else
+        {
+            // Key flags outside of HMAC mode are silently meaningless — fail early so the
+            // user doesn't assume their key was read. Catches e.g. `digest --key-env X -s abc`.
+            if (parsed.Has("--key-env") || parsed.Has("--key-file") ||
+                parsed.Has("--key-stdin") || parsed.Has("--key") || parsed.Has("--key-raw"))
+            {
+                return Fail("--key* options require --hmac");
+            }
+        }
         bool stripKeyNewline = !parsed.Has("--key-raw");
 
         // Output format resolution.
@@ -158,6 +168,10 @@ public static class ArgParser
         else if (parsed.Has("--base32")) format = OutputFormat.Base32;
 
         bool uppercase = parsed.Has("--uppercase");
+        if (uppercase && format != OutputFormat.Hex)
+        {
+            return Fail("--uppercase only applies to hex output");
+        }
 
         // Input source resolution — positionals are *always* files (never auto-detected
         // as literal strings) so a typo doesn't silently hash the argument text.
