@@ -128,4 +128,65 @@ public class HashRunnerTests
         }
         finally { File.Delete(p1); }
     }
+
+    // Empty-file stream path: specifically targets the Blake2b incremental hasher's
+    // "Update never called, Finish on empty state" path, which can silently misbehave
+    // if a future incremental-hasher swap forgets to handle zero-length input.
+    // Parametrised across platform-available algos to also lock in SHA-family behaviour.
+    [Theory]
+    [InlineData(HashAlgorithm.Sha256)]
+    [InlineData(HashAlgorithm.Sha384)]
+    [InlineData(HashAlgorithm.Sha512)]
+    [InlineData(HashAlgorithm.Sha1)]
+    [InlineData(HashAlgorithm.Md5)]
+    [InlineData(HashAlgorithm.Blake2b)]
+    public void RunSingleFile_EmptyFile_MatchesBytesPath(HashAlgorithm algorithm)
+    {
+        string path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllBytes(path, System.Array.Empty<byte>());
+            var hasher = HashFactory.Create(algorithm);
+
+            byte[] bytesHash = hasher.Hash(System.ReadOnlySpan<byte>.Empty);
+
+            var results = HashRunner.Run(
+                source: new SingleFileInput(path),
+                hasher: hasher,
+                stdin: new FakeTextReader(""),
+                out string? error);
+
+            Assert.Null(error);
+            Assert.Single(results);
+            Assert.Equal(bytesHash, results[0].Hash);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void RunSingleFile_EmptyFile_Hmac_StreamMatchesBytes()
+    {
+        // Same invariant for the HMAC (keyed) path — HmacBlake2bKeyedHasher uses a
+        // different incremental API than the plain hasher, so the empty-input path
+        // could in principle diverge.
+        byte[] key = Encoding.UTF8.GetBytes("my-key");
+        string path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllBytes(path, System.Array.Empty<byte>());
+            var hasher = HmacFactory.Create(HashAlgorithm.Blake2b, key);
+
+            byte[] bytesHash = hasher.Hash(System.ReadOnlySpan<byte>.Empty);
+
+            var results = HashRunner.Run(
+                source: new SingleFileInput(path),
+                hasher: hasher,
+                stdin: new FakeTextReader(""),
+                out string? error);
+
+            Assert.Null(error);
+            Assert.Equal(bytesHash, results[0].Hash);
+        }
+        finally { File.Delete(path); }
+    }
 }

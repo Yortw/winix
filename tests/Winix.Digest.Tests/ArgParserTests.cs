@@ -200,6 +200,16 @@ public class ArgParserTests
     }
 
     [Fact]
+    public void Parse_VerifyWithJson_Errors()
+    {
+        // --verify and --json have no useful combined behaviour: verify's output is an
+        // exit code + terse stderr message, not a structured record. Reject the pair.
+        var r = ArgParser.Parse(new[] { "--verify", "abc", "--json", "-s", "hello" });
+        Assert.False(r.Success);
+        Assert.Contains("--verify is not compatible with --json", r.Error);
+    }
+
+    [Fact]
     public void Parse_KeyRaw_SetsStripKeyNewlineFalse()
     {
         var r = ArgParser.Parse(new[] { "--hmac", "sha256", "--key-env", "K", "--key-raw", "-s", "abc" });

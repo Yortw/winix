@@ -222,6 +222,14 @@ public static class ArgParser
         }
 
         bool json = parsed.Has("--json");
+        // --verify signals intent to check a hash; its output is an exit code + a terse
+        // stderr mismatch message, not a structured record. --json produces no useful
+        // output in that mode (success = silent, failure = plain stderr). Rejecting the
+        // combination matches the first-review pattern of rejecting nonsense pairs.
+        if (verify is not null && json)
+        {
+            return Fail("--verify is not compatible with --json");
+        }
 
         var options = new DigestOptions(
             Algorithm: algorithm,
