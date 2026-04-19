@@ -138,6 +138,9 @@ jobs:
       - name: Pack digest
         run: dotnet pack src/digest/digest.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
 
+      - name: Pack notify
+        run: dotnet pack src/notify/notify.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
+
       - name: Upload NuGet packages
         uses: actions/upload-artifact@v7
         with:
@@ -219,6 +222,9 @@ jobs:
       - name: Publish digest (${{ matrix.rid }})
         run: dotnet publish src/digest/digest.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
 
+      - name: Publish notify (${{ matrix.rid }})
+        run: dotnet publish src/notify/notify.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
+
       - name: Bundle man pages alongside man binary
         shell: bash
         run: |
@@ -254,6 +260,7 @@ jobs:
           cd src/clip/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/clip-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
           cd src/ids/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/ids-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
           cd src/digest/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/digest-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
+          cd src/notify/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/notify-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
 
       - name: Zip binaries (Windows)
         if: runner.os == 'Windows'
@@ -276,6 +283,7 @@ jobs:
           Compress-Archive -Path src/clip/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath clip-${{ matrix.rid }}.zip
           Compress-Archive -Path src/ids/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath ids-${{ matrix.rid }}.zip
           Compress-Archive -Path src/digest/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath digest-${{ matrix.rid }}.zip
+          Compress-Archive -Path src/notify/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath notify-${{ matrix.rid }}.zip
 
       - name: Create combined Winix zip (Windows)
         if: runner.os == 'Windows' && matrix.rid == 'win-x64'
@@ -299,6 +307,7 @@ jobs:
           Copy-Item src/clip/bin/Release/net10.0/${{ matrix.rid }}/publish/clip.exe winix-combined/
           Copy-Item src/ids/bin/Release/net10.0/${{ matrix.rid }}/publish/ids.exe winix-combined/
           Copy-Item src/digest/bin/Release/net10.0/${{ matrix.rid }}/publish/digest.exe winix-combined/
+          Copy-Item src/notify/bin/Release/net10.0/${{ matrix.rid }}/publish/notify.exe winix-combined/
           Copy-Item src/man/bin/Release/net10.0/${{ matrix.rid }}/publish/share -Recurse -Destination winix-combined/share
           Compress-Archive -Path winix-combined/* -DestinationPath winix-${{ matrix.rid }}.zip -Force
 
@@ -373,7 +382,8 @@ jobs:
                 when:     { description: "Convert timestamps between formats, apply time arithmetic, and calculate durations.",                         packages: { winget: "Winix.When",     scoop: "when",     brew: "when",     dotnet: "Winix.When"     } },
                 clip:    { description: "Cross-platform clipboard bridge \u2014 copy from stdin, paste to stdout, clear.",                                 packages: { winget: "Winix.Clip",     scoop: "clip",     brew: "clip",     dotnet: "Winix.Clip"     } },
                 ids:     { description: "Cross-platform identifier generator \u2014 UUID v4, UUID v7, ULID, NanoID.",                                        packages: { winget: "Winix.Ids",      scoop: "ids",      brew: "ids",      dotnet: "Winix.Ids"      } },
-                digest:  { description: "Cryptographic hashing and HMAC \u2014 SHA-2/SHA-3/BLAKE2b, HMAC on Windows.",                                         packages: { winget: "Winix.Digest",   scoop: "digest",   brew: "digest",   dotnet: "Winix.Digest"   } }
+                digest:  { description: "Cryptographic hashing and HMAC \u2014 SHA-2/SHA-3/BLAKE2b, HMAC on Windows.",                                         packages: { winget: "Winix.Digest",   scoop: "digest",   brew: "digest",   dotnet: "Winix.Digest"   } },
+                notify:  { description: "Cross-platform desktop notifications + ntfy.sh push.",                                                                packages: { winget: "Winix.Notify",   scoop: "notify",   brew: "notify",   dotnet: "Winix.Notify"   } }
               }
             }' > winix-manifest.json
 
