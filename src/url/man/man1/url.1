@@ -1,0 +1,202 @@
+.TH URL 1 "2026-04-20" "Winix" "User Commands"
+.SH NAME
+url \- cross-platform URL encode/decode/parse/build/join/query-edit
+
+.SH SYNOPSIS
+.B url encode
+\fISTRING\fR [\fIOPTIONS\fR]
+.br
+.B url decode
+\fISTRING\fR [\fIOPTIONS\fR]
+.br
+.B url parse
+\fIURL\fR [\fIOPTIONS\fR]
+.br
+.B url build
+\fB\-\-host\fR \fIH\fR [\fIOPTIONS\fR]
+.br
+.B url join
+\fIBASE\fR \fIRELATIVE\fR
+.br
+.B url query get
+\fIURL\fR \fIKEY\fR
+.br
+.B url query set
+\fIURL\fR \fIKEY\fR \fIVALUE\fR
+.br
+.B url query delete
+\fIURL\fR \fIKEY\fR
+
+.SH DESCRIPTION
+.B url
+is a subcommand CLI for URL manipulation: percent-encode / decode, deconstruct (\fIparse\fR) and assemble (\fIbuild\fR) URLs, resolve relative references (\fIjoin\fR, RFC 3986 §5), and edit query strings while preserving order and duplicate keys.
+It runs on Windows, Linux, and macOS as a single AOT-compiled native binary.
+
+It fills the cross-shell inconsistency gap around URL assembly.
+cmd.exe has no clean subprocess-substitution, so calling \fBurl encode \fIVALUE\fR to get a result into a variable is painful; bash has no built-in URL-encoding primitive; fish's \fBstring escape --style=url\fR only exists in recent versions.
+\fBurl build\fR absorbs per-value encoding into a single call.
+
+.SH SUBCOMMANDS
+
+.SS encode
+Percent-encode \fISTRING\fR per the \fB--mode\fR variant (default \fBcomponent\fR).
+.TP
+.B \-\-mode
+\fBcomponent\fR (default), \fBpath\fR (preserves \fI/\fR), \fBquery\fR, \fBform\fR (space → \fB+\fR).
+.TP
+.B \-\-form
+Shorthand for \fB--mode form\fR.
+
+.SS decode
+Percent-decode \fISTRING\fR.
+Default RFC 3986 (literal \fB+\fR); \fB--form\fR or \fB--mode form\fR treats \fB+\fR as space.
+
+.SS parse
+Deconstruct \fIURL\fR into fields.
+Default output is plain \fBkey=value\fR lines, one per field.
+.TP
+.B \-\-json
+Emit structured JSON; query is array of \fB{key,value}\fR objects preserving order and duplicates.
+.TP
+.B \-\-field " " \fINAME\fR
+Emit a single field (\fBscheme\fR / \fBuserinfo\fR / \fBhost\fR / \fBport\fR / \fBpath\fR / \fBquery\fR / \fBfragment\fR).
+Cannot be combined with \fB--json\fR.
+
+.SS build
+Assemble a URL from parts.
+.TP
+.B \-\-scheme " " \fIS\fR
+URL scheme; defaults to \fBhttps\fR.
+.TP
+.B \-\-host " " \fIH\fR
+Hostname (required).
+.TP
+.B \-\-port " " \fIN\fR
+Port number (1–65535).
+Omitted from output if default for scheme unless \fB--raw\fR.
+.TP
+.B \-\-path " " \fIP\fR
+URL path.
+Each segment path-mode-encoded; leading \fI/\fR added if missing.
+.TP
+.B \-\-query " " \fIK=V\fR
+Query pair.
+Both key and value form-encoded.
+Repeatable — each occurrence appends.
+.TP
+.B \-\-fragment " " \fIF\fR
+Fragment (without leading \fI#\fR).
+Component-encoded.
+.TP
+.B \-\-raw
+Skip normalisation (preserve default ports, case).
+
+.SS join
+Resolve \fIRELATIVE\fR against \fIBASE\fR per RFC 3986 §5.
+Handles dot-segments, absolute-URL override, query-only refs (\fB?y\fR), fragment-only refs (\fB#s\fR), and protocol-relative URLs (\fB//host\fR).
+\fIBASE\fR must be absolute.
+
+.SS query get
+Return the first value for \fIKEY\fR in \fIURL\fR's query.
+Exits non-zero with \fBkey not found\fR if absent.
+
+.SS query set
+Set \fIKEY\fR to \fIVALUE\fR in \fIURL\fR's query.
+Replaces all existing occurrences; appends if absent.
+Output: updated URL.
+
+.SS query delete
+Remove all occurrences of \fIKEY\fR from \fIURL\fR's query.
+No-op (exit 0) if key is absent.
+Output: updated URL.
+
+.SH ENCODING MODES
+
+.TS
+tab(|);
+l l l l.
+Mode | Alphabet | Space | Use case
+component | RFC 3986 unreserved | %20 | Any URL component (default)
+path | Same + / preserved | %20 | URL path segments
+query | Same as component | %20 | Query-string values
+form | Same as component | + | application/x-www-form-urlencoded
+.TE
+
+.SH NORMALISATION
+\fBparse\fR reflects its input faithfully.
+\fBbuild\fR / \fBjoin\fR / \fBquery set\fR / \fBquery delete\fR normalise output (lowercase scheme/host, strip default ports, IDN to Punycode) unless \fB--raw\fR is given.
+
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 125
+Usage error \(em bad flags, unknown subcommand, missing required value, base URL not absolute.
+.TP
+.B 126
+Runtime error \(em invalid URL syntax, \fBquery get\fR key not found.
+
+.SH EXAMPLES
+Encode and decode:
+.RS
+.nf
+url encode "hello world"         # hello%20world
+url encode "hello world" --form  # hello+world
+url decode "hello%20world"       # hello world
+.fi
+.RE
+
+Parse and extract:
+.RS
+.nf
+url parse "https://api.example.com/v1?q=hello"
+url parse "https://api.example.com/v1" --field host
+url parse "https://x.io/?a=1&b=2&a=3" --json
+.fi
+.RE
+
+Build:
+.RS
+.nf
+url build --host api.example.com --path /v1/users --query q="hello world"
+.fi
+.RE
+
+Join:
+.RS
+.nf
+url join "https://example.com/blog/" "./2026/post-1"
+url join "https://example.com/api/v1/users" "/login"
+.fi
+.RE
+
+Query edit:
+.RS
+.nf
+url query get    "https://x.io/?a=1&b=2" a
+url query set    "https://x.io/?a=1" b 2
+url query delete "https://x.io/?a=1&b=2" a
+.fi
+.RE
+
+Compose with other tools:
+.RS
+.nf
+ids --type uuid7 | xargs -I{} url build --host api.example.com --path /v1/{}
+retry -- curl "$(url build --host api.example.com --path /health)"
+.fi
+.RE
+
+.SH ENVIRONMENT
+.TP
+.B NO_COLOR
+Disables colour output (respected for suite consistency; url output is plain).
+
+.SH SEE ALSO
+.BR curl (1),
+.BR ids (1),
+.BR retry (1),
+.BR clip (1)
+
+RFC 3986 \(em URI Generic Syntax.
