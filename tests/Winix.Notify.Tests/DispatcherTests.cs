@@ -48,13 +48,16 @@ public class DispatcherTests
     [Fact]
     public async Task Dispatch_RunsBackendsInParallel_NotSequentially()
     {
-        var b1 = new FakeBackend("a") { DelayMs = 100 };
-        var b2 = new FakeBackend("b") { DelayMs = 100 };
+        // Both backends sleep 200ms. Sequential would be ~400ms; parallel should land
+        // close to 200ms. Wide upper bound (350ms) tolerates contention when this test
+        // runs alongside the rest of the suite — the point is "obviously not sequential",
+        // not exact timing.
+        var b1 = new FakeBackend("a") { DelayMs = 200 };
+        var b2 = new FakeBackend("b") { DelayMs = 200 };
         var sw = Stopwatch.StartNew();
         await Dispatcher.SendAsync(new IBackend[] { b1, b2 }, Msg(), CancellationToken.None);
         sw.Stop();
-        // Sequential would be ~200ms; parallel ~100ms. Generous margin for CI noise.
-        Assert.InRange(sw.ElapsedMilliseconds, 80, 180);
+        Assert.InRange(sw.ElapsedMilliseconds, 150, 350);
     }
 
     [Fact]

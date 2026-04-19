@@ -12,6 +12,9 @@
     <PackageId>Winix.Notify</PackageId>
     <Description>Cross-platform desktop notifications + ntfy.sh push notifications.</Description>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <!-- Inherits BuiltInComInteropSupport=true from the library — needed because
+         AumidShortcut creates Start Menu shortcuts via classic COM (IShellLinkW). -->
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Winix.Notify\Winix.Notify.csproj" />

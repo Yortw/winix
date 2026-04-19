@@ -53,4 +53,26 @@ public class WindowsToastBackendTests
         Assert.Contains("placement=\"appLogoOverride\"", xml);
         Assert.Contains("src=\"C:\\icon.png\"", xml);
     }
+
+    [Fact]
+    public void BuildPowerShellScript_EscapesSingleQuotesInXmlAndAumid()
+    {
+        // Single-quoted PS strings escape inner ' as ''. We never emit ' in our XML
+        // (EscapeXml turns " into &quot; and there's no source of ' in our composer)
+        // but the AUMID value is user-defined-ish, so verify both inputs are escaped.
+        string xml = "<toast><visual>'</visual></toast>";
+        string aumid = "with'quote";
+        string script = WindowsToastBackend.BuildPowerShellScript(aumid, xml);
+        Assert.Contains("'<toast><visual>''</visual></toast>'", script);
+        Assert.Contains("'with''quote'", script);
+    }
+
+    [Fact]
+    public void BuildPowerShellScript_LoadsWinRtTypes()
+    {
+        string script = WindowsToastBackend.BuildPowerShellScript("aumid", "<toast/>");
+        Assert.Contains("ToastNotificationManager", script);
+        Assert.Contains("XmlDocument", script);
+        Assert.Contains("ContentType=WindowsRuntime", script);
+    }
 }

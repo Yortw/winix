@@ -1,6 +1,6 @@
 #nullable enable
 using System;
-using System.Runtime.InteropServices;
+using System.Diagnostics;
 using System.Runtime.Versioning;
 using System.Text;
 using System.Threading;
@@ -9,10 +9,17 @@ using System.Threading.Tasks;
 namespace Winix.Notify;
 
 /// <summary>
-/// Sends a Windows toast notification via direct WinRT COM activation. Requires the AUMID
-/// from <see cref="AumidShortcut"/> to be registered (via a Start Menu shortcut) — handled
-/// idempotently on every send.
+/// Sends a Windows toast notification by shelling out to PowerShell with an inline
+/// toast XML payload. Uses Windows.UI.Notifications via PowerShell's WinRT bridge,
+/// which avoids the modern .NET limitation that <c>[ComImport, InterfaceIsIInspectable]</c>
+/// is not directly marshalable from C# without the official WinRT projection.
 /// </summary>
+/// <remarks>
+/// PowerShell startup adds ~300-500ms cold-start latency vs direct COM, but for
+/// fire-and-forget notifications this is unobservable in practice. A future v2 can
+/// migrate to <c>Microsoft.Windows.SDK.NET.Ref</c> with a TFM-split (net10.0-windows10.0.19041.0
+/// for the console app) if anyone needs sub-100ms latency.
+/// </remarks>
 [SupportedOSPlatform("windows")]
 public sealed class WindowsToastBackend : IBackend
 {
@@ -20,25 +27,51 @@ public sealed class WindowsToastBackend : IBackend
     public string Name => "windows-toast";
 
     /// <inheritdoc />
-    public Task<BackendResult> SendAsync(NotifyMessage message, CancellationToken ct)
+    public async Task<BackendResult> SendAsync(NotifyMessage message, CancellationToken ct)
     {
-        // Synchronous body — Windows.UI.Notifications.ToastNotifier.Show is fire-and-forget.
-        // Wrap to satisfy the async interface.
         try
         {
             AumidShortcut.EnsureExists();
             string xml = BuildToastXml(message);
-            ShowToastViaWinRT(AumidShortcut.Aumid, xml);
-            return Task.FromResult(new BackendResult(Name, true, null, null));
+            string script = BuildPowerShellScript(AumidShortcut.Aumid, xml);
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+            psi.ArgumentList.Add("-NoProfile");
+            psi.ArgumentList.Add("-NonInteractive");
+            psi.ArgumentList.Add("-ExecutionPolicy");
+            psi.ArgumentList.Add("Bypass");
+            psi.ArgumentList.Add("-Command");
+            psi.ArgumentList.Add(script);
+
+            using var process = Process.Start(psi);
+            if (process is null)
+            {
+                return new BackendResult(Name, false, "Windows toast: powershell.exe not found", null);
+            }
+            await process.WaitForExitAsync(ct).ConfigureAwait(false);
+            if (process.ExitCode != 0)
+            {
+                string stderr = await process.StandardError.ReadToEndAsync(ct).ConfigureAwait(false);
+                return new BackendResult(Name, false,
+                    $"Windows toast: PowerShell exited {process.ExitCode}: {stderr.Trim()}", null);
+            }
+            return new BackendResult(Name, true, null, null);
         }
         catch (Exception ex)
         {
-            return Task.FromResult(new BackendResult(Name, false,
-                $"Windows toast: {ex.GetType().Name}: {ex.Message}", null));
+            return new BackendResult(Name, false,
+                $"Windows toast: {ex.GetType().Name}: {ex.Message}", null);
         }
     }
 
-    // Internal for testing the XML composition without hitting WinRT.
+    // Internal for testing the XML composition without hitting PowerShell.
     internal static string BuildToastXml(NotifyMessage message)
     {
         // Toast XML schema: ToastGeneric template — title + body line + optional image + audio.
@@ -75,137 +108,27 @@ public sealed class WindowsToastBackend : IBackend
         .Replace(">", "&gt;")
         .Replace("\"", "&quot;");
 
-    // --- Direct COM activation of WinRT ToastNotificationManager ---
-    //
-    // We avoid the .NET WinRT projection (Microsoft.Windows.SDK.NET.Ref) so this library
-    // can target plain net10.0 without TFM gymnastics. The COM contracts below are stable
-    // from Windows 8 onwards.
-
-    private static void ShowToastViaWinRT(string aumid, string xml)
+    // Internal for testing — builds the inline PowerShell that loads WinRT and shows the toast.
+    internal static string BuildPowerShellScript(string aumid, string toastXml)
     {
-        // 1. Get IToastNotificationManagerStatics (activation factory for ToastNotificationManager).
-        // 2. Create a ToastNotifier bound to our AUMID.
-        // 3. Build a ToastNotification from a Windows.Data.Xml.Dom.XmlDocument that has loaded our XML.
-        // 4. Call notifier.Show(toast).
+        // The XML is double-quoted in PS, so escape any " in the XML as `" (PS escape).
+        // Since our XML escapes " as &quot; in EscapeXml above, raw " is impossible inside
+        // attribute values. The only " in the XML are the structural ones from our builder.
+        // Single-quote the PS string and escape inner single quotes — safer.
+        string psXml = toastXml.Replace("'", "''");
+        string psAumid = aumid.Replace("'", "''");
 
-        const string runtimeClassToastManager = "Windows.UI.Notifications.ToastNotificationManager";
-        const string runtimeClassXmlDocument = "Windows.Data.Xml.Dom.XmlDocument";
-        const string runtimeClassToastNotification = "Windows.UI.Notifications.ToastNotification";
-
-        IntPtr managerStatics = IntPtr.Zero;
-        IntPtr xmlDocument = IntPtr.Zero;
-        IntPtr toastFactory = IntPtr.Zero;
-
-        try
-        {
-            IntPtr managerActivatableId = WindowsCreateString(runtimeClassToastManager);
-            try
-            {
-                Guid iidManagerStatics = new("50AC103F-D235-4598-BBEF-98FE4D1A3AD4");
-                int hr = RoGetActivationFactory(managerActivatableId, ref iidManagerStatics, out managerStatics);
-                Marshal.ThrowExceptionForHR(hr);
-            }
-            finally { WindowsDeleteString(managerActivatableId); }
-
-            IntPtr xmlActivatableId = WindowsCreateString(runtimeClassXmlDocument);
-            try
-            {
-                int hr = RoActivateInstance(xmlActivatableId, out xmlDocument);
-                Marshal.ThrowExceptionForHR(hr);
-            }
-            finally { WindowsDeleteString(xmlActivatableId); }
-
-            // QI for IXmlDocumentIO and load the toast XML.
-            IXmlDocumentIO xmlIo = (IXmlDocumentIO)Marshal.GetObjectForIUnknown(xmlDocument);
-            IntPtr hxml = WindowsCreateString(xml);
-            try
-            {
-                xmlIo.LoadXml(hxml);
-            }
-            finally { WindowsDeleteString(hxml); }
-
-            // Create the toast notifier with our AUMID.
-            IToastNotificationManagerStatics statics = (IToastNotificationManagerStatics)Marshal.GetObjectForIUnknown(managerStatics);
-            IntPtr aumidStr = WindowsCreateString(aumid);
-            IToastNotifier notifier;
-            try
-            {
-                notifier = statics.CreateToastNotifierWithId(aumidStr);
-            }
-            finally { WindowsDeleteString(aumidStr); }
-
-            // Build a ToastNotification from the XmlDocument.
-            IntPtr toastClassId = WindowsCreateString(runtimeClassToastNotification);
-            try
-            {
-                Guid iidToastFactory = new("04124B20-82C6-4229-B109-FD9ED4662B53");
-                int hr = RoGetActivationFactory(toastClassId, ref iidToastFactory, out toastFactory);
-                Marshal.ThrowExceptionForHR(hr);
-            }
-            finally { WindowsDeleteString(toastClassId); }
-
-            IToastNotificationFactory tnFactory = (IToastNotificationFactory)Marshal.GetObjectForIUnknown(toastFactory);
-            object toast = tnFactory.CreateToastNotification(xmlIo);
-
-            notifier.Show(toast);
-        }
-        finally
-        {
-            if (managerStatics != IntPtr.Zero) Marshal.Release(managerStatics);
-            if (xmlDocument != IntPtr.Zero) Marshal.Release(xmlDocument);
-            if (toastFactory != IntPtr.Zero) Marshal.Release(toastFactory);
-        }
-    }
-
-    [DllImport("api-ms-win-core-winrt-l1-1-0.dll", PreserveSig = true)]
-    private static extern int RoGetActivationFactory(
-        IntPtr activatableClassId,
-        [In] ref Guid iid,
-        out IntPtr factory);
-
-    [DllImport("api-ms-win-core-winrt-l1-1-0.dll", PreserveSig = true)]
-    private static extern int RoActivateInstance(
-        IntPtr activatableClassId,
-        out IntPtr instance);
-
-    [DllImport("api-ms-win-core-winrt-string-l1-1-0.dll", CharSet = CharSet.Unicode, PreserveSig = false)]
-    private static extern IntPtr WindowsCreateString(
-        [MarshalAs(UnmanagedType.LPWStr)] string sourceString,
-        uint length,
-        out IntPtr hstring);
-
-    private static IntPtr WindowsCreateString(string s)
-    {
-        WindowsCreateString(s, (uint)s.Length, out IntPtr hstring);
-        return hstring;
-    }
-
-    [DllImport("api-ms-win-core-winrt-string-l1-1-0.dll", PreserveSig = true)]
-    private static extern int WindowsDeleteString(IntPtr hstring);
-
-    [ComImport, InterfaceType(ComInterfaceType.InterfaceIsIInspectable), Guid("6CD0E74E-EE65-4489-9EBF-CA43E87BA637")]
-    private interface IXmlDocumentIO
-    {
-        void LoadXml(IntPtr xml);
-    }
-
-    [ComImport, InterfaceType(ComInterfaceType.InterfaceIsIInspectable), Guid("50AC103F-D235-4598-BBEF-98FE4D1A3AD4")]
-    private interface IToastNotificationManagerStatics
-    {
-        IToastNotifier CreateToastNotifier();
-        IToastNotifier CreateToastNotifierWithId(IntPtr aumid);
-    }
-
-    [ComImport, InterfaceType(ComInterfaceType.InterfaceIsIInspectable), Guid("75927B93-03F3-41EC-91D3-6E5BAC1B38E7")]
-    private interface IToastNotifier
-    {
-        void Show([MarshalAs(UnmanagedType.IUnknown)] object notification);
-    }
-
-    [ComImport, InterfaceType(ComInterfaceType.InterfaceIsIInspectable), Guid("04124B20-82C6-4229-B109-FD9ED4662B53")]
-    private interface IToastNotificationFactory
-    {
-        [return: MarshalAs(UnmanagedType.IUnknown)]
-        object CreateToastNotification([MarshalAs(UnmanagedType.IUnknown)] object xml);
+        // Load the WinRT types via [Windows.X.Y, Windows.X.Y, ContentType=WindowsRuntime]
+        // pattern — PowerShell 5.1+ ships with the WinRT bridge that handles IInspectable
+        // marshalling for us. Errors propagate via ThrowOnError = $true and PowerShell exits non-zero.
+        var sb = new StringBuilder();
+        sb.AppendLine("$ErrorActionPreference = 'Stop'");
+        sb.AppendLine("[void][Windows.UI.Notifications.ToastNotificationManager,Windows.UI.Notifications,ContentType=WindowsRuntime]");
+        sb.AppendLine("[void][Windows.Data.Xml.Dom.XmlDocument,Windows.Data.Xml.Dom.XmlDocument,ContentType=WindowsRuntime]");
+        sb.AppendLine("$x = New-Object Windows.Data.Xml.Dom.XmlDocument");
+        sb.Append("$x.LoadXml('").Append(psXml).AppendLine("')");
+        sb.Append("$t = New-Object Windows.UI.Notifications.ToastNotification $x").AppendLine();
+        sb.Append("[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('").Append(psAumid).AppendLine("').Show($t)");
+        return sb.ToString();
     }
 }

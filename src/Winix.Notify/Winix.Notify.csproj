@@ -3,6 +3,12 @@
     <TargetFramework>net10.0</TargetFramework>
     <IsTrimmable>true</IsTrimmable>
     <IsAotCompatible>true</IsAotCompatible>
+    <!-- AumidShortcut still uses [ComImport] interfaces (IShellLinkW, IPropertyStore) —
+         classic COM, supported by the AOT-compatible runtime via direct CoCreateInstance.
+         BuiltInComInteropSupport=true keeps the runtime marshaller available at JIT and
+         AOT (the COM interop AOT support landed in .NET 8). Without this, the runtime
+         throws NotSupported_COM at first AumidShortcut.EnsureExists call. -->
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
     <IsPackable>false</IsPackable>
     <PackageId>Winix.Notify.Library</PackageId>
   </PropertyGroup>
