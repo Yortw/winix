@@ -1,0 +1,243 @@
+.TH DIGEST 1 "2026-04-19" "Winix" "User Commands"
+.SH NAME
+digest \- cross-platform cryptographic hashing and HMAC
+
+.SH SYNOPSIS
+.B digest
+[\fIOPTIONS\fR] [\fIFILE\fR...]
+.br
+.B digest
+[\fIOPTIONS\fR]
+\fB\-s\fR \fIVALUE\fR
+
+.SH DESCRIPTION
+.B digest
+computes cryptographic hashes (SHA-2, SHA-3, BLAKE2b) and HMACs over literal strings, standard input, or file contents.
+It runs on Windows, Linux, and macOS as a single AOT-compiled native binary with no runtime dependency.
+
+Output is a single encoded hash for string/stdin inputs, or one \fBsha256sum\fR-compatible line per file for multi-file input.
+The binary-mode marker (\fB*\fR) is used on every line because \fBdigest\fR always reads files as raw bytes.
+
+.SH OPTIONS
+.SS Algorithm selection (one of)
+.TP
+.B \-\-sha256
+SHA-256 (default).
+.TP
+.B \-\-sha384
+SHA-384.
+.TP
+.B \-\-sha512
+SHA-512.
+.TP
+.B \-\-sha3\-256
+SHA3-256. Requires Windows 11 22H2+, recent Linux, or recent macOS.
+.TP
+.B \-\-sha3\-512
+SHA3-512. Same platform requirement as SHA3-256.
+.TP
+.B \-\-blake2b
+BLAKE2b-512.
+.TP
+.B \-\-sha1
+SHA-1 (legacy; emits stderr warning).
+.TP
+.B \-\-md5
+MD5 (legacy; emits stderr warning).
+.TP
+.BR \-a " " \fIALGO\fR ", " \-\-algo " " \fIALGO\fR
+Alternative to individual flags: \fBsha256\fR, \fBsha384\fR, \fBsha512\fR, \fBsha1\fR, \fBmd5\fR, \fBsha3-256\fR, \fBsha3-512\fR, \fBblake2b\fR.
+
+.SS HMAC mode
+.TP
+.B \-\-hmac " " \fIALGO\fR
+Switch to HMAC mode using the given hash algorithm.
+Requires exactly one of \fB--key-env\fR, \fB--key-file\fR, \fB--key-stdin\fR, \fB--key\fR.
+.TP
+.B \-\-key\-env " " \fIVAR\fR
+Read the HMAC key from environment variable \fIVAR\fR (UTF-8 encoded).
+.TP
+.B \-\-key\-file " " \fIPATH\fR
+Read the HMAC key from the file at \fIPATH\fR.
+A trailing \fB\\n\fR or \fB\\r\\n\fR is stripped unless \fB--key-raw\fR is given.
+On Unix, a stderr warning is emitted if the file is readable by group or other.
+.TP
+.B \-\-key\-stdin
+Read the HMAC key from standard input.
+Cannot be combined with a stdin payload.
+A trailing newline is stripped unless \fB--key-raw\fR is given.
+.TP
+.B \-\-key " " \fIKEY\fR
+HMAC key as a literal CLI argument.
+\fBAlways emits a non-suppressible warning\fR because the key is visible to \fBps\fR, shell history, and process listings.
+Use only for throwaway testing.
+.TP
+.B \-\-key\-raw
+Preserve bytes on \fB--key-file\fR / \fB--key-stdin\fR — do not strip a trailing newline.
+
+.SS Input selection
+.TP
+.BR \-s " " \fIVALUE\fR ", " \-\-string " " \fIVALUE\fR
+Hash the UTF-8 bytes of the literal string \fIVALUE\fR.
+Exclusive with positional file arguments.
+.TP
+.I FILE\fR...
+Positional arguments are always treated as files.
+A missing file errors out with exit code 125 rather than being hashed as a literal string.
+A single \fB-\fR or no positional is read as stdin.
+
+.SS Output format
+.TP
+.B \-\-hex
+Hex output, lowercase (default).
+.TP
+.B \-\-base64
+Base64 output (standard alphabet).
+.TP
+.B \-\-base64\-url
+Base64 URL-safe variant (replaces \fB+\fR / \fB/\fR with \fB-\fR / \fB_\fR).
+.TP
+.B \-\-base32
+Crockford base32 output (uppercase, no \fBI\fR / \fBL\fR / \fBO\fR / \fBU\fR).
+.TP
+.BR \-u ", " \-\-uppercase
+Uppercase hex output.
+.TP
+.B \-\-json
+Emit JSON to stdout.
+Single-input forms emit one object; multi-file forms emit an array.
+
+.SS Verification
+.TP
+.B \-\-verify " " \fIEXPECTED\fR
+Compare the computed hash against \fIEXPECTED\fR in constant time.
+Hex comparison is case-insensitive; base64 and base32 are case-sensitive.
+Exit 0 on match, 1 on mismatch.
+Not supported with multiple files.
+
+.SS Standard flags
+.TP
+.B \-\-describe
+Emit structured JSON metadata for AI discoverability.
+.TP
+.B \-\-color " " \fIWHEN\fR
+\fBauto\fR, \fBalways\fR, or \fBnever\fR. Respects \fBNO_COLOR\fR.
+.TP
+.B \-\-no\-color
+Equivalent to \fB--color never\fR.
+.TP
+.BR \-h ", " \-\-help
+Show help and exit.
+.TP
+.BR \-v ", " \-\-version
+Show version and exit.
+
+.SH EXIT STATUS
+.TP
+.B 0
+Success, or verification match.
+.TP
+.B 1
+Verification failed (\fB--verify\fR mismatch).
+.TP
+.B 125
+Usage error \(em bad flags, unknown value, flag conflict, missing file.
+.TP
+.B 126
+Runtime error \(em SHA-3 unavailable on this platform, file read failure.
+
+.SH EXAMPLES
+SHA-256 of a literal string:
+.RS
+.nf
+digest -s "hello"
+.fi
+.RE
+
+SHA-256 of a file (sha256sum-compatible line):
+.RS
+.nf
+digest file.iso
+.fi
+.RE
+
+Hash every text file in the current directory:
+.RS
+.nf
+digest *.txt
+.fi
+.RE
+
+SHA-512 with base64 output:
+.RS
+.nf
+digest --sha512 --base64 -s "hello"
+.fi
+.RE
+
+HMAC-SHA-256 with key from environment variable:
+.RS
+.nf
+digest --hmac sha256 --key-env API_SECRET -s "payload"
+.fi
+.RE
+
+HMAC with key piped from \fBage\fR-encrypted storage:
+.RS
+.nf
+age --decrypt key.age | digest --hmac sha256 --key-stdin -s "msg"
+.fi
+.RE
+
+Verify a known hash (exit 0 on match, 1 on mismatch):
+.RS
+.nf
+digest --verify e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 -s ""
+.fi
+.RE
+
+Pipe a hash to the clipboard:
+.RS
+.nf
+digest file.bin | clip
+.fi
+.RE
+
+.SH SECURITY
+HMAC keys should never leak via \fBps\fR output, shell history, core dumps, or world-readable files.
+\fBdigest\fR supports four key sources listed from safest to least safe:
+
+.IP "1. \fB--key-stdin\fR (recommended)"
+Read the key from stdin, typically piped from an external secrets manager (\fBage\fR, \fBgpg\fR, \fBpass\fR, \fBsecret-tool\fR, macOS Keychain).
+The on-disk key file is never plaintext.
+
+.IP "2. \fB--key-env\fR"
+Read the key from an environment variable.
+Safe if the variable is set by your shell's secrets loader or a secrets manager injecting into the process environment.
+
+.IP "3. \fB--key-file\fR"
+Read the key from a file.
+On Unix, \fBdigest\fR emits a stderr warning if the file is readable by group or other, suggesting \fBchmod 0600\fR.
+
+.IP "4. \fB--key\fR (not recommended)"
+Literal key as a CLI argument.
+\fBAlways emits a non-suppressible warning\fR because the key is visible to \fBps\fR, shell history, and process listings.
+Use only for transient throwaway testing.
+
+.PP
+BLAKE2b keyed mode caps keys at 64 bytes per RFC 7693 §2.9.
+Longer keys are rejected.
+For longer keys, use \fB--hmac sha256\fR, which auto-hashes oversized keys per RFC 2104.
+
+.SH ENVIRONMENT
+.TP
+.B NO_COLOR
+Disables colour output.
+\fBdigest\fR output is plain; this variable is respected for suite consistency.
+
+.SH SEE ALSO
+.BR sha256sum (1),
+.BR md5sum (1),
+.BR openssl (1),
+.BR clip (1),
+.BR ids (1)
