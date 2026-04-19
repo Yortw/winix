@@ -50,15 +50,43 @@ public class HashFactoryTests
     }
 
     [Fact]
+    public void Sha384_KnownVector()
+    {
+        // NIST FIPS 180-4 test vector for SHA-384 of "abc".
+        var hasher = HashFactory.Create(HashAlgorithm.Sha384);
+        byte[] hash = hasher.Hash(Encoding.UTF8.GetBytes("abc"));
+        Assert.Equal(
+            "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed8086072ba1e7cc2358baeca134c825a7",
+            Hex.Encode(hash));
+    }
+
+    [Fact]
     public void Sha3_256_KnownVector()
     {
-        if (!System.Security.Cryptography.SHA3_256.IsSupported)
-        {
-            return; // Skip on platforms without SHA-3 support.
-        }
+        // Platform guard: SHA-3 requires Windows 11 22H2+ / recent Linux / recent macOS.
+        // Older dev machines (e.g. Win10) won't have it. xUnit 2.x has no clean skip
+        // mechanism, so we return early — this is a "silent no-op" rather than silent pass,
+        // documented here explicitly. All CI platforms (ubuntu-latest, windows-latest,
+        // macos-latest) support SHA-3 and will exercise this test normally.
+        if (!System.Security.Cryptography.SHA3_256.IsSupported) return;
+
         var hasher = HashFactory.Create(HashAlgorithm.Sha3_256);
         byte[] hash = hasher.Hash(Encoding.UTF8.GetBytes("abc"));
         Assert.Equal("3a985da74fe225b2045c172d6bd390bd855f086e3e9d525b46bfe24511431532", Hex.Encode(hash));
+    }
+
+    [Fact]
+    public void Sha3_512_KnownVector()
+    {
+        // Platform guard — see Sha3_256_KnownVector above for rationale.
+        if (!System.Security.Cryptography.SHA3_512.IsSupported) return;
+
+        // NIST FIPS 202 test vector for SHA3-512 of "abc".
+        var hasher = HashFactory.Create(HashAlgorithm.Sha3_512);
+        byte[] hash = hasher.Hash(Encoding.UTF8.GetBytes("abc"));
+        Assert.Equal(
+            "b751850b1a57168a5693cd924b6b096e08f621827444f70d884f5d0240d2712da10117bfd8e1e294ee7a06e42cc3c4bab8b5e756c5e2a53a73e1bb1d0fd2fa8b",
+            Hex.Encode(hash));
     }
 
     [Fact]

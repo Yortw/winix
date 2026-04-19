@@ -66,7 +66,7 @@ public static class HashFactory
             while ((n = input.Read(buffer)) > 0)
             {
                 // Update accepts ReadOnlySpan<byte> directly.
-                hasher.Update(buffer[..n]);
+                hasher.Update(buffer.Slice(0, n));
             }
             return hasher.Finish();
         }
