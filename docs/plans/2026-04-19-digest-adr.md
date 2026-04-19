@@ -174,20 +174,33 @@ A future `protect`/`unprotect` Winix tool would provide a unified `unprotect < s
 
 ---
 
-## 9. File/String Auto-Detection with Explicit Override Flags
+## 9. Positionals are Always Files; Literal Strings Require `--string VALUE`
 
-**Context:** `digest hello` is ambiguous. Is "hello" a filename or a literal string? `sha256sum` sidesteps this by only accepting files (or `-` for stdin). Our interface supports both.
+**Context:** `digest` takes input from four places: stdin, a literal string, a single file, or multiple files. An earlier draft used auto-detection — treat a positional arg as a file if it exists on disk, otherwise as a literal string. That approach has an interactive-ergonomics appeal (`digest "hello"` just works) but introduces a silent-wrong-thing failure mode in scripts.
 
-**Decision:** Auto-detect by `File.Exists()`: if the positional arg names an existing file, treat as file input; otherwise, treat as literal string. Provide `--string` and `--file` explicit override flags.
+**Decision:** Positional arguments are always file paths. Literal-string hashing requires `--string VALUE` (short form `-s VALUE`). A positional arg that doesn't exist on disk errors clearly rather than silently being treated as a literal string. `--string` is exclusive with positional args.
 
-**Rationale:** Auto-detect covers the overwhelmingly common cases cleanly: `digest ./downloaded.iso` hashes the file; `digest "hello"` hashes the string. The override flags handle edge cases (a file that looks like a sentence, a string that happens to match an existing filename) without ceremony for the common path.
+**Rationale:** The failure mode of auto-detect in a script is severe:
 
-**Trade-offs Accepted:** `digest file.txt` where `file.txt` doesn't exist will silently hash the literal string `"file.txt"`. This is a potential surprise. Mitigation: the README calls this out explicitly, and `--file` forces file-mode with a clear error if the file is missing. Scripts that want deterministic behaviour should use `--file` or `--string` explicitly.
+```bash
+MY_FILE="releases/v0.3.0/installer.exe"
+EXPECTED_HASH=$(digest "$MY_FILE")
+curl ... --header "X-Hash: $EXPECTED_HASH"
+```
+
+If `$MY_FILE` doesn't exist (typo, renamed release, relocated artefact), auto-detection silently falls back to hashing the 39-character path string. The script produces a valid-looking SHA-256 that has nothing to do with the file, sends it downstream, and succeeds. No error, no warning, no log line. This is the class of bug that ships to production and causes attestation mismatches days later.
+
+Under the new rule, the script errors immediately with `digest: 'releases/v0.3.0/installer.exe' not found`. The failure is loud, local, and directs the user to the actual problem.
+
+The cost of this decision is three characters of extra typing at an interactive prompt: `digest -s "hello"` instead of `digest "hello"`. Acceptable trade — scripting correctness outranks interactive ergonomics because the failure modes aren't in the same weight class. Silent wrong-thing in a script is a *correctness* bug; three extra characters at a prompt is a minor inconvenience.
+
+**Trade-offs Accepted:** Users need to type `-s` or `--string` for literal-string hashing. Interactive one-off usage of string hashing becomes slightly more verbose. `digest --hmac sha256 --key-env SECRET "payload"` becomes `digest --hmac sha256 --key-env SECRET --string "payload"`. Muscle memory from tools like `openssl dgst` (which similarly requires explicit string input) transfers cleanly.
 
 **Options Considered:**
-- **No auto-detect; always literal string unless `--file` is used.** Rejected — breaks the intuitive `digest somefile` invocation that mirrors `sha256sum somefile`.
-- **No auto-detect; always file unless `--string` is used.** Rejected — breaks the `digest "quick test string"` invocation that's a common ad-hoc use.
-- **No auto-detect; require explicit `--string` or `--file` always.** Rejected — too much ceremony for the common cases.
+- **Auto-detect by `File.Exists()`, with `--string`/`--file` override flags.** Rejected — silent-wrong-thing risk in scripts is too severe. A missing-file typo produces a plausible-but-wrong hash with no signal to the caller.
+- **No auto-detect, but keep `--string` as a toggle flag** (so positional args are still either string or file depending on the toggle). Rejected — introduces ambiguity with `--string hello world` (where does the string end and the next flag/arg begin?). Making `--string` a value-taking option (`--string VALUE`) avoids this entirely.
+- **Always require explicit `--string` or `--file`.** Rejected — loses the intuitive `digest somefile.iso` invocation that matches `sha256sum somefile.iso` and is the dominant use case.
+- **Error with a suggested fix if a positional doesn't exist AND it doesn't look path-like** (no `/`, no `.` extension, etc.). Rejected — heuristics for "looks path-like" are unreliable and the clarity win of an unconditional rule is worth more than the interactive ergonomic save.
 
 ---
 

@@ -101,20 +101,25 @@ Two notes:
 ### Examples
 
 ```bash
-digest                               # SHA-256 of stdin (implicit default)
-digest "hello"                       # SHA-256 of a literal string
-digest --sha512 "hello"              # SHA-512 of a string
+digest                               # SHA-256 of stdin (no args + redirected stdin)
 digest path/to/file                  # SHA-256 of a file
-digest *.txt                         # one SHA-256 line per file (sha256sum-compatible)
+digest file1 file2 file3             # multi-file, one line per file (sha256sum-compatible)
+digest *.txt                         # multi-file via shell glob
+digest -                             # explicit "read stdin"
+curl ... | digest                    # pipe into digest
+
+digest -s "hello"                    # SHA-256 of a literal string
+digest --string "hello world"        # same, long form
+digest --sha512 --string "hello"     # SHA-512 of a string
 digest --md5 legacy.bin              # MD5 with stderr warning
 digest --base64 file.bin             # base64 output
 digest --upper file.bin              # uppercase hex
 
 # HMAC modes
-digest --hmac sha256 --key-env API_SECRET "payload"
+digest --hmac sha256 --key-env API_SECRET --string "payload"
 digest --hmac sha256 --key-file ~/.secret path/to/file
 echo "payload" | digest --hmac sha256 --key-file ~/.secret
-age --decrypt key.age | digest --hmac sha256 --key-stdin "payload"
+age --decrypt key.age | digest --hmac sha256 --key-stdin --string "payload"
 
 # Verify
 digest --verify "abc123..." file.bin
@@ -123,6 +128,8 @@ digest --hmac sha256 --key-env SECRET --verify "xyz..." file
 # Metadata
 digest --help / --version / --describe
 ```
+
+**Positional arguments are always file paths.** There is no auto-detect: a positional arg that doesn't exist on disk produces `digest: '<arg>' not found` (exit 125), not a silent hash of the literal string. Literal-string hashing requires `--string VALUE` / `-s VALUE`. This protects scripts that pass variable-derived paths from silently hashing the path string when the file is missing. See ADR §9 for the full rationale.
 
 ### Flags
 
@@ -148,31 +155,29 @@ digest --help / --version / --describe
 | `--base64-url` | | | Base64 URL-safe variant |
 | `--base32` | | | Crockford base32 (uppercase, no padding) |
 | `--upper` | `-u` | off | Uppercase hex output |
-| `--string` | | off | Treat positional as literal string (disable file auto-detect) |
-| `--file` | | off | Treat positional as file path (error if not found) |
+| `--string VALUE` | `-s VALUE` | | Hash `VALUE` as a literal string (UTF-8 bytes). Exclusive with positional args. |
 | `--verify EXPECTED` | | | Compare output constant-time; exit 0 match, 1 mismatch |
 | `--json` | | off | JSON output |
 | `--describe`/`--help`/`--version`/`--color`/`--no-color` | | | Standard Winix flags |
 
 ### Input mode resolution
 
-`HashRunner` picks one mode from parsed options:
+`HashRunner` picks one mode from parsed options. The rules are unambiguous — no auto-detection:
 
 | Condition | Mode | Semantics |
 |---|---|---|
+| `--string VALUE` / `-s VALUE` present | **String** | Hash UTF-8 bytes of `VALUE`. Positional args rejected. |
 | No positional args, stdin redirected | **Stdin** | Hash bytes read from stdin. |
-| One positional arg, not a file path (and `--string` or auto-detect says string) | **String** | Hash UTF-8 bytes of literal. |
-| One positional that is an existing file (or `--file`) | **SingleFile** | Streaming hash of file contents. |
+| Single positional arg `-` | **Stdin** (explicit) | Same as stdin-redirected. |
+| Single positional arg (not `-`) | **SingleFile** | Streaming hash of file contents. Errors if file doesn't exist. |
 | Multiple positional args | **MultiFile** | One hash per file; all-or-nothing validation up front. |
-| One positional `-` | **Stdin** (explicit) | Same as stdin-redirected. |
 
-**String/file disambiguation rules:**
+**Exclusivity rules:**
 
-1. If exactly one positional arg exists AND it matches `File.Exists()` → SingleFile.
-2. Else if exactly one positional → String.
-3. Else (multiple positionals) → MultiFile; every positional must exist as a file or we exit 125 **before** producing any output (all-or-nothing).
+- `--string` is exclusive with positional args. `digest --string "hello" file.txt` → exit 125 with `digest: --string cannot be combined with file arguments`.
+- Positional args are **always treated as file paths.** Every positional must exist on disk or we exit 125 **before** producing any output (all-or-nothing validation). A positional arg `"hello"` with no file by that name produces `digest: 'hello' not found — use --string to hash as a literal, or pass a valid file path`.
 
-`--string` forces literal mode (bypasses file-exists check). `--file` forces file mode (errors if positional isn't an existing file). README must document this rule prominently — `digest file.txt` in a directory without `file.txt` silently hashes the string `"file.txt"` unless `--file` is specified.
+This rule matters for scripts. `digest "$MY_FILE"` where `$MY_FILE` contains a path that no longer exists will error clearly rather than silently hashing the 20-character path string and reporting a valid-looking but completely wrong hash. Interactive string hashing uses `-s "hello"` (three extra characters). See ADR §9 for the rationale.
 
 ### Streaming for files
 
@@ -314,7 +319,9 @@ Exit code 1 for verify mismatch (not 125) matches `grep`/`diff`/`cmp` convention
 | `--key-stdin` + stdin payload | `digest: --key-stdin cannot be combined with stdin payload` |
 | `--verify` + multi-file | `digest: --verify is not supported with multiple files` |
 | Multiple output formats | `digest: multiple output formats specified — choose one` |
-| `--file` but arg isn't a file | `digest: '<arg>' is not a file` |
+| Positional arg doesn't exist on disk | `digest: '<arg>' not found — use --string to hash as a literal, or pass a valid file path` |
+| `--string` combined with positional args | `digest: --string cannot be combined with file arguments` |
+| Multiple `--string` flags | `digest: --string can only be specified once` |
 | SHA-3 unsupported on platform (exit 126) | `digest: SHA-3 is not available on this platform (OS crypto backend missing)` |
 
 **Warnings (exit 0, emit to stderr, don't block execution):**
@@ -341,7 +348,7 @@ Matches the `ids` pattern: catch `IOException` in the output loop, exit 0 silent
 - `HashFactoryTests`: 3 known vectors × 8 algorithms (24 tests), platform-conditional skip for SHA-3 if `IsSupported == false`.
 - `HmacFactoryTests`: RFC 4231 vectors for HMAC-SHA-256/384/512; smaller vector set for HMAC-SHA-1 (RFC 2202) and HMAC-MD5 (RFC 2104); key-longer-than-block-size edge case; zero-length key.
 - `KeyResolverTests`: each source resolves correctly; zero/multiple sources error; stdin conflict detection; trailing-newline strip by default; `--key-raw` preserves bytes; `--key` literal emits warning (capture via `TextWriter`); Unix permission warning (skip on Windows); missing env var/key file errors.
-- `HashRunnerTests`: string/stdin/single-file/multi-file modes each produce correct hash; all-or-nothing validation on multi-file; `--string` and `--file` override auto-detect.
+- `HashRunnerTests`: string/stdin/single-file/multi-file modes each produce correct hash; all-or-nothing validation on multi-file; positional args always treated as files (non-existent positional errors with "use --string" hint); `--string` rejects mixed positional args.
 - `VerifierTests`: match/mismatch, case handling per format, structural constant-time, `--verify` + multi-file errors.
 - `ArgParserTests`: positive parses for every flag; every row of the conflict matrix.
 - `FormattingTests`: plain text single-input, sha256sum line format, JSON single, JSON array, HMAC algorithm prefix.
