@@ -30,21 +30,27 @@ public class ConstantTimeCompareTests
         Assert.False(ConstantTimeCompare.BytesEqual(a, b));
     }
 
+    [Fact]
+    public void BytesEqual_BothEmpty_ReturnsTrue()
+    {
+        Assert.True(ConstantTimeCompare.BytesEqual(ReadOnlySpan<byte>.Empty, ReadOnlySpan<byte>.Empty));
+    }
+
     [Theory]
     [InlineData("abc", "abc", false, true)]
     [InlineData("ABC", "abc", true, true)]
     [InlineData("ABC", "abc", false, false)]
     [InlineData("abc", "ABC", true, true)]
     [InlineData("abc", "xyz", false, false)]
-    public void StringEquals_HandlesCase(string a, string b, bool caseInsensitive, bool expected)
+    public void StringEqualsAscii_HandlesCase(string a, string b, bool caseInsensitive, bool expected)
     {
-        Assert.Equal(expected, ConstantTimeCompare.StringEquals(a, b, caseInsensitive));
+        Assert.Equal(expected, ConstantTimeCompare.StringEqualsAscii(a, b, caseInsensitive));
     }
 
     [Fact]
-    public void StringEquals_NullInput_ReturnsFalse()
+    public void StringEqualsAscii_NullInput_ReturnsFalse()
     {
-        Assert.False(ConstantTimeCompare.StringEquals(null!, "abc", caseInsensitive: false));
-        Assert.False(ConstantTimeCompare.StringEquals("abc", null!, caseInsensitive: false));
+        Assert.False(ConstantTimeCompare.StringEqualsAscii(null!, "abc", caseInsensitive: false));
+        Assert.False(ConstantTimeCompare.StringEqualsAscii("abc", null!, caseInsensitive: false));
     }
 }

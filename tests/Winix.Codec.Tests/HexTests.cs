@@ -31,6 +31,15 @@ public class HexTests
         Assert.Equal(original, Hex.Decode(Hex.Encode(original)));
     }
 
+    [Fact]
+    public void Encode_LargeInput_UsesHeapPath_RoundTrips()
+    {
+        // 129 bytes — just past the 128-byte stackalloc cutoff, forces the heap branch.
+        byte[] original = new byte[129];
+        new Random(99).NextBytes(original);
+        Assert.Equal(original, Hex.Decode(Hex.Encode(original)));
+    }
+
     [Theory]
     [InlineData("AbCdEf")]
     [InlineData("abcdef")]
