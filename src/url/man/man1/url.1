@@ -123,8 +123,10 @@ form | Same as component | + | application/x-www-form-urlencoded
 .TE
 
 .SH NORMALISATION
-\fBparse\fR reflects its input faithfully.
-\fBbuild\fR / \fBjoin\fR / \fBquery set\fR / \fBquery delete\fR normalise output (lowercase scheme/host, strip default ports, IDN to Punycode) unless \fB--raw\fR is given.
+\fBparse\fR reflects input except for host case (.NET's \fBUri\fR lowercases hosts per RFC 3986 §3.2.2) and decodes unreserved escapes.
+\fBbuild\fR / \fBjoin\fR / \fBquery set\fR / \fBquery delete\fR normalise output (lowercase scheme, strip default port) unless \fB--raw\fR is given; \fB--raw\fR still validates that the result is a syntactically well-formed URI.
+UserInfo (\fIuser:pw@\fR) is preserved across \fBquery set\fR / \fBquery delete\fR operations.
+Unicode hostnames are preserved (not auto-Punycoded).
 
 .SH EXIT STATUS
 .TP

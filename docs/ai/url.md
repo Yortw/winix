@@ -82,9 +82,11 @@ url query delete "https://x.io/?a=1&b=2" a
 
 ## Normalisation
 
-- `parse` faithfully reflects its input (doesn't lowercase the host).
-- `build`, `join`, `query set`, `query delete` normalise output (lowercase scheme/host, strip default ports, IDN → Punycode).
-- `--raw` disables normalisation where it would apply.
+- `parse` reflects input except for host case (.NET's `Uri` lowercases hosts per RFC 3986 §3.2.2) and decoded unreserved escapes.
+- `build`, `join`, `query set`, `query delete` normalise output (lowercase scheme, strip default ports).
+- `--raw` disables normalisation where it would apply, but the result is still syntax-validated.
+- UserInfo is preserved across `query set` / `query delete` operations (basic-auth URLs survive query edits).
+- Unicode hostnames pass through without auto-Punycoding. Applications needing Punycode can post-process externally.
 
 ## Platform Notes
 

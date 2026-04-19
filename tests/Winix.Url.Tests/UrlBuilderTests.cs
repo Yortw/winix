@@ -97,4 +97,35 @@ public class UrlBuilderTests
         Assert.True(r.Success);
         Assert.Contains(":443", r.Url);
     }
+
+    [Fact]
+    public void Build_Raw_StillValidatesSyntax()
+    {
+        // --raw must not skip syntactic validation. A host with a literal space is not a legal URI.
+        var r = UrlBuilder.Build("https", "foo bar.com", null, "/",
+            System.Array.Empty<(string, string)>(), null, raw: true);
+        Assert.False(r.Success);
+        Assert.Contains("invalid URL", r.Error);
+    }
+
+    [Fact]
+    public void Build_WithUserInfo_InjectedBetweenSchemeAndHost()
+    {
+        var r = UrlBuilder.Build("https", "x.io", null, "/api",
+            System.Array.Empty<(string, string)>(), null, raw: false,
+            userInfo: "user:pw");
+        Assert.True(r.Success);
+        Assert.Contains("user:pw@", r.Url);
+        Assert.Contains("x.io", r.Url);
+    }
+
+    [Fact]
+    public void Build_PreEncodedPath_NotDoubleEncoded()
+    {
+        // Regression: feeding back a parsed path (already %XX-encoded) should not produce %25XX.
+        var r = UrlBuilder.Build("https", "x.io", null, "/a%20b",
+            System.Array.Empty<(string, string)>(), null, raw: false);
+        Assert.True(r.Success);
+        Assert.Equal("https://x.io/a%20b", r.Url);
+    }
 }

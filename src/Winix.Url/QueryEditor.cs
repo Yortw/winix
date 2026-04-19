@@ -103,6 +103,7 @@ public static class QueryEditor
     }
 
     // Rebuild the URL with the edited query, delegating to UrlBuilder for consistent normalisation.
+    // UserInfo preserved — losing credentials silently during a query edit would be a data-loss bug.
     private static Result SpliceQuery(ParsedUrl original, IReadOnlyList<(string, string)> newQuery, bool raw)
     {
         var build = UrlBuilder.Build(
@@ -112,7 +113,8 @@ public static class QueryEditor
             path: original.Path,
             query: newQuery,
             fragment: original.Fragment,
-            raw: raw);
+            raw: raw,
+            userInfo: original.UserInfo);
         if (!build.Success)
         {
             return new Result(null, null, build.Error);

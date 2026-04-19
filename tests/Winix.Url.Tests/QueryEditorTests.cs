@@ -120,4 +120,22 @@ public class QueryEditorTests
         string s = QueryEditor.SerialiseQuery(new (string, string)[] { ("q", "hello world"), ("a", "&") });
         Assert.Equal("q=hello+world&a=%26", s);
     }
+
+    // Regression: editing a query must not silently drop userinfo (would be a data-loss bug
+    // for anyone editing basic-auth URLs in scripts).
+    [Fact]
+    public void Set_PreservesUserInfo()
+    {
+        var r = QueryEditor.Set("https://user:pw@x.io/?a=1", "a", "2", raw: false);
+        Assert.True(r.Success);
+        Assert.Contains("user:pw@", r.Url);
+    }
+
+    [Fact]
+    public void Delete_PreservesUserInfo()
+    {
+        var r = QueryEditor.Delete("https://user:pw@x.io/?a=1&b=2", "a", raw: false);
+        Assert.True(r.Success);
+        Assert.Contains("user:pw@", r.Url);
+    }
 }

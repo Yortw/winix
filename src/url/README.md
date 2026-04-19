@@ -133,10 +133,12 @@ retry -- curl "$(url build --host api.example.com --path /v1/health)"
 | Subcommand | Normalised? |
 |---|---|
 | `encode` / `decode` | N/A — string-level. |
-| `parse` | No — reflects input faithfully. |
-| `build` | Yes (lowercase scheme/host, strip default port, Punycode IDN) unless `--raw`. |
+| `parse` | .NET's `Uri` always lowercases the host (`HTTPS://Example.COM` → `example.com` in the `host` field) and decodes unreserved escapes. Other fields reflect input. |
+| `build` | Lowercase scheme, strip default port unless `--raw`. `--raw` still validates the result syntactically. |
 | `join` | Yes, unless `--raw`. |
-| `query set` / `delete` | Yes (rebuilt via build), unless `--raw`. |
+| `query set` / `delete` | Yes (rebuilt via `build`), unless `--raw`. UserInfo (e.g. `user:pw@`) is preserved. |
+
+**IDN:** non-ASCII hostnames pass through as-is (Unicode preserved). Applications that need Punycode can re-encode externally (e.g. via `System.Uri.IdnHost` if scripting from .NET); `url` does not force the conversion. Future v2 may add `--idn` opt-in.
 
 ## JSON Output Shape (`url parse --json`)
 
@@ -165,6 +167,32 @@ retry -- curl "$(url build --host api.example.com --path /v1/health)"
 | 0 | Success. |
 | 125 | Usage error — bad flags, unknown subcommand, missing required value, base URL not absolute. |
 | 126 | Runtime error — invalid URL syntax, `query get` key not found. |
+
+## `--field` output conventions
+
+| Field | Output form |
+|---|---|
+| `scheme` | lowercased (BCL behaviour) |
+| `userinfo` | raw (as-in-URL, still percent-encoded) |
+| `host` | lowercased Unicode (BCL behaviour) |
+| `port` | integer as decimal string |
+| `path` | percent-encoded (as-in-URL, round-trips with `url build --path`) |
+| `query` | form-encoded raw query string (what `url parse` would emit) |
+| `fragment` | percent-**decoded** (human-readable) |
+
+If you need the URL-encoded form of a field that's decoded by default, use `--json` and `jq` rather than `--field`.
+
+## Windows Git Bash note
+
+Git Bash on Windows auto-translates any argument starting with `/` into a Windows path (e.g. `/v1` → `C:\Program Files\Git\v1`). This affects `--path /v1` on `url build` and `/login` relative args on `url join`. Workaround:
+
+```bash
+MSYS_NO_PATHCONV=1 url build --host x.io --path /v1
+# or use a double-slash prefix:
+url build --host x.io --path //v1     # preserved by MSYS as /v1
+```
+
+Not a url issue — MSYS quirk inherited by Git Bash.
 
 ## Differences from `python -c "import urllib.parse"`
 

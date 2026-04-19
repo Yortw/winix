@@ -19,10 +19,11 @@ public static class UrlBuilder
     /// <param name="scheme">Scheme; defaults to <c>https</c> if null.</param>
     /// <param name="host">Host (required).</param>
     /// <param name="port">Port, or null for scheme default.</param>
-    /// <param name="path">Path; leading slash added if missing.</param>
+    /// <param name="path">Path; leading slash added if missing. Pre-encoded <c>%XX</c> triplets are preserved.</param>
     /// <param name="query">Ordered (key, value) pairs; form-encoded on serialisation.</param>
     /// <param name="fragment">Fragment (without leading '#'), or null.</param>
-    /// <param name="raw">When true, skip normalisation (preserve default ports, case).</param>
+    /// <param name="raw">When true, skip normalisation (preserve default ports, case). Still validated for syntax.</param>
+    /// <param name="userInfo">Optional userinfo ("user:pass") to inject between scheme and host. Passed through opaquely; the caller is expected to supply an already-encoded value (for round-tripping a ParsedUrl.UserInfo).</param>
     public static Result Build(
         string? scheme,
         string host,
@@ -30,7 +31,8 @@ public static class UrlBuilder
         string? path,
         IReadOnlyList<(string Key, string Value)> query,
         string? fragment,
-        bool raw)
+        bool raw,
+        string? userInfo = null)
     {
         if (string.IsNullOrEmpty(host))
         {
@@ -44,7 +46,7 @@ public static class UrlBuilder
             return new Result(null, $"port must be in [1, 65535] (got {p})");
         }
 
-        // Path: ensure leading slash; encode segments.
+        // Path: ensure leading slash; encode while preserving pre-encoded triplets.
         string encodedPath;
         if (string.IsNullOrEmpty(path))
         {
@@ -87,25 +89,17 @@ public static class UrlBuilder
             }
         }
 
-        string result = $"{scheme}://{host}{portString}{encodedPath}{queryString}{fragmentString}";
+        string userInfoPart = string.IsNullOrEmpty(userInfo) ? "" : userInfo + "@";
 
-        if (!raw)
+        string result = $"{scheme}://{userInfoPart}{host}{portString}{encodedPath}{queryString}{fragmentString}";
+
+        // Validate syntax via Uri.TryCreate. --raw keeps the original (unnormalised) string;
+        // non-raw returns AbsoluteUri (canonical escaped form).
+        if (!Uri.TryCreate(result, UriKind.Absolute, out Uri? parsed))
         {
-            // Normalise via Uri round-trip. Use AbsoluteUri (canonical escaped form) rather
-            // than ToString() — ToString unescapes some characters for readability, which
-            // turns "%20" back into a literal space in the path and breaks round-tripping.
-            try
-            {
-                var u = new Uri(result, UriKind.Absolute);
-                return new Result(u.AbsoluteUri, null);
-            }
-            catch (UriFormatException ex)
-            {
-                return new Result(null, $"invalid URL: {ex.Message}");
-            }
+            return new Result(null, "invalid URL: assembled components do not form a valid absolute URI");
         }
-
-        return new Result(result, null);
+        return new Result(raw ? result : parsed.AbsoluteUri, null);
     }
 
     private static bool IsDefaultPort(string scheme, int port) => (scheme.ToLowerInvariant(), port) switch

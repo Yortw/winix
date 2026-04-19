@@ -59,7 +59,7 @@ url query delete <url> <key>
 
 **Positional + stdin:**
 
-- Subcommands that take a primary input accept either a positional argument or stdin via `-`: `echo "hello" | url encode -`.
+- Subcommands that take a primary input accept a positional argument. **Stdin `-` deferred to v2** — a bare `-` positional is currently treated as a literal dash character.
 - `url build` has no positional input — all from flags.
 - No batch mode in v1 — one URL per invocation. Users loop in shell if needed.
 
@@ -230,7 +230,7 @@ tests/Winix.Url.Tests/
 
 - **Empty query string (`?`)** — round-trips as `?` on `parse`; dropped by `build`/`join` normalisation unless `--raw`.
 - **Duplicate query keys** — `parse --json` preserves order and all values; `query get` returns first match (a `--all` flag could be v2).
-- **IDN hosts** — `build`/`join` output Punycode by default; `--raw` preserves Unicode input.
+- **IDN hosts** — .NET's `Uri.AbsoluteUri` does NOT auto-convert Unicode hosts to Punycode; they pass through. Applications that need Punycode can post-process via `Uri.IdnHost`. An opt-in `--idn` flag is deferred to v2.
 - **Invalid percent-escapes in decode input** (e.g. `%ZZ`) — `Uri.UnescapeDataString` treats as literal `%ZZ`; no error. Documented.
 - **Malformed URLs in `parse`** — exit 126 with the `UriFormatException` message as context.
 - **UTF-8 in path/query** — standard percent-encoded on the way in; decoded as UTF-8 on the way out.

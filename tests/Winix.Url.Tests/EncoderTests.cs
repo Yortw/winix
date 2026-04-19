@@ -65,4 +65,27 @@ public class EncoderTests
     {
         Assert.Equal("", Encoder.Encode("", EncodeMode.Component, form: false));
     }
+
+    // Regression: pre-encoded path input must round-trip without double-encoding.
+    // Without this, `url parse | url build` produces corrupted output because
+    // ParsedUrl.Path comes from uri.AbsolutePath (already %XX-encoded).
+    [Theory]
+    [InlineData("/a%20b", "/a%20b")]                  // pre-encoded space preserved
+    [InlineData("/path/with%2Fslash", "/path/with%2Fslash")] // literal-slash-in-segment preserved
+    [InlineData("/100%", "/100%25")]                  // bare % (not a valid escape) → encoded
+    [InlineData("/a%20b%", "/a%20b%25")]              // mix: valid escape kept, bare % encoded
+    [InlineData("/a b/c", "/a%20b/c")]                // plain input encoded
+    [InlineData("/a%2zb", "/a%252zb")]                // %2z is not a valid escape → encoded
+    public void Encode_PathMode_PreservesExistingEscapes(string input, string expected)
+    {
+        Assert.Equal(expected, Encoder.Encode(input, EncodeMode.Path, form: false));
+    }
+
+    [Fact]
+    public void Encode_PathMode_NormalisesExistingEscapeCaseToUppercase()
+    {
+        // RFC 3986 §6.2.2.1: hex digits in percent-encoded triplets should be uppercase.
+        Assert.Equal("/a%A0b", Encoder.Encode("/a%a0b", EncodeMode.Path, form: false));
+        Assert.Equal("/a%A0b", Encoder.Encode("/a%A0b", EncodeMode.Path, form: false));
+    }
 }
