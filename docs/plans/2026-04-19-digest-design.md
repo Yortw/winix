@@ -188,12 +188,12 @@ No memory-mapped I/O — BCL's Stream path is fast enough and avoids MMF complex
 <encoded-hash>\n
 ```
 
-**Plain text, multi-file (sha256sum-compatible):**
+**Plain text, multi-file (sha256sum-compatible, binary-mode marker):**
 ```
-<encoded-hash>  <filename>\n
-<encoded-hash>  <filename>\n
+<encoded-hash> *<filename>\n
+<encoded-hash> *<filename>\n
 ```
-Two-space separator. We always use this form (binary mode is the only mode — we read bytes, not lines).
+Single space + `*` prefix on the filename. The `*` is `sha256sum`'s binary-mode marker: the hash was computed over the file's raw bytes with no CR/LF translation. We always use this form — `digest` never does text-mode CR/LF translation, so the marker honestly describes our behaviour. `sha256sum -c SHA256SUMS` accepts both `*` and two-space markers, so existing verification flows remain compatible. Users generating checkfiles on Windows and verifying on Linux (or vice versa) get matching hashes because both sides agree on binary-mode semantics.
 
 **JSON single input:**
 ```json

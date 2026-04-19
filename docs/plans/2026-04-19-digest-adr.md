@@ -112,7 +112,32 @@ The all-or-nothing cost is a small latency bump on cold-start when processing th
 
 ---
 
-## 6. Verify Mode Uses Exit Code 1 for Mismatch (Not 125)
+## 6. Multi-File Output Uses the `*` (Binary-Mode) Marker, Not Two Spaces
+
+**Context:** GNU `sha256sum` has two output-line forms, distinguished by a marker between the hash and the filename:
+- `<hash>  <filename>` (two spaces) — text mode; the hash was computed after CR/LF → LF translation.
+- `<hash> *<filename>` (space + asterisk) — binary mode; the hash was computed over raw bytes.
+
+On Unix text and binary modes produce identical hashes (no CR/LF translation happens), so the marker is historical/cosmetic there. On Windows, text mode normalises CR/LF before hashing, which diverges from binary mode.
+
+**Decision:** Use the `*` binary-mode marker in `digest`'s multi-file output: `<hash> *<filename>`.
+
+**Rationale:** `digest` always reads files as raw bytes — we never do CR/LF translation. The `*` marker honestly describes this. Using two spaces (text mode) while doing binary-mode hashing would be a mis-signal: a user inspecting the SHA256SUMS file couldn't tell from the marker whether this hash came from text or binary mode.
+
+Cross-platform correctness also benefits. A Windows user generating a SHA256SUMS with `digest` and verifying it on Linux with GNU `sha256sum -c SHA256SUMS` gets matching behaviour because both sides agree it's binary mode. If we used two spaces (text mode) on Windows, GNU `sha256sum -c` would try to CR/LF-translate the referenced file during verify and get a different hash on files containing bytes that look like CR/LF.
+
+`sha256sum -c` accepts both markers during verification, so existing verification flows aren't broken by the choice.
+
+**Trade-offs Accepted:** Users accustomed to GNU `sha256sum`'s Unix default output (two spaces) will see an unfamiliar marker in `digest`'s output. Acceptable — the marker is documented in the README and it's the correct one for our behaviour.
+
+**Options Considered:**
+- **Two spaces (GNU default on Unix).** Rejected — misrepresents our binary-mode behaviour.
+- **Two spaces with a README note explaining we always binary-hash.** Rejected — the marker is right there in every output line; documentation can't overcome a visible mis-signal.
+- **Add a `--text-mode` flag for CR/LF normalisation.** Rejected — text-mode hashing is nearly always wrong in 2026 (modern cross-platform workflows treat files as bytes), and adding the flag invites users to reach for it without understanding the consequences. Not worth the ceremony.
+
+---
+
+## 7. Verify Mode Uses Exit Code 1 for Mismatch (Not 125)
 
 **Context:** `digest --verify <expected> file` compares. Mismatch is a normal outcome — the tool worked correctly, the answer was "no." What exit code?
 
@@ -128,7 +153,7 @@ The all-or-nothing cost is a small latency bump on cold-start when processing th
 
 ---
 
-## 7. Encrypted-at-Rest Key Files: Deferred to a Separate `protect`/`unprotect` Tool
+## 8. Encrypted-at-Rest Key Files: Deferred to a Separate `protect`/`unprotect` Tool
 
 **Context:** `--key-file` reads an unencrypted file. The question arose: should `digest` support decryption (DPAPI-unprotect, age-decrypt, GPG-decrypt, Keychain-fetch) natively? Or should that be a separate tool?
 
@@ -149,7 +174,7 @@ A future `protect`/`unprotect` Winix tool would provide a unified `unprotect < s
 
 ---
 
-## 8. File/String Auto-Detection with Explicit Override Flags
+## 9. File/String Auto-Detection with Explicit Override Flags
 
 **Context:** `digest hello` is ambiguous. Is "hello" a filename or a literal string? `sha256sum` sidesteps this by only accepting files (or `-` for stdin). Our interface supports both.
 
