@@ -573,18 +573,16 @@ namespace Winix.Digest;
 public sealed record DigestOptions(
     HashAlgorithm Algorithm,
     bool IsHmac,
-    byte[]? HmacKey,
     OutputFormat Format,
     bool Uppercase,
     InputSource Source,
     string? VerifyExpected,
     bool Json)
 {
-    /// <summary>Default options for ad-hoc construction in tests.</summary>
-    public static DigestOptions Defaults => new(
+    /// <summary>Default options for ad-hoc construction in tests. Shared singleton — safe because the record is immutable.</summary>
+    public static readonly DigestOptions Defaults = new(
         Algorithm: HashAlgorithm.Sha256,
         IsHmac: false,
-        HmacKey: null,
         Format: OutputFormat.Hex,
         Uppercase: false,
         Source: new StdinInput(),
@@ -2348,7 +2346,6 @@ public static class ArgParser
         var options = new DigestOptions(
             Algorithm: algorithm,
             IsHmac: isHmac,
-            HmacKey: null,  // resolved later in Program.cs via KeyResolver
             Format: format,
             Uppercase: uppercase,
             Source: source,
@@ -2880,7 +2877,7 @@ No "implement later" / "TBD" / "add appropriate X" placeholders.
 
 **3. Type consistency.**
 
-- `DigestOptions` record (Task 3): 8 properties (`Algorithm`, `IsHmac`, `HmacKey`, `Format`, `Uppercase`, `Source`, `VerifyExpected`, `Json`). Used in Tasks 9, 10, 11.
+- `DigestOptions` record (Task 3): 7 properties (`Algorithm`, `IsHmac`, `Format`, `Uppercase`, `Source`, `VerifyExpected`, `Json`). The HMAC key is NOT stored on the record — it's resolved from a sibling `ArgParser.Result.KeySourceForHmac` field via KeyResolver just before building the hasher in Program.cs. Used in Tasks 9, 10, 11.
 - `HashAlgorithm` enum: 8 values. Used consistently in Tasks 4, 5, 10.
 - `InputSource` types (`StringInput`, `StdinInput`, `SingleFileInput`, `MultiFileInput`): used in Tasks 7, 10, 11.
 - `IHasher` interface: `Hash(ReadOnlySpan<byte>)` and `Hash(Stream)`. Consistent across Tasks 4, 5, 7, 11.
@@ -2888,7 +2885,7 @@ No "implement later" / "TBD" / "add appropriate X" placeholders.
 - `HashResult` record: `(byte[] Hash, string? Path)`. Used in Tasks 7, 11.
 - `ArgParser.Result` record: 7 fields (`Options`, `Error`, `IsHandled`, `HandledExitCode`, `UseColor`, `KeySourceForHmac`, `StripKeyNewline`). Used in Task 10 test + Task 11 consumer.
 
-No drift. The `HmacKey` field on `DigestOptions` is set by ArgParser as `null` (bytes aren't resolved yet — Program.cs calls KeyResolver before building the hasher). Documented in Task 3 code comments and used consistently.
+No drift. The HMAC key is deliberately absent from `DigestOptions` — it lives only in the local `byte[] key` in Program.cs between KeyResolver resolution and HmacFactory construction, keeping key bytes out of any long-lived structured representation.
 
 **4. Other observations:**
 
