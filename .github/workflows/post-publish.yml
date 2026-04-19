@@ -64,6 +64,7 @@ jobs:
           update_manifest bucket/ids.json aot/ids-win-x64.zip
           update_manifest bucket/digest.json aot/digest-win-x64.zip
           update_manifest bucket/notify.json aot/notify-win-x64.zip
+          update_manifest bucket/url.json aot/url-win-x64.zip
 
       - name: Commit and push scoop bucket
         run: |
@@ -181,6 +182,7 @@ jobs:
           generate_manifests "ids" "Ids" "Cross-platform identifier generator — UUID v4, UUID v7, ULID, NanoID."
           generate_manifests "digest" "Digest" "Cross-platform cryptographic hashing and HMAC — SHA-2/SHA-3/BLAKE2b with safe key handling."
           generate_manifests "notify" "Notify" "Cross-platform desktop notifications + ntfy.sh push."
+          generate_manifests "url" "Url" "Cross-platform URL encode/decode/parse/build/join/query-edit."
 
       - name: Upload winget manifests
         uses: actions/upload-artifact@v7
