@@ -20,10 +20,14 @@ public abstract record KeySource
     /// <summary>Key bytes from a literal string (UTF-8 encoded). Emits a stderr warning — key is exposed to <c>ps</c> and shell history.</summary>
     public static KeySource Literal(string value) => new LiteralSource(value);
 
-    internal sealed record EnvSource(string Name) : KeySource;
-    internal sealed record FileSource(string Path) : KeySource;
-    internal sealed record StdinSource : KeySource;
-    internal sealed record LiteralSource(string Value) : KeySource;
+    /// <summary>Env-variable key source produced by <see cref="EnvVariable"/>.</summary>
+    public sealed record EnvSource(string Name) : KeySource;
+    /// <summary>File key source produced by <see cref="File"/>.</summary>
+    public sealed record FileSource(string Path) : KeySource;
+    /// <summary>Stdin key source produced by <see cref="Stdin"/>.</summary>
+    public sealed record StdinSource : KeySource;
+    /// <summary>Literal key source produced by <see cref="Literal"/>.</summary>
+    public sealed record LiteralSource(string Value) : KeySource;
 }
 
 /// <summary>
