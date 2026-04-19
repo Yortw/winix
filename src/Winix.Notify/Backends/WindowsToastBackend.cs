@@ -50,19 +50,24 @@ public sealed class WindowsToastBackend : IBackend
             psi.ArgumentList.Add("-Command");
             psi.ArgumentList.Add(script);
 
-            using var process = Process.Start(psi);
-            if (process is null)
-            {
-                return new BackendResult(Name, false, "Windows toast: powershell.exe not found", null);
-            }
+            using var process = Process.Start(psi)!;
+            // Drain stdout concurrently — child blocks on a full stdout pipe otherwise.
+            var stdoutDrain = process.StandardOutput.ReadToEndAsync(ct);
+            var stderrDrain = process.StandardError.ReadToEndAsync(ct);
             await process.WaitForExitAsync(ct).ConfigureAwait(false);
+            await stdoutDrain.ConfigureAwait(false);
+            string stderr = await stderrDrain.ConfigureAwait(false);
             if (process.ExitCode != 0)
             {
-                string stderr = await process.StandardError.ReadToEndAsync(ct).ConfigureAwait(false);
                 return new BackendResult(Name, false,
                     $"Windows toast: PowerShell exited {process.ExitCode}: {stderr.Trim()}", null);
             }
             return new BackendResult(Name, true, null, null);
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            // ENOENT — powershell.exe not found.
+            return new BackendResult(Name, false, "Windows toast: powershell.exe not found on PATH", null);
         }
         catch (Exception ex)
         {

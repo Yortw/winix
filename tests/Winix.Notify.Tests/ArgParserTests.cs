@@ -190,4 +190,35 @@ public class ArgParserTests
         var r = ArgParser.Parse(new[] { "--json", "hi" });
         Assert.True(r.Options!.Json);
     }
+
+    [Fact]
+    public void Parse_NtfyServerFlag_BeatsEnvVar()
+    {
+        Environment.SetEnvironmentVariable("NOTIFY_NTFY_TOPIC", "envtopic");
+        Environment.SetEnvironmentVariable("NOTIFY_NTFY_SERVER", "https://envserver.example.com");
+        try
+        {
+            var r = ArgParser.Parse(new[] { "--ntfy-server", "https://flag.example.com", "hi" });
+            Assert.True(r.Success);
+            Assert.Equal("https://flag.example.com", r.Options!.NtfyServer);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("NOTIFY_NTFY_TOPIC", null);
+            Environment.SetEnvironmentVariable("NOTIFY_NTFY_SERVER", null);
+        }
+    }
+
+    [Fact]
+    public void Parse_NoNtfyFlag_BeatsEnvVarTopic()
+    {
+        Environment.SetEnvironmentVariable("NOTIFY_NTFY_TOPIC", "envtopic");
+        try
+        {
+            var r = ArgParser.Parse(new[] { "--ntfy", "topic", "--no-ntfy", "hi" });
+            Assert.True(r.Success);
+            Assert.False(r.Options!.NtfyEnabled);
+        }
+        finally { Environment.SetEnvironmentVariable("NOTIFY_NTFY_TOPIC", null); }
+    }
 }

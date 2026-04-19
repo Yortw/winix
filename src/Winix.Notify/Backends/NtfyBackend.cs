@@ -53,7 +53,9 @@ public sealed class NtfyBackend : IBackend
             // ntfy requires a non-empty body — when no body provided, send title as body.
             string bodyText = message.Body ?? message.Title;
             request.Content = new StringContent(bodyText, Encoding.UTF8, "text/plain");
-            request.Headers.TryAddWithoutValidation("Title", message.Title);
+            // Strip CR/LF from the Title header value — TryAddWithoutValidation skips the
+            // built-in newline check, so a title containing "\r\n" would inject extra headers.
+            request.Headers.TryAddWithoutValidation("Title", SingleLine(message.Title));
             request.Headers.TryAddWithoutValidation("Priority", PriorityFor(message.Urgency));
             if (_token is not null)
             {
@@ -82,4 +84,7 @@ public sealed class NtfyBackend : IBackend
         Urgency.Critical => "5",
         _ => "3",
     };
+
+    // Replace CR / LF with spaces — header values must be single-line.
+    private static string SingleLine(string s) => s.Replace('\r', ' ').Replace('\n', ' ');
 }

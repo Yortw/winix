@@ -35,15 +35,15 @@ public sealed class MacOsAppleScriptBackend : IBackend
 
         try
         {
-            using var process = Process.Start(psi);
-            if (process is null)
-            {
-                return new BackendResult(Name, false, "osascript not found (unexpected on macOS)", null);
-            }
+            using var process = Process.Start(psi)!;
+            // Drain stdout concurrently — child blocks on a full stdout pipe otherwise.
+            var stdoutDrain = process.StandardOutput.ReadToEndAsync(ct);
+            var stderrDrain = process.StandardError.ReadToEndAsync(ct);
             await process.WaitForExitAsync(ct).ConfigureAwait(false);
+            await stdoutDrain.ConfigureAwait(false);
+            string stderr = await stderrDrain.ConfigureAwait(false);
             if (process.ExitCode != 0)
             {
-                string stderr = await process.StandardError.ReadToEndAsync(ct).ConfigureAwait(false);
                 return new BackendResult(Name, false,
                     $"osascript exited {process.ExitCode}: {stderr.Trim()}", null);
             }
@@ -53,6 +53,11 @@ public sealed class MacOsAppleScriptBackend : IBackend
         {
             return new BackendResult(Name, false, "osascript not found (unexpected on macOS)", null);
         }
+        catch (Exception ex)
+        {
+            // IBackend contract: never throw — convert to BackendResult.
+            return new BackendResult(Name, false, $"osascript: {ex.GetType().Name}: {ex.Message}", null);
+        }
     }
 
     // Internal for testing — escape order matters: backslash first, then double-quote.
@@ -61,7 +66,7 @@ public sealed class MacOsAppleScriptBackend : IBackend
         return s.Replace("\\", "\\\\").Replace("\"", "\\\"");
     }
 
-    private static string BuildScript(NotifyMessage message)
+    internal static string BuildScript(NotifyMessage message)
     {
         var sb = new StringBuilder();
         sb.Append("display notification \"");

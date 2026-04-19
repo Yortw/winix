@@ -147,6 +147,24 @@ public class NtfyBackendTests
     }
 
     [Fact]
+    public async Task Send_TitleWithNewlines_StrippedFromHeader()
+    {
+        // CRLF in a header value would inject additional headers on the wire.
+        // SingleLine should replace newlines with spaces.
+        var fake = new FakeHttpMessageHandler();
+        var http = new HttpClient(fake);
+        var backend = new NtfyBackend(http, "https://ntfy.sh", "alerts", null);
+
+        await backend.SendAsync(new NotifyMessage("a\r\nb\nc", "body", Urgency.Normal, null), CancellationToken.None);
+
+        Assert.True(fake.Requests[0].Headers.TryGetValues("Title", out var values));
+        string title = System.Linq.Enumerable.Single(values!);
+        Assert.DoesNotContain('\r', title);
+        Assert.DoesNotContain('\n', title);
+        Assert.Equal("a  b c", title);
+    }
+
+    [Fact]
     public async Task Send_DetailIncludesServerAndTopic()
     {
         var fake = new FakeHttpMessageHandler();

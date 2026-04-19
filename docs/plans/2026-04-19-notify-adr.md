@@ -55,7 +55,11 @@
 
 ---
 
-## D4. Direct WinRT toast via COM (not PowerShell shellout)
+## D4. Windows toast — design said direct WinRT COM, ships as PowerShell shellout (amended)
+
+> **Amended 2026-04-19 during implementation.** The original decision below was the right *intent*, but modern .NET (5+) cannot marshal `IInspectable` (the WinRT base interface) at runtime — `[ComImport, InterfaceIsIInspectable]` compiles but throws `PlatformNotSupportedException` at first use. The official path requires `Microsoft.Windows.SDK.NET.Ref` plus a TFM split (`net10.0-windows10.0.19041.0`) through the entire dependency chain. We fell back to the design's documented option B: **inline PowerShell + WinRT toast XML**. PowerShell 5.1+ has its own internal WinRT projection that handles `IInspectable` marshalling. Cost: ~400ms cold-start instead of ~30ms direct. Accepted for v1; a future v2 can migrate to the WinRT projection if sub-100ms latency becomes important. `AumidShortcut` survives unchanged because `IShellLinkW` is classic COM (`IUnknown`), which modern .NET still supports via `CoCreateInstance` + `[ComImport]`. Original decision context preserved below for reference.
+
+
 
 **Context.** Windows toast notification implementations range from a 5-line MessageBox call to a 200-line WinRT-from-AOT integration with AUMID registration.
 

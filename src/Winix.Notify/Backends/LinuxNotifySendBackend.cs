@@ -41,17 +41,15 @@ public sealed class LinuxNotifySendBackend : IBackend
 
         try
         {
-            using var process = Process.Start(psi);
-            if (process is null)
-            {
-                return new BackendResult(Name, false,
-                    "notify-send not found — install libnotify-bin (Debian/Ubuntu) or libnotify (Fedora)",
-                    null);
-            }
+            using var process = Process.Start(psi)!;
+            // Drain stdout concurrently — child blocks on a full stdout pipe otherwise.
+            var stdoutDrain = process.StandardOutput.ReadToEndAsync(ct);
+            var stderrDrain = process.StandardError.ReadToEndAsync(ct);
             await process.WaitForExitAsync(ct).ConfigureAwait(false);
+            await stdoutDrain.ConfigureAwait(false);
+            string stderr = await stderrDrain.ConfigureAwait(false);
             if (process.ExitCode != 0)
             {
-                string stderr = await process.StandardError.ReadToEndAsync(ct).ConfigureAwait(false);
                 return new BackendResult(Name, false,
                     $"notify-send exited {process.ExitCode}: {stderr.Trim()}", null);
             }
@@ -63,6 +61,11 @@ public sealed class LinuxNotifySendBackend : IBackend
             return new BackendResult(Name, false,
                 "notify-send not found — install libnotify-bin (Debian/Ubuntu) or libnotify (Fedora)",
                 null);
+        }
+        catch (Exception ex)
+        {
+            // IBackend contract: never throw — convert to BackendResult.
+            return new BackendResult(Name, false, $"notify-send: {ex.GetType().Name}: {ex.Message}", null);
         }
     }
 
