@@ -9,4 +9,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Yort.ShellKit\Yort.ShellKit.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Winix.Notify.Tests" />
+  </ItemGroup>
 </Project>
