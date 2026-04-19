@@ -20,6 +20,7 @@ Cross-platform CLI tool suite for the gaps between Windows and *nix. Native bina
 - [clip](docs/ai/clip.md): Cross-platform clipboard bridge — copy from stdin, paste to stdout, clear. Replaces the write-only Windows `clip.exe`, unifies Linux `xclip`/`xsel`/`wl-copy`, wraps macOS `pbcopy`/`pbpaste`.
 - [ids](docs/ai/ids.md): Generate identifiers — UUID v4, UUID v7, ULID, NanoID. Cross-platform successor to `uuidgen` with modern ID types (v7, ULID, NanoID) that existing tools can't produce.
 - [digest](docs/ai/digest.md): Cryptographic hashing and HMAC — SHA-2/SHA-3/BLAKE2b with safe HMAC key handling (env/file/stdin/literal). Cross-platform replacement for sha256sum/md5sum/openssl dgst with first-class HMAC on Windows.
+- [notify](docs/ai/notify.md): Cross-platform desktop notifications + ntfy.sh push. Windows toast (no PowerShell module install), Linux notify-send, macOS osascript, and ntfy.sh in the same call. Pairs with timeit/peep/retry for "long task done" alerts.
 - [winix](docs/ai/winix.md): Installer and lifecycle manager for the Winix CLI tool suite. Installs, updates, and uninstalls all tools via your platform's native package manager.
 
 ## Key Features for AI Agents

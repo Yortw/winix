@@ -1,0 +1,195 @@
+.TH NOTIFY 1 "2026-04-19" "Winix" "User Commands"
+.SH NAME
+notify \- cross-platform desktop notifications + ntfy.sh push
+
+.SH SYNOPSIS
+.B notify
+\fITITLE\fR [\fIBODY\fR] [\fIOPTIONS\fR]
+
+.SH DESCRIPTION
+.B notify
+sends a desktop notification and/or a push to ntfy.sh in a single invocation.
+Same flag surface on Windows, macOS, and Linux as a single AOT-compiled native binary with no runtime dependency.
+
+When \fB--ntfy\fR is set or \fB$NOTIFY_NTFY_TOPIC\fR is in the environment, both the desktop notification AND the ntfy push fire in parallel.
+The default is best-effort \(em exit 0 if at least one configured backend succeeded.
+Use \fB--strict\fR to require all configured backends to succeed.
+
+.SH OPTIONS
+.SS Notification content
+.TP
+\fITITLE\fR
+The notification headline (required).
+.TP
+\fIBODY\fR
+Optional second line of text.
+.TP
+.B \-\-urgency " " \fILEVEL\fR
+\fBlow\fR (silent), \fBnormal\fR (default), \fBcritical\fR (sound + attention on every backend).
+.TP
+.B \-\-icon " " \fIPATH\fR
+Icon path. Best-effort per backend: libnotify accepts paths/named icons, Windows accepts file paths, macOS ignores (no bundle).
+
+.SS ntfy.sh push
+.TP
+.B \-\-ntfy " " \fITOPIC\fR
+Send to ntfy.sh on \fITOPIC\fR.
+Env fallback: \fB$NOTIFY_NTFY_TOPIC\fR.
+.TP
+.B \-\-ntfy\-server " " \fIURL\fR
+Override the ntfy server URL (self-hosted).
+Env: \fB$NOTIFY_NTFY_SERVER\fR. Default: \fBhttps://ntfy.sh\fR.
+.TP
+.B \-\-ntfy\-token " " \fITOKEN\fR
+Bearer token for self-hosted ntfy with access control.
+Env: \fB$NOTIFY_NTFY_TOKEN\fR.
+
+.SS Backend selection
+.TP
+.B \-\-no\-desktop
+Suppress the desktop backend.
+.TP
+.B \-\-no\-ntfy
+Suppress ntfy even if env var is set.
+.TP
+.B \-\-strict
+Exit non-zero if any configured backend fails.
+Default: best-effort.
+
+.SS Output
+.TP
+.B \-\-json
+Emit JSON output to stdout.
+.TP
+.B \-\-describe
+Emit structured JSON metadata for AI agents.
+
+.SS Standard
+.TP
+.BR \-h ", " \-\-help
+Show help and exit.
+.TP
+.BR \-v ", " \-\-version
+Show version and exit.
+.TP
+.B \-\-color " " \fIWHEN\fR
+\fBauto\fR, \fBalways\fR, or \fBnever\fR. Respects \fBNO_COLOR\fR.
+
+.SH EXIT STATUS
+.TP
+.B 0
+Success \(em at least one configured backend succeeded.
+.TP
+.B 1
+\fB--strict\fR mode; at least one backend failed.
+.TP
+.B 125
+Usage error \(em bad flags, missing TITLE, no backends configured.
+.TP
+.B 126
+All backends failed.
+
+.SH EXAMPLES
+Basic desktop notification:
+.RS
+.nf
+notify "build done"
+.fi
+.RE
+
+Title and body:
+.RS
+.nf
+notify "tests done" "5 of 200 failed"
+.fi
+.RE
+
+Critical urgency:
+.RS
+.nf
+notify "deploy failed" --urgency critical
+.fi
+.RE
+
+Desktop and ntfy.sh push:
+.RS
+.nf
+notify "alert" --ntfy myalerts
+.fi
+.RE
+
+Env-set ntfy topic:
+.RS
+.nf
+NOTIFY_NTFY_TOPIC=alerts notify "see you"
+.fi
+.RE
+
+Push only (headless / CI):
+.RS
+.nf
+notify "build $BUILD_ID ok" --no-desktop --ntfy ci
+.fi
+.RE
+
+Self-hosted ntfy with auth:
+.RS
+.nf
+notify "deploy ok" --ntfy deploys --ntfy-server https://ntfy.example.com --ntfy-token tk_xyz
+.fi
+.RE
+
+Compose with other commands:
+.RS
+.nf
+make test && notify "tests done"
+timeit slow-script.sh && notify "done"
+.fi
+.RE
+
+.SH BACKEND BEHAVIOUR
+
+.SS Windows
+Inline PowerShell + WinRT toast XML.
+Creates a per-user Start Menu shortcut at \fB%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Winix Notify.lnk\fR on first run \(em this is an Action Center requirement (toasts need an AppUserModelID).
+The shortcut is created idempotently and is harmless to delete.
+Cold-start latency: ~400ms (PowerShell startup).
+
+.SS macOS
+\fBosascript\fR with an inline AppleScript snippet.
+\fB--icon\fR is ignored on macOS (proper notification APIs require a signed app bundle which a CLI binary can't have).
+
+.SS Linux
+\fBnotify-send\fR (libnotify CLI).
+Install: \fBlibnotify-bin\fR (Debian/Ubuntu), \fBlibnotify\fR (Fedora), \fBlibnotify\fR (Arch).
+If missing, \fBnotify\fR exits with a clear install hint.
+For headless / SSH usage, pair with \fB--no-desktop --ntfy TOPIC\fR.
+
+.SH NTFY INTEGRATION
+ntfy.sh is a free, self-hostable pub-sub push notification service.
+Topics are URL paths \(em anyone who knows the topic name can publish or subscribe.
+\fBTreat the topic name as a password.\fR
+For sensitive use cases, self-host ntfy and use \fB--ntfy-token\fR for Bearer auth.
+
+.SH ENVIRONMENT
+.TP
+.B NOTIFY_NTFY_TOPIC
+Default ntfy topic when \fB--ntfy\fR is not given.
+.TP
+.B NOTIFY_NTFY_SERVER
+Default ntfy server URL.
+Falls back to \fBhttps://ntfy.sh\fR if unset.
+.TP
+.B NOTIFY_NTFY_TOKEN
+Default Bearer token for self-hosted ntfy with access control.
+.TP
+.B NO_COLOR
+Disables colour output.
+\fBnotify\fR output is plain; this variable is respected for suite consistency.
+
+.SH SEE ALSO
+.BR notify-send (1),
+.BR osascript (1),
+.BR clip (1),
+.BR timeit (1),
+.BR retry (1)

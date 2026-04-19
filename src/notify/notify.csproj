@@ -22,4 +22,7 @@
   <ItemGroup>
     <None Include="README.md" Pack="true" PackagePath="/" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="man\man1\notify.1" CopyToPublishDirectory="PreserveNewest" Link="share\man\man1\notify.1" />
+  </ItemGroup>
 </Project>
