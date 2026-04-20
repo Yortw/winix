@@ -10,5 +10,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Winix.Protect\Winix.Protect.csproj" />
+    <ProjectReference Include="..\..\src\Winix.SecretStore\Winix.SecretStore.csproj" />
   </ItemGroup>
 </Project>
