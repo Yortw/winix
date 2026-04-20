@@ -13,6 +13,7 @@
     <ToolCommandName>when</ToolCommandName>
     <PackageId>Winix.When</PackageId>
     <Description>Convert timestamps between formats, apply time arithmetic, and calculate durations.</Description>
+    <PackageTags>cli;command-line;cross-platform;windows;macos;linux;aot;dotnet-tool;winix;datetime;timezone;timestamp;date</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
   <ItemGroup>

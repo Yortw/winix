@@ -11,6 +11,7 @@
     <ToolCommandName>peep</ToolCommandName>
     <PackageId>Winix.Peep</PackageId>
     <Description>Run a command repeatedly and display output on a refreshing screen. A cross-platform 'watch' + 'entr' replacement.</Description>
+    <PackageTags>cli;command-line;cross-platform;windows;macos;linux;aot;dotnet-tool;winix;watch;file-watcher;entr;monitoring</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
   <ItemGroup>

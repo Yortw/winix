@@ -11,6 +11,7 @@
     <ToolCommandName>schedule</ToolCommandName>
     <PackageId>Winix.Schedule</PackageId>
     <Description>List, query, and manage scheduled tasks.</Description>
+    <PackageTags>cli;command-line;cross-platform;windows;macos;linux;aot;dotnet-tool;winix;cron;scheduler;task-scheduler;crontab;rrule</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
   <ItemGroup>

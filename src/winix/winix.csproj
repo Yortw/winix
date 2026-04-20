@@ -11,6 +11,7 @@
     <ToolCommandName>winix</ToolCommandName>
     <PackageId>Winix.Winix</PackageId>
     <Description>Cross-platform installer for the Winix CLI tool suite.</Description>
+    <PackageTags>cli;command-line;cross-platform;windows;macos;linux;aot;dotnet-tool;winix;installer;suite;package-manager</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
   <ItemGroup>

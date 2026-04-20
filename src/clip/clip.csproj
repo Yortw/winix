@@ -11,6 +11,7 @@
     <ToolCommandName>clip</ToolCommandName>
     <PackageId>Winix.Clip</PackageId>
     <Description>Cross-platform clipboard bridge — copy from stdin, paste to stdout, clear.</Description>
+    <PackageTags>cli;command-line;cross-platform;windows;macos;linux;aot;dotnet-tool;winix;clipboard;copy;paste</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
   <ItemGroup>

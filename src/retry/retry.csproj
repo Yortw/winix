@@ -11,6 +11,7 @@
     <ToolCommandName>retry</ToolCommandName>
     <PackageId>Winix.Retry</PackageId>
     <Description>Run a command with automatic retries, configurable backoff, and exit-code filtering.</Description>
+    <PackageTags>cli;command-line;cross-platform;windows;macos;linux;aot;dotnet-tool;winix;retry;backoff;resilience</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
   <ItemGroup>

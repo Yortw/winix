@@ -11,6 +11,7 @@
     <ToolCommandName>notify</ToolCommandName>
     <PackageId>Winix.Notify</PackageId>
     <Description>Cross-platform desktop notifications + ntfy.sh push notifications.</Description>
+    <PackageTags>cli;command-line;cross-platform;windows;macos;linux;aot;dotnet-tool;winix;notifications;toast;desktop;ntfy</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <!-- Inherits BuiltInComInteropSupport=true from the library — needed because
          AumidShortcut creates Start Menu shortcuts via classic COM (IShellLinkW). -->

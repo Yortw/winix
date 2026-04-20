@@ -11,6 +11,7 @@
     <ToolCommandName>digest</ToolCommandName>
     <PackageId>Winix.Digest</PackageId>
     <Description>Cross-platform cryptographic hashing and HMAC — SHA-2/SHA-3/BLAKE2b, safe HMAC key handling.</Description>
+    <PackageTags>cli;command-line;cross-platform;windows;macos;linux;aot;dotnet-tool;winix;hash;hmac;sha256;sha512;blake2;crypto;checksum</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
   <ItemGroup>

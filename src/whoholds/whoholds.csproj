@@ -11,6 +11,7 @@
     <ToolCommandName>whoholds</ToolCommandName>
     <PackageId>Winix.WhoHolds</PackageId>
     <Description>Find which processes are holding a file lock or binding a network port.</Description>
+    <PackageTags>cli;command-line;cross-platform;windows;macos;linux;aot;dotnet-tool;winix;lsof;handle;process;port-scanner;file-lock</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
   <ItemGroup>

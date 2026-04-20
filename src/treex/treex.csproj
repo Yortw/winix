@@ -11,6 +11,7 @@
     <ToolCommandName>treex</ToolCommandName>
     <PackageId>Winix.TreeX</PackageId>
     <Description>Enhanced directory tree with colour, filtering, size rollups, gitignore, and clickable hyperlinks.</Description>
+    <PackageTags>cli;command-line;cross-platform;windows;macos;linux;aot;dotnet-tool;winix;tree;directory-listing;visualization</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
   <ItemGroup>

@@ -11,6 +11,7 @@
     <ToolCommandName>url</ToolCommandName>
     <PackageId>Winix.Url</PackageId>
     <Description>Cross-platform URL encode/decode/parse/build/join/query-edit CLI.</Description>
+    <PackageTags>cli;command-line;cross-platform;windows;macos;linux;aot;dotnet-tool;winix;url;uri;percent-encoding;encoding</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
   <ItemGroup>

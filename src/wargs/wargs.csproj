@@ -11,6 +11,7 @@
     <ToolCommandName>wargs</ToolCommandName>
     <PackageId>Winix.Wargs</PackageId>
     <Description>Cross-platform xargs replacement with sane defaults. Line-delimited input, parallel execution, correct Windows path handling.</Description>
+    <PackageTags>cli;command-line;cross-platform;windows;macos;linux;aot;dotnet-tool;winix;xargs;parallel;execution;batch</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
   <ItemGroup>

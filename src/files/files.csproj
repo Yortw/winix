@@ -11,6 +11,7 @@
     <ToolCommandName>files</ToolCommandName>
     <PackageId>Winix.Files</PackageId>
     <Description>Find files by name, size, date, type, and content. A cross-platform find replacement with glob patterns, JSON output, and AI discoverability.</Description>
+    <PackageTags>cli;command-line;cross-platform;windows;macos;linux;aot;dotnet-tool;winix;find;search;glob;filesystem;fd</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
   <ItemGroup>
