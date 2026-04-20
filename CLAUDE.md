@@ -47,8 +47,10 @@ dotnet publish src/timeit/timeit.csproj -c Release -r win-x64
 - When adding a new tool:
   - Create `bucket/{tool}.json` scoop manifest. (Do NOT edit `bucket/winix.json` — it is the suite-installer stub, a single-binary manifest that runs `winix install --via scoop` as its post-install and delegates to per-tool manifests.)
   - Add the tool to `.github/workflows/release.yml`: `dotnet publish` step per `matrix.rid`, `dotnet pack` step (for NuGet), per-tool zip steps (Linux/macOS + Windows), combined zip `Copy-Item`, and the tool map (`tools: { … }`) entry.
-  - Add the tool to `.github/workflows/post-publish.yml`: `update_manifest bucket/{tool}.json …` line and `generate_manifests "{tool}" "{Tool}" "…"` line.
+  - Add the tool to `.github/workflows/post-publish.yml`: `update_manifest bucket/{tool}.json …` line and `generate_manifests "{tool}" "{Tool}" "…" "tag1,tag2,tag3"` line. The 4th argument is a comma-separated list of winget tags (3-5 domain-specific — the shared baseline `cli,developer-tools,portable,winix` is added automatically). Winget allows up to 16 tags per package; keep domain tags aligned with the nuget `<PackageTags>` in the csproj.
   - Create `src/{tool}/README.md` with install sections, `src/{tool}/man/man1/{tool}.1` groff page, and reference the man page in `src/{tool}/{tool}.csproj` via `<Content Include="man\man1\{tool}.1" CopyToPublishDirectory="PreserveNewest" Link="share\man\man1\{tool}.1" />`.
+  - Set `<Description>` in `src/{tool}/{tool}.csproj` to a distinct one-line summary (first thing people see on nuget.org and in `winget show`).
+  - Set `<PackageTags>` in `src/{tool}/{tool}.csproj` using the shared baseline `cli;command-line;cross-platform;windows;macos;linux;aot;dotnet-tool;winix` plus 3-5 domain-specific tags (e.g. `hmac;sha256;sha512;blake2;crypto;checksum` on digest, `cron;scheduler;task-scheduler;crontab;rrule` on schedule). Tags drive nuget.org filtered search — without them the package is only found via exact-name lookup.
   - Create `docs/ai/{tool}.md` AI agent guide and add the tool to `llms.txt`.
   - Update `CLAUDE.md`: project layout, NuGet package IDs list, scoop manifests list.
 
