@@ -1,11 +1,11 @@
 {
-  "version": "0.4.0",
+  "version": "0.3.0",
   "description": "Cross-platform URL encode/decode/parse/build/join/query-edit.",
   "homepage": "https://github.com/Yortw/winix",
   "license": "MIT",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/Yortw/winix/releases/download/v0.4.0/url-win-x64.zip",
+      "url": "https://github.com/Yortw/winix/releases/download/v0.3.0/url-win-x64.zip",
       "hash": "",
       "bin": "url.exe"
     }
