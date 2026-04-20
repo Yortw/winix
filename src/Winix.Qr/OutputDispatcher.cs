@@ -20,9 +20,15 @@ public static class OutputDispatcher
     /// <param name="stdoutIsTty">Whether stdout is a terminal (drives <see cref="OutputFormat.Auto"/> resolution).</param>
     public static Result Dispatch(string payload, QrOptions options, bool stdoutIsTty)
     {
-        OutputFormat fmt = options.Format == OutputFormat.Auto
-            ? (stdoutIsTty ? OutputFormat.Unicode : OutputFormat.Svg)
-            : options.Format;
+        // Auto-format resolution order:
+        //   1. --output PATH with a recognised extension (.png/.svg) → respect extension.
+        //      Users supplying a .png filename want a PNG; serving SVG bytes would mislead tools
+        //      that route on extension.
+        //   2. stdout is a TTY → unicode half-block art.
+        //   3. stdout is redirected/piped → SVG (text, pipe-safe).
+        OutputFormat fmt = options.Format != OutputFormat.Auto
+            ? options.Format
+            : ResolveAutoFormat(options.OutputPath, stdoutIsTty);
 
         bool drawQuietZone = !options.NoMargin;
 
@@ -41,5 +47,17 @@ public static class OutputDispatcher
             _ => throw new InvalidOperationException($"Unhandled format {fmt}"),
         };
         return new Result(text, null);
+    }
+
+    private static OutputFormat ResolveAutoFormat(string? outputPath, bool stdoutIsTty)
+    {
+        if (!string.IsNullOrEmpty(outputPath))
+        {
+            string ext = System.IO.Path.GetExtension(outputPath);
+            if (string.Equals(ext, ".png", StringComparison.OrdinalIgnoreCase)) return OutputFormat.Png;
+            if (string.Equals(ext, ".svg", StringComparison.OrdinalIgnoreCase)) return OutputFormat.Svg;
+            // Unknown extension: fall through to stream-based default (safer than assuming).
+        }
+        return stdoutIsTty ? OutputFormat.Unicode : OutputFormat.Svg;
     }
 }

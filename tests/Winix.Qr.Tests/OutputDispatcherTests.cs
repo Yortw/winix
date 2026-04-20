@@ -79,4 +79,54 @@ public class OutputDispatcherTests
             Options(OutputFormat.Png) with { NoMargin = true }, stdoutIsTty: false);
         Assert.NotEqual(withMargin.Bytes!.Length, noMargin.Bytes!.Length);
     }
+
+    // --output extension sniffing (Auto format only)
+
+    [Fact]
+    public void Dispatch_Auto_OutputPathEndsPng_SelectsPng()
+    {
+        OutputDispatcher.Result r = OutputDispatcher.Dispatch("hello",
+            Options(OutputFormat.Auto) with { OutputPath = "code.png" }, stdoutIsTty: true);
+        Assert.NotNull(r.Bytes);
+        Assert.Null(r.Text);
+        Assert.Equal(0x89, r.Bytes![0]);
+    }
+
+    [Fact]
+    public void Dispatch_Auto_OutputPathEndsSvg_SelectsSvg()
+    {
+        OutputDispatcher.Result r = OutputDispatcher.Dispatch("hello",
+            Options(OutputFormat.Auto) with { OutputPath = "code.svg" }, stdoutIsTty: true);
+        Assert.NotNull(r.Text);
+        Assert.Contains("<svg", r.Text!);
+    }
+
+    [Fact]
+    public void Dispatch_Auto_OutputPathExtensionCaseInsensitive()
+    {
+        OutputDispatcher.Result r = OutputDispatcher.Dispatch("hello",
+            Options(OutputFormat.Auto) with { OutputPath = "C:\\temp\\code.PNG" }, stdoutIsTty: true);
+        Assert.NotNull(r.Bytes);
+        Assert.Equal(0x89, r.Bytes![0]);
+    }
+
+    [Fact]
+    public void Dispatch_Auto_OutputPathUnknownExtension_FallsBackToStreamDefault()
+    {
+        // Unknown extension + TTY → unicode (same as no --output).
+        OutputDispatcher.Result r = OutputDispatcher.Dispatch("hello",
+            Options(OutputFormat.Auto) with { OutputPath = "code.txt" }, stdoutIsTty: true);
+        Assert.NotNull(r.Text);
+        Assert.Contains('█', r.Text!);
+    }
+
+    [Fact]
+    public void Dispatch_ExplicitFormat_OverridesOutputExtension()
+    {
+        // User passed --format unicode explicitly; the .png extension must NOT override.
+        OutputDispatcher.Result r = OutputDispatcher.Dispatch("hello",
+            Options(OutputFormat.Unicode) with { OutputPath = "code.png" }, stdoutIsTty: true);
+        Assert.NotNull(r.Text);
+        Assert.Contains('█', r.Text!);
+    }
 }
