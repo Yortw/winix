@@ -18,7 +18,7 @@ public static class Formatting
         if (!string.IsNullOrEmpty(p.Host)) sb.Append("host=").Append(p.Host).Append('\n');
         if (p.Port is int port) sb.Append("port=").Append(port.ToString(CultureInfo.InvariantCulture)).Append('\n');
         if (!string.IsNullOrEmpty(p.Path)) sb.Append("path=").Append(p.Path).Append('\n');
-        if (p.QueryPairs.Count > 0) sb.Append("query=").Append(QueryEditor.SerialiseQuery(p.QueryPairs)).Append('\n');
+        if (!string.IsNullOrEmpty(p.RawQuery)) sb.Append("query=").Append(p.RawQuery).Append('\n');
         if (p.Fragment is not null) sb.Append("fragment=").Append(p.Fragment).Append('\n');
         // Trim trailing newline so the output round-trips cleanly via Console.WriteLine.
         if (sb.Length > 0 && sb[sb.Length - 1] == '\n')
@@ -29,6 +29,11 @@ public static class Formatting
     }
 
     /// <summary>Extract a single named field as a string. Unknown names throw.</summary>
+    /// <remarks>
+    /// The <c>query</c> field returns the URL's original query string (percent-escapes preserved) —
+    /// faithful to the input, not form-encoded re-serialisation. Use <c>--json</c> if you need
+    /// the decoded key/value pairs.
+    /// </remarks>
     public static string Field(ParsedUrl p, string name) => name switch
     {
         "scheme"   => p.Scheme,
@@ -36,7 +41,7 @@ public static class Formatting
         "host"     => p.Host,
         "port"     => p.Port?.ToString(CultureInfo.InvariantCulture) ?? "",
         "path"     => p.Path,
-        "query"    => QueryEditor.SerialiseQuery(p.QueryPairs),
+        "query"    => p.RawQuery,
         "fragment" => p.Fragment ?? "",
         _ => throw new ArgumentException($"unknown field '{name}' (expected: scheme, userinfo, host, port, path, query, fragment)"),
     };

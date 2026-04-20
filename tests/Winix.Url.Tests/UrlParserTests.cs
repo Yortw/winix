@@ -96,4 +96,32 @@ public class UrlParserTests
         var result = UrlParser.Parse("https://x.io/#section%20one");
         Assert.Equal("section one", result.Url!.Fragment);
     }
+
+    [Fact]
+    public void Parse_AdjacentAmpersands_EmptyPairsSkipped()
+    {
+        // Third-review fix: "?a=1&&b=2" should NOT produce a spurious ("", "") pair.
+        // Emitting empty-key pairs would round-trip as "a=1&=&b=2" — data distortion.
+        var result = UrlParser.Parse("https://x.io/?a=1&&b=2");
+        Assert.True(result.Success);
+        Assert.Equal(2, result.Url!.QueryPairs.Count);
+        Assert.Equal(("a", "1"), result.Url.QueryPairs[0]);
+        Assert.Equal(("b", "2"), result.Url.QueryPairs[1]);
+    }
+
+    [Fact]
+    public void Parse_PreservesRawQuery()
+    {
+        // Third-review fix: raw query string preserved so --field query round-trips faithfully.
+        var result = UrlParser.Parse("https://x.io/?q=hello%20world&limit=10");
+        Assert.True(result.Success);
+        Assert.Equal("q=hello%20world&limit=10", result.Url!.RawQuery);
+    }
+
+    [Fact]
+    public void Parse_EmptyQuery_RawQueryIsEmptyString()
+    {
+        var result = UrlParser.Parse("https://x.io/path");
+        Assert.Equal("", result.Url!.RawQuery);
+    }
 }

@@ -14,6 +14,7 @@ public class FormattingTests
         Port: 8443,
         Path: "/v1/users",
         QueryPairs: new (string, string)[] { ("q", "hello world"), ("limit", "10") },
+        RawQuery: "q=hello%20world&limit=10",
         Fragment: "top");
 
     [Fact]
@@ -24,14 +25,15 @@ public class FormattingTests
         Assert.Contains("host=api.example.com", output);
         Assert.Contains("port=8443", output);
         Assert.Contains("path=/v1/users", output);
-        Assert.Contains("query=q=hello+world&limit=10", output);
+        // Plain-text now emits the raw (URL-original) query string, not a re-serialised form-encoded copy.
+        Assert.Contains("query=q=hello%20world&limit=10", output);
         Assert.Contains("fragment=top", output);
     }
 
     [Fact]
     public void PlainText_NullFields_OmittedFromOutput()
     {
-        var p = new ParsedUrl("https", null, "x.io", null, "/", System.Array.Empty<(string, string)>(), null);
+        var p = new ParsedUrl("https", null, "x.io", null, "/", System.Array.Empty<(string, string)>(), "", null);
         string output = Formatting.PlainText(p);
         Assert.DoesNotContain("userinfo=", output);
         Assert.DoesNotContain("port=", output);
@@ -52,9 +54,11 @@ public class FormattingTests
     }
 
     [Fact]
-    public void Field_Query_ReturnsRawFormEncodedQueryString()
+    public void Field_Query_ReturnsUrlOriginalRawQueryString()
     {
-        Assert.Equal("q=hello+world&limit=10", Formatting.Field(Sample(), "query"));
+        // Third-review fix: --field query returns the URL-original raw query string
+        // (percent-escapes preserved) — faithful round-trip, not form-encoded re-serialisation.
+        Assert.Equal("q=hello%20world&limit=10", Formatting.Field(Sample(), "query"));
     }
 
     [Fact]
@@ -66,7 +70,7 @@ public class FormattingTests
     [Fact]
     public void Field_NullField_ReturnsEmpty()
     {
-        var p = new ParsedUrl("https", null, "x.io", null, "/", System.Array.Empty<(string, string)>(), null);
+        var p = new ParsedUrl("https", null, "x.io", null, "/", System.Array.Empty<(string, string)>(), "", null);
         Assert.Equal("", Formatting.Field(p, "fragment"));
     }
 
@@ -91,7 +95,7 @@ public class FormattingTests
     [Fact]
     public void Json_NullFields_SerialisedAsNull()
     {
-        var p = new ParsedUrl("https", null, "x.io", null, "/", System.Array.Empty<(string, string)>(), null);
+        var p = new ParsedUrl("https", null, "x.io", null, "/", System.Array.Empty<(string, string)>(), "", null);
         string json = Formatting.Json(p);
         using var doc = JsonDocument.Parse(json);
         Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("userinfo").ValueKind);

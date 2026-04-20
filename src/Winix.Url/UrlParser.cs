@@ -28,6 +28,12 @@ public static class UrlParser
                 : Uri.UnescapeDataString(uri.Fragment.TrimStart('#'));
 
             var pairs = ParseQueryPairs(uri.Query);
+            // Preserve the original query string (minus leading '?') so --field query returns
+            // the exact URL-original bytes rather than our form-encoded re-serialisation. The
+            // decoded QueryPairs are still available for JSON output and query get/set/delete.
+            string rawQuery = string.IsNullOrEmpty(uri.Query)
+                ? ""
+                : (uri.Query.StartsWith('?') ? uri.Query.Substring(1) : uri.Query);
 
             return new Result(new ParsedUrl(
                 Scheme: uri.Scheme,
@@ -36,6 +42,7 @@ public static class UrlParser
                 Port: port,
                 Path: uri.AbsolutePath,
                 QueryPairs: pairs,
+                RawQuery: rawQuery,
                 Fragment: fragment), null);
         }
         catch (UriFormatException ex)
@@ -61,6 +68,12 @@ public static class UrlParser
         string[] parts = stripped.Split('&');
         foreach (string part in parts)
         {
+            // Skip empty segments from adjacent separators (e.g. "?a=1&&b=2" → skip the middle).
+            // Emitting ("","") pairs would round-trip as "=&=" — distortion, not preservation.
+            if (part.Length == 0)
+            {
+                continue;
+            }
             int eq = part.IndexOf('=');
             string key, value;
             if (eq < 0)

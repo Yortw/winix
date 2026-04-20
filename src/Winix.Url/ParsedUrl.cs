@@ -9,7 +9,8 @@ namespace Winix.Url;
 /// <param name="Host">The host. Empty string for relative URLs.</param>
 /// <param name="Port">The port number. Null if absent OR default for the scheme.</param>
 /// <param name="Path">The path, including leading slash. Never null.</param>
-/// <param name="QueryPairs">Ordered list of (key, value) tuples — preserves order AND duplicate keys.</param>
+/// <param name="QueryPairs">Ordered list of (key, value) tuples with values percent-decoded — preserves order AND duplicate keys.</param>
+/// <param name="RawQuery">The original query string as-in-URL (without leading '?'), percent-escapes preserved. Empty string if no query. Used by <c>--field query</c> so the output round-trips faithfully.</param>
 /// <param name="Fragment">The fragment (without leading '#'). Null if absent.</param>
 public sealed record ParsedUrl(
     string Scheme,
@@ -18,4 +19,5 @@ public sealed record ParsedUrl(
     int? Port,
     string Path,
     IReadOnlyList<(string Key, string Value)> QueryPairs,
+    string RawQuery,
     string? Fragment);
