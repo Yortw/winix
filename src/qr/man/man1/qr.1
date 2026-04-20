@@ -4,5 +4,90 @@ qr \- cross-platform QR code generator
 .SH SYNOPSIS
 .B qr
 [\fIOPTIONS\fR] \fIPAYLOAD\fR
+.br
+.B qr
+[\fIOPTIONS\fR]
+\fB-\fR
+.br
+.B qr
+\fBwifi\fR [\fIOPTIONS\fR] \fB--ssid\fR \fISSID\fR \fB--password\fR \fIPASS\fR [\fB--security\fR \fI{wpa2|wpa|wep|nopass}\fR] [\fB--hidden\fR]
+.br
+.B qr
+\fBsms\fR [\fIOPTIONS\fR] \fB--number\fR \fINUMBER\fR [\fB--message\fR \fIMESSAGE\fR]
+.br
+.B qr
+\fBmailto\fR [\fIOPTIONS\fR] \fB--to\fR \fIADDRESS\fR [\fB--subject\fR \fISUBJECT\fR] [\fB--body\fR \fIBODY\fR] [\fB--cc\fR \fIADDRESS\fR] [\fB--bcc\fR \fIADDRESS\fR]
+.br
+.B qr
+\fBgeo\fR [\fIOPTIONS\fR] \fB--lat\fR \fILAT\fR \fB--lon\fR \fILON\fR [\fB--query\fR \fIQUERY\fR]
+.br
+.B qr
+\fBtel\fR [\fIOPTIONS\fR] \fB--number\fR \fINUMBER\fR
 .SH DESCRIPTION
-Placeholder; full man page in a later commit.
+.B qr
+generates QR codes offline. The default mode encodes a text payload supplied as a positional argument or from stdin (when the positional is \fB-\fR or omitted with stdin redirected). Helper subcommands pre-format common non-text payloads (Wi-Fi, SMS, mailto, geo, tel) as URI strings per their respective specifications.
+.SH OPTIONS
+.TP
+\fB--format\fR \fI{auto,unicode,ascii,svg,png}\fR
+Output format. \fBauto\fR (default) emits unicode half-block art to a TTY and SVG when stdout is redirected.
+.TP
+\fB--size\fR \fIN\fR, \fB-s\fR \fIN\fR
+Pixels per module (PNG/SVG only). Default 10.
+.TP
+\fB--error-correction\fR \fI{l,m,q,h}\fR, \fB-e\fR \fIX\fR
+Error-correction level. Default \fBm\fR (~15% recovery). Use \fBh\fR for outdoor signage or printed codes likely to suffer damage.
+.TP
+\fB--no-margin\fR
+Strip the 4-module quiet zone around the code. May reduce scannability.
+.TP
+\fB--output\fR \fIPATH\fR, \fB-o\fR \fIPATH\fR
+Write output to a file instead of stdout.
+.TP
+\fB--force-binary\fR
+Permit PNG output to a TTY (otherwise refused to avoid terminal corruption).
+.TP
+\fB--describe\fR
+Emit a JSON description of the tool.
+.TP
+\fB--color\fR, \fB--no-color\fR
+Colour control. Respects the \fBNO_COLOR\fR environment variable.
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 125
+Usage error (bad flags, missing required, empty payload, PNG to TTY without \fB--force-binary\fR).
+.TP
+.B 126
+Runtime error (payload exceeds QR capacity, invalid UTF-8 on stdin, invalid helper field value).
+.SH EXAMPLES
+.PP
+Encode a URL:
+.PP
+.RS
+.nf
+qr "https://example.com"
+.fi
+.RE
+.PP
+Generate a Wi-Fi sticker:
+.PP
+.RS
+.nf
+qr wifi --ssid HomeNet --password s3cr3t --security wpa2 \\
+  --format png --output wifi.png
+.fi
+.RE
+.PP
+Geo share Wellington, NZ:
+.PP
+.RS
+.nf
+qr geo --lat -41.2924 --lon 174.7787 --query "Wellington NZ"
+.fi
+.RE
+.SH SEE ALSO
+.BR url (1),
+.BR clip (1),
+.BR notify (1).
