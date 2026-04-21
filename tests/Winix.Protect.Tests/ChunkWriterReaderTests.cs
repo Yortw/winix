@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
 using Xunit;
 using Winix.Protect;
 using Winix.SecretStore;
@@ -85,5 +86,78 @@ public class ChunkWriterReaderTests
         using MemoryStream readStream = new(truncated, 6, truncated.Length - 6);
         using MemoryStream outStream = new();
         Assert.Throws<FormatException>(() => ChunkReader.Read(readStream, outStream, backend, header));
+    }
+
+    private static bool OnWindows => RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+
+    [Fact]
+    public void Dpapi_RoundTrip_SinglePayload_Works()
+    {
+        if (!OnWindows) return;
+#pragma warning disable CA1416
+        DpapiBackend backend = new(Scope.User);
+#pragma warning restore CA1416
+        byte[] header = [(byte)'W', (byte)'P', (byte)'R', (byte)'T', 0x01, (byte)PlatformMarker.WindowsDpapiUser];
+
+        byte[] input = System.Text.Encoding.UTF8.GetBytes("hello from dpapi chunk round-trip");
+
+        using MemoryStream cipherStream = new();
+        using MemoryStream sourceStream = new(input);
+        ChunkWriter.Write(sourceStream, cipherStream, backend, header);
+
+        byte[] encrypted = cipherStream.ToArray();
+        using MemoryStream readStream = new(encrypted, 6, encrypted.Length - 6);
+        using MemoryStream outStream = new();
+        ChunkReader.Read(readStream, outStream, backend, header);
+
+        Assert.Equal(input, outStream.ToArray());
+    }
+
+    [Fact]
+    public void Dpapi_RoundTrip_MultiChunkPayload_Works()
+    {
+        // Critical regression test: if ChunkWriter drops the 4-byte length prefix
+        // for DPAPI chunks, this test fails with "Truncated DPAPI chunk blob" because
+        // ChunkReader can't frame the next chunk without knowing how many bytes to consume.
+        if (!OnWindows) return;
+#pragma warning disable CA1416
+        DpapiBackend backend = new(Scope.User);
+#pragma warning restore CA1416
+        byte[] header = [(byte)'W', (byte)'P', (byte)'R', (byte)'T', 0x01, (byte)PlatformMarker.WindowsDpapiUser];
+
+        byte[] input = new byte[200_000];
+        Random.Shared.NextBytes(input);
+
+        using MemoryStream cipherStream = new();
+        using MemoryStream sourceStream = new(input);
+        ChunkWriter.Write(sourceStream, cipherStream, backend, header, chunkSize: 64_000);
+
+        byte[] encrypted = cipherStream.ToArray();
+        using MemoryStream readStream = new(encrypted, 6, encrypted.Length - 6);
+        using MemoryStream outStream = new();
+        ChunkReader.Read(readStream, outStream, backend, header);
+
+        Assert.Equal(input, outStream.ToArray());
+    }
+
+    [Fact]
+    public void Dpapi_RoundTrip_EmptyPayload_Works()
+    {
+        if (!OnWindows) return;
+#pragma warning disable CA1416
+        DpapiBackend backend = new(Scope.User);
+#pragma warning restore CA1416
+        byte[] header = [(byte)'W', (byte)'P', (byte)'R', (byte)'T', 0x01, (byte)PlatformMarker.WindowsDpapiUser];
+
+        using MemoryStream cipherStream = new();
+        using MemoryStream sourceStream = new(Array.Empty<byte>());
+        ChunkWriter.Write(sourceStream, cipherStream, backend, header);
+
+        byte[] encrypted = cipherStream.ToArray();
+        using MemoryStream readStream = new(encrypted, 6, encrypted.Length - 6);
+        using MemoryStream outStream = new();
+        ChunkReader.Read(readStream, outStream, backend, header);
+
+        Assert.Empty(outStream.ToArray());
     }
 }
