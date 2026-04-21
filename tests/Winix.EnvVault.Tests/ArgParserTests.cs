@@ -113,4 +113,60 @@ public class ArgParserTests
         ArgParser.Result r = ArgParser.Parse(Array.Empty<string>());
         Assert.NotNull(r.Error);
     }
+
+    [Fact]
+    public void BareForm_DownstreamCommandHasSetFlag_StillExecMode()
+    {
+        // Regression: --set appearing in downstream argv must not mis-dispatch to flag mode.
+        ArgParser.Result r = ArgParser.Parse(new[] { "myns", "helm", "upgrade", "release", "--set", "image.tag=foo", "./chart" });
+        Assert.Null(r.Error);
+        Assert.NotNull(r.Options);
+        Assert.Equal(SubCommand.Exec, r.Options!.SubCommand);
+        Assert.Equal(new[] { "myns" }, r.Options.Namespaces);
+        Assert.Equal(new[] { "helm", "upgrade", "release", "--set", "image.tag=foo", "./chart" }, r.Options.CommandArgv);
+    }
+
+    [Fact]
+    public void BareForm_NoEchoAfterNamespace_PassesThroughToCommand()
+    {
+        // Regression: --noecho after the namespace positional belongs to the command, not envvault.
+        ArgParser.Result r = ArgParser.Parse(new[] { "--noecho", "github", "gh", "--noecho", "deploy" });
+        Assert.Null(r.Error);
+        Assert.NotNull(r.Options);
+        Assert.True(r.Options!.NoEcho);
+        Assert.Equal(new[] { "gh", "--noecho", "deploy" }, r.Options.CommandArgv);
+    }
+
+    [Fact]
+    public void ExecMode_RequirePassphraseThenOptOut_OptOutWins()
+    {
+        // Both modes should agree: explicit --no-require-passphrase always wins.
+        ArgParser.Result r = ArgParser.Parse(new[] { "--require-passphrase", "--no-require-passphrase", "myns", "cmd" });
+        Assert.NotNull(r.Options);
+        Assert.False(r.Options!.RequirePassphrase);
+    }
+
+    [Fact]
+    public void ExecMode_OptOutThenRequirePassphrase_OptOutStillWins()
+    {
+        // Ordering-independent: even when --no-require-passphrase comes first, it wins.
+        ArgParser.Result r = ArgParser.Parse(new[] { "--no-require-passphrase", "--require-passphrase", "myns", "cmd" });
+        Assert.NotNull(r.Options);
+        Assert.False(r.Options!.RequirePassphrase);
+    }
+
+    [Fact]
+    public void ListFlag_TooManyPositionals_Error()
+    {
+        ArgParser.Result r = ArgParser.Parse(new[] { "--list", "a", "b" });
+        Assert.NotNull(r.Error);
+        Assert.Contains("at most one", r.Error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void GetFlag_MissingKey_Error()
+    {
+        ArgParser.Result r = ArgParser.Parse(new[] { "--get", "github" });
+        Assert.NotNull(r.Error);
+    }
 }

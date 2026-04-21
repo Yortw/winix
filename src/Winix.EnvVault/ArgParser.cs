@@ -53,16 +53,33 @@ public static class ArgParser
     {
         if (argv.Count == 0)
         {
-            return Fail("usage: envvault <NAMESPACE> <command>... | envvault --set <NS> <KEY>... | --list [<NS>] | --get <NS> <KEY> | --unset <NS> <KEY>");
+            return Fail("usage: envvault <NAMESPACE> <command>... | envvault --set <NS> <KEY>... | --list [<NS>] | --get <NS> <KEY> | --unset <NS> <KEY>", DetectColorFromEnv());
         }
 
-        // Count action flags across the full argv up-front. In exec mode action flags would belong to the
-        // downstream command, but there is no legitimate use case for --set/--list/--get/--unset as
-        // downstream args (they are envvault's contract), so detecting them anywhere is the right signal.
-        string[] presentActions = argv.Where(a => ActionFlags.Contains(a, StringComparer.Ordinal)).ToArray();
+        // Only scan the leading-flag region for action flags. Scanning the full argv would mis-detect
+        // downstream command flags (e.g. `helm upgrade release --set k=v`) as envvault's --set action
+        // and wrongly dispatch to flag mode. The first bare positional terminates the region — this
+        // matches the same rule exec mode uses for --noecho/--require-passphrase.
+        //
+        // --value is the only envvault option that takes a following value, so when we see it in the
+        // bare form (`--value X`) we must skip X so a leading `--value hunter2 --set ...` still
+        // recognises --set as an action flag. The `--value=X` form doesn't need special handling.
+        int leadingEnd = 0;
+        while (leadingEnd < argv.Count && argv[leadingEnd].StartsWith("-", StringComparison.Ordinal))
+        {
+            bool consumesValue = string.Equals(argv[leadingEnd], "--value", StringComparison.Ordinal);
+            leadingEnd++;
+            if (consumesValue && leadingEnd < argv.Count)
+            {
+                leadingEnd++;
+            }
+        }
+        string[] presentActions = argv.Take(leadingEnd)
+            .Where(a => ActionFlags.Contains(a, StringComparer.Ordinal))
+            .ToArray();
         if (presentActions.Length > 1)
         {
-            return Fail($"action flags are mutually exclusive: {string.Join(", ", presentActions)}");
+            return Fail($"action flags are mutually exclusive: {string.Join(", ", presentActions)}", DetectColorFromEnv());
         }
 
         return presentActions.Length == 1
@@ -136,7 +153,8 @@ public static class ArgParser
     private static Result ParseExecMode(IReadOnlyList<string> argv)
     {
         bool noEcho = false;
-        bool requirePassphrase = false;
+        bool rpSeen = false;
+        bool noRpSeen = false;
         bool useColor = true;
 
         int i = 0;
@@ -145,13 +163,17 @@ public static class ArgParser
             switch (argv[i])
             {
                 case "--noecho": noEcho = true; break;
-                case "--require-passphrase": requirePassphrase = true; break;
-                case "--no-require-passphrase": requirePassphrase = false; break;
+                case "--require-passphrase": rpSeen = true; break;
+                case "--no-require-passphrase": noRpSeen = true; break;
                 case "--color": useColor = true; break;
                 case "--no-color": useColor = false; break;
             }
             i++;
         }
+
+        // Match flag mode's precedence: explicit opt-out always wins regardless of ordering. Previously
+        // exec mode was last-writer-wins which disagreed with flag mode's opt-out-wins behaviour.
+        bool requirePassphrase = rpSeen && !noRpSeen;
 
         if (i >= argv.Count)
         {
@@ -260,6 +282,14 @@ public static class ArgParser
         return typeof(ArgParser).Assembly.GetName().Version?.ToString() ?? "0.0.0";
     }
 
-    private static Result Fail(string msg)
-        => new(null, msg, false, 2, UseColor: false);
+    private static Result Fail(string msg, bool useColor)
+        => new(null, msg, false, 2, useColor);
+
+    // Pre-CommandLineParser errors can't use ParseResult.ResolveColor, but they still need to honour
+    // NO_COLOR (no-color.org) so error formatting is consistent with post-parse errors. Explicit
+    // --color/--no-color from argv are intentionally not inspected here: the cases that reach Fail
+    // before parser dispatch are either argv.Count == 0 (nothing to inspect) or mutually-exclusive
+    // action flags (the error itself invalidates any flag-mode state).
+    private static bool DetectColorFromEnv()
+        => string.IsNullOrEmpty(Environment.GetEnvironmentVariable("NO_COLOR"));
 }
