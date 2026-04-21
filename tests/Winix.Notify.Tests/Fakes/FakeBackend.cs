@@ -1,4 +1,5 @@
 #nullable enable
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -15,15 +16,23 @@ public sealed class FakeBackend : IBackend
     public int DelayMs { get; set; } = 0;
     public List<NotifyMessage> Received { get; } = new();
 
+    /// <summary>UTC timestamp at which <see cref="SendAsync"/> entered. Null until the call happens.</summary>
+    public DateTime? StartedAt { get; private set; }
+
+    /// <summary>UTC timestamp at which <see cref="SendAsync"/> was about to return. Null until the call completes.</summary>
+    public DateTime? EndedAt { get; private set; }
+
     public FakeBackend(string name) { Name = name; }
 
     public async Task<BackendResult> SendAsync(NotifyMessage message, CancellationToken ct)
     {
+        StartedAt = DateTime.UtcNow;
         if (DelayMs > 0)
         {
             await Task.Delay(DelayMs, ct);
         }
         Received.Add(message);
+        EndedAt = DateTime.UtcNow;
         return ShouldSucceed
             ? new BackendResult(Name, true, null, null)
             : new BackendResult(Name, false, FailureMessage, null);

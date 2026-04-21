@@ -1,5 +1,4 @@
 #nullable enable
-using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Xunit;
@@ -48,16 +47,20 @@ public class DispatcherTests
     [Fact]
     public async Task Dispatch_RunsBackendsInParallel_NotSequentially()
     {
-        // Both backends sleep 200ms. Sequential would be ~400ms; parallel should land
-        // close to 200ms. Wide upper bound (350ms) tolerates contention when this test
-        // runs alongside the rest of the suite — the point is "obviously not sequential",
-        // not exact timing.
+        // Prove parallelism via interval overlap, not wall-clock elapsed time. Sequential
+        // dispatch would force b2 to start only after b1 finishes; we assert the opposite
+        // (b2 started before b1 ended). This is immune to machine-load jitter, which made
+        // the previous Stopwatch-range assertion flaky under suite contention.
         var b1 = new FakeBackend("a") { DelayMs = 200 };
         var b2 = new FakeBackend("b") { DelayMs = 200 };
-        var sw = Stopwatch.StartNew();
         await Dispatcher.SendAsync(new IBackend[] { b1, b2 }, Msg(), CancellationToken.None);
-        sw.Stop();
-        Assert.InRange(sw.ElapsedMilliseconds, 150, 350);
+
+        Assert.NotNull(b1.StartedAt);
+        Assert.NotNull(b1.EndedAt);
+        Assert.NotNull(b2.StartedAt);
+        Assert.True(
+            b2.StartedAt < b1.EndedAt,
+            $"Expected overlap: b2 started at {b2.StartedAt:O} but b1 ended at {b1.EndedAt:O} — backends ran sequentially.");
     }
 
     [Fact]
