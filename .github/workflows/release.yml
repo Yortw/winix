@@ -153,6 +153,9 @@ jobs:
       - name: Pack unprotect
         run: dotnet pack src/unprotect/unprotect.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
 
+      - name: Pack envvault
+        run: dotnet pack src/envvault/envvault.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
+
       - name: Upload NuGet packages
         uses: actions/upload-artifact@v7
         with:
@@ -249,6 +252,9 @@ jobs:
       - name: Publish unprotect (${{ matrix.rid }})
         run: dotnet publish src/unprotect/unprotect.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
 
+      - name: Publish envvault (${{ matrix.rid }})
+        run: dotnet publish src/envvault/envvault.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
+
       - name: Bundle man pages alongside man binary
         shell: bash
         run: |
@@ -289,6 +295,7 @@ jobs:
           cd src/qr/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/qr-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
           cd src/protect/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/protect-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
           cd src/unprotect/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/unprotect-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
+          cd src/envvault/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/envvault-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
 
       - name: Zip binaries (Windows)
         if: runner.os == 'Windows'
@@ -316,6 +323,7 @@ jobs:
           Compress-Archive -Path src/qr/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath qr-${{ matrix.rid }}.zip
           Compress-Archive -Path src/protect/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath protect-${{ matrix.rid }}.zip
           Compress-Archive -Path src/unprotect/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath unprotect-${{ matrix.rid }}.zip
+          Compress-Archive -Path src/envvault/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath envvault-${{ matrix.rid }}.zip
 
       - name: Create combined Winix zip (Windows)
         if: runner.os == 'Windows' && matrix.rid == 'win-x64'
@@ -344,6 +352,7 @@ jobs:
           Copy-Item src/qr/bin/Release/net10.0/${{ matrix.rid }}/publish/qr.exe winix-combined/
           Copy-Item src/protect/bin/Release/net10.0/${{ matrix.rid }}/publish/protect.exe winix-combined/
           Copy-Item src/unprotect/bin/Release/net10.0/${{ matrix.rid }}/publish/unprotect.exe winix-combined/
+          Copy-Item src/envvault/bin/Release/net10.0/${{ matrix.rid }}/publish/envvault.exe winix-combined/
           Copy-Item src/man/bin/Release/net10.0/${{ matrix.rid }}/publish/share -Recurse -Destination winix-combined/share
           Compress-Archive -Path winix-combined/* -DestinationPath winix-${{ matrix.rid }}.zip -Force
 
@@ -423,7 +432,8 @@ jobs:
                 url:     { description: "Cross-platform URL encode/decode/parse/build/join/query-edit.",                                                       packages: { winget: "Winix.Url",      scoop: "url",      brew: "url",      dotnet: "Winix.Url"      } },
                 qr:        { description: "Cross-platform QR code generator with Wi-Fi, SMS, mailto, geo, and tel helpers.",                                   packages: { winget: "Winix.Qr",        scoop: "qr",        brew: "qr",        dotnet: "Winix.Qr"        } },
                 protect:   { description: "Cross-platform encrypt-at-rest CLI using OS-native key stores (DPAPI on Windows, Keychain on macOS, libsecret on Linux).", packages: { winget: "Winix.Protect",   scoop: "protect",   brew: "protect",   dotnet: "Winix.Protect"   } },
-                unprotect: { description: "Companion tool to protect — decrypts files that protect encrypted, using the same native OS key-storage primitives.", packages: { winget: "Winix.Unprotect", scoop: "unprotect", brew: "unprotect", dotnet: "Winix.Unprotect" } }
+                unprotect: { description: "Companion tool to protect — decrypts files that protect encrypted, using the same native OS key-storage primitives.", packages: { winget: "Winix.Unprotect", scoop: "unprotect", brew: "unprotect", dotnet: "Winix.Unprotect" } },
+                envvault:  { description: "Cross-platform keychain-backed env-var manager; envchain-compatible with a Windows backend.", packages: { winget: "Winix.EnvVault", scoop: "envvault", brew: "envvault", dotnet: "Winix.EnvVault" } }
               }
             }' > winix-manifest.json
 

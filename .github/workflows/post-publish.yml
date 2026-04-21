@@ -68,6 +68,7 @@ jobs:
           update_manifest bucket/qr.json aot/qr-win-x64.zip
           update_manifest bucket/protect.json aot/protect-win-x64.zip
           update_manifest bucket/unprotect.json aot/unprotect-win-x64.zip
+          update_manifest bucket/envvault.json aot/envvault-win-x64.zip
 
       - name: Commit and push scoop bucket
         run: |
@@ -203,6 +204,7 @@ jobs:
           generate_manifests "qr" "Qr" "Cross-platform QR code generator with Wi-Fi, SMS, mailto, geo, and tel helpers." "qr-code,barcode,wifi,encoding"
           generate_manifests "protect" "Protect" "Cross-platform encrypt-at-rest CLI using OS-native key stores." "encryption,dpapi,keychain,libsecret,at-rest,crypto"
           generate_manifests "unprotect" "Unprotect" "Companion tool to protect — decrypts files that protect encrypted." "decryption,dpapi,keychain,libsecret,at-rest,crypto"
+          generate_manifests "envvault" "EnvVault" "Cross-platform keychain-backed env var manager; envchain-compatible with a Windows backend." "env,secrets,keychain,envchain,dpapi"
 
       - name: Upload winget manifests
         uses: actions/upload-artifact@v7
