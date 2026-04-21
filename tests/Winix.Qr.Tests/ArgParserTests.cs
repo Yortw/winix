@@ -240,25 +240,34 @@ public class ArgParserTests
         Assert.Null(r.Options.OutputPath);
     }
 
-    // Describe / version / help
+    // Describe / version / help — ShellKit writes output to stdout during Parse and sets IsHandled=true.
     [Fact]
-    public void Parse_Help_ReturnsHelpFlag()
+    public void Parse_Help_ReturnsIsHandled()
     {
         ArgParser.Result r = ArgParser.Parse(["--help"]);
-        Assert.True(r.ShowHelp);
+        Assert.True(r.IsHandled);
+        Assert.Equal(0, r.ExitCode);
     }
 
     [Fact]
-    public void Parse_Version_ReturnsVersionFlag()
+    public void Parse_Version_ReturnsIsHandled()
     {
         ArgParser.Result r = ArgParser.Parse(["--version"]);
-        Assert.True(r.ShowVersion);
+        Assert.True(r.IsHandled);
     }
 
     [Fact]
-    public void Parse_Describe_ReturnsDescribeFlag()
+    public void Parse_Describe_ReturnsIsHandled()
     {
         ArgParser.Result r = ArgParser.Parse(["--describe"]);
-        Assert.True(r.ShowDescribe);
+        Assert.True(r.IsHandled);
+    }
+
+    // Subcommand-scoped help: `qr wifi --help` should produce wifi-specific help (still IsHandled).
+    [Fact]
+    public void Parse_WifiHelp_ReturnsIsHandled()
+    {
+        ArgParser.Result r = ArgParser.Parse(["wifi", "--help"]);
+        Assert.True(r.IsHandled);
     }
 }

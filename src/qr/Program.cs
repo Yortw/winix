@@ -20,9 +20,11 @@ internal sealed class Program
 
         ArgParser.Result r = ArgParser.Parse(args);
 
-        if (r.ShowHelp)     { PrintHelp();     return ExitCode.Success; }
-        if (r.ShowVersion)  { PrintVersion();  return ExitCode.Success; }
-        if (r.ShowDescribe) { PrintDescribe(); return ExitCode.Success; }
+        // ShellKit auto-writes --help/--version/--describe output during Parse and sets IsHandled.
+        if (r.IsHandled)
+        {
+            return r.ExitCode;
+        }
 
         if (r.Error is not null)
         {
@@ -142,59 +144,4 @@ internal sealed class Program
         return ExitCode.Success;
     }
 
-    private static void PrintHelp()
-    {
-        Console.Out.WriteLine("""
-            qr — cross-platform QR code generator.
-
-            Usage:
-              qr [OPTIONS] PAYLOAD            Encode text payload.
-              qr [OPTIONS] -                  Read payload from stdin.
-              qr wifi   [OPTIONS] --ssid S --password P [--security wpa2|wpa|wep|nopass] [--hidden]
-              qr sms    [OPTIONS] --number N [--message M]
-              qr mailto [OPTIONS] --to A [--subject S] [--body B] [--cc A] [--bcc A]
-              qr geo    [OPTIONS] --lat L --lon L [--query Q]
-              qr tel    [OPTIONS] --number N
-
-            Options:
-              --format {auto,unicode,ascii,svg,png}  Output format. Default auto:
-                                                      unicode on TTY; svg when stdout is redirected.
-              --size N / -s N                        Pixels per module (PNG/SVG only). Default 10.
-              --error-correction {l,m,q,h} / -e X    ECC level. Default m (~15% recovery).
-              --no-margin                            Strip the 4-module quiet zone.
-              --output PATH / -o PATH                Write to file instead of stdout.
-              --force-binary                         Allow PNG output to a TTY.
-              --describe, --help, --version          Suite-standard introspection flags.
-              --color, --no-color                    Colour control (respects NO_COLOR).
-
-            Exit codes:
-              0    Success.
-              125  Usage error.
-              126  Runtime error (capacity overflow, invalid stdin).
-            """);
-    }
-
-    private static void PrintVersion()
-    {
-        Console.Out.WriteLine($"qr {typeof(Program).Assembly.GetName().Version}");
-    }
-
-    private static void PrintDescribe()
-    {
-        Console.Out.WriteLine("""
-            {
-              "name": "qr",
-              "description": "Cross-platform QR code generator with helpers for Wi-Fi, SMS, mailto, geo, and tel.",
-              "subcommands": [
-                {"name": "text",   "description": "Default: encode a text payload from positional or stdin."},
-                {"name": "wifi",   "description": "Encode a Wi-Fi network URI."},
-                {"name": "sms",    "description": "Encode an SMS URI."},
-                {"name": "mailto", "description": "Encode a mailto URI."},
-                {"name": "geo",    "description": "Encode a geo URI."},
-                {"name": "tel",    "description": "Encode a tel URI."}
-              ],
-              "formats": ["unicode", "ascii", "svg", "png"]
-            }
-            """);
-    }
 }
