@@ -12,7 +12,10 @@ public sealed class WindowsClipboardBackend : IClipboardBackend
 {
     // Windows clipboard is commonly held briefly by another process (Office, Chromium).
     // We retry OpenClipboard for up to 250 ms total before surfacing "busy".
-    private const int OpenAttempts = 5;
+    // Clipboard is a single-owner Windows resource. Clipboard managers (Windows clipboard history,
+    // Ditto, etc.) poll it aggressively — the original 5×50ms budget lost races routinely. 20×50ms
+    // gives a full second of retry, which tolerates normal polling without adding perceptible latency.
+    private const int OpenAttempts = 20;
     private const int OpenRetryDelayMs = 50;
 
     // ReSharper disable InconsistentNaming
