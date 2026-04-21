@@ -23,8 +23,16 @@ namespace Winix.SecretStore;
 /// </para>
 /// <para>
 /// Write ordering is chosen so the only possible desync states are ones that the self-healing
-/// list operations can detect and prune on next read: <see cref="Set"/> updates the index first
-/// then writes the value; <see cref="Delete"/> removes the value first then updates the index.
+/// list operations can detect and prune on next read. At the index level, <see cref="Set"/>
+/// writes the <c>_all/namespaces</c> entry before the per-namespace <c>keys</c> entry; at the
+/// outer level, the index is written before the value. <see cref="Delete"/> inverts this:
+/// value first, then index. Every possible interrupted-write state therefore leaves either
+/// (a) a phantom index entry the self-healing list prunes, or (b) a live value whose index
+/// entries are consistent.
+/// </para>
+/// <para>
+/// The index is stored as newline-delimited UTF-8, so key names and namespace tails must not
+/// contain newline characters. <see cref="Set"/> throws <see cref="ArgumentException"/> if they do.
 /// </para>
 /// </remarks>
 [SupportedOSPlatform("macos")]
@@ -210,6 +218,42 @@ public sealed class MacOsKeychainStore : ISecretStore
 
     private void UpdateIndexForSet(string namespace_, string key)
     {
+        // Index encoding is newline-delimited UTF-8. An embedded '\n' in a stored name would
+        // split into phantom entries on read and silently corrupt the index, so reject up front.
+        if (key.Contains('\n'))
+        {
+            throw new ArgumentException("Key name must not contain newline characters (stored in MacOsKeychainStore's index as newline-delimited).", nameof(key));
+        }
+        int slashForValidation = namespace_.IndexOf('/');
+        if (slashForValidation > 0)
+        {
+            string nsTailForValidation = namespace_.Substring(slashForValidation + 1);
+            if (nsTailForValidation.Contains('\n'))
+            {
+                throw new ArgumentException("Namespace tail must not contain newline characters.", nameof(namespace_));
+            }
+        }
+
+        // Write-ordering invariant within the index: update the `_all/namespaces` entry BEFORE
+        // the per-namespace `keys` entry. A crash between them leaves a phantom `_all` entry
+        // whose namespace has no live keys — ListNamespaces probes ListKeys, sees empty, and
+        // prunes. If we wrote `keys` first, a crash would leave live keys but no `_all` entry,
+        // and ListNamespaces has no way to discover the missing entry (it can only prune).
+        int slash = namespace_.IndexOf('/');
+        if (slash > 0)
+        {
+            string toolPrefix = namespace_.Substring(0, slash);
+            string nsTail = namespace_.Substring(slash + 1);
+            string metaAll = $"{toolPrefix}-meta/_all";
+            byte[]? allExisting = GetCore(metaAll, "namespaces");
+            List<string> all = allExisting == null ? new() : DecodeList(allExisting).ToList();
+            if (!all.Contains(nsTail, StringComparer.Ordinal))
+            {
+                all.Add(nsTail);
+                WriteList(metaAll, "namespaces", all);
+            }
+        }
+
         string metaNs = MetaNamespace(namespace_);
         byte[]? existing = GetCore(metaNs, "keys");
         List<string> keys = existing == null ? new() : DecodeList(existing).ToList();
@@ -217,20 +261,6 @@ public sealed class MacOsKeychainStore : ISecretStore
         {
             keys.Add(key);
             WriteList(metaNs, "keys", keys);
-        }
-
-        // Also maintain the namespace-list index.
-        int slash = namespace_.IndexOf('/');
-        if (slash <= 0) return;
-        string toolPrefix = namespace_.Substring(0, slash);
-        string nsTail = namespace_.Substring(slash + 1);
-        string metaAll = $"{toolPrefix}-meta/_all";
-        byte[]? allExisting = GetCore(metaAll, "namespaces");
-        List<string> all = allExisting == null ? new() : DecodeList(allExisting).ToList();
-        if (!all.Contains(nsTail, StringComparer.Ordinal))
-        {
-            all.Add(nsTail);
-            WriteList(metaAll, "namespaces", all);
         }
     }
 

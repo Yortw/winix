@@ -53,6 +53,30 @@ public class MacOsKeychainStoreTests
     }
 
     [Fact]
+    public void Set_RejectsKeyContainingNewline()
+    {
+        // The guard is a deterministic argument check that throws before any keychain call,
+        // so it can be exercised cross-platform. Suppress CA1416 for the one call site.
+#pragma warning disable CA1416
+        MacOsKeychainStore store = new(useSystemKeychain: false);
+        ArgumentException ex = Assert.Throws<ArgumentException>(
+            () => store.Set("envvault-test/github", "BAD\nKEY", new byte[] { 1 }));
+        Assert.Equal("key", ex.ParamName);
+#pragma warning restore CA1416
+    }
+
+    [Fact]
+    public void Set_RejectsNamespaceTailContainingNewline()
+    {
+#pragma warning disable CA1416
+        MacOsKeychainStore store = new(useSystemKeychain: false);
+        ArgumentException ex = Assert.Throws<ArgumentException>(
+            () => store.Set("envvault-test/bad\ntail", "TOKEN", new byte[] { 1 }));
+        Assert.Equal("namespace_", ex.ParamName);
+#pragma warning restore CA1416
+    }
+
+    [Fact]
     public void ListKeys_SelfHealsWhenValueRemovedOutOfBand()
     {
         if (!OperatingSystem.IsMacOS()) return;
