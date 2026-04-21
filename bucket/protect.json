@@ -1,0 +1,21 @@
+{
+  "version": "0.3.0",
+  "description": "Cross-platform encrypt-at-rest CLI using OS-native key stores (DPAPI on Windows, Keychain on macOS, libsecret on Linux).",
+  "homepage": "https://github.com/Yortw/winix",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/Yortw/winix/releases/download/v0.3.0/protect-win-x64.zip",
+      "hash": "",
+      "bin": "protect.exe"
+    }
+  },
+  "checkver": "github",
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/Yortw/winix/releases/download/v$version/protect-win-x64.zip"
+      }
+    }
+  }
+}

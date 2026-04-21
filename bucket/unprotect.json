@@ -1,0 +1,21 @@
+{
+  "version": "0.3.0",
+  "description": "Companion tool to protect — decrypts files that protect encrypted, using the same native OS key-storage primitives.",
+  "homepage": "https://github.com/Yortw/winix",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/Yortw/winix/releases/download/v0.3.0/unprotect-win-x64.zip",
+      "hash": "",
+      "bin": "unprotect.exe"
+    }
+  },
+  "checkver": "github",
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/Yortw/winix/releases/download/v$version/unprotect-win-x64.zip"
+      }
+    }
+  }
+}
