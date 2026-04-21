@@ -18,6 +18,7 @@ namespace Winix.SecretStore;
 [SupportedOSPlatform("linux")]
 public sealed class LinuxLibsecretStore : ISecretStore
 {
+    /// <inheritdoc />
     public void Set(string namespace_, string key, byte[] value)
     {
         AssertAvailable();
@@ -55,15 +56,20 @@ public sealed class LinuxLibsecretStore : ISecretStore
         }
     }
 
+    /// <inheritdoc />
     public byte[]? Get(string namespace_, string key)
     {
         AssertAvailable();
         (int exit, string stdout, string _) = RunSecretTool(["lookup", "service", namespace_, "key", key]);
-        if (exit != 0) return null;
+        if (exit != 0)
+        {
+            return null;
+        }
         string hex = stdout.Trim();
         return string.IsNullOrEmpty(hex) ? null : Convert.FromHexString(hex);
     }
 
+    /// <inheritdoc />
     public bool Delete(string namespace_, string key)
     {
         AssertAvailable();
@@ -71,11 +77,15 @@ public sealed class LinuxLibsecretStore : ISecretStore
         return exit == 0;
     }
 
+    /// <inheritdoc />
     public IReadOnlyList<string> ListKeys(string namespace_)
     {
         AssertAvailable();
         (int exit, string stdout, string _) = RunSecretTool(["search", "--all", "service", namespace_]);
-        if (exit != 0) return Array.Empty<string>();
+        if (exit != 0)
+        {
+            return Array.Empty<string>();
+        }
 
         List<string> keys = new();
         foreach (string line in stdout.Split('\n'))
@@ -91,18 +101,25 @@ public sealed class LinuxLibsecretStore : ISecretStore
         return keys;
     }
 
+    /// <inheritdoc />
     public IReadOnlyList<string> ListNamespaces(string toolPrefix)
     {
         AssertAvailable();
         (int exit, string stdout, string _) = RunSecretTool(["search", "--all", "tool", toolPrefix]);
-        if (exit != 0) return Array.Empty<string>();
+        if (exit != 0)
+        {
+            return Array.Empty<string>();
+        }
 
         HashSet<string> namespaces = new(StringComparer.Ordinal);
         foreach (string line in stdout.Split('\n'))
         {
             string trimmed = line.TrimStart();
             const string prefix = "attribute.service = ";
-            if (!trimmed.StartsWith(prefix, StringComparison.Ordinal)) continue;
+            if (!trimmed.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                continue;
+            }
             string service = trimmed.Substring(prefix.Length).TrimEnd('\r');
             string toolSlash = toolPrefix + "/";
             if (service.StartsWith(toolSlash, StringComparison.Ordinal))
@@ -115,11 +132,7 @@ public sealed class LinuxLibsecretStore : ISecretStore
         return sorted;
     }
 
-    private static string ExtractTool(string namespace_)
-    {
-        int slash = namespace_.IndexOf('/');
-        return slash > 0 ? namespace_.Substring(0, slash) : namespace_;
-    }
+    private static string ExtractTool(string namespace_) => LinuxNamespace.ExtractTool(namespace_);
 
     private static void AssertAvailable()
     {
