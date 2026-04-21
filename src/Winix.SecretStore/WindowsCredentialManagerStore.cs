@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Text;
@@ -92,13 +93,67 @@ public sealed class WindowsCredentialManagerStore : ISecretStore
         throw new Win32Exception(err, $"CredDeleteW failed for target '{target}' (0x{err:X}).");
     }
 
-    public IReadOnlyList<string> ListKeys(string namespace_) =>
-        throw new NotImplementedException("ListKeys is implemented in a subsequent commit (envvault Task 2).");
+    public IReadOnlyList<string> ListKeys(string namespace_)
+    {
+        string filter = namespace_ + "/*";
+        List<string> keys = new();
+        foreach (string target in Enumerate(filter))
+        {
+            string prefix = namespace_ + "/";
+            if (target.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                keys.Add(target.Substring(prefix.Length));
+            }
+        }
+        keys.Sort(StringComparer.Ordinal);
+        return keys;
+    }
 
-    public IReadOnlyList<string> ListNamespaces(string toolPrefix) =>
-        throw new NotImplementedException("ListNamespaces is implemented in a subsequent commit (envvault Task 2).");
+    public IReadOnlyList<string> ListNamespaces(string toolPrefix)
+    {
+        string filter = toolPrefix + "/*";
+        HashSet<string> namespaces = new(StringComparer.Ordinal);
+        foreach (string target in Enumerate(filter))
+        {
+            string prefix = toolPrefix + "/";
+            if (!target.StartsWith(prefix, StringComparison.Ordinal)) continue;
+            string rest = target.Substring(prefix.Length);
+            int slash = rest.IndexOf('/');
+            if (slash <= 0) continue;
+            namespaces.Add(rest.Substring(0, slash));
+        }
+        List<string> sorted = namespaces.ToList();
+        sorted.Sort(StringComparer.Ordinal);
+        return sorted;
+    }
 
     private static string Compose(string namespace_, string key) => $"{namespace_}/{key}";
+
+    private static IEnumerable<string> Enumerate(string filter)
+    {
+        if (!CredEnumerateW(filter, 0, out uint count, out IntPtr creds))
+        {
+            int err = Marshal.GetLastWin32Error();
+            if (err == ERROR_NOT_FOUND)
+            {
+                yield break;
+            }
+            throw new Win32Exception(err, $"CredEnumerateW failed for filter '{filter}' (0x{err:X}).");
+        }
+        try
+        {
+            for (int i = 0; i < count; i++)
+            {
+                IntPtr credPtr = Marshal.ReadIntPtr(creds, i * IntPtr.Size);
+                CREDENTIAL cred = Marshal.PtrToStructure<CREDENTIAL>(credPtr);
+                yield return cred.TargetName;
+            }
+        }
+        finally
+        {
+            CredFree(creds);
+        }
+    }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct CREDENTIAL
@@ -125,6 +180,9 @@ public sealed class WindowsCredentialManagerStore : ISecretStore
 
     [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern bool CredDeleteW(string target, uint type, uint reservedFlag);
+
+    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool CredEnumerateW(string? filter, uint flags, out uint count, out IntPtr credentials);
 
     [DllImport("advapi32.dll", SetLastError = false)]
     private static extern void CredFree(IntPtr buffer);
