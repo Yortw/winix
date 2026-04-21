@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
@@ -90,6 +91,12 @@ public sealed class WindowsCredentialManagerStore : ISecretStore
         }
         throw new Win32Exception(err, $"CredDeleteW failed for target '{target}' (0x{err:X}).");
     }
+
+    public IReadOnlyList<string> ListKeys(string namespace_) =>
+        throw new NotImplementedException("ListKeys is implemented in a subsequent commit (envvault Task 2).");
+
+    public IReadOnlyList<string> ListNamespaces(string toolPrefix) =>
+        throw new NotImplementedException("ListNamespaces is implemented in a subsequent commit (envvault Task 2).");
 
     private static string Compose(string namespace_, string key) => $"{namespace_}/{key}";
 

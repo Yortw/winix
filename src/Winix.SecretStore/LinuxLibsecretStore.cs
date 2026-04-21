@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.Versioning;
@@ -61,6 +62,12 @@ public sealed class LinuxLibsecretStore : ISecretStore
         (int exit, string _, string _) = RunSecretTool(["clear", "service", namespace_, "key", key]);
         return exit == 0;
     }
+
+    public IReadOnlyList<string> ListKeys(string namespace_) =>
+        throw new NotImplementedException("ListKeys is implemented in a subsequent commit (envvault Task 3).");
+
+    public IReadOnlyList<string> ListNamespaces(string toolPrefix) =>
+        throw new NotImplementedException("ListNamespaces is implemented in a subsequent commit (envvault Task 3).");
 
     private static void AssertAvailable()
     {

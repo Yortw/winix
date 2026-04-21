@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.Versioning;
 using System.Text;
@@ -87,6 +88,12 @@ public sealed class MacOsKeychainStore : ISecretStore
         (int exit, string _, string _) = RunSecurity(args, allowError: true);
         return exit == 0;
     }
+
+    public IReadOnlyList<string> ListKeys(string namespace_) =>
+        throw new NotImplementedException("ListKeys is implemented in a subsequent commit (envvault Task 4).");
+
+    public IReadOnlyList<string> ListNamespaces(string toolPrefix) =>
+        throw new NotImplementedException("ListNamespaces is implemented in a subsequent commit (envvault Task 4).");
 
     private static (int exitCode, string stdout, string stderr) RunSecurity(string[] args, bool allowError)
     {

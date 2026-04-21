@@ -1,5 +1,6 @@
 #nullable enable
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Winix.SecretStore;
 
@@ -25,5 +26,28 @@ public sealed class NullSecretStore : ISecretStore
         return _entries.Remove(Compose(namespace_, key));
     }
 
-    private static string Compose(string namespace_, string key) => $"{namespace_} {key}";
+    public IReadOnlyList<string> ListKeys(string namespace_)
+    {
+        string prefix = namespace_ + "/";
+        return _entries.Keys
+            .Where(k => k.StartsWith(prefix))
+            .Select(k => k.Substring(prefix.Length))
+            .Where(rest => !rest.Contains('/'))
+            .OrderBy(s => s)
+            .ToArray();
+    }
+
+    public IReadOnlyList<string> ListNamespaces(string toolPrefix)
+    {
+        string prefix = toolPrefix + "/";
+        return _entries.Keys
+            .Where(k => k.StartsWith(prefix))
+            .Select(k => k.Substring(prefix.Length))
+            .Select(rest => rest.Split('/')[0])
+            .Distinct()
+            .OrderBy(s => s)
+            .ToArray();
+    }
+
+    private static string Compose(string namespace_, string key) => $"{namespace_}/{key}";
 }
