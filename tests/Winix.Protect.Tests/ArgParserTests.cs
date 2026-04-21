@@ -86,24 +86,29 @@ public class ArgParserTests
         Assert.NotNull(r.Error);
     }
 
+    // For --help / --version / --describe, ShellKit's CommandLineParser writes output to stdout
+    // during Parse and sets IsHandled=true. The test asserts the handled flag; it tolerates the
+    // auto-written output being visible on the test runner's captured stdout.
+
     [Fact]
     public void Parse_Help_Flag()
     {
         ArgParser.Result r = ArgParser.Parse(["--help"], SubCommand.Protect);
-        Assert.True(r.ShowHelp);
+        Assert.True(r.IsHandled);
+        Assert.Equal(0, r.ExitCode);
     }
 
     [Fact]
     public void Parse_Version_Flag()
     {
         ArgParser.Result r = ArgParser.Parse(["--version"], SubCommand.Protect);
-        Assert.True(r.ShowVersion);
+        Assert.True(r.IsHandled);
     }
 
     [Fact]
     public void Parse_Describe_Flag()
     {
         ArgParser.Result r = ArgParser.Parse(["--describe"], SubCommand.Protect);
-        Assert.True(r.ShowDescribe);
+        Assert.True(r.IsHandled);
     }
 }

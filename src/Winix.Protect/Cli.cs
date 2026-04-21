@@ -18,9 +18,11 @@ public static class Cli
         SubCommand subCommand = invocationName == "unprotect" ? SubCommand.Unprotect : SubCommand.Protect;
         ArgParser.Result parsed = ArgParser.Parse(args, subCommand);
 
-        if (parsed.ShowHelp) { PrintHelp(invocationName); return ExitCode.Success; }
-        if (parsed.ShowVersion) { Console.Out.WriteLine($"{invocationName} {typeof(Cli).Assembly.GetName().Version}"); return ExitCode.Success; }
-        if (parsed.ShowDescribe) { PrintDescribe(invocationName); return ExitCode.Success; }
+        // ShellKit auto-writes --help / --version / --describe output during Parse and sets IsHandled=true.
+        if (parsed.IsHandled)
+        {
+            return parsed.ExitCode;
+        }
 
         if (parsed.Error is not null)
         {
@@ -57,6 +59,26 @@ public static class Cli
         catch (InvalidOperationException ex)
         {
             Console.Error.WriteLine(Formatting.RuntimeError(invocationName, ex.Message));
+            return RuntimeErrorExit;
+        }
+        catch (FileNotFoundException ex)
+        {
+            // .NET's FileNotFoundException.Message format is "{SR resource key}, {path}" (e.g.
+            // "IO_FileNotFound_FileName, d:\foo.txt"). The resource key is leaked when SR
+            // localisation isn't resolved — observed on .NET 10 debug builds and likely under
+            // AOT. Emit our own message with just the path so users see something sensible.
+            string path = ex.FileName ?? opts.InputPath ?? "(unknown)";
+            Console.Error.WriteLine(Formatting.RuntimeError(invocationName, $"could not find file '{path}'"));
+            return RuntimeErrorExit;
+        }
+        catch (DirectoryNotFoundException ex)
+        {
+            Console.Error.WriteLine(Formatting.RuntimeError(invocationName, ex.Message));
+            return RuntimeErrorExit;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            Console.Error.WriteLine(Formatting.RuntimeError(invocationName, $"access denied: {ex.Message}"));
             return RuntimeErrorExit;
         }
         catch (IOException ex)
@@ -186,49 +208,6 @@ public static class Cli
         }
 
         return ExitCode.Success;
-    }
-
-    private static void PrintHelp(string invocationName)
-    {
-        Console.Out.WriteLine($$"""
-            {{invocationName}} — cross-platform encrypt-at-rest CLI.
-
-            Usage:
-              {{invocationName}} [OPTIONS] FILE         File-operand mode (produces FILE.prot on protect)
-              {{invocationName}} [OPTIONS] FILE --in-place    Replace FILE atomically
-              {{invocationName}} [OPTIONS] < stream > out     Streaming mode
-
-            Options:
-              -o PATH, --output PATH            Output path
-              --in-place                        Encrypt/decrypt over the input file
-              --rm, --remove-source             Delete source after successful operation
-              --keep, -k                        Keep source (explicit default)
-              --scope {user,machine}            Key-derivation scope (default user).
-                                                Windows: DPAPI CurrentUser / LocalMachine.
-                                                macOS: login / System Keychain (sudo for machine).
-                                                Linux: user only (machine fails fast).
-              --no-verify                       Skip round-trip integrity check (encrypt path only)
-              --describe, --help, --version     Suite-standard flags.
-              --color, --no-color               Colour control (respects NO_COLOR).
-
-            Exit codes: 0 success; 125 usage error; 126 runtime error.
-            """);
-    }
-
-    private static void PrintDescribe(string invocationName)
-    {
-        string desc = invocationName == "protect" ? "encrypt-at-rest" : "decrypt-at-rest";
-        Console.Out.WriteLine($$"""
-            {
-              "name": "{{invocationName}}",
-              "description": "Cross-platform {{desc}} CLI wrapping native OS key-storage primitives.",
-              "platforms": {
-                "windows": "DPAPI (CurrentUser / LocalMachine)",
-                "macos": "Keychain (login / System) + AES-256-GCM",
-                "linux": "libsecret + AES-256-GCM (user scope only in v1)"
-              }
-            }
-            """);
     }
 
     private sealed class TeeStream : Stream
