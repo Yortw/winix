@@ -1,0 +1,21 @@
+{
+  "version": "0.3.0",
+  "description": "Cross-platform keychain-backed env-var manager; envchain-compatible with a Windows backend.",
+  "homepage": "https://github.com/Yortw/winix",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/Yortw/winix/releases/download/v0.3.0/envvault-win-x64.zip",
+      "hash": "",
+      "bin": "envvault.exe"
+    }
+  },
+  "checkver": "github",
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/Yortw/winix/releases/download/v$version/envvault-win-x64.zip"
+      }
+    }
+  }
+}
