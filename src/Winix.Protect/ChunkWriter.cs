@@ -62,14 +62,14 @@ public static class ChunkWriter
                     Array.Copy(buffer, chunk, chunkSize);
                     AadContext aad = new(headerBytes, chunkIndex, true);
                     byte[] encrypted = backend.EncryptChunk(chunk, aad, true);
-                    destination.Write(encrypted, 0, encrypted.Length);
+                    WriteEncryptedChunk(destination, encrypted, backend.Marker);
                     return;
                 }
                 byte[] nonFinal = new byte[chunkSize];
                 Array.Copy(buffer, nonFinal, chunkSize);
                 AadContext nonFinalAad = new(headerBytes, chunkIndex++, false);
                 byte[] encNonFinal = backend.EncryptChunk(nonFinal, nonFinalAad, false);
-                destination.Write(encNonFinal, 0, encNonFinal.Length);
+                WriteEncryptedChunk(destination, encNonFinal, backend.Marker);
                 buffer[0] = oneByte[0];
                 buffered = 1;
             }
@@ -79,9 +79,34 @@ public static class ChunkWriter
                 Array.Copy(buffer, finalChunk, buffered);
                 AadContext aad = new(headerBytes, chunkIndex, true);
                 byte[] encrypted = backend.EncryptChunk(finalChunk, aad, true);
-                destination.Write(encrypted, 0, encrypted.Length);
+                WriteEncryptedChunk(destination, encrypted, backend.Marker);
                 return;
             }
         }
+    }
+
+    private static bool IsAeadMarker(PlatformMarker marker)
+        => marker == PlatformMarker.MacKeychainUser
+        || marker == PlatformMarker.MacKeychainMachine
+        || marker == PlatformMarker.LinuxLibsecretUser;
+
+    // AEAD backends emit chunks that already carry a 4-byte length field inside the 17-byte prefix,
+    // so the reader can self-delimit. DPAPI blobs have no such internal framing, so we must prepend
+    // a big-endian 4-byte length on the wire to match ChunkReader's expectations for DPAPI markers.
+    private static void WriteEncryptedChunk(Stream destination, byte[] encrypted, PlatformMarker marker)
+    {
+        if (!IsAeadMarker(marker))
+        {
+            int length = encrypted.Length;
+            byte[] lengthBytes =
+            [
+                (byte)((length >> 24) & 0xFF),
+                (byte)((length >> 16) & 0xFF),
+                (byte)((length >> 8) & 0xFF),
+                (byte)(length & 0xFF),
+            ];
+            destination.Write(lengthBytes, 0, 4);
+        }
+        destination.Write(encrypted, 0, encrypted.Length);
     }
 }
