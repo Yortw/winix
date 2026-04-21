@@ -1,8 +1,185 @@
-.TH UNPROTECT 1 "2026" "Winix" "User Commands"
+.TH UNPROTECT 1 "2026-04-21" "Winix" "User Commands"
 .SH NAME
 unprotect \- decrypt files encrypted by protect
 .SH SYNOPSIS
 .B unprotect
 [\fIOPTIONS\fR] [\fIFILE\fR]
+.br
+.B unprotect
+[\fIOPTIONS\fR]
+
 .SH DESCRIPTION
-Placeholder; full man page in a later commit.
+.B unprotect
+is the companion to
+.B protect
+(1).
+It decrypts files encrypted by
+.B protect
+using the same native OS key-storage primitive (DPAPI on Windows, Keychain on macOS, libsecret on Linux).
+
+Decryption succeeds only if:
+.RS
+.IP \(bu 2
+The file was encrypted on the current machine and by the current OS user (default scope).
+.IP \(bu 2
+Or, the file was encrypted with \fB--scope machine\fR on Windows/macOS, and you have access to the machine key.
+.IP \(bu 2
+And, the OS key store still has the key available.
+.RE
+
+If any of these conditions fail, decryption fails with a clear error message.
+Truncation and tampering are detected via AEAD authentication or DPAPI integrity checks.
+
+.SH OPTIONS
+.TP
+.BR \-o " " \fIPATH\fR ", " \-\-output " " \fIPATH\fR
+Write decrypted output to \fIPATH\fR instead of the default (strip \fB.prot\fR suffix for files, or stdout for stdin).
+Mutually exclusive with \fB--in-place\fR.
+Cannot be equal to the input path.
+
+.TP
+.B \-\-in\-place
+Decrypt the file in place using atomic rename (temp write → verify → rename).
+Mutually exclusive with \fB-o\fR / \fB--output\fR.
+The \fB--rm\fR / \fB--remove-source\fR flag is implicit.
+
+.TP
+.BR \-\-rm ", " \-\-remove\-source
+Delete the encrypted file after successful decryption.
+Paired with explicit output path, keeps the encrypted source.
+Implied by \fB--in-place\fR.
+
+.TP
+.BR \-\-scope " " [\fBuser\fR | \fBmachine\fR]
+Key-derivation scope to attempt for decryption.
+Default: \fBuser\fR.
+Must match the scope used when encrypting.
+.RS
+.IP \fBuser\fR 8
+Decrypt with the current user's key (Windows DPAPI CurrentUser, macOS login Keychain, Linux libsecret).
+.IP \fBmachine\fR 8
+Decrypt with the machine key (Windows DPAPI LocalMachine, macOS System Keychain).
+Not supported on Linux; will fail at decryption time.
+.RE
+
+If the file's embedded platform marker indicates a scope mismatch, decryption fails with a clear suggestion.
+
+.TP
+.B \-\-no\-verify
+Skip round-trip verification.
+Normally, after decryption the tool computes a hash and compares it to the hash computed during encryption.
+\fB--no-verify\fR is faster but provides less assurance.
+
+.TP
+.B \-\-color \fBwhen\fR
+Emit ANSI colour codes: \fBalways\fR, \fBnever\fR, or \fBauto\fR (default: respect \fBNO_COLOR\fR).
+
+.TP
+.B \-\-describe
+Emit structured JSON metadata for AI discoverability.
+
+.TP
+.B \-\-help
+Show help and exit.
+
+.TP
+.B \-\-version
+Show version and exit.
+
+.SH FILE MODES
+.TP
+.B Positional file argument
+.B unprotect FILE.prot
+decrypts \fIFILE\fR\fB.prot\fR to \fIFILE\fR (strips the \fB.prot\fR suffix).
+Use \fB-o\fR, \fB--in-place\fR, or \fB--rm\fR to customize.
+
+.TP
+.B Stdin (default or explicit \fB-\fR)
+.B unprotect < FILE.prot
+or
+.B unprotect -
+reads from stdin and writes to stdout (or \fB-o PATH\fR).
+
+.SH EXAMPLES
+.TP
+Decrypt a protected file:
+.B unprotect config.json.prot
+.TP
+Decrypt in place (atomic):
+.B unprotect config.json.prot \-\-in\-place
+.TP
+Decrypt and delete the encrypted file after verification:
+.B unprotect api.key.prot \-\-rm
+.TP
+Decrypt from stdin to an output file:
+.B cat secret.prot | unprotect \-o secret.txt
+.TP
+Compose with digest: decrypt an HMAC key and use it:
+.B unprotect < api.key.prot | digest \-\-hmac sha256 \-\-key\-stdin "payload"
+.TP
+Decrypt and decompress:
+.B unprotect < backup.prot | zcat | tar \-x
+
+.SH EXIT CODES
+.TP
+.B 0
+Success.
+.TP
+.B 125
+Usage error: bad flags, output path equals input, format mismatch, scope/platform unsupported.
+.TP
+.B 126
+Runtime error: decryption failed, wrong platform/user, key store unavailable, wrong scope, truncated ciphertext, tampered data.
+
+.SH PLATFORM NOTES
+.SS Windows
+Decrypts files encrypted with either user or machine scope (requires appropriate key access).
+Files encrypted by a different user cannot be decrypted.
+Files encrypted on a different machine cannot be decrypted.
+
+.SS macOS
+Decrypts files encrypted with user scope (login Keychain) or machine scope (System Keychain, requires root/admin).
+Files encrypted by a different user cannot be decrypted.
+Files encrypted on a different machine cannot be decrypted.
+
+.SS Linux
+Decrypts files encrypted with user scope only.
+Files encrypted by a different user cannot be decrypted.
+Files encrypted on a different machine cannot be decrypted.
+libsecret-tools must be installed.
+
+.SH CROSS-PLATFORM FAILURE (BY DESIGN)
+Encrypted files are explicitly not portable across machines or users.
+.B unprotect
+fails clearly if:
+.RS
+.IP \(bu 2
+The file was encrypted on a different machine (wrong OS key).
+.IP \(bu 2
+The file was encrypted by a different user (wrong user key).
+.IP \(bu 2
+The file was encrypted with \fB--scope machine\fR but you're decrypting with \fB--scope user\fR (or vice versa).
+.IP \(bu 2
+The OS key store no longer has the key (e.g., key deleted, Keychain/libsecret cleared).
+.IP \(bu 2
+The file is truncated or has been tampered with (AEAD/DPAPI tag mismatch).
+.RE
+
+This is deliberate: zero user key management means the OS key is the source of truth, and portability is sacrificed for that simplicity.
+For portable encryption, use
+.BR age (1),
+.BR gpg (1),
+or
+.BR sops (1).
+
+.SH FILE FORMAT
+Encrypted files start with a 6-byte header: magic (\fBWPRT\fR), version (1), and platform marker.
+The platform marker identifies which backend encrypted the file (Windows DPAPI user/machine, macOS Keychain user/machine, Linux libsecret).
+Files are then chunked (64 KB per chunk), each encrypted with either DPAPI or AES-256-GCM.
+The final chunk is marked; truncation is detected during decryption.
+
+.SH SEE ALSO
+.BR protect (1) \- encrypt files
+.BR digest (1) \- cryptographic hashing and HMAC
+.BR unprotect \-\-describe \- structured metadata
+.BR unprotect \-\-help \- human-readable help
