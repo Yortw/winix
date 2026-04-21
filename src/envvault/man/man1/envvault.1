@@ -1,3 +1,154 @@
 .TH ENVVAULT 1 "2026-04-22" "Winix" "User Commands"
 .SH NAME
-envvault \- placeholder man page; full content arrives in Task 14.
+envvault \- cross-platform keychain-backed environment variable manager
+.SH SYNOPSIS
+.B envvault
+\fINAMESPACE\fR[,\fINAMESPACE\fR...] \fICOMMAND\fR [\fIARGS\fR...]
+.br
+.B envvault
+\fB\-\-set\fR \fINAMESPACE\fR \fIKEY\fR [\fIKEY\fR...]
+.br
+.B envvault
+\fB\-\-value\fR \fIVALUE\fR \fB\-\-set\fR \fINAMESPACE\fR \fIKEY\fR
+.br
+.B envvault
+\fB\-\-get\fR \fINAMESPACE\fR \fIKEY\fR
+.br
+.B envvault
+\fB\-\-unset\fR \fINAMESPACE\fR \fIKEY\fR
+.br
+.B envvault
+\fB\-\-list\fR [\fINAMESPACE\fR]
+
+.SH DESCRIPTION
+.B envvault
+stores named environment variables in the OS key store and merges them into the environment of child processes on demand.
+It is wire-compatible with \fBenvchain\fR(1) on macOS and Linux and adds a native Windows backend.
+
+Values are stored per-user in the OS key store:
+.IP \(bu 3
+\fBWindows\fR: Credential Manager (DPAPI-protected).
+.IP \(bu 3
+\fBmacOS\fR: login Keychain via \fBsecurity\fR(1).
+.IP \(bu 3
+\fBLinux\fR: libsecret via \fBsecret-tool\fR(1).
+.PP
+Secrets never leave the OS key store except when:
+.IP \(bu 3
+merged into a child process environment by the exec form, or
+.IP \(bu 3
+explicitly printed by \fB\-\-get\fR.
+
+.SH OPTIONS
+.TP
+.BR \-\-set " " \fINAMESPACE\fR " " \fIKEY\fR " [" \fIKEY\fR "..." "]"
+Store one or more keys in \fINAMESPACE\fR.
+Prompts for each value on the controlling terminal with input hidden.
+If stdin is piped, one line per key is read.
+
+.TP
+.BR \-\-value " " \fIVALUE\fR
+Non-interactive value for \fB\-\-set\fR.
+Only valid with a single key.
+Exposes the value on the process argv and in shell history; prefer the interactive prompt for real secrets.
+
+.TP
+.BR \-\-get " " \fINAMESPACE\fR " " \fIKEY\fR
+Print the stored value to stdout.
+Exits with status 1 if the namespace or key is not found.
+
+.TP
+.BR \-\-unset " " \fINAMESPACE\fR " " \fIKEY\fR
+Remove \fIKEY\fR from \fINAMESPACE\fR.
+Exits with status 1 if the key does not exist.
+
+.TP
+.BR \-\-list " [" \fINAMESPACE\fR "]"
+With no argument, print the list of namespaces.
+With a namespace, print the list of keys in that namespace.
+Values are never printed.
+
+.TP
+.B \-\-json
+Produce JSON output for \fB\-\-list\fR.
+
+.TP
+.B \-\-noecho
+Accepted for envchain compatibility.
+\fB\-\-set\fR already hides interactive input by default.
+
+.TP
+.B \-\-require\-passphrase
+Deferred to v1.1.
+Currently exits with status 1 and a clear message.
+
+.TP
+.BR \-\-color " " \fIWHEN\fR ", " \-\-no\-color
+ANSI colour control: \fBalways\fR, \fBnever\fR, or \fBauto\fR (default: respect \fBNO_COLOR\fR).
+
+.TP
+.B \-\-describe
+Emit structured JSON metadata for AI agents.
+
+.TP
+.B \-\-help
+Show help and exit.
+
+.TP
+.B \-\-version
+Show version and exit.
+
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+Runtime error \(em key or namespace not found on \fB\-\-get\fR / \fB\-\-unset\fR, key store unavailable, deferred feature requested.
+.TP
+.B 2
+Usage error \(em bad flags, missing required arguments, conflicting options.
+.TP
+Exec form: the exit code of \fICOMMAND\fR is passed through verbatim.
+
+.SH ENVIRONMENT
+.TP
+.B NO_COLOR
+When set to any non-empty value, disables ANSI colour output.
+See <https://no-color.org>.
+
+.SH EXAMPLES
+.TP
+Store a GitHub token (interactive, hidden input):
+.B envvault \-\-set github GITHUB_TOKEN
+.TP
+Run a command with a namespace's variables injected:
+.B envvault github gh pr list
+.TP
+Merge multiple namespaces in order (later wins on collisions):
+.B envvault github,aws ./deploy.sh
+.TP
+Script-friendly non-interactive set:
+.B envvault \-\-value "ghp_xxx..." \-\-set github GITHUB_TOKEN
+.TP
+List all namespaces:
+.B envvault \-\-list
+.TP
+List keys in one namespace:
+.B envvault \-\-list github
+.TP
+Alias for envchain muscle memory:
+.B alias envchain=envvault
+
+.SH BUGS
+macOS enumeration uses a self-healing index; entries added via the raw \fBsecurity\fR(1) CLI bypassing \fBenvvault\fR won't appear in \fB\-\-list\fR until a subsequent envvault write re-establishes the index.
+
+.SH SEE ALSO
+.BR envchain (1),
+.BR secret-tool (1),
+.BR security (1),
+.BR keychain (1),
+.BR protect (1)
+
+.SH AUTHOR
+Troy Willmot
