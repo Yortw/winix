@@ -11,23 +11,19 @@ namespace Winix.EnvVault.Tests;
 [Trait("Platform", "macOS")]
 public class IntegrationTests_MacOs
 {
-    [Fact]
+    [SkippableFact]
     public void FullRoundTrip_SetListGetUnsetList()
     {
-        if (!OperatingSystem.IsMacOS())
-        {
-            return;
-        }
+        Skip.IfNot(OperatingSystem.IsMacOS(), "macOS-only integration test");
+        if (!OperatingSystem.IsMacOS()) return;  // redundant, satisfies CA1416 analyzer
         RunFullRoundTrip();
     }
 
-    [Fact]
+    [SkippableFact]
     public void ListKeys_SelfHeals_WhenDeleteUpdatesIndex()
     {
-        if (!OperatingSystem.IsMacOS())
-        {
-            return;
-        }
+        Skip.IfNot(OperatingSystem.IsMacOS(), "macOS-only integration test");
+        if (!OperatingSystem.IsMacOS()) return;  // redundant, satisfies CA1416 analyzer
         RunSelfHeal();
     }
 

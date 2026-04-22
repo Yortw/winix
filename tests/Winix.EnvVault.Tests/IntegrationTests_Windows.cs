@@ -11,13 +11,16 @@ namespace Winix.EnvVault.Tests;
 [Trait("Platform", "Windows")]
 public class IntegrationTests_Windows
 {
-    [Fact]
+    [SkippableFact]
     public void FullRoundTrip_SetListGetUnsetList()
     {
-        if (!OperatingSystem.IsWindows())
-        {
-            return;
-        }
+        // Previously used `if (!OperatingSystem.IsWindows()) return;` which xUnit reported as
+        // Passed on Linux/macOS CI runners — a false positive. SkippableFact + Skip.IfNot
+        // emits a visible 'Skipped' status, making CI dashboards honest.
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only integration test");
+        // Redundant guard satisfies CA1416 — the analyzer doesn't recognise Skip.IfNot as a
+        // platform gate, so without this it flags the SupportedOSPlatform call below.
+        if (!OperatingSystem.IsWindows()) return;
         RunOnWindows();
     }
 

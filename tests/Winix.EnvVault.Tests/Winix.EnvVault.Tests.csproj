@@ -10,6 +10,10 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.*" />
     <PackageReference Include="xunit" Version="2.*" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.*" />
+    <!-- Xunit.SkippableFact replaces silent early-return in platform-gated integration tests
+         with a proper 'Skipped' status in test output. Without it, tests that early-return on
+         the wrong OS show as 'Passed' in CI dashboards — a false positive. -->
+    <PackageReference Include="Xunit.SkippableFact" Version="1.*" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Winix.EnvVault\Winix.EnvVault.csproj" />

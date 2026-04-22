@@ -11,13 +11,11 @@ namespace Winix.EnvVault.Tests;
 [Trait("Platform", "Linux")]
 public class IntegrationTests_Linux
 {
-    [Fact]
+    [SkippableFact]
     public void FullRoundTrip_SetListGetUnsetList()
     {
-        if (!OperatingSystem.IsLinux())
-        {
-            return;
-        }
+        Skip.IfNot(OperatingSystem.IsLinux(), "Linux-only integration test");
+        if (!OperatingSystem.IsLinux()) return;  // redundant, satisfies CA1416 analyzer
         RunOnLinux();
     }
 
