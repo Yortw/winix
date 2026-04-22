@@ -171,6 +171,56 @@ public class ArgParserTests
     }
 
     [Fact]
+    public void SetFlag_NamespaceOnly_Error()
+    {
+        // Regression: --set with only a namespace (no keys) hits the InterpretPositionals
+        // error arm "--set requires a namespace and at least one key". Untested before; easy
+        // typo (`envvault --set github` when the user meant `envvault --set github TOKEN`).
+        ArgParser.Result r = ArgParser.Parse(new[] { "--set", "github" });
+        Assert.NotNull(r.Error);
+        Assert.Contains("requires a namespace and at least one key", r.Error!);
+    }
+
+    [Fact]
+    public void SetFlag_NoPositionals_Error()
+    {
+        // `envvault --set` with nothing else.
+        ArgParser.Result r = ArgParser.Parse(new[] { "--set" });
+        Assert.NotNull(r.Error);
+    }
+
+    [Fact]
+    public void UnsetFlag_NamespaceOnly_Error()
+    {
+        ArgParser.Result r = ArgParser.Parse(new[] { "--unset", "github" });
+        Assert.NotNull(r.Error);
+        Assert.Contains("exactly one namespace and one key", r.Error!);
+    }
+
+    [Fact]
+    public void ExecMode_NamespaceOnly_Error()
+    {
+        // Regression for ArgParser.ParseExecMode's `if (i + 1 >= argv.Count)` branch. `envvault
+        // github` alone (namespace without command) is a common typo — without this test, a
+        // regression that built an empty CommandArgv would crash ExecRunner.Run at
+        // commandArgv[0] with IndexOutOfRangeException.
+        ArgParser.Result r = ArgParser.Parse(new[] { "github" });
+        Assert.NotNull(r.Error);
+        Assert.Contains("requires a namespace and a command", r.Error!);
+    }
+
+    [Fact]
+    public void FlagMode_UnknownFlag_ReportsShellKitError()
+    {
+        // Regression for ParseFlagMode's `if (parsed.HasErrors)` branch (ArgParser.cs:131-134).
+        // ShellKit catches unknown flags and puts the error on parsed.Errors. Without this test,
+        // a regression that dropped the HasErrors branch would silently produce a bogus Options.
+        ArgParser.Result r = ArgParser.Parse(new[] { "--set", "--not-a-flag", "ns", "K" });
+        Assert.NotNull(r.Error);
+        Assert.Equal(Yort.ShellKit.ExitCode.UsageError, r.ExitCode);
+    }
+
+    [Fact]
     public void BareHelp_RoutesThroughShellKit_IsHandled()
     {
         // Regression: --help in isolation must go through ShellKit (StandardFlags), not a hand-rolled
