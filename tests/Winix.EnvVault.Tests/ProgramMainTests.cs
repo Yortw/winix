@@ -1,4 +1,5 @@
 #nullable enable
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
@@ -84,19 +85,59 @@ public class ProgramMainTests
     {
         // The old shim emitted a minimal 4-field JSON. ShellKit's --describe emits a rich schema
         // including options[], exit_codes[], examples[], and platform{}. Parsing and asserting on
-        // that schema catches a shim regression.
+        // content (not just keys) catches a shim regression AND a drop of advertised flags/codes.
         var result = RunEnvvault("--describe");
 
         Assert.Equal(0, result.ExitCode);
         using JsonDocument doc = JsonDocument.Parse(result.Stdout);
         JsonElement root = doc.RootElement;
         Assert.Equal(JsonValueKind.Object, root.ValueKind);
-        Assert.True(root.TryGetProperty("options", out JsonElement options), "ShellKit --describe must include options[]");
+        Assert.Equal("envvault", root.GetProperty("tool").GetString());
+
+        // Options: must list every action flag and --value. A regression that drops a .Flag(...)
+        // registration would fail here and alert the AI-agent contract break.
+        JsonElement options = root.GetProperty("options");
         Assert.Equal(JsonValueKind.Array, options.ValueKind);
-        Assert.True(root.TryGetProperty("exit_codes", out JsonElement exitCodes), "ShellKit --describe must include exit_codes[]");
+        HashSet<string> advertisedLongs = new();
+        foreach (JsonElement opt in options.EnumerateArray())
+        {
+            if (opt.TryGetProperty("long", out JsonElement lo))
+            {
+                advertisedLongs.Add(lo.GetString()!);
+            }
+        }
+        foreach (string required in new[] { "--set", "--list", "--get", "--unset", "--value", "--help", "--version", "--describe" })
+        {
+            Assert.Contains(required, advertisedLongs);
+        }
+
+        // Exit codes: must advertise 0, 125, 126, 127 (the whole POSIX contract). A .ExitCodes
+        // tuple drop would go unnoticed without this check.
+        JsonElement exitCodes = root.GetProperty("exit_codes");
         Assert.Equal(JsonValueKind.Array, exitCodes.ValueKind);
-        Assert.True(root.TryGetProperty("examples", out JsonElement examples), "ShellKit --describe must include examples[]");
-        Assert.True(root.TryGetProperty("platform", out _), "envvault --describe registers a .Platform(...) stanza");
+        HashSet<int> advertisedCodes = new();
+        foreach (JsonElement ec in exitCodes.EnumerateArray())
+        {
+            if (ec.TryGetProperty("code", out JsonElement c))
+            {
+                advertisedCodes.Add(c.GetInt32());
+            }
+        }
+        foreach (int required in new[] { 0, 125, 126, 127 })
+        {
+            Assert.Contains(required, advertisedCodes);
+        }
+
+        // Examples must be non-empty (the parser registers 7) — a drop of .Example(...) lines
+        // would still produce a schema-shaped document; an empty array signals regression.
+        JsonElement examples = root.GetProperty("examples");
+        Assert.Equal(JsonValueKind.Array, examples.ValueKind);
+        Assert.True(examples.GetArrayLength() >= 5, "envvault registers 7+ examples; fewer than 5 signals a .Example(...) regression");
+
+        // Platform stanza exists and claims envchain as the replaced tool.
+        JsonElement platform = root.GetProperty("platform");
+        JsonElement replaces = platform.GetProperty("replaces");
+        Assert.Equal("envchain", replaces[0].GetString());
     }
 
     [Fact]
