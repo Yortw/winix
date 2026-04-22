@@ -64,12 +64,18 @@ envvault --list github
 
 ## Exit Codes
 
+envvault uses POSIX convention codes (125/126/127) per the Winix suite standard, NOT shell 1/2:
+
 | Code | Meaning |
 |---|---|
-| 0 | Success. |
-| 1 | Runtime error — key/namespace not found on `--get`/`--unset`, key store unavailable, deferred feature (`--require-passphrase`) used. |
-| 2 | Usage error — bad flags, missing arguments, conflicting options. |
-| *N* | Exec form: passes through the child process's exit code. |
+| 0 | Success. In exec form, the child process's exit code is passed through on successful spawn. |
+| 125 | Usage error — bad flags, missing arguments, conflicting options, deferred feature (`--require-passphrase`) used, stdin EOF before all `--set` values supplied. |
+| 126 | Runtime error — key store unavailable, permission denied launching child command, stored value not valid UTF-8. |
+| 127 | Not found — namespace or key missing on `--get`/`--unset`; command for exec form not on PATH. |
+| 130 | User interrupted (Ctrl+C during passphrase prompt). |
+| *N* | Exec form: child process exit code when spawn succeeded. |
+
+Scripts branching on these codes should use the numeric literals above; envvault guarantees never to emit an unhandled-exception stack trace, so any non-zero code is a tool-level classification signal.
 
 ## envchain Compatibility
 
@@ -96,19 +102,21 @@ Suggest `alias envchain=envvault` for muscle-memory compatibility. Differences:
 
 ## Machine-Parseable Output
 
-`envvault --list --json` emits:
+`envvault --list --json` emits a bare JSON array (one element per namespace), terminated with a newline:
 
 ```json
-{ "namespaces": ["github", "aws"] }
+["github","aws"]
 ```
 
-or, with a namespace argument:
+With a namespace argument, a bare JSON array of key names:
 
 ```json
-{ "namespace": "github", "keys": ["GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN"] }
+["GITHUB_TOKEN","GH_ENTERPRISE_TOKEN"]
 ```
 
-Values are never included in `--list` JSON.
+Empty namespace or namespace with no keys: `[]`.
+
+Values are never included in `--list` JSON (by design — `--list` is enumeration only; use `--get` for values).
 
 ## Platform-Specific Notes
 
