@@ -82,16 +82,30 @@ public static class ArgParser
             return Fail($"action flags are mutually exclusive: {string.Join(", ", presentActions)}", DetectColorFromEnv());
         }
 
-        return presentActions.Length == 1
-            ? ParseFlagMode(argv, presentActions[0])
-            : ParseExecMode(argv);
+        // Route bare introspection flags through the same ShellKit parser as action-flag mode so
+        // help/version/describe output is a single source of truth (StandardFlags generates them
+        // from the parser metadata). Without this, `envvault --help` falls into exec mode and
+        // errors as "exec form requires a namespace" — which is what the old Program.cs shim was
+        // working around by hand-rolling help/version/describe text. That duplication drifted.
+        bool hasIntrospection = argv.Take(leadingEnd)
+            .Any(a => a == "--help" || a == "-h" || a == "--version" || a == "--describe");
+
+        if (presentActions.Length == 1 || hasIntrospection)
+        {
+            return ParseFlagMode(argv, presentActions.Length == 1 ? presentActions[0] : null);
+        }
+
+        return ParseExecMode(argv);
     }
 
     /// <summary>
     /// Flag-mode: delegates to <see cref="CommandLineParser"/> for full ShellKit parity, then interprets
     /// the positional arguments per-subcommand (Set = ns + keys, Get/Unset = ns + key, List = [] or [ns]).
+    /// When <paramref name="action"/> is null the caller routed an introspection-only form (bare
+    /// <c>--help</c>/<c>--version</c>/<c>--describe</c>); ShellKit will set <c>IsHandled</c> and we
+    /// return before any positional interpretation.
     /// </summary>
-    private static Result ParseFlagMode(IReadOnlyList<string> argv, string action)
+    private static Result ParseFlagMode(IReadOnlyList<string> argv, string? action)
     {
         CommandLineParser parser = BuildFlagModeParser();
         string[] args = argv is string[] arr ? arr : argv.ToArray();
@@ -106,6 +120,14 @@ public static class ArgParser
         if (parsed.HasErrors)
         {
             return new Result(null, parsed.Errors[0], false, ExitCode.UsageError, useColor);
+        }
+
+        // If we were routed here solely because of an introspection flag but ShellKit didn't handle
+        // it (e.g. the user combined --no-color with no action and no introspection), fall through
+        // to a usage error rather than silently interpreting whatever positionals exist.
+        if (action is null)
+        {
+            return new Result(null, "no action specified: use one of --set/--list/--get/--unset, or the exec form (envvault <NAMESPACE> <command>)", false, ExitCode.UsageError, useColor);
         }
 
         SubCommand sub = action switch
@@ -243,9 +265,10 @@ public static class ArgParser
                 valueOnWindows: "Native Credential Manager backend — envchain has no Windows build; envvault fills the gap with the same CLI surface.",
                 valueOnUnix: "Drop-in replacement for envchain: Keychain on macOS, libsecret on Linux, identical bare-positional invocation.")
             .ExitCodes(
-                (0, "Success"),
-                (ExitCode.UsageError, "Usage error: bad flags, missing positionals, mutually-exclusive action flags"),
-                (ExitCode.NotExecutable, "Runtime error: key store unavailable, namespace or key not found, command failed to launch"))
+                (0, "Success; in exec form, the child process's exit code is passed through"),
+                (ExitCode.UsageError, "Usage error: bad flags, missing positionals, mutually-exclusive action flags, or deferred feature used (--require-passphrase)"),
+                (ExitCode.NotExecutable, "Runtime error: key store unavailable, permission denied launching child command"),
+                (ExitCode.NotFound, "Not found: namespace or key missing on --get/--unset; command for exec form not on PATH"))
             .Positional("NAMESPACE")
             .Flag("--set", "Store one or more KEYs in NAMESPACE. Values come from an interactive prompt (or --value for non-interactive).")
             .Flag("--list", "With no NAMESPACE, list all namespaces. With a NAMESPACE, list its keys.")
@@ -255,7 +278,7 @@ public static class ArgParser
             .Flag("--noecho", "Accepted for envchain compatibility (we never echo by default).")
             .Flag("--require-passphrase", "Defer decryption to a passphrase prompt. Accepted as a flag but not yet implemented — returns an error until v1.1.")
             .Flag("--no-require-passphrase", "Explicitly disable passphrase mode (default).")
-            .Flag("--json", "Output lists as JSON instead of newline-delimited text.")
+            // --json is part of StandardFlags(); reusing it here for --list's JSON output shape.
             .Example("envvault github gh pr list", "Run gh with GitHub env-vars injected (envchain-compat form)")
             .Example("envvault --set aws AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY", "Prompt for and store two AWS keys in the 'aws' namespace")
             .Example("envvault --list", "List all namespaces")

@@ -169,4 +169,53 @@ public class ArgParserTests
         ArgParser.Result r = ArgParser.Parse(new[] { "--get", "github" });
         Assert.NotNull(r.Error);
     }
+
+    [Fact]
+    public void BareHelp_RoutesThroughShellKit_IsHandled()
+    {
+        // Regression: --help in isolation must go through ShellKit (StandardFlags), not a hand-rolled
+        // shim. Before 2026-04-22 Program.cs short-circuited --help/--version/--describe with its own
+        // hardcoded text; that drifted from the parser's advertised flags and exit codes. The fix
+        // routes introspection flags into flag mode so ShellKit is the single source of truth.
+        ArgParser.Result r = ArgParser.Parse(new[] { "--help" });
+        Assert.True(r.IsHandled);
+        Assert.Equal(0, r.ExitCode);
+    }
+
+    [Fact]
+    public void BareVersion_RoutesThroughShellKit_IsHandled()
+    {
+        ArgParser.Result r = ArgParser.Parse(new[] { "--version" });
+        Assert.True(r.IsHandled);
+        Assert.Equal(0, r.ExitCode);
+    }
+
+    [Fact]
+    public void BareDescribe_RoutesThroughShellKit_IsHandled()
+    {
+        ArgParser.Result r = ArgParser.Parse(new[] { "--describe" });
+        Assert.True(r.IsHandled);
+        Assert.Equal(0, r.ExitCode);
+    }
+
+    [Fact]
+    public void BareDashH_RoutesThroughShellKit_IsHandled()
+    {
+        ArgParser.Result r = ArgParser.Parse(new[] { "-h" });
+        Assert.True(r.IsHandled);
+        Assert.Equal(0, r.ExitCode);
+    }
+
+    [Fact]
+    public void HelpAfterNamespace_BelongsToChildCommand_ExecMode()
+    {
+        // `envvault github gh --help` — --help is after the first positional so it belongs to the
+        // downstream command (gh), not envvault. Must still dispatch to exec mode.
+        ArgParser.Result r = ArgParser.Parse(new[] { "github", "gh", "--help" });
+        Assert.False(r.IsHandled);
+        Assert.Null(r.Error);
+        Assert.NotNull(r.Options);
+        Assert.Equal(SubCommand.Exec, r.Options!.SubCommand);
+        Assert.Equal(new[] { "gh", "--help" }, r.Options.CommandArgv);
+    }
 }
