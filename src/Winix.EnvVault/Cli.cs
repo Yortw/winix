@@ -66,6 +66,12 @@ public static class Cli
             stderr.WriteLine($"envvault: {ex.Message}");
             return ExitCode.UsageError;
         }
+        catch (OperationCanceledException)
+        {
+            // User hit Ctrl+C during an interactive prompt. RunSet already reported partial-success.
+            // Use POSIX 128+SIGINT = 130 — the shell-standard exit code that scripts branch on.
+            return 130;
+        }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
             stderr.WriteLine($"envvault: {ex.Message}");

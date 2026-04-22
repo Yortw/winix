@@ -18,6 +18,15 @@ internal sealed class DefaultConsolePrompt : IConsolePrompt
         while (true)
         {
             ConsoleKeyInfo key = Console.ReadKey(intercept: true);
+            // On Linux the tty is in raw mode during ReadKey, so Ctrl+C is delivered as a keystroke
+            // rather than a SIGINT and CancelKeyPress never fires. Without this branch the passphrase
+            // prompt eats Ctrl+C silently (KeyChar '' is char.IsControl, dropped by the final
+            // append). Throw and let Cli.Run map it to the 130 (128+SIGINT) exit code.
+            if (key.Modifiers.HasFlag(ConsoleModifiers.Control) && key.Key == ConsoleKey.C)
+            {
+                Console.Error.WriteLine();
+                throw new OperationCanceledException("interrupted by user (Ctrl+C)");
+            }
             if (key.Key == ConsoleKey.Enter)
             {
                 Console.Error.WriteLine();

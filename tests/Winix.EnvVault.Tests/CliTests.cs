@@ -300,6 +300,58 @@ public class CliTests
     }
 
     [Fact]
+    public void Set_UserCtrlC_Returns130NoStackTrace()
+    {
+        // DefaultConsolePrompt throws OperationCanceledException when the user hits Ctrl+C during
+        // the passphrase prompt (Linux tty raw mode swallows SIGINT). Cli.Run must exit 130
+        // (128 + SIGINT=2) so shell scripts can branch on interrupt.
+        NullSecretStore store = new();
+        FakeConsolePrompt prompt = new(isInteractive: true)
+        {
+            ThrowOnNextEchoOff = new System.OperationCanceledException("user cancelled")
+        };
+        FakeProcessLauncher launcher = new();
+
+        var (code, _, stderr) = Run(new[] { "--set", "x", "K" }, store, launcher, prompt);
+
+        Assert.Equal(130, code);
+        AssertNoStackTrace(stderr);
+    }
+
+    [Fact]
+    public void SetMultiKey_UserCtrlCAfterFirst_Returns130WithPartialSuccess()
+    {
+        NullSecretStore store = new();
+        FakeProcessLauncher launcher = new();
+        CtrlCAfterFirstPrompt prompt = new("first-value");
+
+        var (code, _, stderr) = Run(new[] { "--set", "aws", "K1", "K2" }, store, launcher, prompt);
+
+        Assert.Equal(130, code);
+        Assert.Contains("partial success", stderr, System.StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("K1", stderr);
+        Assert.Equal("first-value", System.Text.Encoding.UTF8.GetString(store.Get("envvault/aws", "K1")!));
+        Assert.Null(store.Get("envvault/aws", "K2"));
+        AssertNoStackTrace(stderr);
+    }
+
+    /// <summary>Prompt fake that serves one good value then throws OperationCanceledException on the next read.</summary>
+    private sealed class CtrlCAfterFirstPrompt : IConsolePrompt
+    {
+        private readonly string _firstValue;
+        private bool _firstServed;
+        public CtrlCAfterFirstPrompt(string firstValue) { _firstValue = firstValue; }
+        public bool IsInteractive => true;
+        public void WritePrompt(string text) { }
+        public string ReadLineEchoOff()
+        {
+            if (!_firstServed) { _firstServed = true; return _firstValue; }
+            throw new System.OperationCanceledException("user cancelled");
+        }
+        public string? ReadLineFromStdin() => null;
+    }
+
+    [Fact]
     public void RequirePassphrase_FailsWithDeferredError()
     {
         NullSecretStore store = new();
