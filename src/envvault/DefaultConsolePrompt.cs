@@ -1,6 +1,5 @@
 #nullable enable
 using System;
-using System.Text;
 using Winix.EnvVault;
 
 namespace EnvVault;
@@ -14,32 +13,24 @@ internal sealed class DefaultConsolePrompt : IConsolePrompt
 
     public string ReadLineEchoOff()
     {
-        StringBuilder sb = new();
+        // State machine lives in Winix.EnvVault.KeyAccumulator so it can be unit-tested without
+        // a real tty. This method owns only the actual Console.ReadKey loop and the Console.Error
+        // newline writes on Submit/Cancel — two things that cannot be usefully unit-tested.
+        KeyAccumulator acc = new();
         while (true)
         {
-            ConsoleKeyInfo key = Console.ReadKey(intercept: true);
-            // On Linux the tty is in raw mode during ReadKey, so Ctrl+C is delivered as a keystroke
-            // rather than a SIGINT and CancelKeyPress never fires. Without this branch the passphrase
-            // prompt eats Ctrl+C silently (KeyChar '' is char.IsControl, dropped by the final
-            // append). Throw and let Cli.Run map it to the 130 (128+SIGINT) exit code.
-            if (key.Modifiers.HasFlag(ConsoleModifiers.Control) && key.Key == ConsoleKey.C)
+            KeyOutcome outcome = acc.Apply(Console.ReadKey(intercept: true));
+            switch (outcome)
             {
-                Console.Error.WriteLine();
-                throw new OperationCanceledException("interrupted by user (Ctrl+C)");
-            }
-            if (key.Key == ConsoleKey.Enter)
-            {
-                Console.Error.WriteLine();
-                return sb.ToString();
-            }
-            if (key.Key == ConsoleKey.Backspace && sb.Length > 0)
-            {
-                sb.Length--;
-                continue;
-            }
-            if (!char.IsControl(key.KeyChar))
-            {
-                sb.Append(key.KeyChar);
+                case KeyOutcome.Submit:
+                    Console.Error.WriteLine();
+                    return acc.Current;
+                case KeyOutcome.Cancel:
+                    Console.Error.WriteLine();
+                    throw new OperationCanceledException("interrupted by user (Ctrl+C)");
+                case KeyOutcome.Edit:
+                case KeyOutcome.Ignore:
+                    continue;
             }
         }
     }
