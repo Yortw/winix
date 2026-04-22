@@ -4,6 +4,7 @@
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <IsAotCompatible>true</IsAotCompatible>
+    <IsTrimmable>true</IsTrimmable>
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
     <IsPackable>false</IsPackable>
     <PackageId>Winix.EnvVault.Library</PackageId>
