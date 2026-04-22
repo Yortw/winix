@@ -8,9 +8,11 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![GitHub release](https://img.shields.io/github/v/release/Yortw/winix?include_prereleases)](https://github.com/Yortw/winix/releases)
 
-**Cross-platform CLI tools for the gaps between Windows and \*nix.**
+**Small, native, cross-platform CLI tools — the same behaviour everywhere.**
 
-Winix is a suite of small, focused command-line tools compiled to native binaries via .NET AOT. Each tool fills a gap where a standard Unix utility either doesn't exist on Windows, has no good cross-platform implementation, or where a modern take can genuinely improve on the original. Tools are designed to be composable — piping, exit codes, and structured output work the way Unix users expect — while also being readable by humans in the terminal with colour, tables, and clear error messages. Windows has powerful scripting, but many of its built-in tools produce output that's difficult to pipe, parse, or read at a glance. Every Winix tool ships as a single native binary with no runtime dependency.
+Winix is a suite of focused command-line tools compiled to native binaries via .NET AOT. One `.exe` per tool: no runtime to install, no POSIX emulation layer, no shell dependency. Each tool works identically in `cmd.exe`, PowerShell, bash, zsh, CI agents, File Explorer "Open with", and scheduled tasks, on Windows, Linux, and macOS — same flags, same output, same exit codes. Scripts and muscle memory transfer across platforms without adaptation.
+
+On Windows, many of these tools simply don't exist natively — there's no built-in `find`, `xargs`, `watch`, `man`, `less`, or `netcat`. On Unix, Winix papers over BSD-vs-GNU flag differences, adds structured output to tools that were never designed to be parsed, and provides the same interface that's available on Windows. Output is colourful and readable for humans in the terminal by default; every tool also has a `--json` mode for scripts and agents.
 
 ## Tools
 
@@ -47,6 +49,20 @@ The biggest value is on **Windows**, where many of these tools simply don't exis
 | **schedule** | `schtasks.exe` exists but is notoriously hard to script. No cron syntax. | Unified interface over `crontab` with the same flags and output format as Windows. |
 | **nc** | No `netcat`. `Test-NetConnection` is verbose and limited. | Consistent behaviour across BSD/GNU/ncat forks. Adds TLS client support and port-range checking. |
 | **winix** | Suite installer via Scoop or winget. | Suite installer via brew or dotnet tool. |
+
+## Prior art — Cygwin, WSL, Git Bash
+
+Unix tools have been available on Windows for decades via [Cygwin](https://www.cygwin.com/), [MSYS2](https://www.msys2.org/) / [Git Bash](https://git-scm.com/), and [WSL](https://learn.microsoft.com/windows/wsl/). These are excellent at what they do — they bring a full POSIX environment (bash, coreutils, rsync, ssh, a few thousand packages) to Windows so real Linux binaries can run there.
+
+Winix takes a different approach and is complementary rather than competing:
+
+- **No emulation layer.** Tools are native `.exe` files, not POSIX binaries calling `cygwin1.dll`. Paths are native (`C:\foo`, not `/cygdrive/c/foo`). No fork-emulation overhead, no path translation surprises.
+- **Redistributable on their own.** Copy a single `.exe` to a machine and it works. No Cygwin base install, no `cygwin1.dll` alongside it, no `$PATH` gymnastics.
+- **First-class outside bash.** Works from `cmd.exe`, PowerShell, File Explorer "Open with", Windows Task Scheduler actions, IIS hooks, SSIS packages — not just inside a `mintty` + bash session.
+- **Package-manager installable per tool.** `scoop install winix/timeit`, `winget install Winix.TimeIt`, `dotnet tool install -g Winix.TimeIt` — seconds on a CI runner, no base environment required.
+- **Cross-platform source, not a Windows port.** Linux and macOS builds aren't afterthoughts — the same source compiles to native binaries on every platform, with identical behaviour and flags everywhere.
+
+If you want the entire GNU/Unix userland on Windows and you're happy working inside a bash shell, Cygwin or WSL is the right tool — and Winix runs fine alongside either of them. If you want a smaller, focused set of modern CLI utilities that integrate with whatever environment you're already in, that's what Winix is for.
 
 ## Install
 
@@ -136,7 +152,12 @@ files --describe
 
 ## For AI agents
 
-Every tool supports `--describe` for structured JSON metadata (flags, types, examples, composability, exit codes) and `--json` for machine-parseable output. See [llms.txt](llms.txt) for a summary and links to per-tool AI agent guides in [`docs/ai/`](docs/ai/).
+Winix tools are designed to be invoked by scripts and agents, not just humans:
+
+- **`--describe`** on every tool returns structured JSON metadata — flags, types, defaults, examples, composability hints, exit codes, and the `--json` output schema.
+- **`--json`** on every tool produces machine-parseable output with standard, documented fields.
+- **Consistent exit codes** across the suite (0 = success, 125 = usage error).
+- **[llms.txt](llms.txt)** at the repo root plus per-tool agent guides in [`docs/ai/`](docs/ai/) give agents a single entry point to discover and use the suite.
 
 ## Building from source
 
