@@ -15,11 +15,12 @@ public class CliTests
         string[] args,
         ISecretStore store,
         IProcessLauncher launcher,
-        IConsolePrompt prompt)
+        IConsolePrompt prompt,
+        bool stdoutIsTty = false)
     {
         StringWriter stdout = new();
         StringWriter stderr = new();
-        int code = Cli.Run(args, store, launcher, prompt, stdout, stderr);
+        int code = Cli.Run(args, store, launcher, prompt, stdout, stderr, stdoutIsTty);
         return (code, stdout.ToString(), stderr.ToString());
     }
 
@@ -118,6 +119,38 @@ public class CliTests
         Assert.Equal(0, code);
         Assert.Contains("TOKEN", stdout);
         Assert.Contains("USER", stdout);
+    }
+
+    [Fact]
+    public void Get_StdoutIsTty_EmitsScrollbackWarningToStderr()
+    {
+        NullSecretStore store = new();
+        store.Set("envvault/github", "TOKEN", Encoding.UTF8.GetBytes("hunter2"));
+        FakeConsolePrompt prompt = new(isInteractive: true);
+        FakeProcessLauncher launcher = new();
+
+        var (code, stdout, stderr) = Run(
+            new[] { "--get", "github", "TOKEN" }, store, launcher, prompt, stdoutIsTty: true);
+
+        Assert.Equal(0, code);
+        Assert.Equal("hunter2", stdout.TrimEnd('\n'));
+        Assert.Contains("scrollback", stderr, System.StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Get_StdoutNotTty_NoScrollbackWarning()
+    {
+        NullSecretStore store = new();
+        store.Set("envvault/github", "TOKEN", Encoding.UTF8.GetBytes("hunter2"));
+        FakeConsolePrompt prompt = new(isInteractive: true);
+        FakeProcessLauncher launcher = new();
+
+        var (code, stdout, stderr) = Run(
+            new[] { "--get", "github", "TOKEN" }, store, launcher, prompt, stdoutIsTty: false);
+
+        Assert.Equal(0, code);
+        Assert.Equal("hunter2", stdout.TrimEnd('\n'));
+        Assert.DoesNotContain("scrollback", stderr, System.StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

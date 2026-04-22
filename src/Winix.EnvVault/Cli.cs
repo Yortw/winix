@@ -17,13 +17,15 @@ public static class Cli
     /// then dispatches to the set/unset/get/list/exec handler. All I/O goes through the supplied
     /// abstractions so the CLI is fully testable with fakes.
     /// </summary>
+    /// <param name="stdoutIsTty">True if stdout is a terminal (so <c>--get</c> should emit a scrollback warning before printing the value). Program.cs supplies this via <c>!Console.IsOutputRedirected</c>; tests default to false.</param>
     public static int Run(
         string[] args,
         ISecretStore store,
         IProcessLauncher launcher,
         IConsolePrompt prompt,
         TextWriter stdout,
-        TextWriter stderr)
+        TextWriter stderr,
+        bool stdoutIsTty = false)
     {
         ArgParser.Result parsed = ArgParser.Parse(args);
         if (parsed.IsHandled)
@@ -54,7 +56,7 @@ public static class Cli
             {
                 SubCommand.Set => RunSet(o, store, prompt, stderr),
                 SubCommand.Unset => RunUnset(o, store, stderr),
-                SubCommand.Get => RunGet(o, store, stdout, stderr),
+                SubCommand.Get => RunGet(o, store, stdout, stderr, stdoutIsTty),
                 SubCommand.List => RunList(o, store, stdout),
                 SubCommand.Exec => RunExec(o, store, launcher, stderr),
                 _ => ExitCode.NotExecutable,
@@ -129,7 +131,7 @@ public static class Cli
         return 0;
     }
 
-    private static int RunGet(EnvVaultOptions o, ISecretStore store, TextWriter stdout, TextWriter stderr)
+    private static int RunGet(EnvVaultOptions o, ISecretStore store, TextWriter stdout, TextWriter stderr, bool stdoutIsTty)
     {
         string fullNs = $"envvault/{o.Namespaces[0]}";
         byte[]? value = store.Get(fullNs, o.Keys[0]);
@@ -137,6 +139,10 @@ public static class Cli
         {
             stderr.WriteLine($"envvault: {o.Namespaces[0]}.{o.Keys[0]}: not found");
             return ExitCode.NotFound;
+        }
+        if (stdoutIsTty)
+        {
+            stderr.WriteLine(Formatting.GetToTtyWarning());
         }
         stdout.Write(Encoding.UTF8.GetString(value));
         stdout.Write('\n');

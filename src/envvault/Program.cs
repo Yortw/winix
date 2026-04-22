@@ -28,6 +28,7 @@ internal sealed class Program
         IProcessLauncher launcher = new DefaultProcessLauncher();
         IConsolePrompt prompt = new DefaultConsolePrompt();
 
-        return Cli.Run(args, store, launcher, prompt, Console.Out, Console.Error);
+        return Cli.Run(args, store, launcher, prompt, Console.Out, Console.Error,
+            stdoutIsTty: !Console.IsOutputRedirected);
     }
 }
