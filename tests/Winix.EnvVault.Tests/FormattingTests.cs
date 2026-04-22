@@ -67,6 +67,23 @@ public class FormattingTests
     }
 
     [Fact]
+    public void FormatKeyList_JsonWithControlCharacters_ProducesValidJson()
+    {
+        // Regression: the previous hand-rolled escaper only handled " and \, leaving raw
+        // control chars (\n, \t, \r, \0) between the quotes. That output was invalid JSON and
+        // would crash any conforming parser (jq, JsonDocument). Now uses Yort.ShellKit.JsonHelper
+        // which wraps Utf8JsonWriter's correct escaping. Parse-round-trip confirms validity.
+        string s = Formatting.FormatKeyList(new[] { "line\none", "tab\there", "null\0byte" }, json: true);
+        // Must be parseable as JSON (previous implementation would throw JsonException here).
+        System.Text.Json.JsonDocument doc = System.Text.Json.JsonDocument.Parse(s.TrimEnd('\n'));
+        Assert.Equal(System.Text.Json.JsonValueKind.Array, doc.RootElement.ValueKind);
+        Assert.Equal(3, doc.RootElement.GetArrayLength());
+        Assert.Equal("line\none", doc.RootElement[0].GetString());
+        Assert.Equal("tab\there", doc.RootElement[1].GetString());
+        Assert.Equal("null\0byte", doc.RootElement[2].GetString());
+    }
+
+    [Fact]
     public void GetToTtyWarning_MentionsScrollbackAndExecAlternative()
     {
         // Regression: ensure the warning text still advises the exec-form alternative. Future

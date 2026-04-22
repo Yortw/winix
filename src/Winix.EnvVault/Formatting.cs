@@ -1,6 +1,7 @@
 #nullable enable
 using System.Collections.Generic;
 using System.Text;
+using Yort.ShellKit;
 
 namespace Winix.EnvVault;
 
@@ -53,19 +54,23 @@ public static class Formatting
         + "The v1 macOS implementation uses the 'security' CLI wrapper, which cannot set item ACLs. "
         + "Track https://github.com/Yortw/winix for the v1.1 release, or omit the flag to use default Keychain access.";
 
+    // Uses the shared ShellKit helper so control characters (\n, \t, \0, etc.) in a namespace or
+    // key name are correctly JSON-escaped. The previous hand-rolled version only escaped \ and "
+    // and would emit invalid JSON for any input containing a control char. Also keeps the whole
+    // suite on one JSON writer (see feedback_new_tool_use_commandlineparser for the "use the
+    // user's infrastructure" rationale).
     private static string JsonArray(IReadOnlyList<string> items)
     {
-        StringBuilder sb = new();
-        sb.Append('[');
-        for (int i = 0; i < items.Count; i++)
+        var (writer, buffer) = JsonHelper.CreateWriter();
+        using (writer)
         {
-            if (i > 0)
+            writer.WriteStartArray();
+            foreach (string item in items)
             {
-                sb.Append(',');
+                writer.WriteStringValue(item);
             }
-            sb.Append('"').Append(items[i].Replace("\\", "\\\\").Replace("\"", "\\\"")).Append('"');
+            writer.WriteEndArray();
         }
-        sb.Append(']');
-        return sb.ToString();
+        return JsonHelper.GetString(buffer);
     }
 }
