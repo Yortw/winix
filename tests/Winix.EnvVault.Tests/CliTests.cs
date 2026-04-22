@@ -1,4 +1,5 @@
 #nullable enable
+using System.ComponentModel;
 using System.IO;
 using System.Text;
 using Winix.EnvVault;
@@ -12,7 +13,7 @@ public class CliTests
 {
     private static (int code, string stdout, string stderr) Run(
         string[] args,
-        NullSecretStore store,
+        ISecretStore store,
         IProcessLauncher launcher,
         IConsolePrompt prompt)
     {
@@ -20,6 +21,14 @@ public class CliTests
         StringWriter stderr = new();
         int code = Cli.Run(args, store, launcher, prompt, stdout, stderr);
         return (code, stdout.ToString(), stderr.ToString());
+    }
+
+    private static void AssertNoStackTrace(string stderr)
+    {
+        // Unhandled-exception dumps include "at " + a method signature and "Exception".
+        // If an exception ever escapes Cli.Run uncaught, this assertion catches it.
+        Assert.DoesNotContain("Exception:", stderr);
+        Assert.DoesNotContain("   at ", stderr);
     }
 
     [Fact]
@@ -152,6 +161,142 @@ public class CliTests
         Assert.Equal(7, code);
         Assert.Equal("gh", launcher.LastFileName);
         Assert.Equal("t", launcher.LastEnv!["TOKEN"]);
+    }
+
+    // --- Seam-failure tests: force real-world error paths and confirm no stack trace escapes. ---
+
+    [Fact]
+    public void Set_BackendThrows_ReturnsRuntimeErrorNoStackTrace()
+    {
+        ThrowingSecretStore store = new("keyring locked");
+        FakeConsolePrompt prompt = new(isInteractive: true, ttyValues: new[] { "v" });
+        FakeProcessLauncher launcher = new();
+
+        var (code, stdout, stderr) = Run(new[] { "--set", "x", "K" }, store, launcher, prompt);
+
+        Assert.Equal(Yort.ShellKit.ExitCode.NotExecutable, code);
+        Assert.Contains("keyring locked", stderr);
+        Assert.Empty(stdout);
+        AssertNoStackTrace(stderr);
+    }
+
+    [Fact]
+    public void SetMultiKey_FailsMidLoop_ReportsPartialSuccess()
+    {
+        // First key succeeds, second throws — user must be told which keys landed.
+        PartialFailStore store = new(failOnCall: 2);
+        FakeConsolePrompt prompt = new(isInteractive: true, ttyValues: new[] { "a", "b" });
+        FakeProcessLauncher launcher = new();
+
+        var (code, _, stderr) = Run(new[] { "--set", "aws", "K1", "K2" }, store, launcher, prompt);
+
+        Assert.Equal(Yort.ShellKit.ExitCode.NotExecutable, code);
+        Assert.Contains("partial success", stderr, System.StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("K1", stderr);
+        AssertNoStackTrace(stderr);
+    }
+
+    [Fact]
+    public void Get_BackendThrows_ReturnsRuntimeErrorNoStackTrace()
+    {
+        ThrowingSecretStore store = new("DBus not available");
+        FakeConsolePrompt prompt = new(isInteractive: true);
+        FakeProcessLauncher launcher = new();
+
+        var (code, stdout, stderr) = Run(new[] { "--get", "x", "K" }, store, launcher, prompt);
+
+        Assert.Equal(Yort.ShellKit.ExitCode.NotExecutable, code);
+        Assert.Contains("DBus", stderr);
+        Assert.Empty(stdout);
+        AssertNoStackTrace(stderr);
+    }
+
+    [Fact]
+    public void Unset_BackendThrows_ReturnsRuntimeErrorNoStackTrace()
+    {
+        ThrowingSecretStore store = new();
+        FakeConsolePrompt prompt = new(isInteractive: true);
+        FakeProcessLauncher launcher = new();
+
+        var (code, _, stderr) = Run(new[] { "--unset", "x", "K" }, store, launcher, prompt);
+
+        Assert.Equal(Yort.ShellKit.ExitCode.NotExecutable, code);
+        AssertNoStackTrace(stderr);
+    }
+
+    [Fact]
+    public void List_BackendThrows_ReturnsRuntimeErrorNoStackTrace()
+    {
+        ThrowingSecretStore store = new();
+        FakeConsolePrompt prompt = new(isInteractive: true);
+        FakeProcessLauncher launcher = new();
+
+        var (code, _, stderr) = Run(new[] { "--list" }, store, launcher, prompt);
+
+        Assert.Equal(Yort.ShellKit.ExitCode.NotExecutable, code);
+        AssertNoStackTrace(stderr);
+    }
+
+    [Fact]
+    public void Exec_CommandNotFound_ReturnsNotFoundExitCode()
+    {
+        NullSecretStore store = new();
+        FakeConsolePrompt prompt = new(isInteractive: true);
+        // Win32Exception with NativeErrorCode 2 mimics ENOENT / ERROR_FILE_NOT_FOUND.
+        FakeProcessLauncher launcher = new() { ThrowOnLaunch = new Win32Exception(2, "The system cannot find the file specified.") };
+
+        var (code, _, stderr) = Run(new[] { "github", "no-such-binary" }, store, launcher, prompt);
+
+        Assert.Equal(Yort.ShellKit.ExitCode.NotFound, code);
+        Assert.Contains("no-such-binary", stderr);
+        AssertNoStackTrace(stderr);
+    }
+
+    [Fact]
+    public void Exec_PermissionDenied_ReturnsNotExecutableExitCode()
+    {
+        NullSecretStore store = new();
+        FakeConsolePrompt prompt = new(isInteractive: true);
+        // NativeErrorCode 5 = ERROR_ACCESS_DENIED (Windows) / code 13 on Unix = EACCES.
+        FakeProcessLauncher launcher = new() { ThrowOnLaunch = new Win32Exception(5, "Access is denied.") };
+
+        var (code, _, stderr) = Run(new[] { "x", "blocked-binary" }, store, launcher, prompt);
+
+        Assert.Equal(Yort.ShellKit.ExitCode.NotExecutable, code);
+        AssertNoStackTrace(stderr);
+    }
+
+    [Fact]
+    public void Set_PipedStdinEndsEarly_ReturnsUsageErrorNoStackTrace()
+    {
+        NullSecretStore store = new();
+        // Piped (not interactive); one value supplied for two keys → EndOfStreamException.
+        FakeConsolePrompt prompt = new(isInteractive: false, stdinValues: new string?[] { "only-one" });
+        FakeProcessLauncher launcher = new();
+
+        var (code, _, stderr) = Run(new[] { "--set", "aws", "K1", "K2" }, store, launcher, prompt);
+
+        Assert.Equal(Yort.ShellKit.ExitCode.UsageError, code);
+        Assert.Contains("K2", stderr);
+        Assert.Contains("partial success", stderr, System.StringComparison.OrdinalIgnoreCase);
+        AssertNoStackTrace(stderr);
+    }
+
+    [Fact]
+    public void SetWithValue_MultipleKeys_ReturnsUsageErrorAndDoesNotWrite()
+    {
+        NullSecretStore store = new();
+        FakeConsolePrompt prompt = new(isInteractive: true);
+        FakeProcessLauncher launcher = new();
+
+        var (code, _, stderr) = Run(
+            new[] { "--value", "v", "--set", "x", "K1", "K2" },
+            store, launcher, prompt);
+
+        Assert.Equal(Yort.ShellKit.ExitCode.UsageError, code);
+        Assert.Contains("exactly one key", stderr);
+        Assert.Null(store.Get("envvault/x", "K1"));
+        Assert.Null(store.Get("envvault/x", "K2"));
     }
 
     [Fact]

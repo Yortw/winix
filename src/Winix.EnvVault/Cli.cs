@@ -1,4 +1,7 @@
 #nullable enable
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Text;
 using Winix.SecretStore;
@@ -42,15 +45,32 @@ public static class Cli
             return ExitCode.UsageError;
         }
 
-        return o.SubCommand switch
+        // Catch-all so backend failures (locked Keychain, libsecret daemon down, DPAPI corrupt blob,
+        // UTF-8 decode, child-process spawn) surface as a one-line 'envvault: ...' message plus a
+        // POSIX-shaped exit code — never as an unhandled-exception stack trace.
+        try
         {
-            SubCommand.Set => RunSet(o, store, prompt, stderr),
-            SubCommand.Unset => RunUnset(o, store, stderr),
-            SubCommand.Get => RunGet(o, store, stdout, stderr),
-            SubCommand.List => RunList(o, store, stdout),
-            SubCommand.Exec => RunExec(o, store, launcher),
-            _ => ExitCode.NotExecutable,
-        };
+            return o.SubCommand switch
+            {
+                SubCommand.Set => RunSet(o, store, prompt, stderr),
+                SubCommand.Unset => RunUnset(o, store, stderr),
+                SubCommand.Get => RunGet(o, store, stdout, stderr),
+                SubCommand.List => RunList(o, store, stdout),
+                SubCommand.Exec => RunExec(o, store, launcher, stderr),
+                _ => ExitCode.NotExecutable,
+            };
+        }
+        catch (EndOfStreamException ex)
+        {
+            // Piped-stdin underrun from ValuePrompt; RunSet already reported partial-success details.
+            stderr.WriteLine($"envvault: {ex.Message}");
+            return ExitCode.UsageError;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            stderr.WriteLine($"envvault: {ex.Message}");
+            return ExitCode.NotExecutable;
+        }
     }
 
     private static int RunSet(EnvVaultOptions o, ISecretStore store, IConsolePrompt prompt, TextWriter stderr)
@@ -69,9 +89,24 @@ public static class Cli
         }
 
         ValuePrompt valuePrompt = new(prompt);
-        foreach (var (key, value) in valuePrompt.PromptForKeys(o.Namespaces[0], o.Keys))
+        List<string> stored = new();
+        try
         {
-            store.Set(fullNs, key, Encoding.UTF8.GetBytes(value));
+            foreach (var (key, value) in valuePrompt.PromptForKeys(o.Namespaces[0], o.Keys))
+            {
+                store.Set(fullNs, key, Encoding.UTF8.GetBytes(value));
+                stored.Add(key);
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            // Multi-key --set has no rollback; tell the user exactly which keys landed and which didn't.
+            // Without this, a mid-loop failure silently leaves the namespace half-populated.
+            if (stored.Count > 0)
+            {
+                stderr.WriteLine($"envvault: partial success: stored [{string.Join(", ", stored)}]; remaining keys were not written");
+            }
+            throw;
         }
         return 0;
     }
@@ -97,8 +132,6 @@ public static class Cli
             stderr.WriteLine($"envvault: {o.Namespaces[0]}.{o.Keys[0]}: not found");
             return ExitCode.NotFound;
         }
-        // Tty-scrollback warning is emitted at the Program.cs layer where ConsoleEnv can detect the
-        // stdout tty. Here we just write the value with a trailing newline so plain shell use is ergonomic.
         stdout.Write(Encoding.UTF8.GetString(value));
         stdout.Write('\n');
         return 0;
@@ -120,9 +153,39 @@ public static class Cli
         return 0;
     }
 
-    private static int RunExec(EnvVaultOptions o, ISecretStore store, IProcessLauncher launcher)
+    private static int RunExec(EnvVaultOptions o, ISecretStore store, IProcessLauncher launcher, TextWriter stderr)
     {
         ExecRunner runner = new(store, launcher);
-        return runner.Run(o.Namespaces, o.CommandArgv);
+        try
+        {
+            return runner.Run(o.Namespaces, o.CommandArgv);
+        }
+        catch (Win32Exception ex)
+        {
+            // Map native errno/Win32 codes to POSIX-conventional exit codes so shell scripts can
+            // branch (e.g. `envvault aws aws-cli ... || fallback`). Code 2 means "not found" on
+            // both Windows (ERROR_FILE_NOT_FOUND) and Unix (ENOENT); 3 is Windows-only
+            // ERROR_PATH_NOT_FOUND. 5 (ERROR_ACCESS_DENIED) and 13 (EACCES) mean the file exists
+            // but can't be executed.
+            int code = ex.NativeErrorCode switch
+            {
+                2 or 3 => ExitCode.NotFound,
+                5 or 13 => ExitCode.NotExecutable,
+                _ => ExitCode.NotExecutable,
+            };
+            stderr.WriteLine($"envvault: {o.CommandArgv[0]}: {ex.Message}");
+            return code;
+        }
+        catch (FileNotFoundException ex)
+        {
+            stderr.WriteLine($"envvault: {o.CommandArgv[0]}: {ex.Message}");
+            return ExitCode.NotFound;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            stderr.WriteLine($"envvault: {o.CommandArgv[0]}: {ex.Message}");
+            return ExitCode.NotExecutable;
+        }
+        // Other exceptions (ISecretStore failures during env merge) propagate to the outer handler.
     }
 }
