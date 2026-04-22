@@ -126,16 +126,17 @@ public class CliTests
     }
 
     [Fact]
-    public void Get_MissingKey_ExitCode1AndStderr()
+    public void Get_MissingKey_ExitCodeNotFoundAndStderr()
     {
         NullSecretStore store = new();
         FakeConsolePrompt prompt = new(isInteractive: true);
         FakeProcessLauncher launcher = new();
 
-        var (code, _, stderr) = Run(new[] { "--get", "github", "NOPE" }, store, launcher, prompt);
+        var (code, stdout, stderr) = Run(new[] { "--get", "github", "NOPE" }, store, launcher, prompt);
 
-        Assert.Equal(1, code);
+        Assert.Equal(Yort.ShellKit.ExitCode.NotFound, code);
         Assert.Contains("not found", stderr, System.StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(stdout);
     }
 
     [Fact]
@@ -164,7 +165,7 @@ public class CliTests
             new[] { "--require-passphrase", "--set", "x", "K" },
             store, launcher, prompt);
 
-        Assert.Equal(2, code);
+        Assert.Equal(Yort.ShellKit.ExitCode.UsageError, code);
         Assert.Contains("v1.1", stderr);
     }
 }

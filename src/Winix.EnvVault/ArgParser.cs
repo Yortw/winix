@@ -105,7 +105,7 @@ public static class ArgParser
         }
         if (parsed.HasErrors)
         {
-            return new Result(null, parsed.Errors[0], false, 2, useColor);
+            return new Result(null, parsed.Errors[0], false, ExitCode.UsageError, useColor);
         }
 
         SubCommand sub = action switch
@@ -121,7 +121,7 @@ public static class ArgParser
             InterpretPositionals(sub, parsed.Positionals);
         if (error != null)
         {
-            return new Result(null, error, false, 2, useColor);
+            return new Result(null, error, false, ExitCode.UsageError, useColor);
         }
 
         string? explicitValue = parsed.Has("--value") ? parsed.GetString("--value") : null;
@@ -177,18 +177,18 @@ public static class ArgParser
 
         if (i >= argv.Count)
         {
-            return new Result(null, "exec form requires a namespace and a command: envvault <NAMESPACE>[,...] <command> [args...]", false, 2, useColor);
+            return new Result(null, "exec form requires a namespace and a command: envvault <NAMESPACE>[,...] <command> [args...]", false, ExitCode.UsageError, useColor);
         }
 
         string[] namespaces = argv[i].Split(',', StringSplitOptions.RemoveEmptyEntries);
         if (namespaces.Length == 0)
         {
-            return new Result(null, "namespace list cannot be empty", false, 2, useColor);
+            return new Result(null, "namespace list cannot be empty", false, ExitCode.UsageError, useColor);
         }
 
         if (i + 1 >= argv.Count)
         {
-            return new Result(null, "exec form requires a namespace and a command: envvault <NAMESPACE>[,...] <command> [args...]", false, 2, useColor);
+            return new Result(null, "exec form requires a namespace and a command: envvault <NAMESPACE>[,...] <command> [args...]", false, ExitCode.UsageError, useColor);
         }
 
         // Pass the command argv through verbatim — its flags (e.g. `--state=open` for `gh pr list`) belong
@@ -283,7 +283,7 @@ public static class ArgParser
     }
 
     private static Result Fail(string msg, bool useColor)
-        => new(null, msg, false, 2, useColor);
+        => new(null, msg, false, ExitCode.UsageError, useColor);
 
     // Pre-CommandLineParser errors can't use ParseResult.ResolveColor, but they still need to honour
     // NO_COLOR (no-color.org) so error formatting is consistent with post-parse errors. Explicit

@@ -77,7 +77,7 @@ envvault --value "ghp_xxx..." --set github GITHUB_TOKEN
 envvault --get github GITHUB_TOKEN
 ```
 
-Exits `1` with a clear message if the namespace or key doesn't exist.
+Exits `127` with a clear message if the namespace or key doesn't exist.
 
 ### Remove a value
 
@@ -85,7 +85,7 @@ Exits `1` with a clear message if the namespace or key doesn't exist.
 envvault --unset github GITHUB_TOKEN
 ```
 
-Exits `1` if the key didn't exist.
+Exits `127` if the key didn't exist.
 
 ### List namespaces and keys
 
@@ -116,9 +116,10 @@ envvault --list --json       # machine-readable output
 | Code | Meaning |
 |---|---|
 | 0 | Success. |
-| 1 | Runtime error — key/namespace not found for `--get`/`--unset`, key store unavailable, deferred feature used. |
-| 2 | Usage error — bad flags, missing arguments, conflicting options. |
-| * | Exec form: passes through the child process's exit code. |
+| 125 | Usage error — bad flags, missing arguments, conflicting options, deferred feature used (`--require-passphrase`). |
+| 126 | Runtime error — key store unavailable, permission denied launching child command. |
+| 127 | Not found — namespace or key missing for `--get`/`--unset`; command for exec form not on PATH. |
+| * | Exec form: on success or child failure, passes through the child process's exit code. |
 
 ## Coming from envchain?
 

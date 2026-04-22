@@ -55,12 +55,12 @@ Exposes the value on the process argv and in shell history; prefer the interacti
 .TP
 .BR \-\-get " " \fINAMESPACE\fR " " \fIKEY\fR
 Print the stored value to stdout.
-Exits with status 1 if the namespace or key is not found.
+Exits with status 127 if the namespace or key is not found.
 
 .TP
 .BR \-\-unset " " \fINAMESPACE\fR " " \fIKEY\fR
 Remove \fIKEY\fR from \fINAMESPACE\fR.
-Exits with status 1 if the key does not exist.
+Exits with status 127 if the key does not exist.
 
 .TP
 .BR \-\-list " [" \fINAMESPACE\fR "]"
@@ -80,7 +80,7 @@ Accepted for envchain compatibility.
 .TP
 .B \-\-require\-passphrase
 Deferred to v1.1.
-Currently exits with status 1 and a clear message.
+Currently exits with status 125 and a clear message.
 
 .TP
 .BR \-\-color " " \fIWHEN\fR ", " \-\-no\-color
@@ -103,13 +103,16 @@ Show version and exit.
 .B 0
 Success.
 .TP
-.B 1
-Runtime error \(em key or namespace not found on \fB\-\-get\fR / \fB\-\-unset\fR, key store unavailable, deferred feature requested.
+.B 125
+Usage error \(em bad flags, missing required arguments, conflicting options, deferred feature requested (\fB\-\-require\-passphrase\fR).
 .TP
-.B 2
-Usage error \(em bad flags, missing required arguments, conflicting options.
+.B 126
+Runtime error \(em key store unavailable, permission denied launching \fICOMMAND\fR.
 .TP
-Exec form: the exit code of \fICOMMAND\fR is passed through verbatim.
+.B 127
+Not found \(em namespace or key missing on \fB\-\-get\fR / \fB\-\-unset\fR; \fICOMMAND\fR not on PATH for exec form.
+.TP
+Exec form: the exit code of \fICOMMAND\fR is passed through verbatim when the child runs to completion.
 
 .SH ENVIRONMENT
 .TP

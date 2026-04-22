@@ -2,6 +2,7 @@
 using System.IO;
 using System.Text;
 using Winix.SecretStore;
+using Yort.ShellKit;
 
 namespace Winix.EnvVault;
 
@@ -29,7 +30,8 @@ public static class Cli
         if (parsed.Error != null)
         {
             stderr.WriteLine($"envvault: {parsed.Error}");
-            return parsed.ExitCode == 0 ? 2 : parsed.ExitCode;
+            // Defensive: if a future Fail path forgets to set ExitCode, still surface a non-zero usage code.
+            return parsed.ExitCode == 0 ? ExitCode.UsageError : parsed.ExitCode;
         }
 
         EnvVaultOptions o = parsed.Options!;
@@ -37,7 +39,7 @@ public static class Cli
         if (o.RequirePassphrase)
         {
             stderr.WriteLine(Formatting.RequirePassphraseDeferredError());
-            return 2;
+            return ExitCode.UsageError;
         }
 
         return o.SubCommand switch
@@ -47,7 +49,7 @@ public static class Cli
             SubCommand.Get => RunGet(o, store, stdout, stderr),
             SubCommand.List => RunList(o, store, stdout),
             SubCommand.Exec => RunExec(o, store, launcher),
-            _ => 2,
+            _ => ExitCode.NotExecutable,
         };
     }
 
@@ -60,7 +62,7 @@ public static class Cli
             if (o.Keys.Count != 1)
             {
                 stderr.WriteLine("envvault: --value can only set exactly one key");
-                return 2;
+                return ExitCode.UsageError;
             }
             store.Set(fullNs, o.Keys[0], Encoding.UTF8.GetBytes(o.ExplicitValue));
             return 0;
@@ -81,7 +83,7 @@ public static class Cli
         if (!removed)
         {
             stderr.WriteLine($"envvault: {o.Namespaces[0]}.{o.Keys[0]}: not found");
-            return 1;
+            return ExitCode.NotFound;
         }
         return 0;
     }
@@ -93,7 +95,7 @@ public static class Cli
         if (value == null)
         {
             stderr.WriteLine($"envvault: {o.Namespaces[0]}.{o.Keys[0]}: not found");
-            return 1;
+            return ExitCode.NotFound;
         }
         // Tty-scrollback warning is emitted at the Program.cs layer where ConsoleEnv can detect the
         // stdout tty. Here we just write the value with a trailing newline so plain shell use is ergonomic.
