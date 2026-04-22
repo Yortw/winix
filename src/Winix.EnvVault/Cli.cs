@@ -1,7 +1,6 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.IO;
 using System.Text;
 using Winix.SecretStore;
@@ -132,7 +131,19 @@ public static class Cli
                 SafeWriteLine(stderr, "envvault: --value can only set exactly one key");
                 return ExitCode.UsageError;
             }
-            store.Set(fullNs, o.Keys[0], Encoding.UTF8.GetBytes(o.ExplicitValue));
+            try
+            {
+                store.Set(fullNs, o.Keys[0], Encoding.UTF8.GetBytes(o.ExplicitValue));
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+            {
+                // Explicit "failed to store" framing so the user doesn't read the preceding
+                // argv-leak warning as evidence that the write succeeded. Without this, the
+                // outer catch's generic "envvault: {msg}" reads like an unrelated secondary
+                // error after a successful store.
+                SafeWriteLine(stderr, $"envvault: failed to store {o.Namespaces[0]}.{o.Keys[0]}: {ex.Message}");
+                return ExitCode.NotExecutable;
+            }
             return 0;
         }
 
@@ -215,37 +226,12 @@ public static class Cli
 
     private static int RunExec(EnvVaultOptions o, ISecretStore store, IProcessLauncher launcher, TextWriter stderr)
     {
-        ExecRunner runner = new(store, launcher, stderr);
-        try
-        {
-            return runner.Run(o.Namespaces, o.CommandArgv);
-        }
-        catch (Win32Exception ex)
-        {
-            // Map native errno/Win32 codes to POSIX-conventional exit codes so shell scripts can
-            // branch (e.g. `envvault aws aws-cli ... || fallback`). Code 2 means "not found" on
-            // both Windows (ERROR_FILE_NOT_FOUND) and Unix (ENOENT); 3 is Windows-only
-            // ERROR_PATH_NOT_FOUND. 5 (ERROR_ACCESS_DENIED) and 13 (EACCES) mean the file exists
-            // but can't be executed.
-            int code = ex.NativeErrorCode switch
-            {
-                2 or 3 => ExitCode.NotFound,
-                5 or 13 => ExitCode.NotExecutable,
-                _ => ExitCode.NotExecutable,
-            };
-            SafeWriteLine(stderr, $"envvault: {o.CommandArgv[0]}: {ex.Message}");
-            return code;
-        }
-        catch (FileNotFoundException ex)
-        {
-            SafeWriteLine(stderr, $"envvault: {o.CommandArgv[0]}: {ex.Message}");
-            return ExitCode.NotFound;
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            SafeWriteLine(stderr, $"envvault: {o.CommandArgv[0]}: {ex.Message}");
-            return ExitCode.NotExecutable;
-        }
-        // Other exceptions (ISecretStore failures during env merge) propagate to the outer handler.
+        // Exception mapping for launcher failures lives inside ExecRunner.Run, scoped to the
+        // _launcher.Launch call only. Previously those catches wrapped the entire method and
+        // conflated ISecretStore failures (which run first during env merge) with child-process
+        // launch failures — the user would see 'envvault: gh: <store-error>' blaming the child
+        // for a Credential Manager ACL failure. Store exceptions now propagate here unhandled
+        // and are caught by Cli.Run's outer handler, which labels them without the command prefix.
+        return new ExecRunner(store, launcher, stderr).Run(o.Namespaces, o.CommandArgv);
     }
 }

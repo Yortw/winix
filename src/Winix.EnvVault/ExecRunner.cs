@@ -1,10 +1,12 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Text;
 using Winix.SecretStore;
+using Yort.ShellKit;
 
 namespace Winix.EnvVault;
 
@@ -81,8 +83,55 @@ public sealed class ExecRunner
             }
         }
 
+        // Empty-namespace warning: if the whole merge produced zero env vars, the child will run
+        // with only inherited env. Usually a typo in the namespace ("envvault githu gh ..." instead
+        // of "github") that would otherwise silently launch the command with none of the expected
+        // secrets — exactly the footgun envchain users migrate to avoid. Warn and continue so
+        // envchain-compat is preserved (envchain also runs with empty env in this case).
+        if (merged.Count == 0)
+        {
+            try
+            {
+                _stderr?.WriteLine(
+                    $"envvault: warning: no env variables found for namespace(s) [{string.Join(", ", namespaces)}]; " +
+                    "child will run with inherited env only (typo?)");
+            }
+            catch { /* diagnostic must never fail the operation */ }
+        }
+
         string fileName = commandArgv[0];
         string[] argv = commandArgv.Skip(1).ToArray();
-        return _launcher.Launch(fileName, argv, merged);
+
+        // Scope launch-specific exception catches to the launcher call ONLY. Previously these
+        // catches wrapped the entire method, which meant that ISecretStore throws (Win32Exception
+        // from DPAPI, FileNotFoundException from a disk-backed shim, etc.) would be reported as
+        // 'envvault: {commandArgv[0]}: ...' — blaming the child command for a credential-store
+        // failure. Store exceptions now propagate to Cli.Run's outer handler which labels them
+        // without the command prefix.
+        try
+        {
+            return _launcher.Launch(fileName, argv, merged);
+        }
+        catch (Win32Exception ex)
+        {
+            int code = ex.NativeErrorCode switch
+            {
+                2 or 3 => ExitCode.NotFound,
+                5 or 13 => ExitCode.NotExecutable,
+                _ => ExitCode.NotExecutable,
+            };
+            try { _stderr?.WriteLine($"envvault: {fileName}: {ex.Message}"); } catch { }
+            return code;
+        }
+        catch (FileNotFoundException ex)
+        {
+            try { _stderr?.WriteLine($"envvault: {fileName}: {ex.Message}"); } catch { }
+            return ExitCode.NotFound;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            try { _stderr?.WriteLine($"envvault: {fileName}: {ex.Message}"); } catch { }
+            return ExitCode.NotExecutable;
+        }
     }
 }

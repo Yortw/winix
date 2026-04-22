@@ -377,6 +377,69 @@ public class CliTests
     }
 
     [Fact]
+    public void Exec_StoreThrowsWin32_NotLabelledAsChildCommand()
+    {
+        // Regression for P1: Cli.RunExec previously caught Win32Exception in a block that wrapped
+        // the entire ExecRunner.Run call, including the ListKeys/Get phase before launch. A store
+        // ACL failure was then reported as 'envvault: gh: CredReadW failed...' blaming the child.
+        // Launch-specific catches now live in ExecRunner scoped to _launcher.Launch only; store
+        // exceptions propagate to the outer handler and must NOT carry the child command prefix.
+        ThrowingStoreWith store = new(new Win32Exception(5, "CredReadW failed: access denied"));
+        FakeConsolePrompt prompt = new(isInteractive: true);
+        FakeProcessLauncher launcher = new();
+
+        var (code, _, stderr) = Run(new[] { "github", "gh", "pr", "list" }, store, launcher, prompt);
+
+        // Outer catch produces 'envvault: {msg}' without the 'gh:' prefix the RunExec Win32 catch
+        // would have added. If the launcher-specific catch creeps back into wrapping the whole
+        // call, stderr will contain 'gh: CredReadW' and this assertion fails.
+        Assert.DoesNotContain("gh:", stderr);
+        Assert.Contains("CredReadW", stderr);
+        // Store-level failure → outer NotExecutable (126), not the launcher-mapped 127.
+        Assert.Equal(Yort.ShellKit.ExitCode.NotExecutable, code);
+        AssertNoStackTrace(stderr);
+    }
+
+    [Fact]
+    public void Exec_EmptyNamespace_WarnsAndLaunchesWithInheritedEnv()
+    {
+        // Regression for P3: a typo'd namespace (envvault githu gh ...) previously silently ran
+        // the child with no injected env — exactly the footgun envchain users migrate to avoid.
+        // Now warns to stderr. Still launches (envchain-compat) rather than erroring.
+        NullSecretStore store = new();  // totally empty, no namespaces exist
+        FakeConsolePrompt prompt = new(isInteractive: true);
+        FakeProcessLauncher launcher = new();
+
+        var (code, _, stderr) = Run(new[] { "githu", "gh" }, store, launcher, prompt);
+
+        Assert.Equal(0, code);  // launched successfully
+        Assert.Contains("warning", stderr, System.StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("githu", stderr);   // names the namespace that had no entries
+        Assert.Contains("typo", stderr, System.StringComparison.OrdinalIgnoreCase);  // hints at likely cause
+        Assert.Empty(launcher.LastEnv!);    // child launched with inherited env only
+    }
+
+    [Fact]
+    public void SetWithValue_BackendThrows_ExplicitFailureFraming()
+    {
+        // Regression for P2: --value single-key path had no try/catch, so a backend failure
+        // produced 'envvault: {cryptic-backend-msg}' AFTER the 'secret is visible on argv' warning.
+        // User could reasonably assume the store succeeded and just emitted a cosmetic error.
+        // Now explicitly frames it as 'failed to store' so the outcome is unambiguous.
+        ThrowingSecretStore store = new("backend rejected");
+        FakeConsolePrompt prompt = new(isInteractive: true);
+        FakeProcessLauncher launcher = new();
+
+        var (code, _, stderr) = Run(new[] { "--value", "v", "--set", "aws", "TOKEN" }, store, launcher, prompt);
+
+        Assert.Equal(Yort.ShellKit.ExitCode.NotExecutable, code);
+        Assert.Contains("failed to store", stderr);
+        Assert.Contains("aws.TOKEN", stderr);   // specific key named
+        Assert.Contains("backend rejected", stderr);  // underlying cause preserved
+        AssertNoStackTrace(stderr);
+    }
+
+    [Fact]
     public void Exec_PermissionDenied_ReturnsNotExecutableExitCode()
     {
         NullSecretStore store = new();
