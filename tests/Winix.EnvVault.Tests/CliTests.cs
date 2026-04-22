@@ -282,28 +282,32 @@ public class CliTests
     }
 
     [Fact]
-    public void Unset_BackendThrows_ReturnsRuntimeErrorNoStackTrace()
+    public void Unset_BackendThrows_ReturnsRuntimeErrorWithMessageNoStackTrace()
     {
-        ThrowingSecretStore store = new();
+        ThrowingSecretStore store = new("keyring access refused");
         FakeConsolePrompt prompt = new(isInteractive: true);
         FakeProcessLauncher launcher = new();
 
         var (code, _, stderr) = Run(new[] { "--unset", "x", "K" }, store, launcher, prompt);
 
         Assert.Equal(Yort.ShellKit.ExitCode.NotExecutable, code);
+        // Message content — guard against a regression that swallows the backend message
+        // (just returns 126 with empty stderr would pass a bare exit-code check).
+        Assert.Contains("keyring access refused", stderr);
         AssertNoStackTrace(stderr);
     }
 
     [Fact]
-    public void List_BackendThrows_ReturnsRuntimeErrorNoStackTrace()
+    public void List_BackendThrows_ReturnsRuntimeErrorWithMessageNoStackTrace()
     {
-        ThrowingSecretStore store = new();
+        ThrowingSecretStore store = new("secret-tool missing");
         FakeConsolePrompt prompt = new(isInteractive: true);
         FakeProcessLauncher launcher = new();
 
         var (code, _, stderr) = Run(new[] { "--list" }, store, launcher, prompt);
 
         Assert.Equal(Yort.ShellKit.ExitCode.NotExecutable, code);
+        Assert.Contains("secret-tool missing", stderr);
         AssertNoStackTrace(stderr);
     }
 
@@ -318,7 +322,57 @@ public class CliTests
         var (code, _, stderr) = Run(new[] { "github", "no-such-binary" }, store, launcher, prompt);
 
         Assert.Equal(Yort.ShellKit.ExitCode.NotFound, code);
-        Assert.Contains("no-such-binary", stderr);
+        // Command-name prefix asserts the Cli.RunExec Win32 catch wrote it (the outer generic
+        // catch would produce a message without the prefix).
+        Assert.Contains("no-such-binary:", stderr);
+        AssertNoStackTrace(stderr);
+    }
+
+    [Fact]
+    public void Exec_FileNotFoundException_ReturnsNotFoundExitCode()
+    {
+        // Coverage gap: Cli.RunExec has a dedicated FileNotFoundException catch; exercise it.
+        NullSecretStore store = new();
+        FakeConsolePrompt prompt = new(isInteractive: true);
+        FakeProcessLauncher launcher = new() { ThrowOnLaunch = new System.IO.FileNotFoundException("cannot locate file") };
+
+        var (code, _, stderr) = Run(new[] { "x", "missing-binary" }, store, launcher, prompt);
+
+        Assert.Equal(Yort.ShellKit.ExitCode.NotFound, code);
+        Assert.Contains("missing-binary:", stderr);
+        AssertNoStackTrace(stderr);
+    }
+
+    [Fact]
+    public void Exec_UnauthorizedAccessException_ReturnsNotExecutableExitCode()
+    {
+        // Coverage gap: Cli.RunExec has a dedicated UnauthorizedAccessException catch.
+        NullSecretStore store = new();
+        FakeConsolePrompt prompt = new(isInteractive: true);
+        FakeProcessLauncher launcher = new() { ThrowOnLaunch = new System.UnauthorizedAccessException("execute bit missing") };
+
+        var (code, _, stderr) = Run(new[] { "x", "unexecutable" }, store, launcher, prompt);
+
+        Assert.Equal(Yort.ShellKit.ExitCode.NotExecutable, code);
+        Assert.Contains("unexecutable:", stderr);
+        AssertNoStackTrace(stderr);
+    }
+
+    [Fact]
+    public void Get_StoredValueNotValidUtf8_ReturnsRuntimeErrorWithClearMessage()
+    {
+        // Coverage gap: Cli.RunGet has its own DecoderFallbackException catch distinct from
+        // ExecRunner's InvalidOperationException rethrow. Exercise the Cli.RunGet path directly.
+        NullSecretStore store = new();
+        store.Set("envvault/x", "K", new byte[] { 0xFF, 0xFE, 0xFD });  // lone 0xFF = invalid UTF-8
+        FakeConsolePrompt prompt = new(isInteractive: true);
+        FakeProcessLauncher launcher = new();
+
+        var (code, stdout, stderr) = Run(new[] { "--get", "x", "K" }, store, launcher, prompt);
+
+        Assert.Equal(Yort.ShellKit.ExitCode.NotExecutable, code);
+        Assert.Contains("not valid UTF-8", stderr);
+        Assert.Empty(stdout);   // must not leak partial bytes
         AssertNoStackTrace(stderr);
     }
 
@@ -333,6 +387,11 @@ public class CliTests
         var (code, _, stderr) = Run(new[] { "x", "blocked-binary" }, store, launcher, prompt);
 
         Assert.Equal(Yort.ShellKit.ExitCode.NotExecutable, code);
+        // Assert the command-name prefix that only Cli.RunExec's Win32Exception catch adds
+        // ('envvault: {cmd}: {msg}'). Without this, deleting the entire RunExec Win32
+        // catch block would still pass — the outer generic catch also produces 126 but
+        // with 'envvault: {msg}' (no command prefix). This guards the specific mapping.
+        Assert.Contains("blocked-binary:", stderr);
         AssertNoStackTrace(stderr);
     }
 
