@@ -44,8 +44,8 @@ public static class Formatting
 
     /// <summary>Warning text emitted when <c>--get</c> writes a secret to a tty: plaintext may persist in terminal scrollback.</summary>
     public static string GetToTtyWarning() =>
-        "warning: --get output to a tty may land in scrollback. Prefer 'envvault <NAMESPACE> -- cmd' so the value "
-        + "never leaves the child process env.";
+        "warning: --get output to a tty may land in scrollback. Prefer 'envvault <NAMESPACE> <cmd>' so the value "
+        + "is injected into the child environment and never printed.";
 
     /// <summary>Error message surfaced when the user passes <c>--require-passphrase</c> in v1 (deferred to v1.1 with native Security.framework backend).</summary>
     public static string RequirePassphraseDeferredError() =>

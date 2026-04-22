@@ -74,5 +74,9 @@ public class FormattingTests
         string s = Formatting.GetToTtyWarning();
         Assert.Contains("scrollback", s, System.StringComparison.OrdinalIgnoreCase);
         Assert.Contains("envvault", s, System.StringComparison.OrdinalIgnoreCase);
+        // The suggested invocation MUST NOT include a '--' separator — envvault's exec form does
+        // not use one (a user copy-pasting the suggestion would hit a syntax error). Caught during
+        // manual testing.
+        Assert.DoesNotContain(" -- ", s);
     }
 }
