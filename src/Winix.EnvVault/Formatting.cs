@@ -7,12 +7,12 @@ namespace Winix.EnvVault;
 /// <summary>Pure-function output formatters for envvault's list operations, warnings, and error messages.</summary>
 public static class Formatting
 {
-    /// <summary>Format a namespace list for <c>--list</c>. <paramref name="json"/> toggles JSON-array output; plain mode yields one namespace per line with a trailing newline.</summary>
+    /// <summary>Format a namespace list for <c>--list</c>. Plain mode yields one namespace per line; JSON mode emits a compact array. Both forms end with a trailing newline so shell prompts don't run into the output.</summary>
     public static string FormatNamespaceList(IReadOnlyList<string> namespaces, bool json)
     {
         if (json)
         {
-            return JsonArray(namespaces);
+            return JsonArray(namespaces) + "\n";
         }
         StringBuilder sb = new();
         foreach (string ns in namespaces)
@@ -22,12 +22,12 @@ public static class Formatting
         return sb.ToString();
     }
 
-    /// <summary>Format a key list for <c>--list &lt;ns&gt;</c>. <paramref name="json"/> toggles JSON-array output; plain mode yields one key per line with a trailing newline.</summary>
+    /// <summary>Format a key list for <c>--list &lt;ns&gt;</c>. Plain mode yields one key per line; JSON mode emits a compact array. Both forms end with a trailing newline so shell prompts don't run into the output.</summary>
     public static string FormatKeyList(IReadOnlyList<string> keys, bool json)
     {
         if (json)
         {
-            return JsonArray(keys);
+            return JsonArray(keys) + "\n";
         }
         StringBuilder sb = new();
         foreach (string key in keys)

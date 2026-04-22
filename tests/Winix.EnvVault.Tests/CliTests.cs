@@ -105,7 +105,7 @@ public class CliTests
 
         Assert.Equal(0, code);
         Assert.StartsWith("[", stdout);
-        Assert.EndsWith("]", stdout.TrimEnd('\n'));
+        Assert.EndsWith("]\n", stdout);                // exactly one trailing newline
         Assert.Contains("\"github\"", stdout);
         Assert.Contains("\"aws\"", stdout);
     }

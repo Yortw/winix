@@ -14,10 +14,12 @@ public class FormattingTests
     }
 
     [Fact]
-    public void FormatNamespaceList_Json_EmitsJsonArray()
+    public void FormatNamespaceList_Json_EmitsJsonArrayWithTrailingNewline()
     {
+        // Trailing newline so shell prompts don't run into the output (bug caught during manual
+        // testing — pre-fix output was '["x"]' with no terminator, so $ prompt appeared on same line).
         string s = Formatting.FormatNamespaceList(new[] { "github", "aws" }, json: true);
-        Assert.Equal("[\"github\",\"aws\"]", s);
+        Assert.Equal("[\"github\",\"aws\"]\n", s);
     }
 
     [Fact]
@@ -44,24 +46,24 @@ public class FormattingTests
     }
 
     [Fact]
-    public void FormatKeyList_Json_EmitsJsonArray()
+    public void FormatKeyList_Json_EmitsJsonArrayWithTrailingNewline()
     {
         string s = Formatting.FormatKeyList(new[] { "TOKEN", "USER" }, json: true);
-        Assert.Equal("[\"TOKEN\",\"USER\"]", s);
+        Assert.Equal("[\"TOKEN\",\"USER\"]\n", s);
     }
 
     [Fact]
-    public void FormatNamespaceList_JsonEmpty_EmitsEmptyArray()
+    public void FormatNamespaceList_JsonEmpty_EmitsEmptyArrayWithTrailingNewline()
     {
         string s = Formatting.FormatNamespaceList(System.Array.Empty<string>(), json: true);
-        Assert.Equal("[]", s);
+        Assert.Equal("[]\n", s);
     }
 
     [Fact]
     public void FormatKeyList_JsonWithEmbeddedQuotesAndBackslashes_Escaped()
     {
         string s = Formatting.FormatKeyList(new[] { "a\"b", "c\\d" }, json: true);
-        Assert.Equal("[\"a\\\"b\",\"c\\\\d\"]", s);
+        Assert.Equal("[\"a\\\"b\",\"c\\\\d\"]\n", s);
     }
 
     [Fact]
