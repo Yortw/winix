@@ -144,7 +144,15 @@ public static class Cli
         {
             stderr.WriteLine(Formatting.GetToTtyWarning());
         }
-        stdout.Write(Encoding.UTF8.GetString(value));
+        try
+        {
+            stdout.Write(ExecRunner.StrictUtf8.GetString(value));
+        }
+        catch (DecoderFallbackException ex)
+        {
+            stderr.WriteLine($"envvault: stored value for {o.Namespaces[0]}.{o.Keys[0]} is not valid UTF-8: {ex.Message}");
+            return ExitCode.NotExecutable;
+        }
         stdout.Write('\n');
         return 0;
     }
@@ -167,7 +175,7 @@ public static class Cli
 
     private static int RunExec(EnvVaultOptions o, ISecretStore store, IProcessLauncher launcher, TextWriter stderr)
     {
-        ExecRunner runner = new(store, launcher);
+        ExecRunner runner = new(store, launcher, stderr);
         try
         {
             return runner.Run(o.Namespaces, o.CommandArgv);

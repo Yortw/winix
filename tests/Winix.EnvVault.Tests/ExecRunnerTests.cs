@@ -61,4 +61,48 @@ public class ExecRunnerTests
 
         Assert.Equal(42, code);
     }
+
+    [Fact]
+    public void Run_ListReportsKeyButGetReturnsNull_WarnsAndSkips()
+    {
+        // TOCTOU: concurrent delete between ListKeys and Get. Must not silently drop.
+        TocToUStore store = new(new[] { "LOST_KEY" });
+        FakeProcessLauncher launcher = new();
+        System.IO.StringWriter stderr = new();
+        ExecRunner runner = new(store, launcher, stderr);
+
+        runner.Run(new[] { "x" }, new[] { "cmd" });
+
+        Assert.Contains("LOST_KEY", stderr.ToString());
+        Assert.Contains("not injected", stderr.ToString());
+        Assert.DoesNotContain("LOST_KEY", launcher.LastEnv!.Keys);
+    }
+
+    [Fact]
+    public void Run_StoredValueNotValidUtf8_ThrowsInvalidOperationException()
+    {
+        // Store a byte sequence that's invalid UTF-8 (lone 0xFF).
+        NullSecretStore store = new();
+        store.Set("envvault/x", "K", new byte[] { 0xFF, 0xFE, 0xFD });
+        FakeProcessLauncher launcher = new();
+        ExecRunner runner = new(store, launcher);
+
+        var ex = Assert.Throws<System.InvalidOperationException>(() =>
+            runner.Run(new[] { "x" }, new[] { "cmd" }));
+        Assert.Contains("not valid UTF-8", ex.Message);
+    }
+
+    [Fact]
+    public void Run_ArgvPassesWeirdTokensUntouched()
+    {
+        // Regression: ArgumentList passthrough must preserve tokens with spaces, quotes, =, and
+        // trailing backslashes verbatim. CLAUDE.md: ArgumentList only, never string Arguments.
+        NullSecretStore store = StoreWith(("x", "K", "v"));
+        FakeProcessLauncher launcher = new();
+        ExecRunner runner = new(store, launcher);
+
+        runner.Run(new[] { "x" }, new[] { "cmd", "a b", "--flag=x=y", @"C:\path\", "--" });
+
+        Assert.Equal(new[] { "a b", "--flag=x=y", @"C:\path\", "--" }, launcher.LastArgv);
+    }
 }

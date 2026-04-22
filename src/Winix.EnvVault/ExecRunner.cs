@@ -1,5 +1,7 @@
 #nullable enable
+using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
 using Winix.SecretStore;
@@ -15,12 +17,22 @@ public sealed class ExecRunner
 {
     private readonly ISecretStore _store;
     private readonly IProcessLauncher _launcher;
+    private readonly TextWriter? _stderr;
 
-    /// <summary>Creates a runner bound to a secret store and a process launcher.</summary>
-    public ExecRunner(ISecretStore store, IProcessLauncher launcher)
+    // Strict UTF-8: reject invalid byte sequences rather than silently substituting U+FFFD. For a
+    // tool whose job is secret-fidelity, silent character replacement is a correctness defect —
+    // prefer a loud DecoderFallbackException so Cli.Run surfaces 'envvault: ...' and exits 126.
+    // Shared with Cli.RunGet.
+    internal static readonly UTF8Encoding StrictUtf8 = new(
+        encoderShouldEmitUTF8Identifier: false,
+        throwOnInvalidBytes: true);
+
+    /// <summary>Creates a runner bound to a secret store and a process launcher. <paramref name="stderr"/> receives TOCTOU warnings; pass null to suppress them (tests).</summary>
+    public ExecRunner(ISecretStore store, IProcessLauncher launcher, TextWriter? stderr = null)
     {
         _store = store;
         _launcher = launcher;
+        _stderr = stderr;
     }
 
     /// <summary>
@@ -39,9 +51,23 @@ public sealed class ExecRunner
                 byte[]? value = _store.Get(fullNs, key);
                 if (value == null)
                 {
+                    // TOCTOU: ListKeys saw the entry, Get didn't. Usually a concurrent delete from
+                    // another process. Not fatal — the child just won't have that env var — but
+                    // silence would mask a broken invariant, and the child may fail downstream in
+                    // a confusing way (e.g. gh prompts interactively inside CI because GITHUB_TOKEN
+                    // wasn't injected). Warn to stderr so the operator can correlate.
+                    _stderr?.WriteLine($"envvault: warning: {ns}.{key} listed but could not be retrieved; not injected into environment");
                     continue;
                 }
-                merged[key] = Encoding.UTF8.GetString(value);
+                try
+                {
+                    merged[key] = StrictUtf8.GetString(value);
+                }
+                catch (DecoderFallbackException ex)
+                {
+                    throw new InvalidOperationException(
+                        $"stored value for {ns}.{key} is not valid UTF-8: {ex.Message}", ex);
+                }
             }
         }
 
