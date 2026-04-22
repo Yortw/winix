@@ -52,7 +52,7 @@ public static class Formatting
     public static string RequirePassphraseDeferredError() =>
         "--require-passphrase requires the native macOS Security.framework backend (v1.1). "
         + "The v1 macOS implementation uses the 'security' CLI wrapper, which cannot set item ACLs. "
-        + "Track https://github.com/Yortw/winix for the v1.1 release, or omit the flag to use default Keychain access.";
+        + "Omit the flag to use default Keychain access; the v1.1 release will add passphrase-protected entries.";
 
     // Uses the shared ShellKit helper so control characters (\n, \t, \0, etc.) in a namespace or
     // key name are correctly JSON-escaped. The previous hand-rolled version only escaped \ and "

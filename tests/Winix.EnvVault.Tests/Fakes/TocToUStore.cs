@@ -12,15 +12,16 @@ namespace Winix.EnvVault.Tests.Fakes;
 public sealed class TocToUStore : ISecretStore
 {
     private readonly IReadOnlyList<string> _keysReported;
+    private readonly NullSecretStore _writable = new();  // backs Set/Delete so callers see consistent behaviour
 
     public TocToUStore(IEnumerable<string> keysReportedByList)
     {
         _keysReported = new List<string>(keysReportedByList);
     }
 
-    public void Set(string namespace_, string key, byte[] value) { }
-    public byte[]? Get(string namespace_, string key) => null;
-    public bool Delete(string namespace_, string key) => false;
+    public void Set(string namespace_, string key, byte[] value) => _writable.Set(namespace_, key, value);
+    public byte[]? Get(string namespace_, string key) => null;    // the TOCTOU race: always null
+    public bool Delete(string namespace_, string key) => _writable.Delete(namespace_, key);  // honest: reflects whether a Set happened
     public IReadOnlyList<string> ListKeys(string namespace_) => _keysReported;
     public IReadOnlyList<string> ListNamespaces(string toolPrefix) => System.Array.Empty<string>();
 }

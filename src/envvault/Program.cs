@@ -24,7 +24,15 @@ internal sealed class Program
             // Unwrap TypeInitializationException via the shared Cli helper so the user sees
             // the actionable inner message ("Unable to load libsecret-1.so.0") rather than
             // the .NET wrapper text ("The type initializer for X threw an exception.").
-            SafeWriteLine(Console.Error, $"envvault: key store unavailable: {Cli.UnwrapTypeInit(ex).Message}");
+            Exception surface = Cli.UnwrapTypeInit(ex);
+            // Distinguish "this OS isn't supported at all" from "the OS is supported but the
+            // backend is broken". The former is a build/distribution choice, not an availability
+            // issue — labelling it 'key store unavailable' misleads the user into checking
+            // services/daemons that aren't relevant.
+            string label = surface is PlatformNotSupportedException
+                ? "platform not supported"
+                : "key store unavailable";
+            SafeWriteLine(Console.Error, $"envvault: {label}: {surface.Message}");
             return ExitCode.NotExecutable;
         }
 

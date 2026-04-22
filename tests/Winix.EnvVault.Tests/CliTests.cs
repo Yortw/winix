@@ -111,6 +111,54 @@ public class CliTests
     }
 
     [Fact]
+    public void SetGet_UnicodeValue_RoundTripsExactly()
+    {
+        // Correctness: secret-fidelity is the tool's primary contract. A regression swapping
+        // StrictUtf8 for Encoding.ASCII would silently mangle non-ASCII secrets. Pin with a test
+        // that stores and retrieves a realistic multi-byte passphrase.
+        NullSecretStore store = new();
+        FakeConsolePrompt prompt = new(isInteractive: true);
+        FakeProcessLauncher launcher = new();
+        const string phrase = "café-日本-🔐-привет";
+
+        var (setCode, _, _) = Run(new[] { "--value", phrase, "--set", "x", "K" }, store, launcher, prompt);
+        Assert.Equal(0, setCode);
+
+        var (getCode, stdout, _) = Run(new[] { "--get", "x", "K" }, store, launcher, prompt);
+        Assert.Equal(0, getCode);
+        Assert.Equal(phrase, stdout.TrimEnd('\n'));
+    }
+
+    [Fact]
+    public void Exit_CodesMatchPosixNumericValues()
+    {
+        // Regression: pin the POSIX numeric codes. If ShellKit.ExitCode were ever redefined
+        // (e.g. UsageError changed from 125 to 126), every `Assert.Equal(ExitCode.UsageError, ...)`
+        // would silently follow. This test asserts the literal contract scripts depend on.
+        Assert.Equal(125, Yort.ShellKit.ExitCode.UsageError);
+        Assert.Equal(126, Yort.ShellKit.ExitCode.NotExecutable);
+        Assert.Equal(127, Yort.ShellKit.ExitCode.NotFound);
+    }
+
+    [Fact]
+    public void Exec_UnknownWin32Code_DefaultsToNotExecutable()
+    {
+        // The NativeErrorCode switch has a `_ => NotExecutable` default arm for codes that
+        // aren't 2/3/5/13. Untested before. Use ERROR_SHARING_VIOLATION (32) as an example.
+        NullSecretStore store = new();
+        FakeConsolePrompt prompt = new(isInteractive: true);
+        FakeProcessLauncher launcher = new()
+        {
+            ThrowOnLaunch = new Win32Exception(32, "The process cannot access the file because it is being used by another process.")
+        };
+
+        var (code, _, stderr) = Run(new[] { "x", "locked-binary" }, store, launcher, prompt);
+
+        Assert.Equal(Yort.ShellKit.ExitCode.NotExecutable, code);
+        Assert.Contains("locked-binary:", stderr);
+    }
+
+    [Fact]
     public void Get_OutputExactBytes_NoUnexpectedTrim()
     {
         // Regression: --get writes the value followed by exactly one '\n'. Shell-script consumers
@@ -384,7 +432,7 @@ public class CliTests
         // ACL failure was then reported as 'envvault: gh: CredReadW failed...' blaming the child.
         // Launch-specific catches now live in ExecRunner scoped to _launcher.Launch only; store
         // exceptions propagate to the outer handler and must NOT carry the child command prefix.
-        ThrowingStoreWith store = new(new Win32Exception(5, "CredReadW failed: access denied"));
+        ThrowingSecretStore store = new(new Win32Exception(5, "CredReadW failed: access denied"));
         FakeConsolePrompt prompt = new(isInteractive: true);
         FakeProcessLauncher launcher = new();
 
@@ -521,7 +569,7 @@ public class CliTests
         // catch must unwrap so the user sees the actionable cause, not the .NET wrapper.
         var inner = new System.IO.FileNotFoundException("Unable to load shared library 'libsecret-1.so.0'");
         var wrapper = new System.TypeInitializationException("Winix.SecretStore.LinuxLibsecretStore", inner);
-        ThrowingStoreWith exploder = new(wrapper);
+        ThrowingSecretStore exploder = new(wrapper);
         FakeConsolePrompt prompt = new(isInteractive: true, ttyValues: new[] { "v" });
         FakeProcessLauncher launcher = new();
 
@@ -533,17 +581,6 @@ public class CliTests
         AssertNoStackTrace(stderr);
     }
 
-    /// <summary>ISecretStore whose every op throws a caller-supplied exception. Lets tests force specific exception types (TypeInitializationException, FileNotFoundException, etc.) through the Cli.Run error path.</summary>
-    private sealed class ThrowingStoreWith : Winix.SecretStore.ISecretStore
-    {
-        private readonly System.Exception _ex;
-        public ThrowingStoreWith(System.Exception ex) { _ex = ex; }
-        public void Set(string namespace_, string key, byte[] value) => throw _ex;
-        public byte[]? Get(string namespace_, string key) => throw _ex;
-        public bool Delete(string namespace_, string key) => throw _ex;
-        public System.Collections.Generic.IReadOnlyList<string> ListKeys(string namespace_) => throw _ex;
-        public System.Collections.Generic.IReadOnlyList<string> ListNamespaces(string toolPrefix) => throw _ex;
-    }
 
     [Fact]
     public void SetMultiKey_UserCtrlCAfterFirst_Returns130WithPartialSuccess()

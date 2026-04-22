@@ -145,7 +145,8 @@ Alias for envchain muscle memory:
 .B alias envchain=envvault
 
 .SH BUGS
-macOS enumeration uses a self-healing index; entries added via the raw \fBsecurity\fR(1) CLI bypassing \fBenvvault\fR won't appear in \fB\-\-list\fR until a subsequent envvault write re-establishes the index.
+macOS enumeration uses a self-healing index that reconciles at read time: entries added via the raw \fBsecurity\fR(1) CLI bypassing \fBenvvault\fR will be discovered by subsequent \fB\-\-list\fR calls as the index is updated.
+Pre-v1.0 entries that predate the index format may require one envvault write in the namespace to register.
 
 .SH SEE ALSO
 .BR envchain (1),

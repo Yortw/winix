@@ -281,7 +281,7 @@ public static class ArgParser
                 (ExitCode.NotExecutable, "Runtime error: key store unavailable, permission denied launching child command"),
                 (ExitCode.NotFound, "Not found: namespace or key missing on --get/--unset; command for exec form not on PATH"))
             .Positional("NAMESPACE")
-            .Flag("--set", "Store one or more KEYs in NAMESPACE. Values come from an interactive prompt (or --value for non-interactive).")
+            .Flag("--set", "Store one or more KEYs in NAMESPACE. Values come from an interactive prompt (or --value for non-interactive; single key only when combined with --value).")
             .Flag("--list", "With no NAMESPACE, list all namespaces. With a NAMESPACE, list its keys.")
             .Flag("--get", "Print the value of KEY in NAMESPACE to stdout.")
             .Flag("--unset", "Delete KEY from NAMESPACE.")
