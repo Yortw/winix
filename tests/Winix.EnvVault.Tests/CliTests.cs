@@ -90,6 +90,43 @@ public class CliTests
     }
 
     [Fact]
+    public void List_WithJsonFlag_EmitsJsonArrayToStdout()
+    {
+        // Regression: --json flag must propagate from ShellKit through EnvVaultOptions.JsonOutput
+        // into Formatting.FormatNamespaceList(json:true). A drop anywhere in that chain makes the
+        // test suite pass while --json silently emits plain text.
+        NullSecretStore store = new();
+        store.Set("envvault/github", "T", new byte[] { 1 });
+        store.Set("envvault/aws", "K", new byte[] { 2 });
+        FakeConsolePrompt prompt = new(isInteractive: true);
+        FakeProcessLauncher launcher = new();
+
+        var (code, stdout, _) = Run(new[] { "--list", "--json" }, store, launcher, prompt);
+
+        Assert.Equal(0, code);
+        Assert.StartsWith("[", stdout);
+        Assert.EndsWith("]", stdout.TrimEnd('\n'));
+        Assert.Contains("\"github\"", stdout);
+        Assert.Contains("\"aws\"", stdout);
+    }
+
+    [Fact]
+    public void Get_OutputExactBytes_NoUnexpectedTrim()
+    {
+        // Regression: --get writes the value followed by exactly one '\n'. Shell-script consumers
+        // rely on this (env-var values need no trailing newline; the extra '\n' is only for
+        // ergonomic terminal viewing). A secret whose value is "abc" must produce exactly "abc\n".
+        NullSecretStore store = new();
+        store.Set("envvault/x", "K", Encoding.UTF8.GetBytes("abc"));
+        FakeConsolePrompt prompt = new(isInteractive: true);
+        FakeProcessLauncher launcher = new();
+
+        var (_, stdout, _) = Run(new[] { "--get", "x", "K" }, store, launcher, prompt);
+
+        Assert.Equal("abc\n", stdout);
+    }
+
+    [Fact]
     public void List_NoNamespace_PrintsNamespaces()
     {
         NullSecretStore store = new();

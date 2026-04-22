@@ -207,6 +207,34 @@ public class ArgParserTests
     }
 
     [Fact]
+    public void NoColorEnvVar_DisablesColor()
+    {
+        // CLAUDE.md: "Respect NO_COLOR env var (no-color.org)". ArgParser.DetectColorFromEnv and
+        // ShellKit's ResolveColor both honour it. Set it, re-parse an error path that goes through
+        // the pre-parse color path (empty argv), confirm UseColor flips false.
+        string? prior = System.Environment.GetEnvironmentVariable("NO_COLOR");
+        try
+        {
+            System.Environment.SetEnvironmentVariable("NO_COLOR", "1");
+            ArgParser.Result r = ArgParser.Parse(System.Array.Empty<string>());
+            Assert.False(r.UseColor);
+        }
+        finally
+        {
+            System.Environment.SetEnvironmentVariable("NO_COLOR", prior);
+        }
+    }
+
+    [Fact]
+    public void ExecMode_CommaSeparatorsAllEmpty_Error()
+    {
+        // argv[0] is all commas → namespaces after Split+RemoveEmptyEntries is empty → error.
+        ArgParser.Result r = ArgParser.Parse(new[] { ",,,", "cmd" });
+        Assert.NotNull(r.Error);
+        Assert.Contains("empty", r.Error!, System.StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void ValueConsumesNextToken_ActionFlagAsValue_NotMisdetectedAsAction()
     {
         // Regression: `envvault --value --set ns K` means --set is the VALUE of --value. The
