@@ -93,6 +93,23 @@ public class ExecRunnerTests
     }
 
     [Fact]
+    public void Run_StderrWriteFailureDuringTocTou_DoesNotFailExec()
+    {
+        // Regression: diagnostic logging must never fail the caller. A closed/broken stderr
+        // during a TOCTOU warning must not convert a successful exec launch into a failed one.
+        TocToUStore store = new(new[] { "LOST_KEY" });
+        FakeProcessLauncher launcher = new() { ReturnCode = 0 };
+        ThrowingWriter brokenStderr = new();
+        ExecRunner runner = new(store, launcher, brokenStderr);
+
+        int code = runner.Run(new[] { "x" }, new[] { "cmd" });
+
+        // The warning was attempted (and silently swallowed) but the child still launched.
+        Assert.Equal(0, code);
+        Assert.True(brokenStderr.WriteAttempted);
+    }
+
+    [Fact]
     public void Run_ArgvPassesWeirdTokensUntouched()
     {
         // Regression: ArgumentList passthrough must preserve tokens with spaces, quotes, =, and
@@ -104,5 +121,15 @@ public class ExecRunnerTests
         runner.Run(new[] { "x" }, new[] { "cmd", "a b", "--flag=x=y", @"C:\path\", "--" });
 
         Assert.Equal(new[] { "a b", "--flag=x=y", @"C:\path\", "--" }, launcher.LastArgv);
+    }
+
+    /// <summary>TextWriter that throws on every write — simulates a closed or broken stderr handle.</summary>
+    private sealed class ThrowingWriter : System.IO.TextWriter
+    {
+        public bool WriteAttempted { get; private set; }
+        public override System.Text.Encoding Encoding => System.Text.Encoding.UTF8;
+        public override void Write(char value) { WriteAttempted = true; throw new System.IO.IOException("simulated broken stderr"); }
+        public override void Write(string? value) { WriteAttempted = true; throw new System.IO.IOException("simulated broken stderr"); }
+        public override void WriteLine(string? value) { WriteAttempted = true; throw new System.IO.IOException("simulated broken stderr"); }
     }
 }

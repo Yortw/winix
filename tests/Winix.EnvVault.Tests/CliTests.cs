@@ -370,22 +370,57 @@ public class CliTests
     }
 
     [Fact]
-    public void Set_UserCtrlC_Returns130NoStackTrace()
+    public void Set_UserCtrlC_Returns130WithAcknowledgementOnStderr()
     {
         // DefaultConsolePrompt throws OperationCanceledException when the user hits Ctrl+C during
         // the passphrase prompt (Linux tty raw mode swallows SIGINT). Cli.Run must exit 130
-        // (128 + SIGINT=2) so shell scripts can branch on interrupt.
+        // (128 + SIGINT=2) so shell scripts can branch on interrupt. ALSO: the handler must write
+        // the exception message to stderr so the interactive user can distinguish a cleanly
+        // handled Ctrl+C from an uncaught SIGINT crash (both would otherwise exit 130 silently).
         NullSecretStore store = new();
         FakeConsolePrompt prompt = new(isInteractive: true)
         {
-            ThrowOnNextEchoOff = new System.OperationCanceledException("user cancelled")
+            ThrowOnNextEchoOff = new System.OperationCanceledException("user cancelled via Ctrl+C")
         };
         FakeProcessLauncher launcher = new();
 
         var (code, _, stderr) = Run(new[] { "--set", "x", "K" }, store, launcher, prompt);
 
         Assert.Equal(130, code);
+        Assert.Contains("user cancelled", stderr);
         AssertNoStackTrace(stderr);
+    }
+
+    [Fact]
+    public void Set_BackendThrowsTypeInitWrapper_SurfacesInnerMessage()
+    {
+        // Regression: TypeInitializationException wraps a useful inner message (e.g. "Unable to
+        // load libsecret-1.so.0") in "The type initializer for X threw an exception." The outer
+        // catch must unwrap so the user sees the actionable cause, not the .NET wrapper.
+        var inner = new System.IO.FileNotFoundException("Unable to load shared library 'libsecret-1.so.0'");
+        var wrapper = new System.TypeInitializationException("Winix.SecretStore.LinuxLibsecretStore", inner);
+        ThrowingStoreWith exploder = new(wrapper);
+        FakeConsolePrompt prompt = new(isInteractive: true, ttyValues: new[] { "v" });
+        FakeProcessLauncher launcher = new();
+
+        var (code, _, stderr) = Run(new[] { "--set", "x", "K" }, exploder, launcher, prompt);
+
+        Assert.Equal(Yort.ShellKit.ExitCode.NotExecutable, code);
+        Assert.Contains("libsecret-1.so.0", stderr);
+        Assert.DoesNotContain("type initializer", stderr);
+        AssertNoStackTrace(stderr);
+    }
+
+    /// <summary>ISecretStore whose every op throws a caller-supplied exception. Lets tests force specific exception types (TypeInitializationException, FileNotFoundException, etc.) through the Cli.Run error path.</summary>
+    private sealed class ThrowingStoreWith : Winix.SecretStore.ISecretStore
+    {
+        private readonly System.Exception _ex;
+        public ThrowingStoreWith(System.Exception ex) { _ex = ex; }
+        public void Set(string namespace_, string key, byte[] value) => throw _ex;
+        public byte[]? Get(string namespace_, string key) => throw _ex;
+        public bool Delete(string namespace_, string key) => throw _ex;
+        public System.Collections.Generic.IReadOnlyList<string> ListKeys(string namespace_) => throw _ex;
+        public System.Collections.Generic.IReadOnlyList<string> ListNamespaces(string toolPrefix) => throw _ex;
     }
 
     [Fact]

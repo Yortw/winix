@@ -56,7 +56,17 @@ public sealed class ExecRunner
                     // silence would mask a broken invariant, and the child may fail downstream in
                     // a confusing way (e.g. gh prompts interactively inside CI because GITHUB_TOKEN
                     // wasn't injected). Warn to stderr so the operator can correlate.
-                    _stderr?.WriteLine($"envvault: warning: {ns}.{key} listed but could not be retrieved; not injected into environment");
+                    //
+                    // Wrap in try/catch with silent suppression per the CLAUDE.md "diagnostic
+                    // logging must never fail the caller" rule. If stderr is closed or broken,
+                    // the warning is lost but the exec proceeds normally — we must not convert a
+                    // successful child launch into a failed one just because a diagnostic couldn't
+                    // be emitted.
+                    try
+                    {
+                        _stderr?.WriteLine($"envvault: warning: {ns}.{key} listed but could not be retrieved; not injected into environment");
+                    }
+                    catch { /* diagnostic must never fail the operation */ }
                     continue;
                 }
                 try

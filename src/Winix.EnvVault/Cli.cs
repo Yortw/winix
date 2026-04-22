@@ -72,17 +72,39 @@ public static class Cli
             stderr.WriteLine($"envvault: {ex.Message}");
             return ExitCode.UsageError;
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException ex)
         {
-            // User hit Ctrl+C during an interactive prompt. RunSet already reported partial-success.
-            // Use POSIX 128+SIGINT = 130 — the shell-standard exit code that scripts branch on.
+            // User hit Ctrl+C during an interactive prompt. RunSet may have already reported
+            // partial-success (if any keys landed); even so, always acknowledge the interrupt here
+            // so the first-key-Ctrl+C case isn't indistinguishable from a crash. Exit 130 is
+            // POSIX 128+SIGINT=2, the shell-standard code for scripts.
+            stderr.WriteLine($"envvault: {ex.Message}");
             return 130;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
-            stderr.WriteLine($"envvault: {ex.Message}");
+            // TypeInitializationException wraps the actually-useful error (e.g. "Unable to load
+            // libsecret-1.so.0") in a "The type initializer for X threw an exception" message
+            // with no actionable content. Unwrap it so the user sees the real cause.
+            stderr.WriteLine($"envvault: {UnwrapTypeInit(ex).Message}");
             return ExitCode.NotExecutable;
         }
+    }
+
+    /// <summary>
+    /// Walks past <see cref="TypeInitializationException"/> wrappers to the innermost cause. .NET
+    /// raises TypeInit when a static constructor or native P/Invoke cctor fails; the outer message
+    /// ("The type initializer for X threw an exception.") has no diagnostic value — the actionable
+    /// text is in InnerException.
+    /// </summary>
+    private static Exception UnwrapTypeInit(Exception ex)
+    {
+        Exception current = ex;
+        while (current is TypeInitializationException tie && tie.InnerException != null)
+        {
+            current = tie.InnerException;
+        }
+        return current;
     }
 
     private static int RunSet(EnvVaultOptions o, ISecretStore store, IConsolePrompt prompt, TextWriter stderr)

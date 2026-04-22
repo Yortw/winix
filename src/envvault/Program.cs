@@ -21,7 +21,14 @@ internal sealed class Program
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
-            Console.Error.WriteLine($"envvault: key store unavailable: {ex.Message}");
+            // Unwrap TypeInitializationException: the useful message (e.g. "Unable to load
+            // libsecret-1.so.0") is in InnerException. The wrapper text is actionless noise.
+            Exception surface = ex;
+            while (surface is TypeInitializationException tie && tie.InnerException != null)
+            {
+                surface = tie.InnerException;
+            }
+            Console.Error.WriteLine($"envvault: key store unavailable: {surface.Message}");
             return ExitCode.NotExecutable;
         }
 
