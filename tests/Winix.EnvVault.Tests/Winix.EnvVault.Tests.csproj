@@ -14,5 +14,9 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Winix.EnvVault\Winix.EnvVault.csproj" />
     <ProjectReference Include="..\..\src\Winix.SecretStore\Winix.SecretStore.csproj" />
+    <!-- Build-time dependency on the console app so process-spawn integration tests can invoke
+         the actual compiled binary. ReferenceOutputAssembly=false prevents the app's DLL from
+         being copied into this project's output (would collide with our own assembly resolution). -->
+    <ProjectReference Include="..\..\src\envvault\envvault.csproj" ReferenceOutputAssembly="false" OutputItemType="None" />
   </ItemGroup>
 </Project>
