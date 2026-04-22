@@ -207,6 +207,23 @@ public class ArgParserTests
     }
 
     [Fact]
+    public void ValueConsumesNextToken_ActionFlagAsValue_NotMisdetectedAsAction()
+    {
+        // Regression: `envvault --value --set ns K` means --set is the VALUE of --value. The
+        // pre-scan must exclude value-consumed tokens from the action-flag scan — otherwise it
+        // dispatches to flag mode believing --set was an action, but ShellKit's own parse treats
+        // --set as the value for --value, so the two views disagree.
+        //
+        // With the fix, there's no action flag in the unconsumed leading region, so we fall
+        // through to exec mode (with --value treated as an unusual but legal namespace string).
+        // The critical invariant: we do NOT dispatch to SubCommand.Set.
+        ArgParser.Result r = ArgParser.Parse(new[] { "--value", "--set", "ns", "K" });
+        Assert.NotNull(r.Options);
+        Assert.NotEqual(SubCommand.Set, r.Options!.SubCommand);
+        Assert.Equal(SubCommand.Exec, r.Options.SubCommand);
+    }
+
+    [Fact]
     public void HelpAfterNamespace_BelongsToChildCommand_ExecMode()
     {
         // `envvault github gh --help` — --help is after the first positional so it belongs to the

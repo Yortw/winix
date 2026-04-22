@@ -61,9 +61,13 @@ public static class ArgParser
         // and wrongly dispatch to flag mode. The first bare positional terminates the region — this
         // matches the same rule exec mode uses for --noecho/--require-passphrase.
         //
-        // --value is the only envvault option that takes a following value, so when we see it in the
-        // bare form (`--value X`) we must skip X so a leading `--value hunter2 --set ...` still
-        // recognises --set as an action flag. The `--value=X` form doesn't need special handling.
+        // --value is the only envvault option that takes a following value. When we see the bare
+        // form (`--value X`) we skip X, AND we must remember that X was value-consumed so the
+        // subsequent action-flag/introspection scan doesn't misread it. Otherwise
+        // `envvault --value --set ns K` would see --set at argv[1] and dispatch to flag mode, but
+        // ShellKit would then consume --set as --value's argument — the two views disagree.
+        // The `--value=X` form is a single token and doesn't need special handling.
+        HashSet<int> valueConsumedIndices = new();
         int leadingEnd = 0;
         while (leadingEnd < argv.Count && argv[leadingEnd].StartsWith("-", StringComparison.Ordinal))
         {
@@ -71,10 +75,17 @@ public static class ArgParser
             leadingEnd++;
             if (consumesValue && leadingEnd < argv.Count)
             {
+                valueConsumedIndices.Add(leadingEnd);
                 leadingEnd++;
             }
         }
-        string[] presentActions = argv.Take(leadingEnd)
+
+        string[] leadingUnconsumed = Enumerable.Range(0, leadingEnd)
+            .Where(i => !valueConsumedIndices.Contains(i))
+            .Select(i => argv[i])
+            .ToArray();
+
+        string[] presentActions = leadingUnconsumed
             .Where(a => ActionFlags.Contains(a, StringComparer.Ordinal))
             .ToArray();
         if (presentActions.Length > 1)
@@ -87,7 +98,7 @@ public static class ArgParser
         // from the parser metadata). Without this, `envvault --help` falls into exec mode and
         // errors as "exec form requires a namespace" — which is what the old Program.cs shim was
         // working around by hand-rolling help/version/describe text. That duplication drifted.
-        bool hasIntrospection = argv.Take(leadingEnd)
+        bool hasIntrospection = leadingUnconsumed
             .Any(a => a == "--help" || a == "-h" || a == "--version" || a == "--describe");
 
         if (presentActions.Length == 1 || hasIntrospection)

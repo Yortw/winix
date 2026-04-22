@@ -59,7 +59,11 @@ public static class Cli
                 SubCommand.Get => RunGet(o, store, stdout, stderr, stdoutIsTty),
                 SubCommand.List => RunList(o, store, stdout),
                 SubCommand.Exec => RunExec(o, store, launcher, stderr),
-                _ => ExitCode.NotExecutable,
+                // Any new SubCommand variant added to the enum without a dispatch arm should fail
+                // loudly rather than silently returning a numeric code. The outer try/catch converts
+                // this to 'envvault: unhandled subcommand: X' + exit 126 — still a clean error but
+                // noisy enough to catch in testing.
+                _ => throw new InvalidOperationException($"unhandled subcommand: {o.SubCommand}"),
             };
         }
         catch (EndOfStreamException ex)
