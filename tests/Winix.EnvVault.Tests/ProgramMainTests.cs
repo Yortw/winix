@@ -33,7 +33,13 @@ public class ProgramMainTests
         using Process p = Process.Start(psi) ?? throw new System.InvalidOperationException("failed to start dotnet");
         string stdout = p.StandardOutput.ReadToEnd();
         string stderr = p.StandardError.ReadToEnd();
-        p.WaitForExit();
+        // 30s timeout defends against a pathological CI runner where the spawned process hangs;
+        // without it a test-suite-wide hang is possible.
+        if (!p.WaitForExit(30_000))
+        {
+            p.Kill(entireProcessTree: true);
+            throw new System.TimeoutException("envvault process did not exit within 30 seconds");
+        }
         return (p.ExitCode, stdout, stderr);
     }
 

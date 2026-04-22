@@ -34,7 +34,7 @@ public static class Cli
         }
         if (parsed.Error != null)
         {
-            stderr.WriteLine($"envvault: {parsed.Error}");
+            SafeWriteLine(stderr, $"envvault: {parsed.Error}");
             // Defensive: if a future Fail path forgets to set ExitCode, still surface a non-zero usage code.
             return parsed.ExitCode == 0 ? ExitCode.UsageError : parsed.ExitCode;
         }
@@ -43,7 +43,7 @@ public static class Cli
 
         if (o.RequirePassphrase)
         {
-            stderr.WriteLine(Formatting.RequirePassphraseDeferredError());
+            SafeWriteLine(stderr, Formatting.RequirePassphraseDeferredError());
             return ExitCode.UsageError;
         }
 
@@ -69,7 +69,7 @@ public static class Cli
         catch (EndOfStreamException ex)
         {
             // Piped-stdin underrun from ValuePrompt; RunSet already reported partial-success details.
-            stderr.WriteLine($"envvault: {ex.Message}");
+            SafeWriteLine(stderr, $"envvault: {ex.Message}");
             return ExitCode.UsageError;
         }
         catch (OperationCanceledException ex)
@@ -78,7 +78,7 @@ public static class Cli
             // partial-success (if any keys landed); even so, always acknowledge the interrupt here
             // so the first-key-Ctrl+C case isn't indistinguishable from a crash. Exit 130 is
             // POSIX 128+SIGINT=2, the shell-standard code for scripts.
-            stderr.WriteLine($"envvault: {ex.Message}");
+            SafeWriteLine(stderr, $"envvault: {ex.Message}");
             return 130;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
@@ -86,21 +86,35 @@ public static class Cli
             // TypeInitializationException wraps the actually-useful error (e.g. "Unable to load
             // libsecret-1.so.0") in a "The type initializer for X threw an exception" message
             // with no actionable content. Unwrap it so the user sees the real cause.
-            stderr.WriteLine($"envvault: {UnwrapTypeInit(ex).Message}");
+            SafeWriteLine(stderr, $"envvault: {UnwrapTypeInit(ex).Message}");
             return ExitCode.NotExecutable;
         }
+    }
+
+    /// <summary>
+    /// Best-effort stderr write. Suppresses any exception so a broken pipe, closed stream, or other
+    /// write failure can never mask the real error the caller was trying to report. Per CLAUDE.md:
+    /// "Diagnostic logging must never fail the caller." Without this, a broken stderr during a
+    /// Ctrl+C or backend-error path would convert a clean exit code (130 / 125 / 126) into an
+    /// unhandled-exception CLR crash exit — exactly what the outer try/catch exists to prevent.
+    /// </summary>
+    private static void SafeWriteLine(TextWriter writer, string message)
+    {
+        try { writer.WriteLine(message); } catch { /* diagnostic must never fail the caller */ }
     }
 
     /// <summary>
     /// Walks past <see cref="TypeInitializationException"/> wrappers to the innermost cause. .NET
     /// raises TypeInit when a static constructor or native P/Invoke cctor fails; the outer message
     /// ("The type initializer for X threw an exception.") has no diagnostic value — the actionable
-    /// text is in InnerException.
+    /// text is in InnerException. Also shared with <c>Program.cs</c>'s bootstrap-catch.
     /// </summary>
-    private static Exception UnwrapTypeInit(Exception ex)
+    internal static Exception UnwrapTypeInit(Exception ex)
     {
         Exception current = ex;
-        while (current is TypeInitializationException tie && tie.InnerException != null)
+        // Depth cap is belt-and-braces: .NET cannot produce a self-referencing TypeInitializationException
+        // under normal use, but a malicious or corrupt serialized exception could in theory.
+        for (int depth = 0; depth < 32 && current is TypeInitializationException tie && tie.InnerException != null; depth++)
         {
             current = tie.InnerException;
         }
@@ -112,10 +126,10 @@ public static class Cli
         string fullNs = $"envvault/{o.Namespaces[0]}";
         if (o.ExplicitValue != null)
         {
-            stderr.WriteLine(Formatting.ValueOnArgvWarning());
+            SafeWriteLine(stderr, Formatting.ValueOnArgvWarning());
             if (o.Keys.Count != 1)
             {
-                stderr.WriteLine("envvault: --value can only set exactly one key");
+                SafeWriteLine(stderr, "envvault: --value can only set exactly one key");
                 return ExitCode.UsageError;
             }
             store.Set(fullNs, o.Keys[0], Encoding.UTF8.GetBytes(o.ExplicitValue));
@@ -138,7 +152,7 @@ public static class Cli
             // Without this, a mid-loop failure silently leaves the namespace half-populated.
             if (stored.Count > 0)
             {
-                stderr.WriteLine($"envvault: partial success: stored [{string.Join(", ", stored)}]; remaining keys were not written");
+                SafeWriteLine(stderr, $"envvault: partial success: stored [{string.Join(", ", stored)}]; remaining keys were not written");
             }
             throw;
         }
@@ -151,7 +165,7 @@ public static class Cli
         bool removed = store.Delete(fullNs, o.Keys[0]);
         if (!removed)
         {
-            stderr.WriteLine($"envvault: {o.Namespaces[0]}.{o.Keys[0]}: not found");
+            SafeWriteLine(stderr, $"envvault: {o.Namespaces[0]}.{o.Keys[0]}: not found");
             return ExitCode.NotFound;
         }
         return 0;
@@ -163,12 +177,12 @@ public static class Cli
         byte[]? value = store.Get(fullNs, o.Keys[0]);
         if (value == null)
         {
-            stderr.WriteLine($"envvault: {o.Namespaces[0]}.{o.Keys[0]}: not found");
+            SafeWriteLine(stderr, $"envvault: {o.Namespaces[0]}.{o.Keys[0]}: not found");
             return ExitCode.NotFound;
         }
         if (stdoutIsTty)
         {
-            stderr.WriteLine(Formatting.GetToTtyWarning());
+            SafeWriteLine(stderr, Formatting.GetToTtyWarning());
         }
         try
         {
@@ -176,7 +190,7 @@ public static class Cli
         }
         catch (DecoderFallbackException ex)
         {
-            stderr.WriteLine($"envvault: stored value for {o.Namespaces[0]}.{o.Keys[0]} is not valid UTF-8: {ex.Message}");
+            SafeWriteLine(stderr, $"envvault: stored value for {o.Namespaces[0]}.{o.Keys[0]} is not valid UTF-8: {ex.Message}");
             return ExitCode.NotExecutable;
         }
         stdout.Write('\n');
@@ -219,17 +233,17 @@ public static class Cli
                 5 or 13 => ExitCode.NotExecutable,
                 _ => ExitCode.NotExecutable,
             };
-            stderr.WriteLine($"envvault: {o.CommandArgv[0]}: {ex.Message}");
+            SafeWriteLine(stderr, $"envvault: {o.CommandArgv[0]}: {ex.Message}");
             return code;
         }
         catch (FileNotFoundException ex)
         {
-            stderr.WriteLine($"envvault: {o.CommandArgv[0]}: {ex.Message}");
+            SafeWriteLine(stderr, $"envvault: {o.CommandArgv[0]}: {ex.Message}");
             return ExitCode.NotFound;
         }
         catch (UnauthorizedAccessException ex)
         {
-            stderr.WriteLine($"envvault: {o.CommandArgv[0]}: {ex.Message}");
+            SafeWriteLine(stderr, $"envvault: {o.CommandArgv[0]}: {ex.Message}");
             return ExitCode.NotExecutable;
         }
         // Other exceptions (ISecretStore failures during env merge) propagate to the outer handler.

@@ -499,6 +499,52 @@ public class CliTests
         AssertNoStackTrace(stderr);
     }
 
+    [Fact]
+    public void Set_CtrlCWithBrokenStderr_StillReturns130NoThrow()
+    {
+        // Regression guard for C1 from the second-delta review: the OperationCanceledException
+        // handler writes to stderr before returning 130. If stderr is broken (closed pipe, disposed
+        // stream), the unguarded WriteLine would escape Cli.Run and the process would crash with a
+        // stack trace + CLR exit code instead of 130. SafeWriteLine must suppress the stderr throw.
+        NullSecretStore store = new();
+        FakeConsolePrompt prompt = new(isInteractive: true)
+        {
+            ThrowOnNextEchoOff = new System.OperationCanceledException("user cancelled")
+        };
+        FakeProcessLauncher launcher = new();
+        BrokenWriter stdout = new();
+        BrokenWriter stderr = new();
+
+        int code = Cli.Run(new[] { "--set", "x", "K" }, store, launcher, prompt, stdout, stderr);
+
+        Assert.Equal(130, code);
+    }
+
+    [Fact]
+    public void Set_BackendThrowsWithBrokenStderr_StillReturnsPosixCode()
+    {
+        // Regression guard: the outer generic catch also writes stderr. If stderr is broken,
+        // SafeWriteLine must suppress so Cli.Run returns NotExecutable (126) — not a CLR crash.
+        ThrowingSecretStore store = new("backend boom");
+        FakeConsolePrompt prompt = new(isInteractive: true, ttyValues: new[] { "v" });
+        FakeProcessLauncher launcher = new();
+        BrokenWriter stdout = new();
+        BrokenWriter stderr = new();
+
+        int code = Cli.Run(new[] { "--set", "x", "K" }, store, launcher, prompt, stdout, stderr);
+
+        Assert.Equal(Yort.ShellKit.ExitCode.NotExecutable, code);
+    }
+
+    /// <summary>TextWriter that throws on every write — simulates a closed/broken stderr or stdout handle.</summary>
+    private sealed class BrokenWriter : System.IO.TextWriter
+    {
+        public override System.Text.Encoding Encoding => System.Text.Encoding.UTF8;
+        public override void Write(char value) => throw new System.IO.IOException("broken stream");
+        public override void Write(string? value) => throw new System.IO.IOException("broken stream");
+        public override void WriteLine(string? value) => throw new System.IO.IOException("broken stream");
+    }
+
     /// <summary>Prompt fake that serves one good value then throws OperationCanceledException on the next read.</summary>
     private sealed class CtrlCAfterFirstPrompt : IConsolePrompt
     {
