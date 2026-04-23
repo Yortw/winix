@@ -6,6 +6,11 @@ namespace Winix.EnvVault.Tests;
 
 public class FormattingTests
 {
+    // ANSI CSI prefix — ESC followed by '['. Centralised here so the test assertions express
+    // intent clearly and don't depend on anyone recognising a raw 0x1B character in source.
+    private const string Csi = "[";
+    private const string SgrReset = "[0m";
+
     [Fact]
     public void FormatNamespaceList_Plain_OneNamespacePerLine()
     {
@@ -81,6 +86,52 @@ public class FormattingTests
         Assert.Equal("line\none", doc.RootElement[0].GetString());
         Assert.Equal("tab\there", doc.RootElement[1].GetString());
         Assert.Equal("null\0byte", doc.RootElement[2].GetString());
+    }
+
+    [Fact]
+    public void ErrorLine_UseColorTrue_WrapsWithRedCsiAndReset()
+    {
+        // I-R6-1 (round 6): the useColor branch of ErrorLine was plumbed through every call site
+        // in round 5, but no test actually exercised the true branch. A regression that dropped
+        // the AnsiColor.Reset(true) at the tail would leak red colouring onto the shell prompt
+        // after envvault exits — invisible to tests that only run with useColor:false.
+        string colored = Formatting.ErrorLine("boom", useColor: true);
+        Assert.StartsWith(Csi, colored);                         // ANSI CSI prefix (red SGR)
+        Assert.Contains("envvault: boom", colored);              // message content preserved
+        Assert.EndsWith(SgrReset, colored);                      // closes the SGR so nothing leaks
+
+        // And confirm plain mode omits all escapes (no regression in the opposite direction).
+        string plain = Formatting.ErrorLine("boom", useColor: false);
+        Assert.DoesNotContain(Csi, plain);
+        Assert.Equal("envvault: boom", plain);
+    }
+
+    [Fact]
+    public void WarningLine_UseColorTrue_WrapsWithYellowCsiAndReset()
+    {
+        // Mirror of the Error test for the yellow branch. A colour-emission regression on warnings
+        // is less severe than on errors (warnings are informational) but still worth pinning.
+        string colored = Formatting.WarningLine("careful", useColor: true);
+        Assert.StartsWith(Csi, colored);
+        Assert.Contains("envvault: warning: careful", colored);
+        Assert.EndsWith(SgrReset, colored);
+
+        string plain = Formatting.WarningLine("careful", useColor: false);
+        Assert.DoesNotContain(Csi, plain);
+        Assert.Equal("envvault: warning: careful", plain);
+    }
+
+    [Fact]
+    public void ValueOnArgvWarning_UseColorTrue_EmitsYellowWrappedWarning()
+    {
+        // Round-trip verify that the canonical warning messages route through WarningLine and
+        // therefore honour useColor. A regression that bypassed WarningLine to emit plain text
+        // would break NO_COLOR opt-out parity for this specific warning.
+        string colored = Formatting.ValueOnArgvWarning(useColor: true);
+        Assert.StartsWith(Csi, colored);
+        Assert.EndsWith(SgrReset, colored);
+        Assert.Contains("warning:", colored);
+        Assert.Contains("argv", colored);
     }
 
     [Fact]

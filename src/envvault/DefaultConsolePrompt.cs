@@ -31,6 +31,11 @@ internal sealed class DefaultConsolePrompt : IConsolePrompt
                 case KeyOutcome.Edit:
                 case KeyOutcome.Ignore:
                     continue;
+                default:
+                    // Belt-and-braces: adding a new KeyOutcome variant without extending this switch
+                    // would otherwise fall through and loop forever with no user feedback. Throw loudly
+                    // so the gap is caught in testing rather than in a hung prompt in production.
+                    throw new InvalidOperationException($"unhandled KeyOutcome: {outcome}");
             }
         }
     }

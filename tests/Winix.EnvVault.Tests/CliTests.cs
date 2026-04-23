@@ -732,6 +732,36 @@ public class CliTests
     }
 
     [Fact]
+    public void List_WithNamespaceAndJsonFlag_EmitsKeyJsonArrayToStdout()
+    {
+        // I-R6-5 (round 6): end-to-end pin for the `--list <NS> --json` path (key enumeration).
+        // FormattingTests covers FormatKeyList directly but no Cli-level test exercised the
+        // Cli.RunList branch that dispatches to FormatKeyList with json:true. A regression in
+        // that plumbing (e.g. --json not propagating into EnvVaultOptions.JsonOutput for the
+        // single-namespace case) would emit plain key lines while tests still passed.
+        NullSecretStore store = new();
+        store.Set("envvault/github", "TOKEN", new byte[] { 1 });
+        store.Set("envvault/github", "USER", new byte[] { 2 });
+        FakeConsolePrompt prompt = new(isInteractive: true);
+        FakeProcessLauncher launcher = new();
+
+        var (code, stdout, _) = Run(new[] { "--list", "github", "--json" }, store, launcher, prompt);
+
+        Assert.Equal(0, code);
+        Assert.EndsWith("]\n", stdout);
+        System.Text.Json.JsonDocument doc = System.Text.Json.JsonDocument.Parse(stdout.TrimEnd('\n'));
+        Assert.Equal(System.Text.Json.JsonValueKind.Array, doc.RootElement.ValueKind);
+        System.Collections.Generic.HashSet<string> keyNames = new();
+        foreach (var el in doc.RootElement.EnumerateArray())
+        {
+            Assert.Equal(System.Text.Json.JsonValueKind.String, el.ValueKind);
+            keyNames.Add(el.GetString()!);
+        }
+        Assert.Contains("TOKEN", keyNames);
+        Assert.Contains("USER", keyNames);
+    }
+
+    [Fact]
     public void List_WithJsonFlag_OutputIsValidStructuralJsonArrayOfStrings()
     {
         // C3 structural: the previous test only asserted Contains + StartsWith/EndsWith. A regression

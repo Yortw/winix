@@ -73,7 +73,7 @@ envvault uses POSIX convention codes (125/126/127) per the Winix suite standard,
 | 125 | Usage error — bad flags, missing arguments, conflicting options, empty value without `--allow-empty`, deferred feature (`--require-passphrase`) used, stdin EOF before all `--set` values supplied, unknown leading flag in exec form (e.g. typo of `--noecho`). |
 | 126 | Runtime error — key store unavailable, permission denied launching child command, stored value not valid UTF-8. |
 | 127 | Not found — namespace or key missing on `--get`/`--unset`; command for exec form not on PATH. |
-| 130 | User interrupted (Ctrl+C during passphrase prompt). |
+| 130 | User interrupted (Ctrl+C during interactive value prompt). |
 | *N* | Exec form: child process exit code when spawn succeeded. |
 
 Scripts branching on these codes should use the numeric literals above; envvault guarantees never to emit an unhandled-exception stack trace, so any non-zero code is a tool-level classification signal.

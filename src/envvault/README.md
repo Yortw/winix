@@ -126,7 +126,7 @@ envvault --list --json       # machine-readable output
 | 125 | Usage error — bad flags, missing arguments, conflicting options, empty value without `--allow-empty`, deferred feature used (`--require-passphrase`). |
 | 126 | Runtime error — key store unavailable, permission denied launching child command. |
 | 127 | Not found — namespace or key missing for `--get`/`--unset`; command for exec form not on PATH. |
-| 130 | Interrupted — user pressed Ctrl+C during an interactive passphrase prompt (POSIX `128 + SIGINT`). |
+| 130 | Interrupted — user pressed Ctrl+C during an interactive value prompt (POSIX `128 + SIGINT`). |
 | * | Exec form: on success or child failure, passes through the child process's exit code. |
 
 ## Coming from envchain?

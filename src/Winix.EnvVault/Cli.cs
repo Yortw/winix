@@ -125,7 +125,9 @@ public static class Cli
         string fullNs = $"envvault/{o.Namespaces[0]}";
         if (o.ExplicitValue != null)
         {
-            SafeWriteLine(stderr, Formatting.ValueOnArgvWarning(o.UseColor));
+            // Validate BEFORE emitting the argv-leak warning: there's nothing to leak for an empty
+            // value, and firing the warning before the error reads like "your secret is on argv"
+            // followed by an unrelated error, which misleads the user into thinking a leak occurred.
             if (o.Keys.Count != 1)
             {
                 SafeWriteLine(stderr, Formatting.ErrorLine("--value can only set exactly one key", o.UseColor));
@@ -142,6 +144,8 @@ public static class Cli
                     o.UseColor));
                 return ExitCode.UsageError;
             }
+            // Only emit the argv-leak warning when we're actually about to store a non-empty value.
+            SafeWriteLine(stderr, Formatting.ValueOnArgvWarning(o.UseColor));
             try
             {
                 store.Set(fullNs, o.Keys[0], Encoding.UTF8.GetBytes(o.ExplicitValue));

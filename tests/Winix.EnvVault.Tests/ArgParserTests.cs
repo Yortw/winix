@@ -316,4 +316,62 @@ public class ArgParserTests
         Assert.Equal(SubCommand.Exec, r.Options!.SubCommand);
         Assert.Equal(new[] { "gh", "--help" }, r.Options.CommandArgv);
     }
+
+    // I-R6-2 (round 6): exec-mode colour-flag branches.
+    // Exec mode's hand-rolled colour resolution (ArgParser.ParseExecMode) bypasses ShellKit's
+    // ParseResult.ResolveColor. Round 5 added the NO_COLOR env-var check for this path; round 6
+    // adds direct flag-override coverage. A regression that mis-ordered the flag/env precedence
+    // would be invisible to pure env-var testing.
+
+    [Fact]
+    public void ExecMode_ColorFlag_ForcesUseColorTrue()
+    {
+        // Even with NO_COLOR set in env, an explicit --color on argv wins. Matches ShellKit's
+        // ResolveUseColor precedence (explicit flag > NO_COLOR env > terminal auto-detect).
+        string? prior = System.Environment.GetEnvironmentVariable("NO_COLOR");
+        try
+        {
+            System.Environment.SetEnvironmentVariable("NO_COLOR", "1");
+            ArgParser.Result r = ArgParser.Parse(new[] { "--color", "ns", "cmd" });
+            Assert.NotNull(r.Options);
+            Assert.True(r.Options!.UseColor);
+            Assert.True(r.UseColor);
+        }
+        finally
+        {
+            System.Environment.SetEnvironmentVariable("NO_COLOR", prior);
+        }
+    }
+
+    [Fact]
+    public void ExecMode_NoColorFlag_ForcesUseColorFalse()
+    {
+        // Symmetric: --no-color forces off even when no NO_COLOR env and stderr would otherwise
+        // auto-enable. (In the test process stderr is redirected so this is a weaker signal, but
+        // the precedence walk still has to hit the no-color branch first.)
+        ArgParser.Result r = ArgParser.Parse(new[] { "--no-color", "ns", "cmd" });
+        Assert.NotNull(r.Options);
+        Assert.False(r.Options!.UseColor);
+        Assert.False(r.UseColor);
+    }
+
+    [Fact]
+    public void ExecMode_UnknownFlagRejection_HonoursNoColorEnvForErrorFraming()
+    {
+        // The unknown-flag rejection path (R5 I3 fix) does its own colour resolution inline.
+        // Verify it honours NO_COLOR so the rejection message itself isn't coloured when the
+        // user has opted out globally.
+        string? prior = System.Environment.GetEnvironmentVariable("NO_COLOR");
+        try
+        {
+            System.Environment.SetEnvironmentVariable("NO_COLOR", "1");
+            ArgParser.Result r = ArgParser.Parse(new[] { "--bogus-flag", "ns", "cmd" });
+            Assert.NotNull(r.Error);
+            Assert.False(r.UseColor);
+        }
+        finally
+        {
+            System.Environment.SetEnvironmentVariable("NO_COLOR", prior);
+        }
+    }
 }
