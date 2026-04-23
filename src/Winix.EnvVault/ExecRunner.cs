@@ -20,6 +20,7 @@ public sealed class ExecRunner
     private readonly ISecretStore _store;
     private readonly IProcessLauncher _launcher;
     private readonly TextWriter? _stderr;
+    private readonly bool _useColor;
 
     // Strict UTF-8: reject invalid byte sequences rather than silently substituting U+FFFD. For a
     // tool whose job is secret-fidelity, silent character replacement is a correctness defect —
@@ -29,12 +30,13 @@ public sealed class ExecRunner
         encoderShouldEmitUTF8Identifier: false,
         throwOnInvalidBytes: true);
 
-    /// <summary>Creates a runner bound to a secret store and a process launcher. <paramref name="stderr"/> receives TOCTOU warnings; pass null to suppress them (tests).</summary>
-    public ExecRunner(ISecretStore store, IProcessLauncher launcher, TextWriter? stderr = null)
+    /// <summary>Creates a runner bound to a secret store and a process launcher. <paramref name="stderr"/> receives TOCTOU warnings; pass null to suppress them (tests). <paramref name="useColor"/> enables ANSI colouring of diagnostic lines.</summary>
+    public ExecRunner(ISecretStore store, IProcessLauncher launcher, TextWriter? stderr = null, bool useColor = false)
     {
         _store = store;
         _launcher = launcher;
         _stderr = stderr;
+        _useColor = useColor;
     }
 
     /// <summary>
@@ -66,7 +68,9 @@ public sealed class ExecRunner
                     // be emitted.
                     try
                     {
-                        _stderr?.WriteLine($"envvault: warning: {ns}.{key} listed but could not be retrieved; not injected into environment");
+                        _stderr?.WriteLine(Formatting.WarningLine(
+                            $"{ns}.{key} listed but could not be retrieved; not injected into environment",
+                            _useColor));
                     }
                     catch { /* diagnostic must never fail the operation */ }
                     continue;
@@ -92,9 +96,10 @@ public sealed class ExecRunner
         {
             try
             {
-                _stderr?.WriteLine(
-                    $"envvault: warning: no env variables found for namespace(s) [{string.Join(", ", namespaces)}]; " +
-                    "child will run with inherited env only (typo?)");
+                _stderr?.WriteLine(Formatting.WarningLine(
+                    $"no env variables found for namespace(s) [{string.Join(", ", namespaces)}]; " +
+                    "child will run with inherited env only (typo?)",
+                    _useColor));
             }
             catch { /* diagnostic must never fail the operation */ }
         }
@@ -120,17 +125,17 @@ public sealed class ExecRunner
                 5 or 13 => ExitCode.NotExecutable,
                 _ => ExitCode.NotExecutable,
             };
-            try { _stderr?.WriteLine($"envvault: {fileName}: {ex.Message}"); } catch { }
+            try { _stderr?.WriteLine(Formatting.ErrorLine($"{fileName}: {ex.Message}", _useColor)); } catch { }
             return code;
         }
         catch (FileNotFoundException ex)
         {
-            try { _stderr?.WriteLine($"envvault: {fileName}: {ex.Message}"); } catch { }
+            try { _stderr?.WriteLine(Formatting.ErrorLine($"{fileName}: {ex.Message}", _useColor)); } catch { }
             return ExitCode.NotFound;
         }
         catch (UnauthorizedAccessException ex)
         {
-            try { _stderr?.WriteLine($"envvault: {fileName}: {ex.Message}"); } catch { }
+            try { _stderr?.WriteLine(Formatting.ErrorLine($"{fileName}: {ex.Message}", _useColor)); } catch { }
             return ExitCode.NotExecutable;
         }
     }

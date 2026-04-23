@@ -32,7 +32,7 @@ public class FormattingTests
     [Fact]
     public void RequirePassphraseError_MentionsV11AndNativeBackend()
     {
-        string s = Formatting.RequirePassphraseDeferredError();
+        string s = Formatting.RequirePassphraseDeferredError(useColor: false);
         Assert.Contains("v1.1", s);
         Assert.Contains("native", s, System.StringComparison.OrdinalIgnoreCase);
     }
@@ -40,7 +40,7 @@ public class FormattingTests
     [Fact]
     public void ValueOnArgvWarning_MentionsArgvAndHistory()
     {
-        string s = Formatting.ValueOnArgvWarning();
+        string s = Formatting.ValueOnArgvWarning(useColor: false);
         Assert.Contains("argv", s, System.StringComparison.OrdinalIgnoreCase);
         Assert.Contains("history", s, System.StringComparison.OrdinalIgnoreCase);
     }
@@ -88,7 +88,7 @@ public class FormattingTests
     {
         // Regression: ensure the warning text still advises the exec-form alternative. Future
         // message rewrites shouldn't silently drop the advice that makes the warning actionable.
-        string s = Formatting.GetToTtyWarning();
+        string s = Formatting.GetToTtyWarning(useColor: false);
         Assert.Contains("scrollback", s, System.StringComparison.OrdinalIgnoreCase);
         Assert.Contains("envvault", s, System.StringComparison.OrdinalIgnoreCase);
         // The suggested invocation MUST NOT include a '--' separator — envvault's exec form does

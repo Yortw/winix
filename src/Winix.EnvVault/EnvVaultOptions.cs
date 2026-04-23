@@ -38,8 +38,19 @@ namespace Winix.EnvVault;
 /// User requested passphrase-protected storage. Deferred to v1.1; <see cref="Cli.Run"/> surfaces
 /// <see cref="Formatting.RequirePassphraseDeferredError"/> and exits before any storage operation.
 /// </param>
-/// <param name="UseColor">Whether ANSI colour is enabled for output (derived from <c>--color</c>/<c>--no-color</c>/<c>NO_COLOR</c>).</param>
+/// <param name="UseColor">
+/// Whether ANSI colour is enabled for output. In flag mode derived via ShellKit's <c>ParseResult.ResolveColor</c>
+/// (which consults <c>--color</c>/<c>--no-color</c>, <c>NO_COLOR</c>, then terminal state). In exec mode
+/// initialised from <c>NO_COLOR</c> and stderr terminal state, then overridden by any <c>--color</c>/<c>--no-color</c>
+/// in the leading-flag region. Consumed by <see cref="Formatting.ErrorLine"/>/<see cref="Formatting.WarningLine"/>.
+/// </param>
 /// <param name="JsonOutput">Emit machine-readable JSON for <c>--list</c> instead of newline-delimited text.</param>
+/// <param name="AllowEmpty">
+/// Allow <c>--set</c> to store an empty-string value. By default envvault refuses empty values because
+/// the silent-store case — user hits Enter at the prompt or passes <c>--value ""</c> — is the exact
+/// footgun envvault exists to prevent: a child command then fails with "credentials invalid" hours later.
+/// Pass this flag when an empty value is intentional (envchain-compat scenarios).
+/// </param>
 public sealed record EnvVaultOptions(
     SubCommand SubCommand,
     IReadOnlyList<string> Namespaces,
@@ -49,4 +60,5 @@ public sealed record EnvVaultOptions(
     bool NoEcho,
     bool RequirePassphrase,
     bool UseColor,
-    bool JsonOutput);
+    bool JsonOutput,
+    bool AllowEmpty = false);

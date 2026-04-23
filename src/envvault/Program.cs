@@ -14,6 +14,11 @@ internal sealed class Program
         ConsoleEnv.EnableAnsiIfNeeded();
         ConsoleEnv.UseUtf8Streams();
 
+        // Bootstrap-time colour resolution: ArgParser's flag-mode parser hasn't run yet when the
+        // store-creation or Cli.Run-leak errors below fire, so consult the environment directly.
+        // Matches what ShellKit.ConsoleEnv.ResolveUseColor does for the parsed-flag case.
+        bool useColor = !ConsoleEnv.IsNoColorEnvSet() && ConsoleEnv.IsTerminal(checkStdErr: true);
+
         ISecretStore store;
         try
         {
@@ -32,7 +37,7 @@ internal sealed class Program
             string label = surface is PlatformNotSupportedException
                 ? "platform not supported"
                 : "key store unavailable";
-            SafeWriteLine(Console.Error, $"envvault: {label}: {surface.Message}");
+            SafeWriteLine(Console.Error, Formatting.ErrorLine($"{label}: {surface.Message}", useColor));
             return ExitCode.NotExecutable;
         }
 
@@ -50,7 +55,7 @@ internal sealed class Program
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
-            SafeWriteLine(Console.Error, $"envvault: {Cli.UnwrapTypeInit(ex).Message}");
+            SafeWriteLine(Console.Error, Formatting.ErrorLine(Cli.UnwrapTypeInit(ex).Message, useColor));
             return ExitCode.NotExecutable;
         }
     }

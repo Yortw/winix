@@ -1,6 +1,7 @@
 #nullable enable
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using Winix.EnvVault;
 
 namespace EnvVault;
@@ -25,7 +26,13 @@ internal sealed class DefaultProcessLauncher : IProcessLauncher
             psi.Environment[kvp.Key] = kvp.Value;
         }
 
-        using Process p = Process.Start(psi) ?? throw new System.InvalidOperationException($"Failed to start '{fileName}'.");
+        // Throw FileNotFoundException (not InvalidOperationException) when Process.Start returns
+        // null so ExecRunner's scoped FileNotFoundException catch handles it — giving a consistent
+        // "envvault: <cmd>: Failed to start 'X'" message with the child-command prefix that every
+        // other launcher-failure path produces. Without this, Process.Start's null-return case falls
+        // through to Cli.Run's catch-all and loses the cmd-prefix framing.
+        using Process p = Process.Start(psi) ?? throw new FileNotFoundException(
+            $"Failed to start '{fileName}' (Process.Start returned null).", fileName);
         p.WaitForExit();
         return p.ExitCode;
     }

@@ -38,21 +38,47 @@ public static class Formatting
         return sb.ToString();
     }
 
+    /// <summary>
+    /// Format an error line with the standard <c>envvault:</c> prefix. Red when <paramref name="useColor"/>
+    /// is true. The entire line (prefix + message) is wrapped in the colour code — matches the pattern
+    /// used by <c>Winix.NetCat.Formatting.FormatErrorLine</c> for consistency across the suite.
+    /// </summary>
+    public static string ErrorLine(string message, bool useColor) =>
+        useColor
+            ? AnsiColor.Red(true) + "envvault: " + message + AnsiColor.Reset(true)
+            : "envvault: " + message;
+
+    /// <summary>
+    /// Format a warning line with the standard <c>envvault: warning:</c> prefix. Yellow when
+    /// <paramref name="useColor"/> is true. Prefixing every warning consistently lets shell users
+    /// grep for warnings without ambiguity.
+    /// </summary>
+    public static string WarningLine(string message, bool useColor) =>
+        useColor
+            ? AnsiColor.Yellow(true) + "envvault: warning: " + message + AnsiColor.Reset(true)
+            : "envvault: warning: " + message;
+
     /// <summary>Warning text when the user supplied a secret via <c>--value</c>: secrets on argv are visible to ps(1) and may land in shell history.</summary>
-    public static string ValueOnArgvWarning() =>
-        "warning: --value puts the secret on argv, which is visible via ps(1) and may be written to shell history. "
-        + "Prefer an interactive prompt or --set reading from stdin where possible.";
+    public static string ValueOnArgvWarning(bool useColor) =>
+        WarningLine(
+            "--value puts the secret on argv, which is visible via ps(1) and may be written to shell history. "
+            + "Prefer an interactive prompt or --set reading from stdin where possible.",
+            useColor);
 
     /// <summary>Warning text emitted when <c>--get</c> writes a secret to a tty: plaintext may persist in terminal scrollback.</summary>
-    public static string GetToTtyWarning() =>
-        "warning: --get output to a tty may land in scrollback. Prefer 'envvault <NAMESPACE> <cmd>' so the value "
-        + "is injected into the child environment and never printed.";
+    public static string GetToTtyWarning(bool useColor) =>
+        WarningLine(
+            "--get output to a tty may land in scrollback. Prefer 'envvault <NAMESPACE> <cmd>' so the value "
+            + "is injected into the child environment and never printed.",
+            useColor);
 
     /// <summary>Error message surfaced when the user passes <c>--require-passphrase</c> in v1 (deferred to v1.1 with native Security.framework backend).</summary>
-    public static string RequirePassphraseDeferredError() =>
-        "--require-passphrase requires the native macOS Security.framework backend (v1.1). "
-        + "The v1 macOS implementation uses the 'security' CLI wrapper, which cannot set item ACLs. "
-        + "Omit the flag to use default Keychain access; the v1.1 release will add passphrase-protected entries.";
+    public static string RequirePassphraseDeferredError(bool useColor) =>
+        ErrorLine(
+            "--require-passphrase requires the native macOS Security.framework backend (v1.1). "
+            + "The v1 macOS implementation uses the 'security' CLI wrapper, which cannot set item ACLs. "
+            + "Omit the flag to use default Keychain access; the v1.1 release will add passphrase-protected entries.",
+            useColor);
 
     // Uses the shared ShellKit helper so control characters (\n, \t, \0, etc.) in a namespace or
     // key name are correctly JSON-escaped. The previous hand-rolled version only escaped \ and "

@@ -163,6 +163,7 @@ public static class ArgParser
         // paired --x/--no-x flags and avoids surprise if the user scripts defaults then overrides.
         bool requirePassphrase = parsed.Has("--require-passphrase") && !parsed.Has("--no-require-passphrase");
         bool jsonOutput = parsed.Has("--json");
+        bool allowEmpty = parsed.Has("--allow-empty");
 
         EnvVaultOptions options = new(
             sub,
@@ -173,7 +174,8 @@ public static class ArgParser
             NoEcho: noEcho,
             RequirePassphrase: requirePassphrase,
             UseColor: useColor,
-            JsonOutput: jsonOutput);
+            JsonOutput: jsonOutput,
+            AllowEmpty: allowEmpty);
         return new Result(options, null, false, 0, useColor);
     }
 
@@ -188,21 +190,50 @@ public static class ArgParser
         bool noEcho = false;
         bool rpSeen = false;
         bool noRpSeen = false;
-        bool useColor = true;
+        // Exec mode bypasses ShellKit's parser, so it must re-implement NO_COLOR/terminal detection.
+        // Without this, exec-mode diagnostic writes ignored NO_COLOR entirely — a subtle contract
+        // violation (no-color.org says "command-line software which adds ANSI color to its output by
+        // default should check for the presence of NO_COLOR"). Stderr is checked (not stdout) because
+        // all envvault diagnostic lines go to stderr.
+        bool colorFlag = false;
+        bool noColorFlag = false;
 
         int i = 0;
-        while (i < argv.Count && ExecModeLeadingFlags.Contains(argv[i]))
+        while (i < argv.Count && argv[i].StartsWith("-", StringComparison.Ordinal))
         {
+            // POSIX end-of-options: everything after `--` is positional, even if flag-shaped. Lets
+            // users invoke commands whose name/args start with a dash (e.g. `envvault -- - cmd`).
+            if (argv[i] == "--")
+            {
+                i++;
+                break;
+            }
+            // Unknown leading flag: fail loudly rather than silently treating it as the namespace.
+            // Without this, `envvault --noech github gh` (typo) treats "--noech" as the namespace
+            // and "github" as the command — a three-hop-confusing failure. Match flag mode's
+            // behaviour where ShellKit rejects unknown flags.
+            if (!ExecModeLeadingFlags.Contains(argv[i]))
+            {
+                bool useColorForError = Yort.ShellKit.ConsoleEnv.ResolveUseColor(
+                    colorFlag, noColorFlag, Yort.ShellKit.ConsoleEnv.IsNoColorEnvSet(),
+                    Yort.ShellKit.ConsoleEnv.IsTerminal(checkStdErr: true));
+                return new Result(null, $"unknown option: {argv[i]}", false, ExitCode.UsageError, useColorForError);
+            }
             switch (argv[i])
             {
                 case "--noecho": noEcho = true; break;
                 case "--require-passphrase": rpSeen = true; break;
                 case "--no-require-passphrase": noRpSeen = true; break;
-                case "--color": useColor = true; break;
-                case "--no-color": useColor = false; break;
+                case "--color": colorFlag = true; break;
+                case "--no-color": noColorFlag = true; break;
             }
             i++;
         }
+
+        bool useColor = Yort.ShellKit.ConsoleEnv.ResolveUseColor(
+            colorFlag, noColorFlag,
+            Yort.ShellKit.ConsoleEnv.IsNoColorEnvSet(),
+            Yort.ShellKit.ConsoleEnv.IsTerminal(checkStdErr: true));
 
         // Match flag mode's precedence: explicit opt-out always wins regardless of ordering. Previously
         // exec mode was last-writer-wins which disagreed with flag mode's opt-out-wins behaviour.
@@ -286,6 +317,7 @@ public static class ArgParser
             .Flag("--get", "Print the value of KEY in NAMESPACE to stdout.")
             .Flag("--unset", "Delete KEY from NAMESPACE.")
             .Option("--value", null, "VALUE", "Explicit value for --set (alternative to stdin prompting). Be careful with shell history.")
+            .Flag("--allow-empty", "Allow --set to store an empty string. By default envvault refuses empty values because silently storing \"\" is the exact footgun the tool exists to prevent (child command fails hours later with 'invalid credentials').")
             .Flag("--noecho", "Accepted for envchain compatibility (we never echo by default).")
             .Flag("--require-passphrase", "Defer decryption to a passphrase prompt. Accepted as a flag but not yet implemented — returns an error until v1.1.")
             .Flag("--no-require-passphrase", "Explicitly disable passphrase mode (default).")

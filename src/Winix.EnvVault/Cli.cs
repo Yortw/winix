@@ -33,7 +33,7 @@ public static class Cli
         }
         if (parsed.Error != null)
         {
-            SafeWriteLine(stderr, $"envvault: {parsed.Error}");
+            SafeWriteLine(stderr, Formatting.ErrorLine(parsed.Error, parsed.UseColor));
             // Defensive: if a future Fail path forgets to set ExitCode, still surface a non-zero usage code.
             return parsed.ExitCode == 0 ? ExitCode.UsageError : parsed.ExitCode;
         }
@@ -42,7 +42,7 @@ public static class Cli
 
         if (o.RequirePassphrase)
         {
-            SafeWriteLine(stderr, Formatting.RequirePassphraseDeferredError());
+            SafeWriteLine(stderr, Formatting.RequirePassphraseDeferredError(o.UseColor));
             return ExitCode.UsageError;
         }
 
@@ -68,7 +68,7 @@ public static class Cli
         catch (EndOfStreamException ex)
         {
             // Piped-stdin underrun from ValuePrompt; RunSet already reported partial-success details.
-            SafeWriteLine(stderr, $"envvault: {ex.Message}");
+            SafeWriteLine(stderr, Formatting.ErrorLine(ex.Message, o.UseColor));
             return ExitCode.UsageError;
         }
         catch (OperationCanceledException ex)
@@ -77,7 +77,7 @@ public static class Cli
             // partial-success (if any keys landed); even so, always acknowledge the interrupt here
             // so the first-key-Ctrl+C case isn't indistinguishable from a crash. Exit 130 is
             // POSIX 128+SIGINT=2, the shell-standard code for scripts.
-            SafeWriteLine(stderr, $"envvault: {ex.Message}");
+            SafeWriteLine(stderr, Formatting.ErrorLine(ex.Message, o.UseColor));
             return 130;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
@@ -85,7 +85,7 @@ public static class Cli
             // TypeInitializationException wraps the actually-useful error (e.g. "Unable to load
             // libsecret-1.so.0") in a "The type initializer for X threw an exception" message
             // with no actionable content. Unwrap it so the user sees the real cause.
-            SafeWriteLine(stderr, $"envvault: {UnwrapTypeInit(ex).Message}");
+            SafeWriteLine(stderr, Formatting.ErrorLine(UnwrapTypeInit(ex).Message, o.UseColor));
             return ExitCode.NotExecutable;
         }
     }
@@ -125,10 +125,21 @@ public static class Cli
         string fullNs = $"envvault/{o.Namespaces[0]}";
         if (o.ExplicitValue != null)
         {
-            SafeWriteLine(stderr, Formatting.ValueOnArgvWarning());
+            SafeWriteLine(stderr, Formatting.ValueOnArgvWarning(o.UseColor));
             if (o.Keys.Count != 1)
             {
-                SafeWriteLine(stderr, "envvault: --value can only set exactly one key");
+                SafeWriteLine(stderr, Formatting.ErrorLine("--value can only set exactly one key", o.UseColor));
+                return ExitCode.UsageError;
+            }
+            // Empty-value guard: silently storing "" is the exact footgun envvault exists to prevent
+            // (user thinks they've stored a credential; child command then fails hours later with a
+            // confusing 'invalid credentials'). Reject by default, with --allow-empty as an explicit
+            // opt-in for envchain-compat scenarios where an empty value is deliberate.
+            if (o.ExplicitValue.Length == 0 && !o.AllowEmpty)
+            {
+                SafeWriteLine(stderr, Formatting.ErrorLine(
+                    $"value for {o.Namespaces[0]}.{o.Keys[0]} is empty; pass --allow-empty to store it anyway",
+                    o.UseColor));
                 return ExitCode.UsageError;
             }
             try
@@ -141,7 +152,8 @@ public static class Cli
                 // argv-leak warning as evidence that the write succeeded. Without this, the
                 // outer catch's generic "envvault: {msg}" reads like an unrelated secondary
                 // error after a successful store.
-                SafeWriteLine(stderr, $"envvault: failed to store {o.Namespaces[0]}.{o.Keys[0]}: {ex.Message}");
+                SafeWriteLine(stderr, Formatting.ErrorLine(
+                    $"failed to store {o.Namespaces[0]}.{o.Keys[0]}: {ex.Message}", o.UseColor));
                 return ExitCode.NotExecutable;
             }
             return 0;
@@ -153,6 +165,22 @@ public static class Cli
         {
             foreach (var (key, value) in valuePrompt.PromptForKeys(o.Namespaces[0], o.Keys))
             {
+                // Same empty-value guard as the --value path. Applies to both interactive (user hits
+                // Enter at the prompt) and piped-stdin (blank line) forms. Mid-loop empty triggers
+                // partial-success reporting for anything already stored before the refusal.
+                if (value.Length == 0 && !o.AllowEmpty)
+                {
+                    if (stored.Count > 0)
+                    {
+                        SafeWriteLine(stderr, Formatting.WarningLine(
+                            $"partial success: stored [{string.Join(", ", stored)}]; remaining keys were not written",
+                            o.UseColor));
+                    }
+                    SafeWriteLine(stderr, Formatting.ErrorLine(
+                        $"value for {o.Namespaces[0]}.{key} is empty; pass --allow-empty to store it anyway",
+                        o.UseColor));
+                    return ExitCode.UsageError;
+                }
                 store.Set(fullNs, key, Encoding.UTF8.GetBytes(value));
                 stored.Add(key);
             }
@@ -163,7 +191,9 @@ public static class Cli
             // Without this, a mid-loop failure silently leaves the namespace half-populated.
             if (stored.Count > 0)
             {
-                SafeWriteLine(stderr, $"envvault: partial success: stored [{string.Join(", ", stored)}]; remaining keys were not written");
+                SafeWriteLine(stderr, Formatting.WarningLine(
+                    $"partial success: stored [{string.Join(", ", stored)}]; remaining keys were not written",
+                    o.UseColor));
             }
             throw;
         }
@@ -176,7 +206,7 @@ public static class Cli
         bool removed = store.Delete(fullNs, o.Keys[0]);
         if (!removed)
         {
-            SafeWriteLine(stderr, $"envvault: {o.Namespaces[0]}.{o.Keys[0]}: not found");
+            SafeWriteLine(stderr, Formatting.ErrorLine($"{o.Namespaces[0]}.{o.Keys[0]}: not found", o.UseColor));
             return ExitCode.NotFound;
         }
         return 0;
@@ -188,12 +218,12 @@ public static class Cli
         byte[]? value = store.Get(fullNs, o.Keys[0]);
         if (value == null)
         {
-            SafeWriteLine(stderr, $"envvault: {o.Namespaces[0]}.{o.Keys[0]}: not found");
+            SafeWriteLine(stderr, Formatting.ErrorLine($"{o.Namespaces[0]}.{o.Keys[0]}: not found", o.UseColor));
             return ExitCode.NotFound;
         }
         if (stdoutIsTty)
         {
-            SafeWriteLine(stderr, Formatting.GetToTtyWarning());
+            SafeWriteLine(stderr, Formatting.GetToTtyWarning(o.UseColor));
         }
         try
         {
@@ -201,7 +231,9 @@ public static class Cli
         }
         catch (DecoderFallbackException ex)
         {
-            SafeWriteLine(stderr, $"envvault: stored value for {o.Namespaces[0]}.{o.Keys[0]} is not valid UTF-8: {ex.Message}");
+            SafeWriteLine(stderr, Formatting.ErrorLine(
+                $"stored value for {o.Namespaces[0]}.{o.Keys[0]} is not valid UTF-8: {ex.Message}",
+                o.UseColor));
             return ExitCode.NotExecutable;
         }
         stdout.Write('\n');
@@ -232,6 +264,6 @@ public static class Cli
         // launch failures — the user would see 'envvault: gh: <store-error>' blaming the child
         // for a Credential Manager ACL failure. Store exceptions now propagate here unhandled
         // and are caught by Cli.Run's outer handler, which labels them without the command prefix.
-        return new ExecRunner(store, launcher, stderr).Run(o.Namespaces, o.CommandArgv);
+        return new ExecRunner(store, launcher, stderr, o.UseColor).Run(o.Namespaces, o.CommandArgv);
     }
 }
