@@ -46,10 +46,10 @@ Check mode (**-z** / **--check**) opens a TCP connection to each specified port,
 :   Force IPv6 address resolution.
 
 **--timeout** *SEC*, **-w** *SEC*
-:   Connect and idle timeout in seconds (1-3600). Default is 10 seconds in check mode; unlimited elsewhere.
+:   Connect timeout in seconds (1-3600). Applies to TCP connect, TLS handshake, listener-accept, and UDP receive. Does NOT apply to idle connections once established — press Ctrl+C to interrupt an idle relay. Default is 10 seconds in check mode; unlimited elsewhere.
 
 **--bind** *ADDR*
-:   Listener bind address. Default is all interfaces.
+:   Listener bind address (must be an IP literal, not a hostname). Default is all interfaces. Invalid IP literals are rejected at parse time rather than silently falling back to all interfaces.
 
 **--no-shutdown**
 :   Do not half-close the socket on stdin EOF. Only needed for protocols that treat half-close as a full disconnect.

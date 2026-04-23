@@ -60,12 +60,15 @@ Force IPv4 address resolution.
 Force IPv6 address resolution.
 .TP
 \f[B]\(entimeout\f[R] \f[I]SEC\f[R], \f[B]\-w\f[R] \f[I]SEC\f[R]
-Connect and idle timeout in seconds (1\-3600).
+Connect timeout in seconds (1\-3600).
+Applies to TCP connect, TLS handshake, listener\-accept, and UDP receive.
+Does NOT apply to idle connections once established \(em press Ctrl+C to interrupt an idle relay.
 Default is 10 seconds in check mode; unlimited elsewhere.
 .TP
 \f[B]\(enbind\f[R] \f[I]ADDR\f[R]
-Listener bind address.
+Listener bind address (must be an IP literal, not a hostname).
 Default is all interfaces.
+Invalid IP literals are rejected at parse time rather than silently falling back to all interfaces.
 .TP
 \f[B]\(enno\-shutdown\f[R]
 Do not half\-close the socket on stdin EOF.
