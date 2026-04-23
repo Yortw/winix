@@ -158,15 +158,27 @@ public sealed class RetryRunner
                 break;
             }
 
-            delays.Add(nextDelay!.Value);
+            // Record ACTUAL wall-clock delay, not nominal. If cancellation fires mid-delay the
+            // delayAction returns early; recording the nominal value produces impossible data
+            // (total_seconds < sum(delays_seconds)) for analytics consumers. Measure against the
+            // outer stopwatch so the two fields stay coherent.
+            TimeSpan beforeDelay = stopwatch.Elapsed;
             delayAction(nextDelay!.Value);
+            delays.Add(stopwatch.Elapsed - beforeDelay);
         }
 
         stopwatch.Stop();
 
-        // Derive the final outcome from the last exit code using the same ShouldRetry logic.
+        // Derive the final outcome. Cancellation must be distinguished from exhaustion — a
+        // user-initiated Ctrl+C reports the same "retries_exhausted" code as a genuinely-failing
+        // command if we conflate the two, making CI dashboards and triage scripts indistinguishable
+        // between "user gave up" and "command truly broken".
         RetryOutcome outcome;
-        if (!options.ShouldRetry(lastExitCode))
+        if (cancellationToken.IsCancellationRequested)
+        {
+            outcome = RetryOutcome.Cancelled;
+        }
+        else if (!options.ShouldRetry(lastExitCode))
         {
             if (options.RetryOnCodes != null && lastExitCode != 0)
             {
@@ -179,7 +191,7 @@ public sealed class RetryRunner
         }
         else
         {
-            // Still wanted to retry (either exhausted or cancelled).
+            // Wanted to retry but ran out of attempts.
             outcome = RetryOutcome.RetriesExhausted;
         }
 
@@ -191,24 +203,22 @@ public sealed class RetryRunner
     /// <summary>
     /// Identifies exceptions that represent a launch failure the runner should convert into a
     /// <see cref="RetryOutcome.LaunchFailed"/> result (preserving partial history), as opposed to
-    /// bugs that should propagate. Treats the three shapes Program.cs's spawner produces as
-    /// launch failures; anything else (e.g. an out-of-memory condition or a library bug) still
-    /// escapes and crashes loudly, which is the correct behaviour for unexpected errors.
+    /// bugs that should propagate. Only the two typed launch-failure exceptions pass — anything
+    /// else (Win32Exception from WaitForExit/ExitCode, OOM, library bugs) still escapes and
+    /// crashes loudly, which is the correct behaviour for unexpected errors. Narrower than
+    /// round-1's filter which caught all Win32Exception + string-matched InvalidOperationException.
     /// </summary>
     private static bool IsLaunchFailure(Exception ex)
         => ex is CommandNotFoundException
-        || ex is CommandNotExecutableException
-        || ex is System.ComponentModel.Win32Exception
-        || (ex is InvalidOperationException && ex.Message.Contains("failed to start"));
+        || ex is CommandNotExecutableException;
 
     /// <summary>
-    /// Maps a launch-failure exception to a POSIX-shaped exit code so Program.cs returns the
-    /// same code it used to return from the outer try/catch before the partial-history fix.
+    /// Maps a launch-failure exception to a POSIX-shaped exit code.
     /// </summary>
     private static int ClassifyLaunchException(Exception ex) => ex switch
     {
         CommandNotFoundException => ExitCode.NotFound,
         CommandNotExecutableException => ExitCode.NotExecutable,
-        _ => ExitCode.NotExecutable   // bad EXE format, OOM during start, etc.
+        _ => throw new ArgumentException($"not a launch-failure exception: {ex.GetType().Name}", nameof(ex))
     };
 }

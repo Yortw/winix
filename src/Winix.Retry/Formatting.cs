@@ -118,36 +118,6 @@ public static class Formatting
     }
 
     /// <summary>
-    /// Formats a JSON error for retry's own failures (command not found, usage error, etc.).
-    /// Uses the standard Winix envelope with null child_exit_code and zero attempts,
-    /// since the child process was never started (or its result is irrelevant to the error).
-    /// </summary>
-    /// <param name="exitCode">The tool's exit code (125, 126, or 127 per POSIX convention).</param>
-    /// <param name="exitReason">Machine-readable snake_case reason (e.g. "command_not_found").</param>
-    /// <param name="toolName">The tool's executable name.</param>
-    /// <param name="version">The tool's version string.</param>
-    public static string FormatJsonError(int exitCode, string exitReason, string toolName, string version)
-    {
-        var (writer, buffer) = JsonHelper.CreateWriter();
-        using (writer)
-        {
-            writer.WriteStartObject();
-            writer.WriteString("tool", toolName);
-            writer.WriteString("version", version);
-            writer.WriteNumber("exit_code", exitCode);
-            writer.WriteString("exit_reason", exitReason);
-            writer.WriteNull("child_exit_code");
-            writer.WriteNumber("attempts", 0);
-            writer.WriteNumber("max_attempts", 0);
-            JsonHelper.WriteFixedDecimal(writer, "total_seconds", 0.0, 3);
-            writer.WriteStartArray("delays_seconds");
-            writer.WriteEndArray();
-            writer.WriteEndObject();
-        }
-        return JsonHelper.GetString(buffer);
-    }
-
-    /// <summary>
     /// Maps a <see cref="RetryOutcome"/> value to its JSON <c>exit_reason</c> string. Throws on
     /// unknown variants so a future enum addition that forgets to extend this switch fails loudly
     /// rather than silently emitting "unknown" — which downstream parsers cannot distinguish from
@@ -159,6 +129,7 @@ public static class Formatting
         RetryOutcome.RetriesExhausted => "retries_exhausted",
         RetryOutcome.NotRetryable => "not_retryable",
         RetryOutcome.LaunchFailed => "launch_failed",
+        RetryOutcome.Cancelled => "cancelled",
         _ => throw new ArgumentOutOfRangeException(nameof(outcome), outcome, "unhandled retry outcome")
     };
 }

@@ -121,8 +121,8 @@ JSON is written to **stderr** (use `--stdout` to redirect to stdout). Fields:
 - `tool` — `"retry"`
 - `version` — tool version string
 - `exit_code` — retry's own exit code returned to the shell (equals child's code on pass-through, or 125/126/127 on tool errors)
-- `exit_reason` — one of `"succeeded"`, `"retries_exhausted"`, `"not_retryable"`, `"launch_failed"` (child never ran because the binary couldn't be started), `"usage_error"`, `"command_not_found"`, or `"command_not_executable"`
-- `child_exit_code` — last exit code from the child process, or `null` when `exit_reason` is `"launch_failed"`/`"command_not_found"`/`"command_not_executable"` (child never produced an exit code)
+- `exit_reason` — one of `"succeeded"`, `"retries_exhausted"`, `"not_retryable"`, `"launch_failed"` (child never ran because the binary couldn't be started), `"cancelled"` (user Ctrl+C, `CancellationToken` signalled). Pre-launch usage errors go through ShellKit's parser and emit a `usage_error` envelope; treat that shape as distinct from retry's own summary envelope.
+- `child_exit_code` — last exit code from the child process, or `null` when `exit_reason` is `"launch_failed"` (child never ran). On `"cancelled"`, this is the child's last observed exit code (often a kill-signal value like 137 on Unix) — diagnostic only, not a meaningful success/failure signal. Read `exit_reason` first.
 - `attempts` — total number of times the command was attempted. On `launch_failed` includes any prior successful attempts whose exit codes were non-zero — partial history is preserved
 - `max_attempts` — maximum attempts that were allowed (`--times + 1`)
 - `total_seconds` — total wall time including delays between attempts (float, 3 decimal places)

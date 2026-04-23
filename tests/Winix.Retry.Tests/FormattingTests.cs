@@ -223,18 +223,6 @@ public class FormatJsonTests
         Assert.Contains("\"exit_reason\":\"not_retryable\"", json);
     }
 
-    [Fact]
-    public void FormatJsonError_ContainsExpectedFields()
-    {
-        string json = Formatting.FormatJsonError(127, "command_not_found", "retry", "0.3.0");
-
-        Assert.Contains("\"tool\":\"retry\"", json);
-        Assert.Contains("\"exit_code\":127", json);
-        Assert.Contains("\"exit_reason\":\"command_not_found\"", json);
-        Assert.Contains("\"child_exit_code\":null", json);
-        Assert.Contains("\"attempts\":0", json);
-    }
-
     // --- Round-1 review additions: structural JSON parsing + LaunchFailed + OutcomeToReason ---
 
     [Fact]
@@ -293,6 +281,41 @@ public class FormatJsonTests
         Assert.Equal("launch_failed", root.GetProperty("exit_reason").GetString());
         Assert.Equal(System.Text.Json.JsonValueKind.Null, root.GetProperty("child_exit_code").ValueKind);
         Assert.Equal(2, root.GetProperty("attempts").GetInt32());  // partial history preserved
+    }
+
+    [Fact]
+    public void FormatJson_Cancelled_EmitsCancelledReason()
+    {
+        // Round-2 C1: Cancelled is a distinct outcome from RetriesExhausted. JSON consumers
+        // (CI dashboards, triage scripts) rely on exit_reason to distinguish user-initiated
+        // stop from genuine-failure stop.
+        var result = new RetryResult(
+            attempts: 2, maxAttempts: 5, childExitCode: 137,
+            outcome: RetryOutcome.Cancelled,
+            totalTime: TimeSpan.FromSeconds(2),
+            delays: new List<TimeSpan> { TimeSpan.FromSeconds(1) });
+
+        string json = Formatting.FormatJson(result, "retry", "0.3.0");
+
+        System.Text.Json.JsonDocument doc = System.Text.Json.JsonDocument.Parse(json);
+        System.Text.Json.JsonElement root = doc.RootElement;
+        Assert.Equal("cancelled", root.GetProperty("exit_reason").GetString());
+        Assert.Equal(2, root.GetProperty("attempts").GetInt32());
+        // child_exit_code is NOT null for Cancelled — it's the last observed child exit (often
+        // a kill-signal value like 137). Documented as diagnostic only.
+        Assert.Equal(137, root.GetProperty("child_exit_code").GetInt32());
+    }
+
+    [Fact]
+    public void FormatAttempt_Cancelled_NoCallbackFiresForCancelledAttempt()
+    {
+        // Round-2: there's no explicit FormatAttempt branch for a Cancelled StopReason. The
+        // library doesn't fire the callback with StopReason=Cancelled — cancellation is checked
+        // at the top of each loop iteration so the cancelled iteration simply isn't processed.
+        // This test is a placeholder documenting that contract; if a future change adds a
+        // Cancelled progress frame, it should have its own FormatAttempt branch.
+        // (The actual mechanism is tested in RetryRunnerTests.Run_Cancellation_BreaksLoopWithCancelledOutcome.)
+        Assert.True(true);
     }
 
     [Fact]

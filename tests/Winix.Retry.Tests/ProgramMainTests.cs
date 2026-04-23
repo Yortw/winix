@@ -270,4 +270,41 @@ public class ProgramMainTests
         Assert.Contains("xyzzy-no-such-command-0001", result.Stderr);
         Assert.Empty(result.Stdout);
     }
+
+    // --- Round-2 additions ---
+
+    [Fact]
+    public void StdoutJson_LaunchFailed_JsonEnvelopeOnStdoutStderrEmpty()
+    {
+        // IG-1: with `--stdout --json`, a launch failure routes the JSON envelope to STDOUT
+        // (summary per --stdout). Stderr stays empty — the JSON envelope is the authoritative
+        // error shape under --json mode, and duplicating the failure as plain text on stderr
+        // would pollute pipeline consumers reading structured output. Pre-round-2 had zero
+        // E2E coverage for this combination.
+        var result = RunRetry("--stdout", "--json", "xyzzy-no-such-command-0002");
+
+        Assert.Equal(127, result.ExitCode);
+        // Stdout must contain a parseable JSON envelope with exit_reason=launch_failed.
+        JsonDocument doc = JsonDocument.Parse(result.Stdout);
+        JsonElement root = doc.RootElement;
+        Assert.Equal("launch_failed", root.GetProperty("exit_reason").GetString());
+        Assert.Equal(127, root.GetProperty("exit_code").GetInt32());
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("child_exit_code").ValueKind);
+        // Stderr is empty — --json suppresses the plain-text error. Consumers reading both
+        // streams for a --json run expect stderr clean of anything except warnings.
+        Assert.Empty(result.Stderr);
+    }
+
+    [Fact]
+    public void EmptyUntilList_ExitsWith125()
+    {
+        // Round-2 M3 fill: --until parses through the same ParseCodeList helper as --on, so
+        // empty-list rejection should apply symmetrically. Without this test, a future refactor
+        // that special-cased --on validation (leaving --until silently permissive) would pass.
+        var result = RunRetry("--until", "", "ls");
+
+        Assert.Equal(125, result.ExitCode);
+        Assert.Contains("--until", result.Stderr);
+        Assert.Contains("empty list", result.Stderr);
+    }
 }

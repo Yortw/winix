@@ -162,8 +162,12 @@ public class RetryRunnerTests
     }
 
     [Fact]
-    public void Run_Cancellation_BreaksLoop()
+    public void Run_Cancellation_BreaksLoopWithCancelledOutcome()
     {
+        // Round-2 C1: previously the cancellation path fell through to RetriesExhausted,
+        // indistinguishable from genuine failure in JSON output. Now reports Cancelled so
+        // dashboards and CI scripts can tell user-initiated cancellation apart from "retry
+        // genuinely gave up".
         int callCount = 0;
         var cts = new CancellationTokenSource();
 
@@ -182,6 +186,42 @@ public class RetryRunnerTests
         // Should have stopped after cancellation, not run all 11 attempts
         Assert.True(result.Attempts <= 3);
         Assert.Equal(1, result.ChildExitCode);
+        // The outcome must be Cancelled — NOT RetriesExhausted — so JSON `exit_reason` is
+        // distinguishable from a genuinely-exhausted retry loop.
+        Assert.Equal(RetryOutcome.Cancelled, result.Outcome);
+    }
+
+    [Fact]
+    public void Run_CancellationDuringDelay_RecordsActualDelayNotNominal()
+    {
+        // Round-2 I2: delays_seconds previously recorded the nominal delay, not the actual
+        // wait. If cancellation fires mid-delay, recording 30.0 when the actual wait was 0.3s
+        // produces impossible data (total_seconds < sum(delays_seconds)). Now measured against
+        // the outer stopwatch so the two fields stay coherent.
+        var cts = new CancellationTokenSource();
+        bool delayCalled = false;
+
+        var runner = new RetryRunner((cmd, args) => 1);
+        var options = new RetryOptions(maxRetries: 3, delay: TimeSpan.FromSeconds(30));
+
+        // Fake delayAction that simulates early-return on cancel (10 ms instead of 30 s).
+        Action<TimeSpan> fakeDelay = (duration) =>
+        {
+            delayCalled = true;
+            cts.Cancel();    // triggers outer loop to break at next iteration
+            // Do NOT sleep the full duration — simulates the cancellation-aware
+            // WaitHandle.WaitOne returning early. Real delay: near-zero.
+        };
+
+        var result = runner.Run("cmd", Array.Empty<string>(), options,
+            delayAction: fakeDelay, cancellationToken: cts.Token);
+
+        Assert.True(delayCalled);
+        Assert.Equal(RetryOutcome.Cancelled, result.Outcome);
+        // The recorded delay must be the actual near-zero elapsed, not the nominal 30s.
+        Assert.Single(result.Delays);
+        Assert.True(result.Delays[0] < TimeSpan.FromSeconds(1),
+            $"expected near-zero actual delay; recorded {result.Delays[0]}");
     }
 
     // --- Round-1 review additions: LaunchFailed outcome + partial-history preservation ---
@@ -219,19 +259,52 @@ public class RetryRunnerTests
     }
 
     [Fact]
-    public void Run_DelegateThrowsWin32Exception_ReturnsLaunchFailedWith126()
+    public void Run_DelegateThrowsRawWin32Exception_Propagates()
     {
-        // ERROR_BAD_EXE_FORMAT (193 on Windows) comes through as Win32Exception and should be
-        // classified as NotExecutable — the binary exists but can't run.
+        // Round-2 narrowing: the library's IsLaunchFailure catch only recognises the TWO typed
+        // launch-failure exceptions (CommandNotFoundException, CommandNotExecutableException).
+        // A raw Win32Exception — previously caught as LaunchFailed — now escapes because mid-run
+        // Win32Exceptions (from WaitForExit, ExitCode) must not be silently misclassified as
+        // launch failures. Spawners are responsible for translating launch-specific Win32
+        // errors into the typed wrappers at Process.Start time; see retry's Program.cs spawner
+        // which now wraps unknown Win32 codes in CommandNotExecutableException.
         var runner = new RetryRunner((cmd, args) =>
             throw new Win32Exception(193, "%1 is not a valid Win32 application."));
+        var options = new RetryOptions(maxRetries: 3, delay: TimeSpan.Zero);
+
+        Assert.Throws<Win32Exception>(() =>
+            runner.Run("cmd", Array.Empty<string>(), options));
+    }
+
+    [Fact]
+    public void Run_DelegateThrowsCommandNotExecutableForBadExeFormat_ReturnsLaunchFailedWith126()
+    {
+        // The supported path: spawner translates ERROR_BAD_EXE_FORMAT into a typed
+        // CommandNotExecutableException. Library catches it and classifies as NotExecutable (126).
+        var runner = new RetryRunner((cmd, args) =>
+            throw new CommandNotExecutableException($"{cmd}: %1 is not a valid Win32 application."));
         var options = new RetryOptions(maxRetries: 3, delay: TimeSpan.Zero);
 
         var result = runner.Run("cmd", Array.Empty<string>(), options);
 
         Assert.Equal(RetryOutcome.LaunchFailed, result.Outcome);
         Assert.Equal(ExitCode.NotExecutable, result.ChildExitCode);
-        Assert.IsType<Win32Exception>(result.LaunchError);
+        Assert.IsType<CommandNotExecutableException>(result.LaunchError);
+    }
+
+    [Fact]
+    public void Run_DelegateThrowsInvalidOperation_Propagates_NotMisclassified()
+    {
+        // Round-2: prior IsLaunchFailure included `InvalidOperationException && Message.Contains("failed to start")`
+        // — a locale-dependent string-sniff that could misclassify genuine library bugs as
+        // LaunchFailed. Removed. Library bugs that throw InvalidOperationException must now
+        // escape loudly so they surface in testing rather than hide in the JSON envelope.
+        var runner = new RetryRunner((cmd, args) =>
+            throw new InvalidOperationException("failed to start something unrelated"));
+        var options = new RetryOptions(maxRetries: 3, delay: TimeSpan.Zero);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            runner.Run("cmd", Array.Empty<string>(), options));
     }
 
     [Fact]

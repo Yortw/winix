@@ -66,10 +66,10 @@ peep -- retry --times 2 make test
 
 **Default** (stderr):
 ```
-[retry] attempt 1/4 failed (exit 1) — retrying in 1s
-[retry] attempt 2/4 failed (exit 1) — retrying in 1s
-[retry] attempt 3/4 failed (exit 1) — retrying in 1s
-[retry] attempt 4/4 failed (exit 1) — exhausted
+retry: attempt 1/4 failed (exit 1), retrying in 1s...
+retry: attempt 2/4 failed (exit 1), retrying in 1s...
+retry: attempt 3/4 failed (exit 1), retrying in 1s...
+retry: attempt 4/4 failed (exit 1), no retries remaining
 ```
 
 **JSON** (`--json`, stderr):

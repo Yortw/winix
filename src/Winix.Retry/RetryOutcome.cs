@@ -21,5 +21,16 @@ public enum RetryOutcome
     /// is still preserved in the <see cref="RetryResult"/>, but <see cref="RetryResult.LaunchError"/>
     /// carries the failure details.
     /// </summary>
-    LaunchFailed
+    LaunchFailed,
+
+    /// <summary>
+    /// The retry loop was cancelled by the caller (Ctrl+C, CancellationToken signalled mid-run).
+    /// Partial history (attempts completed, delays) is preserved. Distinguished from
+    /// <see cref="RetriesExhausted"/> so dashboards and CI scripts can tell user-initiated
+    /// cancellation apart from genuine exhaustion — the latter is a failure mode worth alerting
+    /// on; the former is routine. <see cref="RetryResult.ChildExitCode"/> is the child's last
+    /// observed exit code (usually a kill-signal value like 137 on Unix); consumers should treat
+    /// it as diagnostic only, not a meaningful success/failure signal.
+    /// </summary>
+    Cancelled
 }

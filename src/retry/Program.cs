@@ -48,7 +48,7 @@ internal sealed class Program
             .JsonField("tool", "string", "Tool name (\"retry\")")
             .JsonField("version", "string", "Tool version")
             .JsonField("exit_code", "int", "Tool exit code (retry's own return value — equal to child's on pass-through, or 125/126/127 on tool errors)")
-            .JsonField("exit_reason", "string", "Machine-readable exit reason: succeeded, retries_exhausted, not_retryable, launch_failed")
+            .JsonField("exit_reason", "string", "Machine-readable exit reason: succeeded, retries_exhausted, not_retryable, launch_failed, cancelled")
             .JsonField("child_exit_code", "int|null", "Final child process exit code, or null if the child never ran (e.g. launch_failed)")
             .JsonField("attempts", "int", "Total attempts made (initial run + retries)")
             .JsonField("max_attempts", "int", "Maximum attempts allowed (--times + 1)")
@@ -220,34 +220,39 @@ internal sealed class Program
                     throw new CommandNotFoundException(cmd);
                 }
 
-                // Other errors (ERROR_BAD_EXE_FORMAT, etc.) — surface the original message.
-                // RetryRunner catches any remaining Win32Exception via IsLaunchFailure and
-                // preserves partial history; we keep throwing the original type rather than
-                // wrapping in InvalidOperationException (which would be too broad a catch
-                // for downstream code).
-                throw;
+                // Other errors (ERROR_BAD_EXE_FORMAT, etc.) — wrap as CommandNotExecutableException
+                // so RetryRunner's narrow IsLaunchFailure catch (typed only) recognises it. This
+                // prevents mid-run Win32Exceptions from `WaitForExit`/`ExitCode` from being
+                // misclassified as launch failures — those now escape loudly as real bugs.
+                throw new CommandNotExecutableException($"{cmd}: {ex.Message}");
             }
 
-            // Kill the child on cancellation. `entireProcessTree: true` covers shell wrappers
-            // that spawn grandchildren. The handler is a no-op if the process has already
-            // exited. Wrapping in try/catch defends against the inevitable race where the
-            // child exits between `HasExited` check and `Kill` call.
-            using CancellationTokenRegistration killReg = attemptToken.Register(() =>
-            {
-                try
-                {
-                    if (!process.HasExited)
-                    {
-                        process.Kill(entireProcessTree: true);
-                    }
-                }
-                catch (InvalidOperationException) { /* already exited */ }
-                catch (Win32Exception) { /* kill race on Windows */ }
-                catch (NotSupportedException) { /* remote process — not ours to kill */ }
-            });
-
+            // Wrap the registration + WaitForExit in a single try so the registration disposes
+            // BEFORE `process.Dispose()` runs (finally). Without this nesting, `using killReg`
+            // extends past the inner try/finally and a Ctrl+C arriving between process.Dispose
+            // and killReg.Dispose would hit a disposed Process in the Register callback. The
+            // inner try/finally ensures: Register scope ends → killReg.Dispose (unregister) →
+            // THEN process.Dispose. Reference: review round-2 Critical C2.
             try
             {
+                using CancellationTokenRegistration killReg = attemptToken.Register(() =>
+                {
+                    try
+                    {
+                        if (!process.HasExited)
+                        {
+                            process.Kill(entireProcessTree: true);
+                        }
+                    }
+                    // ObjectDisposedException must come FIRST — it derives from InvalidOperationException,
+                    // so the reverse order is compile-error-level unreachable. This catches the race where
+                    // process.Dispose ran before killReg.Dispose (defence-in-depth; the new disposal-order
+                    // fix above makes this unreachable in practice, but the catch protects future changes).
+                    catch (ObjectDisposedException) { /* process disposed before kill fired */ }
+                    catch (InvalidOperationException) { /* already exited */ }
+                    catch (Win32Exception) { /* kill race on Windows */ }
+                    catch (NotSupportedException) { /* remote process — not ours to kill */ }
+                });
                 process.WaitForExit();
                 return process.ExitCode;
             }
