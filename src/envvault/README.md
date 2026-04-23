@@ -71,6 +71,12 @@ Non-interactive (convenient for scripts, but exposes the value on argv and in sh
 envvault --value "ghp_xxx..." --set github GITHUB_TOKEN
 ```
 
+Empty values are refused by default — silently storing `""` is the exact footgun envvault exists to prevent (child command fails hours later with "credentials invalid"). Pass `--allow-empty` if an empty value is deliberate:
+
+```bash
+envvault --allow-empty --value "" --set demo OPTIONAL_TOKEN
+```
+
 ### Retrieve a single value
 
 ```bash
@@ -101,6 +107,7 @@ envvault --list --json       # machine-readable output
 |---|---|---|
 | `--set` | `<NAMESPACE> <KEY>...` | Store one or more keys. Prompts per key (hidden input) unless `--value` is given. |
 | `--value` | `<VALUE>` | Non-interactive value for `--set`. Single key only. Exposes value on argv/shell history. |
+| `--allow-empty` | — | Permit `--set` to store an empty string. Refused by default; see "Store a value" above. |
 | `--get` | `<NAMESPACE> <KEY>` | Print the stored value to stdout. |
 | `--unset` | `<NAMESPACE> <KEY>` | Remove a stored key. |
 | `--list` | `[<NAMESPACE>]` | List namespaces, or keys in one namespace. Never prints values. |
@@ -116,9 +123,10 @@ envvault --list --json       # machine-readable output
 | Code | Meaning |
 |---|---|
 | 0 | Success. |
-| 125 | Usage error — bad flags, missing arguments, conflicting options, deferred feature used (`--require-passphrase`). |
+| 125 | Usage error — bad flags, missing arguments, conflicting options, empty value without `--allow-empty`, deferred feature used (`--require-passphrase`). |
 | 126 | Runtime error — key store unavailable, permission denied launching child command. |
 | 127 | Not found — namespace or key missing for `--get`/`--unset`; command for exec form not on PATH. |
+| 130 | Interrupted — user pressed Ctrl+C during an interactive passphrase prompt (POSIX `128 + SIGINT`). |
 | * | Exec form: on success or child failure, passes through the child process's exit code. |
 
 ## Coming from envchain?
@@ -157,9 +165,11 @@ alias envchain=envvault
 
 ## Colour Handling
 
-- Respects the [`NO_COLOR`](https://no-color.org) environment variable.
-- `--no-color` / `--color` flags override detection.
-- Warnings (e.g. deferred-feature notices, missing namespaces) go to stderr.
+- Error and warning lines on stderr are coloured when output is a terminal — red for errors (the `envvault:` prefix and message), yellow for warnings (the `envvault: warning:` prefix and message).
+- Respects the [`NO_COLOR`](https://no-color.org) environment variable (any value disables colour).
+- `--no-color` / `--color` flags override the auto-detection and the `NO_COLOR` env var.
+- When stderr is not a terminal (piped or redirected) no escape codes are emitted regardless of flag.
+- Normal output (`--get`, `--list`) is never coloured — it's data, not diagnostics.
 
 ## Related Tools
 

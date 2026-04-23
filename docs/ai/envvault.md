@@ -33,6 +33,7 @@ If the user has envchain instincts, envvault accepts the same bare `<NAMESPACE> 
 | `envvault <NS>[,<NS>...] <cmd> [args]` | command + args | child's stdout/stderr; exit code passthrough |
 | `envvault --set <NS> <KEY>...` | hidden prompt per key (or one line per key on stdin if piped) | none; stores values |
 | `envvault --value <V> --set <NS> <KEY>` | value on argv (single key only) | none; stores value |
+| `envvault --allow-empty --value "" --set <NS> <KEY>` | empty value (explicit opt-in) | none; stores empty string |
 | `envvault --get <NS> <KEY>` | — | value on stdout |
 | `envvault --unset <NS> <KEY>` | — | none; removes key |
 | `envvault --list` | — | namespace list on stdout |
@@ -69,7 +70,7 @@ envvault uses POSIX convention codes (125/126/127) per the Winix suite standard,
 | Code | Meaning |
 |---|---|
 | 0 | Success. In exec form, the child process's exit code is passed through on successful spawn. |
-| 125 | Usage error — bad flags, missing arguments, conflicting options, deferred feature (`--require-passphrase`) used, stdin EOF before all `--set` values supplied. |
+| 125 | Usage error — bad flags, missing arguments, conflicting options, empty value without `--allow-empty`, deferred feature (`--require-passphrase`) used, stdin EOF before all `--set` values supplied, unknown leading flag in exec form (e.g. typo of `--noecho`). |
 | 126 | Runtime error — key store unavailable, permission denied launching child command, stored value not valid UTF-8. |
 | 127 | Not found — namespace or key missing on `--get`/`--unset`; command for exec form not on PATH. |
 | 130 | User interrupted (Ctrl+C during passphrase prompt). |
@@ -99,6 +100,7 @@ Suggest `alias envchain=envvault` for muscle-memory compatibility. Differences:
 - **Child processes see the full merged environment.** Anything spawned under `envvault <ns> cmd` can read and propagate the secrets. Run only trusted commands.
 - **Per-user scope.** Secrets written as one user aren't visible to another user on the same machine.
 - **Multi-namespace order matters.** `envvault a,b,c cmd` merges in left-to-right order; later namespaces overwrite earlier entries for colliding keys.
+- **Empty values are refused by default.** `envvault --value "" --set ns KEY` errors with exit 125; pass `--allow-empty` only if the empty string is intentional. The default protects against the "user thought they stored a credential" failure mode the tool exists to prevent.
 
 ## Machine-Parseable Output
 

@@ -1,4 +1,4 @@
-.TH ENVVAULT 1 "2026-04-22" "Winix" "User Commands"
+.TH ENVVAULT 1 "2026-04-23" "Winix" "User Commands"
 .SH NAME
 envvault \- cross-platform keychain-backed environment variable manager
 .SH SYNOPSIS
@@ -53,6 +53,12 @@ Only valid with a single key.
 Exposes the value on the process argv and in shell history; prefer the interactive prompt for real secrets.
 
 .TP
+.B \-\-allow\-empty
+Permit \fB\-\-set\fR to store an empty string.
+Refused by default because a silent empty-store is the exact footgun envvault exists to prevent: a child command then fails hours later with \(dqcredentials invalid\(dq.
+Pass this flag only when an empty value is deliberate (envchain-compatibility scenarios).
+
+.TP
 .BR \-\-get " " \fINAMESPACE\fR " " \fIKEY\fR
 Print the stored value to stdout.
 Exits with status 127 if the namespace or key is not found.
@@ -105,7 +111,7 @@ Show version and exit.
 Success.
 .TP
 .B 125
-Usage error \(em bad flags, missing required arguments, conflicting options, deferred feature requested (\fB\-\-require\-passphrase\fR).
+Usage error \(em bad flags, missing required arguments, conflicting options, empty value without \fB\-\-allow\-empty\fR, deferred feature requested (\fB\-\-require\-passphrase\fR).
 .TP
 .B 126
 Runtime error \(em key store unavailable, permission denied launching \fICOMMAND\fR.
@@ -113,6 +119,9 @@ Runtime error \(em key store unavailable, permission denied launching \fICOMMAND
 .B 127
 Not found \(em namespace or key missing on \fB\-\-get\fR / \fB\-\-unset\fR; \fICOMMAND\fR not on PATH for exec form.
 .TP
+.B 130
+Interrupted \(em user pressed Ctrl+C during an interactive passphrase prompt (POSIX 128 + SIGINT).
+.PP
 Exec form: the exit code of \fICOMMAND\fR is passed through verbatim when the child runs to completion.
 
 .SH ENVIRONMENT
