@@ -42,6 +42,7 @@ dotnet publish src/timeit/timeit.csproj -c Release -r win-x64
 - Respect `NO_COLOR` env var (no-color.org)
 - Exit codes: pass through child process exit code; 125/126/127 for tool's own errors (POSIX convention)
 - Full braces always, nullable reference types enabled, warnings as errors
+- Platform-gated integration tests (e.g. `IntegrationTests_Windows.cs`, `IntegrationTests_Linux.cs`) MUST use `SkippableFact` + `Skip.IfNot(OperatingSystem.IsX(), "reason")` rather than `if (!OperatingSystem.IsX()) return;`. The early-return pattern reports the test as Passed on the wrong platform — a CI false positive. Xunit.SkippableFact package (already added to envvault tests) emits a proper Skipped status instead. Keep a redundant `if (!IsX()) return;` after the `Skip.IfNot` to satisfy the CA1416 analyzer — comment that this is deliberate.
 - Console apps use proper `namespace`/`class Program`/`static Main` — no top-level statements
 - Console apps are thin: arg parsing, validation, constructing library objects, error output. Stream orchestration, event loops, and domain logic belong in the class library.
 - Each tool has a `README.md` in its console app directory (e.g. `src/timeit/README.md`). Keep these up to date when flags, options, or behaviour change. Follow the existing pattern: description, install, usage/examples, options table, exit codes, colour section.
