@@ -534,23 +534,26 @@ public class RetryRunnerTests
     }
 
     [Fact]
-    public void Run_DelayActionThrows_PartialDelayStillRecorded()
+    public void Run_DelayActionThrows_ExceptionPropagatesNotSwallowed()
     {
         // Round-4 Minor: delayAction throwing previously lost the partial delay entry because
         // delays.Add fired AFTER the call. Now wrapped in try/finally so the partial history
-        // lands in `delays` before the exception propagates. Consistent with the launch-failure
-        // path's partial-history preservation.
+        // lands in `delays` before the exception propagates — the finally runs on the way out.
+        //
+        // The partial-delay-was-recorded invariant is a white-box property: the runner's
+        // internal `delays` list is never surfaced to the caller when an exception escapes
+        // (the RetryResult is only returned on normal exit). What this test genuinely pins
+        // is the public contract: a delayAction that throws an unexpected exception type
+        // (not in IsLaunchFailure's allowlist) escapes the runner — it is NOT swallowed as
+        // a LaunchFailed outcome. The try/finally internal shape is a code-comment assertion;
+        // this test is the behavioural regression-pin that would fail if the try/finally
+        // accidentally became try/catch-and-swallow.
         var runner = new RetryRunner((cmd, args) => 1);
         var options = new RetryOptions(maxRetries: 3, delay: TimeSpan.FromMilliseconds(10));
 
         Assert.Throws<InvalidOperationException>(() =>
             runner.Run("cmd", Array.Empty<string>(), options,
                 delayAction: (_) => throw new InvalidOperationException("simulated delay failure")));
-        // The exception escaped, which is correct (unexpected bug). The test assert below is a
-        // white-box assertion via the Assert.Throws pattern — the delay entry would be added in
-        // the finally block before throw propagates. Can't inspect the runner's state here
-        // after the throw, so this test doubles as a regression-pin for the try/finally shape
-        // itself via BehaviorTest: the Assert.Throws proves the exception wasn't swallowed.
     }
 
     [Fact]

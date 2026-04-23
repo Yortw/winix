@@ -163,6 +163,21 @@ public class FormatAttemptTests
     }
 
     [Fact]
+    public void FormatAttempt_Cancelled_UsesYellowColour()
+    {
+        // Round-5 gap: the Cancelled branch uses yellow SGR (33). Previous test used
+        // useColor=false so a regression swapping yellow → red or green would ship silently.
+        var info = new AttemptInfo(3, 11, exitCode: 137,
+            nextDelay: null, willRetry: false, stopReason: RetryOutcome.Cancelled);
+
+        string line = Formatting.FormatAttempt(info, useColor: true);
+
+        // ANSI SGR 33 = yellow, wrapping the "cancelled" word.
+        Assert.Contains("\x1b[33m", line);
+        Assert.Contains("cancelled", line);
+    }
+
+    [Fact]
     public void FormatAttempt_UnknownStopReasonWithoutRetry_ThrowsArgumentOutOfRange()
     {
         // Round-4: the final fall-through in FormatAttempt now throws on unrecognised stop

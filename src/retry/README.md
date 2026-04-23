@@ -129,6 +129,15 @@ Add `--jitter` to any strategy to randomise the delay within 50–100% of the co
 
 Empty `--on` or `--until` lists (e.g. `--on ""` or `--on ",,,"`) are rejected as usage errors, not silently treated as "no filter". Pass `retry CMD` without the flag if you want no filter.
 
+## Cancellation
+
+Press **Ctrl+C** to interrupt the retry loop. `retry` sends SIGTERM (Unix) / TerminateProcess (Windows) to the running child with `entireProcessTree: true`, waits up to 5 seconds for it to exit, and then exits itself. Exit codes:
+
+- `130` — standard POSIX `128 + SIGINT` exit after a cancellation that completed cleanly within the grace window.
+- `137` — the child ignored the kill and retry abandoned the wait after 5 seconds. **The child may still be running as an orphan** — retry logs a warning with the PID. If the child holds locks or ports, subsequent commands may fail until you manually terminate it.
+
+Most well-behaved commands exit promptly on Ctrl+C; the orphan scenario is unusual (typically daemons or commands that install custom signal handlers).
+
 ## Colour
 
 - Automatic: colour when outputting to a terminal, plain when piped

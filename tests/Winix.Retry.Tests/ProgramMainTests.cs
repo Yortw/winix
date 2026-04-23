@@ -123,10 +123,31 @@ public class ProgramMainTests
             {
                 "--times", "--delay", "--backoff", "--jitter",
                 "--on", "--until", "--stdout",
-                "--help", "--version", "--describe", "--json", "--no-color",
+                "--help", "--version", "--describe", "--json",
+                "--color", "--no-color",    // round-5 M3: both colour flags, not just --no-color
             })
         {
             Assert.Contains(required, advertisedLongs);
+        }
+
+        // json_output_fields: the exit_reason field's description must enumerate every possible
+        // value including the round-2-added "cancelled". A regression that dropped "cancelled"
+        // from the description would break AI-agent contracts silently.
+        JsonElement jsonFields = root.GetProperty("json_output_fields");
+        string? exitReasonDesc = null;
+        foreach (JsonElement field in jsonFields.EnumerateArray())
+        {
+            if (field.GetProperty("name").GetString() == "exit_reason")
+            {
+                exitReasonDesc = field.GetProperty("description").GetString();
+                break;
+            }
+        }
+        Assert.NotNull(exitReasonDesc);
+        foreach (string reason in new[]
+            { "succeeded", "retries_exhausted", "not_retryable", "launch_failed", "cancelled" })
+        {
+            Assert.Contains(reason, exitReasonDesc);
         }
 
         // Exit codes: 0, 125, 126, 127.

@@ -174,8 +174,11 @@ internal sealed class Program
             // RunWithRetry — now escapes the library. Without this catch, the CLR's unhandled-
             // exception handler kicks in and (with <StackTraceSupport>false</StackTraceSupport>)
             // prints a stack-traceless "Unhandled exception" message that's nearly un-diagnosable.
-            // Matches envvault's Program.Main final-safety pattern.
-            SafeWriteLine(Console.Error, $"retry: unexpected error: {ex.GetType().Name}: {ex.Message}");
+            // Unwrap TypeInitializationException so the user sees the actionable inner cause
+            // (e.g. "Unable to load libX.so") rather than the useless wrapper text. Matches
+            // envvault's Cli.UnwrapTypeInit pattern.
+            Exception surface = UnwrapTypeInit(ex);
+            SafeWriteLine(Console.Error, $"retry: unexpected error: {surface.GetType().Name}: {surface.Message}");
             return ExitCode.NotExecutable;
         }
         finally
@@ -264,42 +267,63 @@ internal sealed class Program
                     }
                     // ObjectDisposedException must come FIRST — it derives from InvalidOperationException,
                     // so the reverse order is compile-error-level unreachable. This catches the race where
-                    // process.Dispose ran before killReg.Dispose (defence-in-depth; the new disposal-order
+                    // process.Dispose ran before killReg.Dispose (defence-in-depth; the disposal-order
                     // fix above makes this unreachable in practice, but the catch protects future changes).
                     catch (ObjectDisposedException) { /* process disposed before kill fired */ }
                     catch (InvalidOperationException) { /* already exited — benign */ }
                     catch (Win32Exception ex)
                     {
                         // Real kill failure (access-denied on elevated child, signal-delivery error on
-                        // Linux that surfaces as Win32Exception). Previously swallowed silently with a
-                        // "kill race" comment — but that's wishful thinking. If the kill truly fails,
-                        // the subsequent WaitForExit blocks forever and retry appears hung with zero
-                        // output. Surface the diagnostic so the user knows why.
-                        try { Console.Error.WriteLine($"retry: warning: failed to kill child: {ex.Message}"); }
-                        catch { /* stderr unavailable */ }
+                        // Linux that surfaces as Win32Exception). Surface the diagnostic so the user
+                        // knows why retry appears to be lingering. SafeWriteLine for consistency with
+                        // the rest of Program.cs — the bare-catch previously used here would have
+                        // also swallowed OOM/StackOverflow, which is overly broad.
+                        SafeWriteLine(Console.Error, $"retry: warning: failed to kill child: {ex.Message}");
                     }
                     catch (NotSupportedException ex)
                     {
-                        try { Console.Error.WriteLine($"retry: warning: cannot kill child: {ex.Message}"); }
-                        catch { }
+                        SafeWriteLine(Console.Error, $"retry: warning: cannot kill child: {ex.Message}");
                     }
                 });
-                // Bounded WaitForExit after cancel: if the child ignored the kill (daemon with
-                // custom SIGTERM handler, elevated child that refused access-denied kill), we exit
-                // after a grace period with a warning instead of blocking forever. Only enforces
-                // the timeout on cancel; normal runs wait indefinitely as before.
-                if (attemptToken.IsCancellationRequested)
+
+                // Cancellation-aware wait: Process.WaitForExitAsync honours the token by completing
+                // early with OperationCanceledException when the token is signalled, regardless of
+                // whether the token fired BEFORE or DURING the wait. The prior code only checked
+                // `attemptToken.IsCancellationRequested` once at the top, so a cancel arriving
+                // mid-wait with a failed kill would wedge the synchronous WaitForExit forever.
+                // .GetAwaiter().GetResult() unwraps async-task exceptions as the underlying type
+                // without the AggregateException wrapper that .Wait() would produce.
+                try
                 {
+                    process.WaitForExitAsync(attemptToken).GetAwaiter().GetResult();
+                }
+                catch (OperationCanceledException)
+                {
+                    // Token cancelled; kill was fired via the Register callback above. Give the
+                    // child a grace window to honour the signal. If it still hasn't exited, warn
+                    // about the orphan risk (on Windows, process.Dispose does NOT terminate an
+                    // unmanaged process — the child survives retry's exit).
                     const int CancelGraceMs = 5_000;
                     if (!process.WaitForExit(CancelGraceMs))
                     {
-                        try { Console.Error.WriteLine($"retry: warning: child did not exit within {CancelGraceMs}ms of cancel — abandoning wait"); }
-                        catch { }
-                        // Conventional SIGKILL-ish code; retries resumed would have this as lastExitCode.
+                        // Best-effort second kill — the first one (from the Register callback) may
+                        // have hit a transient error. Silently swallow: if this also fails, the
+                        // warning below still fires and the user has enough info to intervene.
+                        try { process.Kill(entireProcessTree: true); }
+                        catch (ObjectDisposedException) { }
+                        catch (InvalidOperationException) { }
+                        catch (Win32Exception) { }
+                        catch (NotSupportedException) { }
+
+                        int pid;
+                        try { pid = process.Id; }
+                        catch (InvalidOperationException) { pid = -1; }
+                        SafeWriteLine(Console.Error,
+                            $"retry: warning: child (PID {pid}) did not exit within {CancelGraceMs}ms of cancel — retry is exiting; child may still be running");
+                        // Conventional SIGKILL-ish exit code; explicit "we abandoned the child".
                         return 137;
                     }
                 }
-                process.WaitForExit();
                 return process.ExitCode;
             }
             finally
@@ -361,6 +385,23 @@ internal sealed class Program
         try { writer.WriteLine(message); }
         catch (IOException) { /* downstream pipe closed */ }
         catch (ObjectDisposedException) { /* writer already disposed */ }
+    }
+
+    /// <summary>
+    /// Peels TypeInitializationException wrappers to reveal the actionable inner exception.
+    /// The wrapper's Message is "The type initializer for X threw an exception." — useless to
+    /// the user. The InnerException carries the real cause (e.g. "Unable to load libsecret-1.so.0").
+    /// Depth cap protects against a pathological self-referencing exception chain. Same pattern
+    /// as envvault's Cli.UnwrapTypeInit — worth lifting to ShellKit at some point.
+    /// </summary>
+    private static Exception UnwrapTypeInit(Exception ex)
+    {
+        Exception current = ex;
+        for (int depth = 0; depth < 32 && current is TypeInitializationException tie && tie.InnerException != null; depth++)
+        {
+            current = tie.InnerException;
+        }
+        return current;
     }
 
     private static string GetVersion()
