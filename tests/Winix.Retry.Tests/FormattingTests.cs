@@ -143,6 +143,41 @@ public class FormatAttemptTests
     }
 
     [Fact]
+    public void FormatAttempt_Cancelled_ShowsCancelledText_NotRetriesExhausted()
+    {
+        // Round-4 I1: cancellation during an attempt previously fell through to "no retries
+        // remaining" because the stopReason derivation didn't cover the
+        // shouldRetry && hasRetriesLeft && cancelled cell. Round-4 fix adds a Cancelled stopReason
+        // branch in RetryRunner AND a dedicated FormatAttempt branch. User who Ctrl+C'd on
+        // attempt 3 of 11 should NOT see "failed, no retries remaining".
+        var info = new AttemptInfo(3, 11, exitCode: 137,
+            nextDelay: null, willRetry: false, stopReason: RetryOutcome.Cancelled);
+
+        string line = Formatting.FormatAttempt(info, useColor: false);
+
+        Assert.Contains("attempt 3/11", line);
+        Assert.Contains("cancelled", line, System.StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("stopping", line);
+        // Must NOT contain the retries-exhausted wording.
+        Assert.DoesNotContain("no retries remaining", line);
+    }
+
+    [Fact]
+    public void FormatAttempt_UnknownStopReasonWithoutRetry_ThrowsArgumentOutOfRange()
+    {
+        // Round-4: the final fall-through in FormatAttempt now throws on unrecognised stop
+        // reasons rather than silently emitting "no retries remaining" for any future outcome.
+        // Matches the OutcomeToReason strictness. Reaching this branch requires constructing an
+        // AttemptInfo with an enum value not in {null | Succeeded | NotRetryable | LaunchFailed
+        // | Cancelled | RetriesExhausted} — achievable only via a forced cast.
+        var info = new AttemptInfo(1, 4, exitCode: 1,
+            nextDelay: null, willRetry: false, stopReason: (RetryOutcome)999);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            Formatting.FormatAttempt(info, useColor: false));
+    }
+
+    [Fact]
     public void FormatAttempt_LaunchFailed_ShowsLaunchFailedText()
     {
         // Round-1 C2: LaunchFailed is a new outcome that needs its own progress-line frame.

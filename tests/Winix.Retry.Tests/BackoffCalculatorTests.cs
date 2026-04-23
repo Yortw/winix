@@ -167,6 +167,20 @@ public class BackoffCalculatorTests
     }
 
     [Fact]
+    public void ZeroBaseDelay_LargeAttempt_DoesNotClampToMaxDelay()
+    {
+        // Round-4 M1: with baseDelay=Zero and a large attempt count, `0 * Math.Pow(2, N-1)` for
+        // large N evaluates to `0 * Infinity = NaN` because Math.Pow overflows double. The
+        // existing NaN clamp returned MaxDelay (1h) — a silent contract flip where "zero delay"
+        // becomes "1-hour delay" at large attempt numbers. Fix short-circuits at the top of
+        // Calculate when baseDelay is Zero.
+        var delay = BackoffCalculator.Calculate(
+            TimeSpan.Zero, attempt: 2000, BackoffStrategy.Exponential, jitter: false, random: null);
+
+        Assert.Equal(TimeSpan.Zero, delay);
+    }
+
+    [Fact]
     public void Jitter_ZeroBaseDelay_ReturnsZero_NoThrow()
     {
         // Jitter's `totalMs > 0` guard: when baseDelay is zero, the jitter branch is skipped

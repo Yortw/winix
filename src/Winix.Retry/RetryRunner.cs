@@ -147,7 +147,15 @@ public sealed class RetryRunner
             {
                 stopReason = RetryOutcome.RetriesExhausted;
             }
-            // If cancelled mid-loop, stopReason stays null — the outer outcome derivation handles it.
+            else if (cancellationToken.IsCancellationRequested)
+            {
+                // Cancellation during an attempt: shouldRetry and hasRetriesLeft are both true,
+                // but willRetry was flipped to false by the cancel-token check on the willRetry
+                // line. Without this arm, stopReason would stay null, FormatAttempt would fall
+                // through to "no retries remaining" — actively misleading given the user pressed
+                // Ctrl+C with retries still available. Round-4 I1 fix.
+                stopReason = RetryOutcome.Cancelled;
+            }
 
             onAttempt?.Invoke(new AttemptInfo(
                 attemptNumber, maxAttempts, lastExitCode,
@@ -162,9 +170,20 @@ public sealed class RetryRunner
             // delayAction returns early; recording the nominal value produces impossible data
             // (total_seconds < sum(delays_seconds)) for analytics consumers. Measure against the
             // outer stopwatch so the two fields stay coherent.
+            //
+            // The `finally` ensures partial history is preserved even if delayAction throws (e.g.
+            // a caller that uses `Task.Delay(d, token).Wait()` raises AggregateException on
+            // cancel). The delay entry lands in `delays` before the exception propagates to the
+            // outer `IsLaunchFailure` catch — same partial-history discipline as the launch path.
             TimeSpan beforeDelay = stopwatch.Elapsed;
-            delayAction(nextDelay!.Value);
-            delays.Add(stopwatch.Elapsed - beforeDelay);
+            try
+            {
+                delayAction(nextDelay!.Value);
+            }
+            finally
+            {
+                delays.Add(stopwatch.Elapsed - beforeDelay);
+            }
         }
 
         stopwatch.Stop();

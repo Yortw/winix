@@ -26,6 +26,15 @@ public static class BackoffCalculator
     public static TimeSpan Calculate(TimeSpan baseDelay, int attempt,
         BackoffStrategy strategy, bool jitter, Random? random)
     {
+        // Zero base delay always yields zero regardless of strategy/jitter/attempt. Without this
+        // short-circuit, 0 * Math.Pow(2, attempt-1) for large attempts becomes 0 * Infinity = NaN,
+        // and the NaN clamp below returns MaxDelay (1h) — a silent contract flip where "zero
+        // delay" becomes "1-hour delay" at large attempt numbers. Round-4 M1 fix.
+        if (baseDelay == TimeSpan.Zero)
+        {
+            return TimeSpan.Zero;
+        }
+
         // Explicit enum exhaustiveness: throwing on unknown variants prevents a silent "fixed"
         // degradation if a new BackoffStrategy value is added without extending this switch.
         double multiplier = strategy switch

@@ -53,8 +53,24 @@ public static class Formatting
             return $"{prefix} {red}launch failed{reset}, stopping";
         }
 
-        // RetriesExhausted (or any unrecognised stop reason)
-        return $"{prefix} {red}failed{reset} (exit {info.ExitCode}), no retries remaining";
+        if (info.StopReason == RetryOutcome.Cancelled)
+        {
+            // Ctrl+C during an attempt. Matters that this isn't the "no retries remaining"
+            // fallthrough — a user who just pressed Ctrl+C should see "cancelled", not a
+            // retries-exhausted message. Round-4 I1 fix.
+            return $"{prefix} {yellow}cancelled{reset} (exit {info.ExitCode}), stopping";
+        }
+
+        if (info.StopReason == RetryOutcome.RetriesExhausted)
+        {
+            return $"{prefix} {red}failed{reset} (exit {info.ExitCode}), no retries remaining";
+        }
+
+        // Unreachable in practice — every `!willRetry` path above assigns a stopReason. Throw so a
+        // future enum addition that forgets to extend this switch fails loudly in testing rather
+        // than silently emitting a "failed, no retries remaining" line for an unrelated outcome.
+        throw new ArgumentOutOfRangeException(
+            nameof(info), info.StopReason, "unhandled stop reason in FormatAttempt");
     }
 
     /// <summary>

@@ -167,6 +167,17 @@ internal sealed class Program
             return RunWithRetry(command, commandArgs, options, version, jsonOutput, useColor,
                 summaryWriter, cts);
         }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            // Final safety net: round-2's narrowing of IsLaunchFailure means any Win32Exception
+            // from WaitForExit/ExitCode — or any other unexpected exception bubbling out of
+            // RunWithRetry — now escapes the library. Without this catch, the CLR's unhandled-
+            // exception handler kicks in and (with <StackTraceSupport>false</StackTraceSupport>)
+            // prints a stack-traceless "Unhandled exception" message that's nearly un-diagnosable.
+            // Matches envvault's Program.Main final-safety pattern.
+            SafeWriteLine(Console.Error, $"retry: unexpected error: {ex.GetType().Name}: {ex.Message}");
+            return ExitCode.NotExecutable;
+        }
         finally
         {
             Console.CancelKeyPress -= cancelHandler;
@@ -256,10 +267,38 @@ internal sealed class Program
                     // process.Dispose ran before killReg.Dispose (defence-in-depth; the new disposal-order
                     // fix above makes this unreachable in practice, but the catch protects future changes).
                     catch (ObjectDisposedException) { /* process disposed before kill fired */ }
-                    catch (InvalidOperationException) { /* already exited */ }
-                    catch (Win32Exception) { /* kill race on Windows */ }
-                    catch (NotSupportedException) { /* remote process — not ours to kill */ }
+                    catch (InvalidOperationException) { /* already exited — benign */ }
+                    catch (Win32Exception ex)
+                    {
+                        // Real kill failure (access-denied on elevated child, signal-delivery error on
+                        // Linux that surfaces as Win32Exception). Previously swallowed silently with a
+                        // "kill race" comment — but that's wishful thinking. If the kill truly fails,
+                        // the subsequent WaitForExit blocks forever and retry appears hung with zero
+                        // output. Surface the diagnostic so the user knows why.
+                        try { Console.Error.WriteLine($"retry: warning: failed to kill child: {ex.Message}"); }
+                        catch { /* stderr unavailable */ }
+                    }
+                    catch (NotSupportedException ex)
+                    {
+                        try { Console.Error.WriteLine($"retry: warning: cannot kill child: {ex.Message}"); }
+                        catch { }
+                    }
                 });
+                // Bounded WaitForExit after cancel: if the child ignored the kill (daemon with
+                // custom SIGTERM handler, elevated child that refused access-denied kill), we exit
+                // after a grace period with a warning instead of blocking forever. Only enforces
+                // the timeout on cancel; normal runs wait indefinitely as before.
+                if (attemptToken.IsCancellationRequested)
+                {
+                    const int CancelGraceMs = 5_000;
+                    if (!process.WaitForExit(CancelGraceMs))
+                    {
+                        try { Console.Error.WriteLine($"retry: warning: child did not exit within {CancelGraceMs}ms of cancel — abandoning wait"); }
+                        catch { }
+                        // Conventional SIGKILL-ish code; retries resumed would have this as lastExitCode.
+                        return 137;
+                    }
+                }
                 process.WaitForExit();
                 return process.ExitCode;
             }
