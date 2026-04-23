@@ -24,7 +24,7 @@ internal sealed class Program
             .Flag("--jitter", null, "Add random jitter to delay (50-100% of calculated value)")
             .Option("--on", null, "CODES", "Retry only on these exit codes (comma-separated)")
             .Option("--until", null, "CODES", "Stop when exit code matches (comma-separated)")
-            .Flag("--stdout", null, "Write JSON summary to stdout instead of stderr (errors still go to stderr)")
+            .Flag("--stdout", null, "Write summary to stdout instead of stderr (errors still go to stderr)")
             .CommandMode()
             .ExitCodes(
                 (0, "Success (child returned 0) or child exit code pass-through (1–124)"),
@@ -178,7 +178,10 @@ internal sealed class Program
             // (e.g. "Unable to load libX.so") rather than the useless wrapper text. Matches
             // envvault's Cli.UnwrapTypeInit pattern.
             Exception surface = UnwrapTypeInit(ex);
-            SafeWriteLine(Console.Error, $"retry: unexpected error: {surface.GetType().Name}: {surface.Message}");
+            string msg = string.IsNullOrEmpty(surface.Message)
+                ? $"retry: unexpected error: {surface.GetType().Name}"
+                : $"retry: unexpected error: {surface.GetType().Name}: {surface.Message}";
+            SafeWriteLine(Console.Error, msg);
             return ExitCode.NotExecutable;
         }
         finally
@@ -299,12 +302,29 @@ internal sealed class Program
                 }
                 catch (OperationCanceledException)
                 {
+                    // Unregister the kill callback FIRST: the grace block runs its own
+                    // synchronous Kill, and leaving the callback armed means a second Ctrl+C
+                    // during the grace would race two concurrent Kill calls on the same Process.
+                    // CancellationTokenRegistration.Dispose waits for any in-flight callback to
+                    // complete, so after this line the callback will not fire again.
+                    killReg.Dispose();
+
                     // Token cancelled; kill was fired via the Register callback above. Give the
                     // child a grace window to honour the signal. If it still hasn't exited, warn
                     // about the orphan risk (on Windows, process.Dispose does NOT terminate an
                     // unmanaged process — the child survives retry's exit).
                     const int CancelGraceMs = 5_000;
-                    if (!process.WaitForExit(CancelGraceMs))
+
+                    // WaitForExit(int) can throw on a disposed/invalid-handle Process; treat
+                    // any such escape as "did not exit" so the orphan-warning path still fires
+                    // rather than bubbling through the outer safety-net as a generic "unexpected
+                    // error" (which would lose the specific cancel-diagnostic framing).
+                    bool exited;
+                    try { exited = process.WaitForExit(CancelGraceMs); }
+                    catch (InvalidOperationException) { exited = false; }
+                    catch (SystemException) { exited = false; }
+
+                    if (!exited)
                     {
                         // Best-effort second kill — the first one (from the Register callback) may
                         // have hit a transient error. Silently swallow: if this also fails, the
@@ -315,8 +335,13 @@ internal sealed class Program
                         catch (Win32Exception) { }
                         catch (NotSupportedException) { }
 
+                        // Process.Id throws InvalidOperationException when no process is
+                        // associated; ObjectDisposedException only reachable in a future refactor
+                        // (the outer finally disposes AFTER this block) but catch it for
+                        // defence-in-depth so a disposed handle can't crash the diagnostic.
                         int pid;
                         try { pid = process.Id; }
+                        catch (ObjectDisposedException) { pid = -1; }
                         catch (InvalidOperationException) { pid = -1; }
                         SafeWriteLine(Console.Error,
                             $"retry: warning: child (PID {pid}) did not exit within {CancelGraceMs}ms of cancel — retry is exiting; child may still be running");

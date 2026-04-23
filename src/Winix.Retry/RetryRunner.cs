@@ -129,6 +129,16 @@ public sealed class RetryRunner
                 nextDelay = BackoffCalculator.Calculate(
                     options.Delay, attemptNumber, options.Backoff, options.Jitter, random);
             }
+            else if (cancellationToken.IsCancellationRequested)
+            {
+                // Cancellation takes precedence over every other stop reason so the callback's
+                // StopReason agrees with the outer outcome derivation below. Round-4 I1 fix the
+                // bare Cancelled case; round-6 I4 fix moves this check FIRST so the --until
+                // + cancel race doesn't mis-label as Succeeded (outer says Cancelled, inner
+                // previously said Succeeded, and the user saw "matched target" in green
+                // followed by `"exit_reason":"cancelled"` in the JSON — the two disagreed).
+                stopReason = RetryOutcome.Cancelled;
+            }
             else if (!shouldRetry)
             {
                 // Determine the specific stop reason from why ShouldRetry returned false.
@@ -146,15 +156,6 @@ public sealed class RetryRunner
             else if (!hasRetriesLeft)
             {
                 stopReason = RetryOutcome.RetriesExhausted;
-            }
-            else if (cancellationToken.IsCancellationRequested)
-            {
-                // Cancellation during an attempt: shouldRetry and hasRetriesLeft are both true,
-                // but willRetry was flipped to false by the cancel-token check on the willRetry
-                // line. Without this arm, stopReason would stay null, FormatAttempt would fall
-                // through to "no retries remaining" — actively misleading given the user pressed
-                // Ctrl+C with retries still available. Round-4 I1 fix.
-                stopReason = RetryOutcome.Cancelled;
             }
 
             onAttempt?.Invoke(new AttemptInfo(

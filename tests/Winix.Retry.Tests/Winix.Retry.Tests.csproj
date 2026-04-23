@@ -10,5 +10,14 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Winix.Retry\Winix.Retry.csproj" />
+    <!--
+      ProjectReference to the console app (not the library) so `dotnet test` on this csproj
+      alone still builds retry.dll. ProgramMainTests spawns the real binary; without this,
+      a clean-tree `dotnet test tests/Winix.Retry.Tests` would fail with a confusing
+      "dotnet: file not found" rather than a clear build error. ReferenceOutputAssembly=false
+      / OutputItemType=None tells MSBuild to build-but-not-link — we spawn the dll at runtime.
+      Matches envvault's pattern.
+    -->
+    <ProjectReference Include="..\..\src\retry\retry.csproj" ReferenceOutputAssembly="false" OutputItemType="None" />
   </ItemGroup>
 </Project>

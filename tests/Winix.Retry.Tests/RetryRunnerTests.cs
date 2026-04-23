@@ -513,6 +513,35 @@ public class RetryRunnerTests
     }
 
     [Fact]
+    public void Run_CancellationWithUntilMatch_CallbackStopReasonAndOutcomeAgree()
+    {
+        // Round-6 I4: the inner stopReason derivation and the outer outcome derivation MUST
+        // agree. Prior to this fix, a --until target match coinciding with cancellation made
+        // the progress callback fire with StopReason=Succeeded (green "matched target" line)
+        // while the JSON envelope reported exit_reason=cancelled. User's dashboard showed two
+        // different stories. Now both derivations check cancellation first; this test pins
+        // that agreement.
+        var cts = new CancellationTokenSource();
+        var runner = new RetryRunner((cmd, args) =>
+        {
+            cts.Cancel();
+            return 42;
+        });
+        var options = new RetryOptions(maxRetries: 5, delay: TimeSpan.Zero,
+            stopOnCodes: new HashSet<int> { 42 });
+        var callbacks = new List<AttemptInfo>();
+
+        var result = runner.Run("cmd", Array.Empty<string>(), options,
+            onAttempt: info => callbacks.Add(info),
+            cancellationToken: cts.Token);
+
+        // Both derivations must produce Cancelled — NOT one says Succeeded and the other Cancelled.
+        Assert.Single(callbacks);
+        Assert.Equal(RetryOutcome.Cancelled, callbacks[0].StopReason);
+        Assert.Equal(RetryOutcome.Cancelled, result.Outcome);
+    }
+
+    [Fact]
     public void Run_MultipleAttempts_TotalSecondsIsAtLeastSumOfDelays()
     {
         // Round-4 gap (NH-3): the actual-delay recording fix at R2 must preserve the coherence

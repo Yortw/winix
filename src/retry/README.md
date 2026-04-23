@@ -131,10 +131,12 @@ Empty `--on` or `--until` lists (e.g. `--on ""` or `--on ",,,"`) are rejected as
 
 ## Cancellation
 
-Press **Ctrl+C** to interrupt the retry loop. `retry` sends SIGTERM (Unix) / TerminateProcess (Windows) to the running child with `entireProcessTree: true`, waits up to 5 seconds for it to exit, and then exits itself. Exit codes:
+Press **Ctrl+C** to interrupt the retry loop. `retry` forcibly terminates the child with `Process.Kill(entireProcessTree: true)` — **SIGKILL on Unix, TerminateProcess on Windows**. This is non-graceful: the child's SIGTERM handlers are NOT invoked. Retry then waits up to 5 seconds for the child to exit before exiting itself.
 
-- `130` — standard POSIX `128 + SIGINT` exit after a cancellation that completed cleanly within the grace window.
-- `137` — the child ignored the kill and retry abandoned the wait after 5 seconds. **The child may still be running as an orphan** — retry logs a warning with the PID. If the child holds locks or ports, subsequent commands may fail until you manually terminate it.
+Exit codes:
+
+- **Child's exit code (usually 130 on Unix if the child handled the signal, otherwise a kill-signal value)** — retry passes through whatever the child returned when it exited within the 5-second grace window. It does NOT substitute a fixed 130.
+- `137` — the child ignored the kill and retry abandoned the wait after 5 seconds. **The child may still be running as an orphan** — retry logs a warning to stderr with the PID. If the child holds locks or ports, subsequent commands may fail until you manually terminate it.
 
 Most well-behaved commands exit promptly on Ctrl+C; the orphan scenario is unusual (typically daemons or commands that install custom signal handlers).
 
