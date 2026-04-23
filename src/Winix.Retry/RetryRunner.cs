@@ -103,11 +103,13 @@ public sealed class RetryRunner
                 stopwatch.Stop();
                 int classifiedCode = ClassifyLaunchException(ex);
 
-                // Emit one final AttemptInfo so the progress callback sees the failure too.
-                onAttempt?.Invoke(new AttemptInfo(
-                    attemptNumber, maxAttempts, classifiedCode,
-                    nextDelay: null, willRetry: false, stopReason: RetryOutcome.LaunchFailed));
-
+                // Intentionally do NOT fire the progress callback for the failed attempt. The
+                // callback's documented contract is "progress for completed attempts" — a
+                // LaunchFailed frame is conceptually an ERROR, and in Program.cs the callback
+                // writes to the summary stream (which honours --stdout). Firing here would
+                // route the launch-failure progress line to stdout under --stdout, while the
+                // actual error message goes to stderr — mixing streams. Callers that need to
+                // know about the launch failure read result.Outcome / result.LaunchError.
                 return new RetryResult(
                     attemptNumber, maxAttempts, classifiedCode,
                     RetryOutcome.LaunchFailed, stopwatch.Elapsed, delays, launchError: ex);
