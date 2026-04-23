@@ -106,7 +106,15 @@ public class ProgramMainTests
                 advertisedLongs.Add(lo.GetString()!);
             }
         }
-        foreach (string required in new[] { "--set", "--list", "--get", "--unset", "--value", "--help", "--version", "--describe" })
+        // C3 extension: require ALL 14 flags the parser registers (previously only 8 were checked).
+        // A drop of any .Flag(...) registration — e.g. silently removing --noecho or --allow-empty —
+        // would be invisible to the narrower 8-flag check but break the AI-agent contract.
+        foreach (string required in new[]
+            {
+                "--set", "--list", "--get", "--unset", "--value",
+                "--allow-empty", "--noecho", "--require-passphrase", "--no-require-passphrase",
+                "--help", "--version", "--describe", "--json", "--no-color",
+            })
         {
             Assert.Contains(required, advertisedLongs);
         }

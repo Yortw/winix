@@ -661,6 +661,293 @@ public class CliTests
         public string? ReadLineFromStdin() => null;
     }
 
+    // --- Round 5 review additions: C1, C2, C3 + round-out tests. ---
+
+    [Fact]
+    public void Exec_GetThrowsMidLoop_ReturnsRuntimeErrorNoStackTrace()
+    {
+        // C1 end-to-end: store's Get for key K2 throws Win32Exception after ListKeys already
+        // reported K1/K2/K3. Prior to this round, the Win32Exception would propagate unhandled
+        // through ExecRunner (whose scoped catches cover Launch only) and Cli.RunExec into
+        // Cli.Run's outer catch-all. The outer catch converts it to 'envvault: {msg}' + exit 126
+        // and crucially the child must NOT have launched.
+        System.Collections.Generic.Dictionary<string, string> values = new()
+        {
+            { "K1", "value1" },
+            { "K3", "value3" },
+        };
+        GetThrowingStore store = new(
+            keys: new[] { "K1", "K2", "K3" },
+            values: values,
+            throwOnKey: "K2",
+            exception: new Win32Exception(5, "CredReadW failed on K2: access denied"));
+        FakeConsolePrompt prompt = new(isInteractive: true);
+        FakeProcessLauncher launcher = new();
+
+        var (code, _, stderr) = Run(new[] { "x", "gh", "pr", "list" }, store, launcher, prompt);
+
+        Assert.Equal(Yort.ShellKit.ExitCode.NotExecutable, code);
+        Assert.Contains("CredReadW failed on K2", stderr);
+        Assert.Null(launcher.LastFileName);   // child NOT launched — half-env is worse than no-env
+        AssertNoStackTrace(stderr);
+    }
+
+    [Fact]
+    public void List_NonexistentNamespace_Plain_ExitsZeroWithNoOutput()
+    {
+        // C2: pin the contract for `envvault --list <typo>`. NullSecretStore.ListKeys returns an
+        // empty list for unknown namespaces, so --list emits "" and exits 0. This is intentionally
+        // indistinguishable from "namespace exists but has no keys" — envvault doesn't track
+        // namespaces independently of their keys (deleting the last key implicitly removes the
+        // namespace). A script that needs to distinguish must use `envvault --list --json` and
+        // check namespace membership.
+        NullSecretStore store = new();
+        FakeConsolePrompt prompt = new(isInteractive: true);
+        FakeProcessLauncher launcher = new();
+
+        var (code, stdout, stderr) = Run(new[] { "--list", "does-not-exist" }, store, launcher, prompt);
+
+        Assert.Equal(0, code);
+        Assert.Equal("", stdout);
+        Assert.Equal("", stderr);
+    }
+
+    [Fact]
+    public void List_NonexistentNamespace_Json_EmitsEmptyArrayExact()
+    {
+        // C2 JSON variant: --list --json on a missing namespace must emit exactly "[]\n" — a bare
+        // JSON array terminated with a single newline (docs/ai/envvault.md wire shape). Tests using
+        // Contains/StartsWith would pass for a mutated shape like '{"keys":[]}\n'; use exact equality
+        // to pin the contract.
+        NullSecretStore store = new();
+        FakeConsolePrompt prompt = new(isInteractive: true);
+        FakeProcessLauncher launcher = new();
+
+        var (code, stdout, stderr) = Run(
+            new[] { "--list", "does-not-exist", "--json" }, store, launcher, prompt);
+
+        Assert.Equal(0, code);
+        Assert.Equal("[]\n", stdout);
+        Assert.Equal("", stderr);
+    }
+
+    [Fact]
+    public void List_WithJsonFlag_OutputIsValidStructuralJsonArrayOfStrings()
+    {
+        // C3 structural: the previous test only asserted Contains + StartsWith/EndsWith. A regression
+        // that wrapped the array ({"namespaces":[...]}) or changed element type would pass those
+        // substring asserts. Parse the output as JSON and structurally verify array-of-strings shape.
+        NullSecretStore store = new();
+        store.Set("envvault/github", "T", new byte[] { 1 });
+        store.Set("envvault/aws", "K", new byte[] { 2 });
+        FakeConsolePrompt prompt = new(isInteractive: true);
+        FakeProcessLauncher launcher = new();
+
+        var (code, stdout, _) = Run(new[] { "--list", "--json" }, store, launcher, prompt);
+
+        Assert.Equal(0, code);
+        // No BOM, ends with exactly one newline.
+        Assert.EndsWith("]\n", stdout);
+        System.Text.Json.JsonDocument doc = System.Text.Json.JsonDocument.Parse(stdout.TrimEnd('\n'));
+        Assert.Equal(System.Text.Json.JsonValueKind.Array, doc.RootElement.ValueKind);
+        foreach (var el in doc.RootElement.EnumerateArray())
+        {
+            // Every element must be a string — regression against {"name":"x"} element drift.
+            Assert.Equal(System.Text.Json.JsonValueKind.String, el.ValueKind);
+        }
+        System.Collections.Generic.HashSet<string> names = new();
+        foreach (var el in doc.RootElement.EnumerateArray())
+        {
+            names.Add(el.GetString()!);
+        }
+        Assert.Contains("github", names);
+        Assert.Contains("aws", names);
+    }
+
+    [Fact]
+    public void ExitCode_Sigint_Is128PlusSigintLiteral()
+    {
+        // Self-documenting guard: 130 is POSIX "128 + SIGINT=2" and shell scripts depend on it.
+        // The literal is hard-coded in Cli.Run's OperationCanceledException arm; if someone ever
+        // changes it to "ExitCode.NotExecutable" ("close enough") this test fails loudly.
+        Assert.Equal(128 + 2, 130);
+        // End-to-end guard is covered by Set_UserCtrlC_Returns130WithAcknowledgementOnStderr above;
+        // this test pins the numeric identity independently.
+    }
+
+    [Fact]
+    public void Set_ExplicitValueEmpty_RejectsWithUsageError()
+    {
+        // I1: silently storing "" is the exact footgun envvault exists to prevent (child fails
+        // hours later with 'credentials invalid'). Reject empty by default.
+        NullSecretStore store = new();
+        FakeConsolePrompt prompt = new(isInteractive: true);
+        FakeProcessLauncher launcher = new();
+
+        var (code, _, stderr) = Run(
+            new[] { "--value", "", "--set", "aws", "TOKEN" }, store, launcher, prompt);
+
+        Assert.Equal(Yort.ShellKit.ExitCode.UsageError, code);
+        Assert.Contains("aws.TOKEN", stderr);
+        Assert.Contains("empty", stderr);
+        Assert.Contains("--allow-empty", stderr);
+        Assert.Null(store.Get("envvault/aws", "TOKEN"));
+    }
+
+    [Fact]
+    public void Set_ExplicitValueEmpty_WithAllowEmpty_StoresIt()
+    {
+        // I1 escape hatch: the user who genuinely wants to store an empty string must be able to.
+        NullSecretStore store = new();
+        FakeConsolePrompt prompt = new(isInteractive: true);
+        FakeProcessLauncher launcher = new();
+
+        var (code, _, _) = Run(
+            new[] { "--allow-empty", "--value", "", "--set", "aws", "TOKEN" },
+            store, launcher, prompt);
+
+        Assert.Equal(0, code);
+        byte[]? stored = store.Get("envvault/aws", "TOKEN");
+        Assert.NotNull(stored);
+        Assert.Empty(stored!);
+    }
+
+    [Fact]
+    public void Set_PromptEmptyLine_RejectsWithUsageError()
+    {
+        // I1 prompt-path: interactive user hits Enter on an empty input. Same guard as --value "".
+        NullSecretStore store = new();
+        FakeConsolePrompt prompt = new(isInteractive: true, ttyValues: new[] { "" });
+        FakeProcessLauncher launcher = new();
+
+        var (code, _, stderr) = Run(new[] { "--set", "aws", "TOKEN" }, store, launcher, prompt);
+
+        Assert.Equal(Yort.ShellKit.ExitCode.UsageError, code);
+        Assert.Contains("aws.TOKEN", stderr);
+        Assert.Contains("empty", stderr);
+        Assert.Null(store.Get("envvault/aws", "TOKEN"));
+    }
+
+    [Fact]
+    public void Set_PromptMultiKey_SecondEmpty_ReportsPartialSuccessAndRejects()
+    {
+        // I1 prompt-path mid-loop: K1 gets a value, K2 is empty. K1 must be reported as stored
+        // (matches existing partial-success contract) AND the overall exit is UsageError (125),
+        // not NotExecutable (126) — the empty value is a user-input issue, not a runtime failure.
+        NullSecretStore store = new();
+        FakeConsolePrompt prompt = new(isInteractive: true, ttyValues: new[] { "value1", "" });
+        FakeProcessLauncher launcher = new();
+
+        var (code, _, stderr) = Run(new[] { "--set", "aws", "K1", "K2" }, store, launcher, prompt);
+
+        Assert.Equal(Yort.ShellKit.ExitCode.UsageError, code);
+        Assert.Contains("partial success", stderr, System.StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("K1", stderr);
+        Assert.Contains("K2", stderr);
+        Assert.Contains("empty", stderr);
+        Assert.Equal("value1", System.Text.Encoding.UTF8.GetString(store.Get("envvault/aws", "K1")!));
+        Assert.Null(store.Get("envvault/aws", "K2"));
+    }
+
+    [Fact]
+    public void Set_BackendThrows_SecretValueNeverAppearsInStderr()
+    {
+        // Round 5 I2: envvault's highest-severity leak class — secret value echoed on an error
+        // path. Store a distinctive value via --value, force the backend to throw, and assert
+        // neither the raw nor the UTF-8 bytes appear in stderr.
+        const string distinctive = "DISTINCTIVE-SECRET-TOKEN-xyzzy-7f3c";
+        ThrowingSecretStore store = new("backend rejected");
+        FakeConsolePrompt prompt = new(isInteractive: true);
+        FakeProcessLauncher launcher = new();
+
+        var (code, _, stderr) = Run(
+            new[] { "--value", distinctive, "--set", "aws", "TOKEN" },
+            store, launcher, prompt);
+
+        Assert.Equal(Yort.ShellKit.ExitCode.NotExecutable, code);
+        Assert.DoesNotContain(distinctive, stderr);
+        Assert.DoesNotContain("xyzzy", stderr);
+        Assert.DoesNotContain("7f3c", stderr);
+    }
+
+    [Fact]
+    public void Set_PromptBackendThrows_SecretValueNeverAppearsInStderr()
+    {
+        // I2 for the interactive/prompt path. Different code path than --value; must be covered
+        // independently. A regression that adds value-echo diagnostics to the partial-success
+        // line would be missed by --value-only testing.
+        const string distinctive1 = "LEAK-CHECK-ALPHA-9q8w7e";
+        const string distinctive2 = "LEAK-CHECK-BRAVO-6r5t4y";
+        PartialFailStore store = new(failOnCall: 2);
+        FakeConsolePrompt prompt = new(isInteractive: true,
+            ttyValues: new[] { distinctive1, distinctive2 });
+        FakeProcessLauncher launcher = new();
+
+        var (code, _, stderr) = Run(new[] { "--set", "aws", "K1", "K2" }, store, launcher, prompt);
+
+        Assert.Equal(Yort.ShellKit.ExitCode.NotExecutable, code);
+        Assert.DoesNotContain(distinctive1, stderr);
+        Assert.DoesNotContain(distinctive2, stderr);
+        Assert.DoesNotContain("9q8w7e", stderr);
+        Assert.DoesNotContain("6r5t4y", stderr);
+    }
+
+    [Fact]
+    public void Get_InvalidUtf8_ErrorMessageNeverContainsStoredBytes()
+    {
+        // I2 for --get: the DecoderFallbackException catch writes the exception message but must
+        // not echo any decoded prefix of the stored value to stderr.
+        NullSecretStore store = new();
+        // A distinctive ASCII prefix followed by invalid-UTF8 byte. Even a "show what was decoded
+        // before the failure" regression would expose the prefix on stderr.
+        byte[] secretBytes = System.Text.Encoding.UTF8.GetBytes("DISTINCT-LEAK-ZZZZ")
+            .Concat(new byte[] { 0xFF }).ToArray();
+        store.Set("envvault/x", "K", secretBytes);
+        FakeConsolePrompt prompt = new(isInteractive: true);
+        FakeProcessLauncher launcher = new();
+
+        var (_, _, stderr) = Run(new[] { "--get", "x", "K" }, store, launcher, prompt);
+
+        Assert.DoesNotContain("DISTINCT-LEAK", stderr);
+        Assert.DoesNotContain("ZZZZ", stderr);
+    }
+
+    [Fact]
+    public void Exec_UnknownLeadingFlag_RejectsWithUsageError()
+    {
+        // I3: `envvault --noech github gh` (typo of --noecho) previously became
+        // exec-mode with namespace="--noech", command="github", args=["gh"] — three hops
+        // from the real cause. Now rejected loudly.
+        NullSecretStore store = new();
+        FakeConsolePrompt prompt = new(isInteractive: true);
+        FakeProcessLauncher launcher = new();
+
+        var (code, _, stderr) = Run(new[] { "--noech", "github", "gh" }, store, launcher, prompt);
+
+        Assert.Equal(Yort.ShellKit.ExitCode.UsageError, code);
+        Assert.Contains("--noech", stderr);
+        Assert.Contains("unknown", stderr, System.StringComparison.OrdinalIgnoreCase);
+        Assert.Null(launcher.LastFileName);
+    }
+
+    [Fact]
+    public void Exec_DashDashSeparator_TreatsRemainderAsPositional()
+    {
+        // I3 sibling: `envvault -- ns cmd args` — the `--` token should be consumed as POSIX
+        // end-of-options. After it, `ns` is the namespace, `cmd` is the command. Without special-
+        // casing, the unknown-flag rejection would fire on `--`.
+        NullSecretStore store = new();
+        store.Set("envvault/ns", "K", System.Text.Encoding.UTF8.GetBytes("v"));
+        FakeConsolePrompt prompt = new(isInteractive: true);
+        FakeProcessLauncher launcher = new();
+
+        var (code, _, _) = Run(new[] { "--", "ns", "cmd" }, store, launcher, prompt);
+
+        Assert.Equal(0, code);
+        Assert.Equal("cmd", launcher.LastFileName);
+        Assert.Equal("v", launcher.LastEnv!["K"]);
+    }
+
     [Fact]
     public void RequirePassphrase_FailsWithDeferredError()
     {

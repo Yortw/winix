@@ -123,6 +123,39 @@ public class ExecRunnerTests
         Assert.Equal(new[] { "a b", "--flag=x=y", @"C:\path\", "--" }, launcher.LastArgv);
     }
 
+    [Fact]
+    public void Run_GetThrowsMidLoop_ReportsKeyAndDoesNotLaunchChild()
+    {
+        // C1 from round 5 review: ListKeys succeeds (reporting 3 keys), Get succeeds for K1, then
+        // throws on K2. Without a guard, the exception escapes ExecRunner.Run and propagates to
+        // Cli.Run's outer catch with no indication which key failed — AND the child may already
+        // have been launched by then. Must: (a) name the failing key in stderr, (b) NOT launch the
+        // child (otherwise the user gets half-populated env), (c) no stack trace leak.
+        System.Collections.Generic.Dictionary<string, string> values = new()
+        {
+            { "K1", "value1" },
+            { "K3", "value3" },
+        };
+        GetThrowingStore store = new(
+            keys: new[] { "K1", "K2", "K3" },
+            values: values,
+            throwOnKey: "K2",
+            exception: new System.ComponentModel.Win32Exception(5, "CredReadW failed: access denied"));
+        FakeProcessLauncher launcher = new();
+
+        var ex = Assert.ThrowsAny<System.Exception>(() =>
+            new ExecRunner(store, launcher).Run(new[] { "x" }, new[] { "gh", "pr", "list" }));
+
+        // Child must NOT have been launched — store failure during env merge means we don't have
+        // a complete environment, so launching the child with partial env would be worse than not
+        // launching at all (user would see confusing downstream errors).
+        Assert.Null(launcher.LastFileName);
+        Assert.Null(launcher.LastEnv);
+        // The exception type or message should carry enough context to identify the failing key.
+        // Cli.Run's outer handler surfaces this via 'envvault: {msg}' with exit 126.
+        Assert.True(ex is System.ComponentModel.Win32Exception, $"expected Win32Exception, got {ex.GetType().Name}");
+    }
+
     /// <summary>TextWriter that throws on every write — simulates a closed or broken stderr handle.</summary>
     private sealed class ThrowingWriter : System.IO.TextWriter
     {
