@@ -1,6 +1,6 @@
 % RETRY(1) Winix | User Commands
 % Troy Willmot
-% 2026-04-16
+% 2026-04-23
 
 # NAME
 
@@ -37,7 +37,7 @@ A transparent wrapper — the child's stdout, stderr, and exit code pass through
 :   Stop retrying when the exit code matches one of the given comma-separated values (poll mode). Retries continue until the command exits with one of these codes or attempts are exhausted.
 
 **--stdout**
-:   Write the summary to stdout instead of stderr.
+:   Write the success summary to stdout instead of stderr. Errors (usage, runtime failures) always go to stderr regardless of this flag — pipe consumers expect stdout to be clean on failure.
 
 **--json**
 :   Output results as JSON to stderr.
@@ -66,13 +66,13 @@ A transparent wrapper — the child's stdout, stderr, and exit code pass through
 :   Child process exit code (passed through on exhaustion or non-retryable result).
 
 **125**
-:   Usage error — bad retry arguments.
+:   Usage error — no command, bad retry arguments, or empty **--on**/**--until** list (e.g. **--on ""** or **--on ,,,**). An empty list is rejected rather than silently disabling the filter.
 
 **126**
-:   Command found but not executable.
+:   Command found but not executable (permission denied, bad EXE format). Includes unexpected process-start failures.
 
 **127**
-:   Command not found.
+:   Command not found on PATH. When a launch failure occurs mid-loop (child binary removed between attempts), the JSON summary preserves the partial history: **attempts** reflects how many succeeded before the failure, and **child_exit_code** is **null**.
 
 # ENVIRONMENT
 

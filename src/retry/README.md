@@ -74,7 +74,7 @@ peep -- retry --times 2 make test
 
 **JSON** (`--json`, stderr):
 ```json
-{"tool":"retry","version":"0.2.0","exit_code":1,"exit_reason":"exhausted","attempts":4,"child_exit_code":1}
+{"tool":"retry","version":"0.2.0","exit_code":1,"exit_reason":"retries_exhausted","child_exit_code":1,"attempts":4,"max_attempts":4,"total_seconds":3.012,"delays_seconds":[1.000,1.000,1.000]}
 ```
 
 ## Options
@@ -91,7 +91,7 @@ peep -- retry --times 2 make test
 | `--json` | | off | JSON output |
 | `--color` | | auto | Force coloured output (overrides `NO_COLOR`) |
 | `--no-color` | | auto | Disable coloured output |
-| `--version` | `-v` | | Show version |
+| `--version` | | | Show version |
 | `--help` | `-h` | | Show help |
 | `--describe` | | | AI/agent metadata (JSON) |
 
@@ -119,13 +119,15 @@ Add `--jitter` to any strategy to randomise the delay within 50–100% of the co
 
 ## Exit Codes
 
-`retry` passes through the child process's exit code on success, exhaustion, or non-retryable result. When `retry` itself fails:
+`retry` passes through the child process's exit code (0–124) on success, exhaustion, or non-retryable result. When `retry` itself fails:
 
 | Code | Meaning |
 |------|---------|
-| 125 | Usage error — bad retry arguments |
-| 126 | Command found but not executable |
-| 127 | Command not found |
+| 125 | Usage error — no command, bad retry arguments, empty `--on`/`--until` list |
+| 126 | Command found but not executable (permission denied, bad EXE format) |
+| 127 | Command not found on PATH |
+
+Empty `--on` or `--until` lists (e.g. `--on ""` or `--on ",,,"`) are rejected as usage errors, not silently treated as "no filter". Pass `retry CMD` without the flag if you want no filter.
 
 ## Colour
 
