@@ -61,6 +61,7 @@ dotnet publish src/timeit/timeit.csproj -c Release -r win-x64
   - Set `<PackageTags>` in `src/{tool}/{tool}.csproj` using the shared baseline `cli;command-line;cross-platform;windows;macos;linux;aot;dotnet-tool;winix` plus 3-5 domain-specific tags (e.g. `hmac;sha256;sha512;blake2;crypto;checksum` on digest, `cron;scheduler;task-scheduler;crontab;rrule` on schedule). Tags drive nuget.org filtered search — without them the package is only found via exact-name lookup.
   - Create `docs/ai/{tool}.md` AI agent guide and add the tool to `llms.txt`.
   - Update `CLAUDE.md`: project layout, NuGet package IDs list, scoop manifests list.
+  - **CHANGELOG.md (only when the tool actually ships in a stable release, not pre-releases).** Create `src/{tool}/CHANGELOG.md` in Keep-a-Changelog format (see `src/timeit/CHANGELOG.md` for the template). First published version gets a single `- Initial release.` entry; subsequent versions get real Added/Changed/Fixed/Removed sections. Pre-release batches (e.g. v0.3.x, v0.4.x before tagging) don't need a CHANGELOG — add one at the point of first stable tag. The shared `Directory.Build.targets` automatically extracts the latest `## [version]` section into `<PackageReleaseNotes>` at pack time and appends a "See full changelog" link to the GitHub copy, so consumers installing via nuget.org / winget / `dotnet add package` see the release notes without any per-csproj wiring.
 
 ## Windows Defender false positive
 

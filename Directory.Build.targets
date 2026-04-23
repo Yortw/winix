@@ -1,0 +1,63 @@
+<Project>
+  <!--
+    Release-notes extraction: if a tool directory has a CHANGELOG.md next to its csproj, extract the
+    most recent "## [version] - date" section and inline it into <PackageReleaseNotes> at pack time,
+    plus a footer link to the full file on GitHub. Consumers installing the package via nuget.org,
+    winget, or `dotnet add package` see the just-released changes without clicking through; users who
+    want the full history click the link.
+
+    Guarded by Exists(CHANGELOG.md) so library projects that don't ship their own changelog (e.g.
+    Winix.TimeIt, Winix.Peep — these evolve with their owning tool) silently skip this target.
+    Tool projects (src/timeit, src/squeeze, etc.) have the changelog and get the injection.
+  -->
+  <UsingTask TaskName="ExtractLatestChangelog"
+             TaskFactory="RoslynCodeTaskFactory"
+             AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <ChangelogPath ParameterType="System.String" Required="true" />
+      <ReleaseNotes ParameterType="System.String" Output="true" />
+    </ParameterGroup>
+    <Task>
+      <Using Namespace="System.IO" />
+      <Using Namespace="System.Text" />
+      <Code Type="Fragment" Language="cs">
+      <![CDATA[
+        if (!File.Exists(ChangelogPath)) {
+          ReleaseNotes = string.Empty;
+          return true;
+        }
+        // Walk the file; the latest section is the first "## [..." line. Stop at the second one
+        // (the prior release) so we only inline the newest.
+        var lines = File.ReadAllLines(ChangelogPath);
+        var notes = new StringBuilder();
+        bool inLatest = false;
+        foreach (var line in lines) {
+          if (line.StartsWith("## [")) {
+            if (inLatest) break;   // reached the previous release; done
+            inLatest = true;
+            notes.AppendLine(line);
+            continue;
+          }
+          if (inLatest) {
+            notes.AppendLine(line);
+          }
+        }
+        ReleaseNotes = notes.ToString().TrimEnd();
+      ]]>
+      </Code>
+    </Task>
+  </UsingTask>
+
+  <Target Name="ComputePackageReleaseNotes"
+          BeforeTargets="GenerateNuspec"
+          Condition="Exists('$(MSBuildProjectDirectory)\CHANGELOG.md')">
+    <ExtractLatestChangelog ChangelogPath="$(MSBuildProjectDirectory)\CHANGELOG.md">
+      <Output TaskParameter="ReleaseNotes" PropertyName="_LatestChangelog" />
+    </ExtractLatestChangelog>
+    <PropertyGroup>
+      <PackageReleaseNotes>$(_LatestChangelog)
+
+See full changelog at https://github.com/Yortw/winix/blob/main/src/$(MSBuildProjectName)/CHANGELOG.md</PackageReleaseNotes>
+    </PropertyGroup>
+  </Target>
+</Project>
