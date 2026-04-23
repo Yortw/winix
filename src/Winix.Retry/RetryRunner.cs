@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Yort.ShellKit;
 
 namespace Winix.Retry;
 
@@ -7,19 +8,37 @@ namespace Winix.Retry;
 /// </summary>
 public sealed class RetryRunner
 {
-    private readonly Func<string, string[], int> _runProcess;
+    /// <summary>
+    /// Signature of the process-execution delegate. Receives the command, arguments, and a
+    /// cancellation token scoped to the current attempt. Production implementations SHOULD kill
+    /// the child process when the token is signalled (e.g. Ctrl+C during a long-running child).
+    /// Returns the child's exit code. May throw <see cref="CommandNotFoundException"/>,
+    /// <see cref="CommandNotExecutableException"/>, or other exceptions on launch failure; the
+    /// runner catches these, preserves partial history, and returns
+    /// <see cref="RetryOutcome.LaunchFailed"/>.
+    /// </summary>
+    public delegate int RunProcessDelegate(string command, string[] arguments, CancellationToken cancellationToken);
+
+    private readonly RunProcessDelegate _runProcess;
 
     /// <summary>
-    /// Creates a runner that uses the given delegate to execute the command.
-    /// The delegate receives (command, arguments) and returns the exit code.
+    /// Creates a runner with a cancellation-aware process delegate. Use this when the caller has a
+    /// kill-on-cancel implementation (see <c>src/retry/Program.cs</c> for the reference spawner).
     /// </summary>
-    /// <param name="runProcess">
-    /// Process execution delegate. For production use, pass a delegate that spawns
-    /// a real child process. For testing, pass a fake that returns scripted exit codes.
-    /// </param>
-    public RetryRunner(Func<string, string[], int> runProcess)
+    public RetryRunner(RunProcessDelegate runProcess)
     {
         _runProcess = runProcess;
+    }
+
+    /// <summary>
+    /// Compatibility constructor for callers that only need the cancellation-between-attempts
+    /// behaviour (tests, simple fakes). Wraps the legacy <c>Func&lt;string, string[], int&gt;</c>
+    /// shape — the cancellation token is ignored by the wrapper, so the in-flight attempt is not
+    /// killable. Production code should use the <see cref="RunProcessDelegate"/> overload.
+    /// </summary>
+    public RetryRunner(Func<string, string[], int> runProcess)
+        : this((cmd, args, _) => runProcess(cmd, args))
+    {
     }
 
     /// <summary>
@@ -65,7 +84,34 @@ public sealed class RetryRunner
             }
 
             attemptNumber = i + 1;
-            lastExitCode = _runProcess(command, arguments);
+            try
+            {
+                lastExitCode = _runProcess(command, arguments, cancellationToken);
+            }
+            catch (Exception ex) when (IsLaunchFailure(ex))
+            {
+                // Launch failed mid-loop (e.g. binary deleted between attempts, permissions
+                // revoked, PATH race). Without this catch, the exception escapes RetryRunner
+                // with ALL partial history lost — the final JSON envelope reports attempts=0
+                // even when N-1 attempts completed successfully. Caller sees "command not
+                // found" with no indication that earlier attempts actually ran.
+                //
+                // Preserve the partial history by recording this failed attempt and returning
+                // a LaunchFailed result. Program.cs reads result.LaunchError to route the
+                // correct exit code (127/126/etc.) and reports result.Attempts including the
+                // prior successful-ran-but-failed-exit-code attempts.
+                stopwatch.Stop();
+                int classifiedCode = ClassifyLaunchException(ex);
+
+                // Emit one final AttemptInfo so the progress callback sees the failure too.
+                onAttempt?.Invoke(new AttemptInfo(
+                    attemptNumber, maxAttempts, classifiedCode,
+                    nextDelay: null, willRetry: false, stopReason: RetryOutcome.LaunchFailed));
+
+                return new RetryResult(
+                    attemptNumber, maxAttempts, classifiedCode,
+                    RetryOutcome.LaunchFailed, stopwatch.Elapsed, delays, launchError: ex);
+            }
 
             bool shouldRetry = options.ShouldRetry(lastExitCode);
             bool hasRetriesLeft = attemptNumber < maxAttempts;
@@ -139,4 +185,28 @@ public sealed class RetryRunner
             attemptNumber, maxAttempts, lastExitCode,
             outcome, stopwatch.Elapsed, delays);
     }
+
+    /// <summary>
+    /// Identifies exceptions that represent a launch failure the runner should convert into a
+    /// <see cref="RetryOutcome.LaunchFailed"/> result (preserving partial history), as opposed to
+    /// bugs that should propagate. Treats the three shapes Program.cs's spawner produces as
+    /// launch failures; anything else (e.g. an out-of-memory condition or a library bug) still
+    /// escapes and crashes loudly, which is the correct behaviour for unexpected errors.
+    /// </summary>
+    private static bool IsLaunchFailure(Exception ex)
+        => ex is CommandNotFoundException
+        || ex is CommandNotExecutableException
+        || ex is System.ComponentModel.Win32Exception
+        || (ex is InvalidOperationException && ex.Message.Contains("failed to start"));
+
+    /// <summary>
+    /// Maps a launch-failure exception to a POSIX-shaped exit code so Program.cs returns the
+    /// same code it used to return from the outer try/catch before the partial-history fix.
+    /// </summary>
+    private static int ClassifyLaunchException(Exception ex) => ex switch
+    {
+        CommandNotFoundException => ExitCode.NotFound,
+        CommandNotExecutableException => ExitCode.NotExecutable,
+        _ => ExitCode.NotExecutable   // bad EXE format, OOM during start, etc.
+    };
 }

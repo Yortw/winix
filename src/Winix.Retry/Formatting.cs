@@ -45,6 +45,14 @@ public static class Formatting
             return $"{prefix} {red}failed{reset} (exit {info.ExitCode}), not retryable — stopping";
         }
 
+        if (info.StopReason == RetryOutcome.LaunchFailed)
+        {
+            // Launch-failure mid-loop (e.g. binary removed between attempts). ExitCode here is the
+            // classified code Program.cs will return (127/126), not a real child exit — the child
+            // never ran. Wording mirrors NotRetryable so the user knows the loop terminated.
+            return $"{prefix} {red}launch failed{reset}, stopping";
+        }
+
         // RetriesExhausted (or any unrecognised stop reason)
         return $"{prefix} {red}failed{reset} (exit {info.ExitCode}), no retries remaining";
     }
@@ -81,7 +89,18 @@ public static class Formatting
             writer.WriteString("version", version);
             writer.WriteNumber("exit_code", result.ChildExitCode);
             writer.WriteString("exit_reason", OutcomeToReason(result.Outcome));
-            writer.WriteNumber("child_exit_code", result.ChildExitCode);
+            // On LaunchFailed the child never ran, so child_exit_code is null (not 127/126 —
+            // those are retry's own classification, already carried by exit_code). Emitting
+            // the classification code as child_exit_code would mislead consumers into
+            // thinking the child exited with that value.
+            if (result.Outcome == RetryOutcome.LaunchFailed)
+            {
+                writer.WriteNull("child_exit_code");
+            }
+            else
+            {
+                writer.WriteNumber("child_exit_code", result.ChildExitCode);
+            }
             writer.WriteNumber("attempts", result.Attempts);
             writer.WriteNumber("max_attempts", result.MaxAttempts);
             JsonHelper.WriteFixedDecimal(writer, "total_seconds", result.TotalTime.TotalSeconds, 3);
@@ -128,23 +147,18 @@ public static class Formatting
         return JsonHelper.GetString(buffer);
     }
 
-    private static string OutcomeToReason(RetryOutcome outcome)
+    /// <summary>
+    /// Maps a <see cref="RetryOutcome"/> value to its JSON <c>exit_reason</c> string. Throws on
+    /// unknown variants so a future enum addition that forgets to extend this switch fails loudly
+    /// rather than silently emitting "unknown" — which downstream parsers cannot distinguish from
+    /// "retry has a bug" vs "retry has been updated and this is a new outcome I should handle".
+    /// </summary>
+    internal static string OutcomeToReason(RetryOutcome outcome) => outcome switch
     {
-        if (outcome == RetryOutcome.Succeeded)
-        {
-            return "succeeded";
-        }
-
-        if (outcome == RetryOutcome.RetriesExhausted)
-        {
-            return "retries_exhausted";
-        }
-
-        if (outcome == RetryOutcome.NotRetryable)
-        {
-            return "not_retryable";
-        }
-
-        return "unknown";
-    }
+        RetryOutcome.Succeeded => "succeeded",
+        RetryOutcome.RetriesExhausted => "retries_exhausted",
+        RetryOutcome.NotRetryable => "not_retryable",
+        RetryOutcome.LaunchFailed => "launch_failed",
+        _ => throw new ArgumentOutOfRangeException(nameof(outcome), outcome, "unhandled retry outcome")
+    };
 }
