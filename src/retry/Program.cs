@@ -224,7 +224,14 @@ internal sealed class Program
                 // so RetryRunner's narrow IsLaunchFailure catch (typed only) recognises it. This
                 // prevents mid-run Win32Exceptions from `WaitForExit`/`ExitCode` from being
                 // misclassified as launch failures — those now escape loudly as real bugs.
-                throw new CommandNotExecutableException($"{cmd}: {ex.Message}");
+                //
+                // Use the (message, innerException) constructor: the single-arg ctor prepends
+                // "permission denied: " unconditionally, which is actively misleading for
+                // non-permission errors like ERROR_BAD_EXE_FORMAT (193). The 2-arg ctor uses
+                // the supplied message verbatim and preserves the underlying Win32Exception
+                // for diagnostics. Consumers needing the command name can parse it from the
+                // prefixed message (Program.cs only uses .Message for display).
+                throw new CommandNotExecutableException($"{cmd}: {ex.Message}", ex);
             }
 
             // Wrap the registration + WaitForExit in a single try so the registration disposes

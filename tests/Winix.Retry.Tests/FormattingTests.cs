@@ -307,18 +307,6 @@ public class FormatJsonTests
     }
 
     [Fact]
-    public void FormatAttempt_Cancelled_NoCallbackFiresForCancelledAttempt()
-    {
-        // Round-2: there's no explicit FormatAttempt branch for a Cancelled StopReason. The
-        // library doesn't fire the callback with StopReason=Cancelled — cancellation is checked
-        // at the top of each loop iteration so the cancelled iteration simply isn't processed.
-        // This test is a placeholder documenting that contract; if a future change adds a
-        // Cancelled progress frame, it should have its own FormatAttempt branch.
-        // (The actual mechanism is tested in RetryRunnerTests.Run_Cancellation_BreaksLoopWithCancelledOutcome.)
-        Assert.True(true);
-    }
-
-    [Fact]
     public void FormatJson_UnknownOutcome_ThrowsNotSilentlyEmitsUnknown()
     {
         // Round-1 I4: OutcomeToReason previously returned "unknown" for unrecognised enum

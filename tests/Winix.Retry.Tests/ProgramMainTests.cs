@@ -19,6 +19,17 @@ public class ProgramMainTests
     private static (int ExitCode, string Stdout, string Stderr) RunRetry(params string[] args)
     {
         string retryDll = LocateRetryDll();
+        // Fail fast with a clear message if retry.dll wasn't built. Without this, the first
+        // `dotnet <missing-dll>` spawn produces a confusing "file not found" on the dotnet
+        // runtime itself — not the test's fault, but the real cause gets buried in stack trace.
+        // The ProjectReference in the test csproj SHOULD guarantee retry builds first, but
+        // clean-checkout CI runs or explicit `dotnet test path/to/test.csproj` invocations can
+        // skip it.
+        if (!File.Exists(retryDll))
+        {
+            throw new System.InvalidOperationException(
+                $"retry.dll not built at '{retryDll}'. Run 'dotnet build src/retry' before running these tests.");
+        }
         ProcessStartInfo psi = new()
         {
             FileName = "dotnet",
