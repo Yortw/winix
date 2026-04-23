@@ -3,7 +3,9 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Net.Security;
 using System.Net.Sockets;
+using System.Security.Authentication;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -73,9 +75,24 @@ public sealed class NetCatClient
                 {
                     stream = await TlsWrapper.WrapClientAsync(tcp.GetStream(), options.Host!, options.InsecureTls, ct).ConfigureAwait(false);
                 }
-                catch (Exception ex)
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
                 {
-                    stderr.WriteLine(Formatting.FormatErrorLine($"TLS — handshake failed: {ex.Message}", options.UseColor));
+                    // User-initiated cancel during handshake — rethrow so the outer handler
+                    // maps to 130/interrupted rather than mis-labelling as "tls_failed".
+                    throw;
+                }
+                catch (AuthenticationException ex)
+                {
+                    // Cert validation failure, protocol mismatch, etc. Specific type so
+                    // consumers can distinguish "bad cert" from "transport failure".
+                    stderr.WriteLine(Formatting.FormatErrorLine($"TLS — certificate validation failed: {ex.Message}", options.UseColor));
+                    return new RunResult { ExitCode = 1, ExitReason = "tls_failed", DurationMilliseconds = sw.Elapsed.TotalMilliseconds };
+                }
+                catch (IOException ex)
+                {
+                    // Transport error mid-handshake (peer RST, network blip). Same exit code
+                    // as auth failure but distinct reason text for diagnostics.
+                    stderr.WriteLine(Formatting.FormatErrorLine($"TLS — handshake I/O error: {ex.Message}", options.UseColor));
                     return new RunResult { ExitCode = 1, ExitReason = "tls_failed", DurationMilliseconds = sw.Elapsed.TotalMilliseconds };
                 }
             }
@@ -98,10 +115,8 @@ public sealed class NetCatClient
                     {
                         capturedTcp.Client.Shutdown(SocketShutdown.Send);
                     }
-                    catch (SocketException)
-                    {
-                        // Peer already gone — harmless.
-                    }
+                    catch (SocketException) { /* peer already gone — harmless */ }
+                    catch (ObjectDisposedException) { /* socket disposed by a concurrent path */ }
                     return Task.CompletedTask;
                 };
 
@@ -113,6 +128,26 @@ public sealed class NetCatClient
                 {
                     sw.Stop();
                     return new RunResult { ExitCode = 130, ExitReason = "interrupted",
+                        BytesSent = pump.BytesSent, BytesReceived = pump.BytesReceived,
+                        DurationMilliseconds = sw.Elapsed.TotalMilliseconds, RemoteAddress = remote };
+                }
+                catch (IOException ex)
+                {
+                    // Post-connect transport failure (peer RST mid-transfer, stdout pipe closed,
+                    // TLS alert after handshake). Previously uncaught — crashed nc with a stack
+                    // trace. Surface as exit 1 + socket_error with partial byte counts so the
+                    // JSON envelope reflects what actually moved.
+                    sw.Stop();
+                    stderr.WriteLine(Formatting.FormatErrorLine($"{options.Host}:{port} — {ex.Message}", options.UseColor));
+                    return new RunResult { ExitCode = 1, ExitReason = "socket_error",
+                        BytesSent = pump.BytesSent, BytesReceived = pump.BytesReceived,
+                        DurationMilliseconds = sw.Elapsed.TotalMilliseconds, RemoteAddress = remote };
+                }
+                catch (SocketException ex)
+                {
+                    sw.Stop();
+                    stderr.WriteLine(Formatting.FormatErrorLine($"{options.Host}:{port} — {ex.Message}", options.UseColor));
+                    return new RunResult { ExitCode = 1, ExitReason = MapSocketError(ex),
                         BytesSent = pump.BytesSent, BytesReceived = pump.BytesReceived,
                         DurationMilliseconds = sw.Elapsed.TotalMilliseconds, RemoteAddress = remote };
                 }
@@ -138,17 +173,40 @@ public sealed class NetCatClient
         int port = options.Ports[0].Low;
 
         using var udp = new UdpClient(0, options.AddressFamily ?? AddressFamily.InterNetwork);
-        udp.Connect(options.Host, port);
+        try
+        {
+            udp.Connect(options.Host, port);
+        }
+        catch (SocketException ex)
+        {
+            // DNS failure, bad AF (e.g. --ipv4 but host is v6-only), permission denied, etc.
+            // Previously uncaught — crashed nc with a stack trace.
+            sw.Stop();
+            stderr.WriteLine(Formatting.FormatErrorLine($"{options.Host}:{port} — {ex.Message}", options.UseColor));
+            return new RunResult { ExitCode = 1, ExitReason = MapSocketError(ex), DurationMilliseconds = sw.Elapsed.TotalMilliseconds };
+        }
 
         // Read all of stdin and send each buffer as a datagram.
         long sent = 0;
         var buf = new byte[65507];
-        while (true)
+        try
         {
-            int n = await stdin.ReadAsync(buf.AsMemory(), ct).ConfigureAwait(false);
-            if (n == 0) { break; }
-            int chunkSent = await udp.SendAsync(buf.AsMemory(0, n), ct).ConfigureAwait(false);
-            sent += chunkSent;
+            while (true)
+            {
+                int n = await stdin.ReadAsync(buf.AsMemory(), ct).ConfigureAwait(false);
+                if (n == 0) { break; }
+                int chunkSent = await udp.SendAsync(buf.AsMemory(0, n), ct).ConfigureAwait(false);
+                sent += chunkSent;
+            }
+        }
+        catch (SocketException ex)
+        {
+            // MTU mismatch, ICMP-unreachable feedback (on Windows — surfaced as WSAECONNRESET
+            // on the next Send), or send-side buffer exhaustion.
+            sw.Stop();
+            stderr.WriteLine(Formatting.FormatErrorLine($"{options.Host}:{port} — {ex.Message}", options.UseColor));
+            return new RunResult { ExitCode = 1, ExitReason = MapSocketError(ex),
+                BytesSent = sent, DurationMilliseconds = sw.Elapsed.TotalMilliseconds };
         }
 
         // Optionally wait briefly for a single response (timeout > 0 = wait).
@@ -166,6 +224,15 @@ public sealed class NetCatClient
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
                 // No response within timeout — exit cleanly anyway.
+            }
+            catch (SocketException ex)
+            {
+                // Receive can surface an earlier send's ICMP-unreachable as a SocketException on
+                // Windows. Treat as exit 1; don't let it escape.
+                sw.Stop();
+                stderr.WriteLine(Formatting.FormatErrorLine($"{options.Host}:{port} — {ex.Message}", options.UseColor));
+                return new RunResult { ExitCode = 1, ExitReason = MapSocketError(ex),
+                    BytesSent = sent, DurationMilliseconds = sw.Elapsed.TotalMilliseconds };
             }
         }
 

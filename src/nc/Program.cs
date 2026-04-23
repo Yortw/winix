@@ -3,6 +3,7 @@
 using System;
 using System.Globalization;
 using System.IO;
+using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
 using System.Threading;
@@ -77,6 +78,34 @@ internal sealed class Program
             Console.Error.WriteLine(Formatting.FormatErrorLine(ex.Message, useColor: false));
             return ExitCode.UsageError;
         }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            // Final safety net: TLS/network/filesystem code paths can surface unexpected
+            // exception types that don't map to UsageException. Without this, the CLR's
+            // default unhandled-exception handler prints a stack trace — and with
+            // StackTraceSupport=false in the AOT build the user just sees a cryptic crash.
+            // Mirrors retry's Program.Main pattern.
+            Exception surface = UnwrapTypeInit(ex);
+            string msg = string.IsNullOrEmpty(surface.Message)
+                ? $"nc: unexpected error: {surface.GetType().Name}"
+                : $"nc: unexpected error: {surface.GetType().Name}: {surface.Message}";
+            try { Console.Error.WriteLine(msg); } catch (IOException) { } catch (ObjectDisposedException) { }
+            return ExitCode.NotExecutable;
+        }
+    }
+
+    /// <summary>
+    /// Peels TypeInitializationException wrappers to the actionable inner cause. Same pattern
+    /// as retry's Program.cs and envvault's Cli.UnwrapTypeInit.
+    /// </summary>
+    private static Exception UnwrapTypeInit(Exception ex)
+    {
+        Exception current = ex;
+        for (int depth = 0; depth < 32 && current is TypeInitializationException tie && tie.InnerException != null; depth++)
+        {
+            current = tie.InnerException;
+        }
+        return current;
     }
 
     private static NetCatOptions BuildOptions(ParseResult result, string version)
@@ -114,6 +143,16 @@ internal sealed class Program
         // bind only with --listen
         if (bind is not null && !listen) { throw new UsageException("--bind requires --listen"); }
 
+        // Validate --bind as an IP literal now, not silently after the listener uses it.
+        // Silent fallback to IPAddress.Any on parse failure is a security foot-gun: a user who
+        // types `nc -l --bind 10.0.0..5 8080` (typo) would have had the listener silently bind
+        // to all interfaces rather than reject the bad arg. Round-1 I-1 fix. Hostname resolution
+        // is deliberately not supported — BSD nc -s only accepts IP literals for the same reason.
+        if (bind is not null && !IPAddress.TryParse(bind, out _))
+        {
+            throw new UsageException($"--bind '{bind}' is not a valid IP address (hostnames not supported)");
+        }
+
         // ipv4/ipv6 mutual exclusion
         if (ipv4 && ipv6) { throw new UsageException("--ipv4 and --ipv6 are mutually exclusive"); }
 
@@ -140,7 +179,18 @@ internal sealed class Program
             portSpec = positionals[1];
         }
 
-        var ranges = PortRangeParser.Parse(portSpec);
+        // Wrap PortRangeParser's FormatException as UsageException so Main's catch-arm surfaces
+        // it cleanly instead of bubbling to the CLR's unhandled-exception handler. Round-1 C3
+        // fix: `nc -z host invalid` previously produced a stack trace + undefined exit code.
+        IReadOnlyList<PortRange> ranges;
+        try
+        {
+            ranges = PortRangeParser.Parse(portSpec);
+        }
+        catch (FormatException ex)
+        {
+            throw new UsageException(ex.Message);
+        }
         if (mode != NetCatMode.Check && (ranges.Count != 1 || ranges[0].Count != 1))
         {
             throw new UsageException("only --check mode accepts port ranges or lists");
@@ -175,8 +225,28 @@ internal sealed class Program
     private static async Task<int> DispatchAsync(NetCatOptions options, string version)
     {
         using var cts = new CancellationTokenSource();
-        Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
 
+        // Named handler + finally-unregister so Ctrl+C arriving during shutdown can't fire a
+        // handler that calls Cancel on a disposed CTS. Same pattern as retry/envvault.
+        ConsoleCancelEventHandler cancelHandler = (_, e) =>
+        {
+            e.Cancel = true;
+            try { cts.Cancel(); } catch (ObjectDisposedException) { /* raced with shutdown */ }
+        };
+        Console.CancelKeyPress += cancelHandler;
+
+        try
+        {
+            return await DispatchCoreAsync(options, version, cts).ConfigureAwait(false);
+        }
+        finally
+        {
+            Console.CancelKeyPress -= cancelHandler;
+        }
+    }
+
+    private static async Task<int> DispatchCoreAsync(NetCatOptions options, string version, CancellationTokenSource cts)
+    {
         Stream stdin = Console.OpenStandardInput();
         Stream stdout = Console.OpenStandardOutput();
         TextWriter stderr = Console.Error;
@@ -219,6 +289,26 @@ internal sealed class Program
                         2 => "some_timeout",
                         _ => "all_failed",
                     };
+
+                    // Don't exit silently on all-failed in non-verbose plain-text mode. Round-1
+                    // I-5 fix: without this, a DNS-failure scan returns exit 1 with NO stdout
+                    // and NO stderr — user has no diagnostic for why it failed.
+                    if (!options.JsonOutput && !options.Verbose && worstStatus == 3)
+                    {
+                        int errorCount = 0;
+                        string? firstErrorMsg = null;
+                        foreach (var r in results)
+                        {
+                            if (r.Status == PortCheckStatus.Error)
+                            {
+                                errorCount++;
+                                firstErrorMsg ??= r.ErrorMessage;
+                            }
+                        }
+                        stderr.WriteLine(Formatting.FormatErrorLine(
+                            $"all {errorCount} port probes failed: {firstErrorMsg ?? "unknown error"} (use --verbose for per-port detail)",
+                            options.UseColor));
+                    }
 
                     if (options.JsonOutput)
                     {

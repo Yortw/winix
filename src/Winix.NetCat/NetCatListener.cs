@@ -69,10 +69,8 @@ public sealed class NetCatListener
                 {
                     capturedClient.Client.Shutdown(SocketShutdown.Send);
                 }
-                catch (SocketException)
-                {
-                    // Peer already gone — harmless.
-                }
+                catch (SocketException) { /* peer already gone — harmless */ }
+                catch (ObjectDisposedException) { /* socket disposed by a concurrent path */ }
                 return Task.CompletedTask;
             };
 
@@ -157,10 +155,24 @@ public sealed class NetCatListener
         }
     }
 
+    /// <summary>
+    /// Resolves the bind address for the listener. <paramref name="options"/>.<see cref="NetCatOptions.BindAddress"/>
+    /// must already be validated as a parseable IP by <c>Program.BuildOptions</c> — a bad string
+    /// SHOULD have been rejected as a usage error there, not silently fall through to
+    /// <c>IPAddress.Any</c> (which would defeat the security intent of <c>--bind</c>). If an
+    /// unparseable string reaches this method, throw rather than silently bind everywhere.
+    /// </summary>
     private static IPAddress ResolveBind(NetCatOptions options)
     {
-        if (options.BindAddress is not null && IPAddress.TryParse(options.BindAddress, out IPAddress? parsed))
+        if (options.BindAddress is not null)
         {
+            if (!IPAddress.TryParse(options.BindAddress, out IPAddress? parsed))
+            {
+                // Defence-in-depth: upstream validation should have caught this. Throw rather
+                // than fall through to IPAddress.Any — silent-fallback was the whole bug.
+                throw new InvalidOperationException(
+                    $"BindAddress '{options.BindAddress}' is not a valid IP — validation in Program.BuildOptions should have rejected this earlier.");
+            }
             return parsed;
         }
         return options.AddressFamily == AddressFamily.InterNetworkV6

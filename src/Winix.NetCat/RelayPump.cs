@@ -59,16 +59,63 @@ public sealed class RelayPump
         CancellationToken ct,
         Func<Task>? onSendComplete = null)
     {
-        Task sendTask = CopyAsync(stdin, socketWrite, isReceive: false, ct);
-        Task recvTask = CopyAsync(socketRead, stdout, isReceive: true, ct);
+        // Link a CTS so a failure on one leg cancels the other. Without this, sequential
+        // `await sendTask; await recvTask` left recvTask running unobserved whenever sendTask
+        // threw — the caller's `using (stream)` would then dispose the stream underneath the
+        // still-running copy, producing a silent UnobservedTaskException. Round-1 C1 fix.
+        using var pumpCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        Task sendTask = CopyAsync(stdin, socketWrite, isReceive: false, pumpCts.Token);
+        Task recvTask = CopyAsync(socketRead, stdout, isReceive: true, pumpCts.Token);
 
-        await sendTask.ConfigureAwait(false);
-        ShouldShutdownSend = halfCloseOnStdinEof;
-        if (halfCloseOnStdinEof && onSendComplete is not null)
+        // Observe sendTask's outcome first so the half-close hook runs before we await recv.
+        // Use try/finally so recvTask is always observed even when sendTask throws — otherwise
+        // its exception (often a follow-on from the cancellation we trigger here) would escape
+        // the process as an UnobservedTaskException.
+        Exception? sendFailure = null;
+        try
         {
-            await onSendComplete().ConfigureAwait(false);
+            await sendTask.ConfigureAwait(false);
         }
-        await recvTask.ConfigureAwait(false);
+        catch (Exception ex)
+        {
+            sendFailure = ex;
+            // Cancel the receive side — it's usually stuck in ReadAsync and would otherwise
+            // continue running after this method returns.
+            try { pumpCts.Cancel(); } catch (ObjectDisposedException) { }
+        }
+
+        ShouldShutdownSend = halfCloseOnStdinEof && sendFailure is null;
+        if (ShouldShutdownSend && onSendComplete is not null)
+        {
+            try
+            {
+                await onSendComplete().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // Half-close shutdown failure shouldn't mask the primary outcome. Surface the
+                // receive side (if it hasn't failed) and attach the onSendComplete failure only
+                // if nothing else did.
+                sendFailure ??= ex;
+                try { pumpCts.Cancel(); } catch (ObjectDisposedException) { }
+            }
+        }
+
+        try
+        {
+            await recvTask.ConfigureAwait(false);
+        }
+        catch when (sendFailure is not null)
+        {
+            // Prefer the original send-side exception — the recv exception is usually a
+            // cancellation-cascade artefact, not the interesting cause.
+        }
+
+        if (sendFailure is not null)
+        {
+            // Rethrow preserving the stack via ExceptionDispatchInfo so callers see the origin.
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(sendFailure).Throw();
+        }
     }
 
     /// <summary>

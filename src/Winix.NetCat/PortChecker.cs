@@ -96,5 +96,13 @@ public sealed class PortChecker
         {
             return PortCheckResult.Error(port, ex.Message);
         }
+        catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException and not StackOverflowException)
+        {
+            // Any other exception from ConnectAsync (ArgumentException on malformed hostname,
+            // NotSupportedException on bad AddressFamily, etc.) must NOT abort the entire scan —
+            // Task.WhenAll would re-throw it, losing the other 1023 port results. Classify as
+            // Error so the per-port scan completes. Round-1 I-4 fix.
+            return PortCheckResult.Error(port, ex.Message);
+        }
     }
 }
