@@ -136,8 +136,19 @@ public sealed class RelayPump
             {
                 return;
             }
-            await sink.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
-            await sink.FlushAsync(ct).ConfigureAwait(false);
+            try
+            {
+                await sink.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
+                await sink.FlushAsync(ct).ConfigureAwait(false);
+            }
+            catch (IOException ex) when (isReceive)
+            {
+                // Downstream pipe closed — e.g. `nc host 80 | head -c 10`. BSD nc precedent
+                // treats this as a clean exit rather than a socket failure. Round-2 I1 fix:
+                // wrap in a typed exception so NetCatClient/Listener can distinguish from
+                // genuine socket IOException (peer RST mid-transfer, TLS record error, etc.).
+                throw new StdoutClosedException("stdout pipe closed", ex);
+            }
             if (isReceive)
             {
                 System.Threading.Interlocked.Add(ref _bytesReceived, read);
@@ -148,4 +159,15 @@ public sealed class RelayPump
             }
         }
     }
+}
+
+/// <summary>
+/// Signals that the downstream stdout pipe was closed while the pump was writing received bytes.
+/// Callers (NetCatClient / NetCatListener) treat this as a clean exit (code 0, reason
+/// <c>stdout_closed</c>), matching BSD netcat's SIGPIPE behaviour.
+/// </summary>
+public sealed class StdoutClosedException : IOException
+{
+    /// <summary>Creates a new instance with the given message and inner exception.</summary>
+    public StdoutClosedException(string message, Exception inner) : base(message, inner) { }
 }

@@ -85,6 +85,32 @@ public sealed class NetCatListener
                     BytesSent = pump.BytesSent, BytesReceived = pump.BytesReceived,
                     DurationMilliseconds = sw.Elapsed.TotalMilliseconds, LocalAddress = local };
             }
+            catch (StdoutClosedException)
+            {
+                // Round-2 I1: downstream pipe closed — same semantic as NetCatClient. Exit 0.
+                sw.Stop();
+                return new RunResult { ExitCode = 0, ExitReason = "stdout_closed",
+                    BytesSent = pump.BytesSent, BytesReceived = pump.BytesReceived,
+                    DurationMilliseconds = sw.Elapsed.TotalMilliseconds, LocalAddress = local, RemoteAddress = remote };
+            }
+            catch (IOException ex)
+            {
+                // Post-connect transport failure — peer RST mid-transfer, TLS-alert after
+                // handshake, etc. Matches NetCatClient's symmetric arm so exit codes line up.
+                sw.Stop();
+                stderr.WriteLine(Formatting.FormatErrorLine($"{remote} — {ex.Message}", options.UseColor));
+                return new RunResult { ExitCode = 1, ExitReason = "socket_error",
+                    BytesSent = pump.BytesSent, BytesReceived = pump.BytesReceived,
+                    DurationMilliseconds = sw.Elapsed.TotalMilliseconds, LocalAddress = local, RemoteAddress = remote };
+            }
+            catch (SocketException ex)
+            {
+                sw.Stop();
+                stderr.WriteLine(Formatting.FormatErrorLine($"{remote} — {ex.Message}", options.UseColor));
+                return new RunResult { ExitCode = 1, ExitReason = NetCatClient.MapSocketError(ex),
+                    BytesSent = pump.BytesSent, BytesReceived = pump.BytesReceived,
+                    DurationMilliseconds = sw.Elapsed.TotalMilliseconds, LocalAddress = local, RemoteAddress = remote };
+            }
 
             sw.Stop();
             return new RunResult
@@ -100,6 +126,12 @@ public sealed class NetCatListener
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
+            // Round-2 I2: emit a diagnostic stderr line. Without this, `nc --listen -w 5 8080`
+            // with no client exited 2 with empty stderr — same silent-failure pattern as
+            // check-mode all-failed (round-1 I-5).
+            stderr.WriteLine(Formatting.FormatErrorLine(
+                $"listen {bind}:{port} — no client within {options.Timeout.TotalSeconds.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)}s",
+                options.UseColor));
             sw.Stop();
             return new RunResult { ExitCode = 2, ExitReason = "timeout", DurationMilliseconds = sw.Elapsed.TotalMilliseconds };
         }
@@ -149,6 +181,10 @@ public sealed class NetCatListener
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
+                // Round-2 I2: emit a diagnostic stderr line for UDP listener timeout too.
+                stderr.WriteLine(Formatting.FormatErrorLine(
+                    $"listen {bind}:{port} — no datagram within {options.Timeout.TotalSeconds.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)}s",
+                    options.UseColor));
                 sw.Stop();
                 return new RunResult { ExitCode = 2, ExitReason = "timeout", DurationMilliseconds = sw.Elapsed.TotalMilliseconds };
             }

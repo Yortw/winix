@@ -55,6 +55,16 @@ internal sealed class Program
             .JsonField("mode", "string", "connect | listen | check")
             .JsonField("exit_code", "int", "Tool exit code")
             .JsonField("exit_reason", "string", "Machine-readable exit reason")
+            .JsonField("host", "string", "Target host (connect/check modes)")
+            .JsonField("port", "int", "Target port (connect/listen modes)")
+            .JsonField("protocol", "string", "tcp | udp (connect/listen modes)")
+            .JsonField("tls", "bool", "Whether TLS was used (connect mode)")
+            .JsonField("remote_address", "string", "Resolved remote endpoint")
+            .JsonField("local_address", "string", "Bind endpoint (listen mode)")
+            .JsonField("bytes_sent", "int", "Bytes sent to peer")
+            .JsonField("bytes_received", "int", "Bytes received from peer")
+            .JsonField("duration_ms", "number", "Wall-clock duration (ms)")
+            .JsonField("ports", "array", "Per-port results (check mode): port, status, latency_ms?, error?")
             .ExitCodes(
                 (ExitCode.Success, "Success"),
                 (1, "Connection refused, DNS failure, bind failure, any closed port (check)"),
@@ -77,6 +87,17 @@ internal sealed class Program
         {
             Console.Error.WriteLine(Formatting.FormatErrorLine(ex.Message, useColor: false));
             return ExitCode.UsageError;
+        }
+        catch (OperationCanceledException)
+        {
+            // User Ctrl+C or linked-timeout OCE that escaped all per-site handlers. The per-site
+            // `catch (OCE) when (!ct.IsCancellationRequested)` filters deliberately handle only
+            // timeout OCEs; user-cancel is meant to propagate here so the documented exit code
+            // 130 actually fires. Round-2 C1 fix: without this arm, Ctrl+C during connect / accept
+            // / probe / UDP receive/send fell through to the generic catch-all below and exited
+            // 126 "unexpected error" — a contract violation vs --describe/help.
+            try { Console.Error.WriteLine("nc: interrupted"); } catch (IOException) { } catch (ObjectDisposedException) { }
+            return 130;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
@@ -281,38 +302,52 @@ internal sealed class Program
                         }
                     }
 
+                    int errorCount = 0;
+                    string? firstErrorMsg = null;
+                    foreach (var r in results)
+                    {
+                        if (r.Status == PortCheckStatus.Error)
+                        {
+                            errorCount++;
+                            firstErrorMsg ??= r.ErrorMessage;
+                        }
+                    }
+
                     int exitCode = worstStatus == 0 ? 0 : worstStatus == 2 ? 2 : 1;
+                    // Round-2 C3 fix: distinguish "every probe errored" from "some errored, others
+                    // succeeded / closed / timed out". Previously we emitted `all_failed` whenever
+                    // ANY probe was in the Error bucket, even if most ports were open — misleading
+                    // downstream consumers of the JSON contract.
                     string exitReason = worstStatus switch
                     {
                         0 => "all_open",
                         1 => "some_closed",
                         2 => "some_timeout",
-                        _ => "all_failed",
+                        _ => errorCount == results.Count ? "all_failed" : "some_failed",
                     };
 
-                    // Don't exit silently on all-failed in non-verbose plain-text mode. Round-1
-                    // I-5 fix: without this, a DNS-failure scan returns exit 1 with NO stdout
-                    // and NO stderr — user has no diagnostic for why it failed.
+                    // Don't exit silently when probes errored in non-verbose plain-text mode.
+                    // Round-1 I-5 fix: without this, DNS-failure scans returned exit 1 with NO
+                    // stdout/stderr. Round-2 C3 tightens the message: use the total port count as
+                    // the denominator (previous wording "all N port probes failed" lied when N was
+                    // actually just the error-count, not the scan size).
                     if (!options.JsonOutput && !options.Verbose && worstStatus == 3)
                     {
-                        int errorCount = 0;
-                        string? firstErrorMsg = null;
-                        foreach (var r in results)
-                        {
-                            if (r.Status == PortCheckStatus.Error)
-                            {
-                                errorCount++;
-                                firstErrorMsg ??= r.ErrorMessage;
-                            }
-                        }
+                        string summary = errorCount == results.Count
+                            ? $"all {errorCount} port probes failed"
+                            : $"{errorCount} of {results.Count} port probes errored";
                         stderr.WriteLine(Formatting.FormatErrorLine(
-                            $"all {errorCount} port probes failed: {firstErrorMsg ?? "unknown error"} (use --verbose for per-port detail)",
+                            $"{summary}: {firstErrorMsg ?? "unknown error"} (use --verbose for per-port detail)",
                             options.UseColor));
                     }
 
                     if (options.JsonOutput)
                     {
-                        stderr.WriteLine(Formatting.FormatCheckJson(version, options.Host!, results, exitCode, exitReason));
+                        // Round-2 I7: JSON summary writer must never mask the real exit code. If
+                        // the encoder throws (OOM on a 65k-port scan, writer misuse), log a short
+                        // note and still return the computed exit — don't let a diagnostic failure
+                        // overwrite the primary result via Main's safety-net.
+                        TryWriteJson(stderr, () => Formatting.FormatCheckJson(version, options.Host!, results, exitCode, exitReason));
                     }
                     return exitCode;
                 }
@@ -321,7 +356,7 @@ internal sealed class Program
                 {
                     var listener = new NetCatListener();
                     RunResult result = await listener.RunAsync(options, stdin, stdout, stderr, cts.Token).ConfigureAwait(false);
-                    if (options.JsonOutput) { stderr.WriteLine(Formatting.FormatRunJson(version, options, result)); }
+                    if (options.JsonOutput) { TryWriteJson(stderr, () => Formatting.FormatRunJson(version, options, result)); }
                     return result.ExitCode;
                 }
 
@@ -330,7 +365,7 @@ internal sealed class Program
                 {
                     var client = new NetCatClient();
                     RunResult result = await client.RunAsync(options, stdin, stdout, stderr, cts.Token).ConfigureAwait(false);
-                    if (options.JsonOutput) { stderr.WriteLine(Formatting.FormatRunJson(version, options, result)); }
+                    if (options.JsonOutput) { TryWriteJson(stderr, () => Formatting.FormatRunJson(version, options, result)); }
                     return result.ExitCode;
                 }
         }
@@ -341,6 +376,25 @@ internal sealed class Program
         return typeof(NetCatOptions).Assembly
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
             ?.InformationalVersion ?? "0.0.0";
+    }
+
+    /// <summary>
+    /// Writes a JSON summary to stderr, suppressing any exceptions so a diagnostic-path failure
+    /// cannot mask the real exit code. Per user's "diagnostic logging must never fail the caller"
+    /// rule. Round-2 I7 fix.
+    /// </summary>
+    private static void TryWriteJson(TextWriter stderr, Func<string> produce)
+    {
+        try
+        {
+            stderr.WriteLine(produce());
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            try { stderr.WriteLine($"nc: failed to emit JSON summary: {ex.GetType().Name}: {ex.Message}"); }
+            catch (IOException) { }
+            catch (ObjectDisposedException) { }
+        }
     }
 }
 

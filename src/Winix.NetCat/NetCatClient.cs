@@ -71,15 +71,32 @@ public sealed class NetCatClient
                 {
                     stderr.WriteLine(Formatting.FormatWarningLine("TLS certificate validation disabled", options.UseColor));
                 }
+                // Round-2 C2 fix: renew the timeout around the handshake. The outer `connectCts`
+                // covers only the TCP connect — by this point its CancelAfter timer has already
+                // fired or been consumed, so passing its token to the TLS wrapper would give the
+                // handshake effectively no deadline. A hanging TLS server used to block nc
+                // indefinitely despite `-w N` being set, silently contradicting the docs.
+                using var tlsCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                if (options.Timeout > TimeSpan.Zero)
+                {
+                    tlsCts.CancelAfter(options.Timeout);
+                }
                 try
                 {
-                    stream = await TlsWrapper.WrapClientAsync(tcp.GetStream(), options.Host!, options.InsecureTls, ct).ConfigureAwait(false);
+                    stream = await TlsWrapper.WrapClientAsync(tcp.GetStream(), options.Host!, options.InsecureTls, tlsCts.Token).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested)
                 {
                     // User-initiated cancel during handshake — rethrow so the outer handler
                     // maps to 130/interrupted rather than mis-labelling as "tls_failed".
                     throw;
+                }
+                catch (OperationCanceledException)
+                {
+                    // Timeout fired during handshake (tlsCts.CancelAfter). Exit 2/timeout matches
+                    // the TCP-connect timeout arm above — same user-visible semantic.
+                    stderr.WriteLine(Formatting.FormatErrorLine($"{options.Host}:{port} — TLS handshake timed out", options.UseColor));
+                    return new RunResult { ExitCode = 2, ExitReason = "timeout", DurationMilliseconds = sw.Elapsed.TotalMilliseconds };
                 }
                 catch (AuthenticationException ex)
                 {
@@ -128,6 +145,16 @@ public sealed class NetCatClient
                 {
                     sw.Stop();
                     return new RunResult { ExitCode = 130, ExitReason = "interrupted",
+                        BytesSent = pump.BytesSent, BytesReceived = pump.BytesReceived,
+                        DurationMilliseconds = sw.Elapsed.TotalMilliseconds, RemoteAddress = remote };
+                }
+                catch (StdoutClosedException)
+                {
+                    // Round-2 I1: downstream pipe closed (e.g. `nc host 80 | head -c 10`).
+                    // BSD nc semantics: exit 0, not a socket error. Preserves byte counts so the
+                    // JSON envelope reflects what actually moved before the pipe closed.
+                    sw.Stop();
+                    return new RunResult { ExitCode = 0, ExitReason = "stdout_closed",
                         BytesSent = pump.BytesSent, BytesReceived = pump.BytesReceived,
                         DurationMilliseconds = sw.Elapsed.TotalMilliseconds, RemoteAddress = remote };
                 }
@@ -223,7 +250,15 @@ public sealed class NetCatClient
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
-                // No response within timeout — exit cleanly anyway.
+                // No response within timeout — BSD nc precedent is exit 0 with no output. Round-2
+                // I3: emit a short stderr note (unless --json) so the user knows WHY output is
+                // empty rather than assuming the exchange succeeded silently.
+                if (!options.JsonOutput)
+                {
+                    stderr.WriteLine(Formatting.FormatWarningLine(
+                        $"no UDP response within {options.Timeout.TotalSeconds.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)}s",
+                        options.UseColor));
+                }
             }
             catch (SocketException ex)
             {
@@ -247,7 +282,7 @@ public sealed class NetCatClient
         };
     }
 
-    private static string MapSocketError(SocketException ex) => ex.SocketErrorCode switch
+    internal static string MapSocketError(SocketException ex) => ex.SocketErrorCode switch
     {
         SocketError.ConnectionRefused => "connection_refused",
         SocketError.HostNotFound => "host_not_found",
