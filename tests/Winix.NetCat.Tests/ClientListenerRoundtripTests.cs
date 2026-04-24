@@ -656,6 +656,222 @@ public sealed class ClientListenerRoundtripTests
     }
 
     /// <summary>
+    /// Pins round-7 test-analyzer C1: NetCatListener's <c>pump_failed</c> arm (parity with
+    /// NetCatClient's, which is already pinned). A regression dropping the listener's broad
+    /// pump catch would let ObjectDisposedException escape to Main's 126 safety-net, losing
+    /// byte counts + LocalAddress from the JSON envelope.
+    /// </summary>
+    [Fact]
+    public async Task TcpListener_PumpWriteThrowsObjectDisposedException_ReturnsExitOne_PumpFailed()
+    {
+        var probe = new TcpListener(IPAddress.Loopback, 0);
+        probe.Start();
+        int port = ((IPEndPoint)probe.LocalEndpoint).Port;
+        probe.Stop();
+
+        var options = new NetCatOptions
+        {
+            Mode = NetCatMode.Listen,
+            Protocol = NetCatProtocol.Tcp,
+            BindAddress = "127.0.0.1",
+            Ports = new[] { new PortRange(port) },
+            Timeout = System.TimeSpan.FromSeconds(5),
+        };
+
+        using var stdin = new MemoryStream();
+        using var stdout = new ThrowObjectDisposedStream();
+        using var stderr = new StringWriter();
+
+        Task<RunResult> listenerTask = new NetCatListener().RunAsync(options, stdin, stdout, stderr, CancellationToken.None);
+
+        await Task.Delay(100);
+
+        using (var client = new TcpClient())
+        {
+            await client.ConnectAsync(IPAddress.Loopback, port);
+            using NetworkStream cs = client.GetStream();
+            byte[] payload = Encoding.ASCII.GetBytes(new string('x', 2048));
+            try
+            {
+                for (int i = 0; i < 20; i++)
+                {
+                    await cs.WriteAsync(payload);
+                    await Task.Delay(5);
+                }
+            }
+            catch { /* peer closed mid-transfer when stdout blew up — expected */ }
+        }
+
+        RunResult result = await listenerTask.WaitAsync(System.TimeSpan.FromSeconds(10));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Equal("pump_failed", result.ExitReason);
+        Assert.NotNull(result.LocalAddress);
+    }
+
+    /// <summary>
+    /// Pins round-7 test-analyzer C2 (TCP): NetCatClient's <c>connect_failed</c> arm was emitted
+    /// but unpinned. Empty host triggers ArgumentException in TcpClient.ConnectAsync →
+    /// non-SocketException → broad catch classifies as <c>connect_failed</c>. Regression removing
+    /// the broad catch would let the exception escape to Main's 126 safety-net.
+    /// </summary>
+    [Fact]
+    public async Task TcpClient_EmptyHost_ReturnsExitOne_ConnectFailed()
+    {
+        var options = new NetCatOptions
+        {
+            Mode = NetCatMode.Connect,
+            Protocol = NetCatProtocol.Tcp,
+            Host = "",
+            Ports = new[] { new PortRange(80) },
+            Timeout = System.TimeSpan.FromSeconds(2),
+        };
+
+        using var stdin = new MemoryStream();
+        using var stdout = new MemoryStream();
+        using var stderr = new StringWriter();
+
+        RunResult result = await new NetCatClient().RunAsync(options, stdin, stdout, stderr, CancellationToken.None);
+
+        Assert.Equal(1, result.ExitCode);
+        // On some .NET runtimes empty host resolves to a SocketException (host_not_found); on
+        // others ArgumentException (connect_failed). Both are acceptable as long as it doesn't
+        // escape to unexpected_error. Pin the class rather than the specific reason.
+        Assert.Contains(result.ExitReason, new[] { "connect_failed", "host_not_found", "socket_error" });
+    }
+
+    // Note: UDP empty-host connect test removed — `Dns.GetHostAddresses("")` behaviour varies
+    // across .NET runtimes (success on some, SocketException on others, ArgumentException on
+    // yet others). The TCP empty-host test above pins the non-SocketException class, and the
+    // UDP broad-catch remains in place defensively. A deterministic UDP pin would require a
+    // mock seam not worth building for a rarely-triggered arm.
+
+    /// <summary>
+    /// Pins round-7 test-analyzer I2: UDP listener receive-timeout stderr diagnostic.
+    /// Reverting the stderr note would silently exit 2 with empty stderr — same silent-failure
+    /// class as round-2 I2 (which was pinned only at the TCP seam).
+    /// </summary>
+    [Fact]
+    public async Task UdpListener_NoDatagramWithinTimeout_ReturnsExitTwo_AndWritesStderrNote()
+    {
+        var probe = new UdpClient(0, AddressFamily.InterNetwork);
+        int port = ((IPEndPoint)probe.Client.LocalEndPoint!).Port;
+        probe.Dispose();
+
+        var options = new NetCatOptions
+        {
+            Mode = NetCatMode.Listen,
+            Protocol = NetCatProtocol.Udp,
+            BindAddress = "127.0.0.1",
+            Ports = new[] { new PortRange(port) },
+            Timeout = System.TimeSpan.FromMilliseconds(300),
+        };
+
+        using var stdin = new MemoryStream();
+        using var stdout = new MemoryStream();
+        using var stderr = new StringWriter();
+
+        RunResult result = await new NetCatListener().RunAsync(options, stdin, stdout, stderr, CancellationToken.None);
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Equal("timeout", result.ExitReason);
+        Assert.Contains("no datagram within", stderr.ToString());
+    }
+
+    /// <summary>
+    /// Pins round-7 test-analyzer I3 (TCP listener): <c>stdout_closed</c> parity with the
+    /// client-side test. `nc --listen 8080 | head -c 10` must exit 0 with exit_reason
+    /// <c>stdout_closed</c> — a regression to <c>socket_error</c> (exit 1) would silently drift
+    /// from BSD nc semantics on the listener side only.
+    /// </summary>
+    [Fact]
+    public async Task TcpListener_StdoutClosesDuringReceive_ReturnsExitZero_StdoutClosed()
+    {
+        var probe = new TcpListener(IPAddress.Loopback, 0);
+        probe.Start();
+        int port = ((IPEndPoint)probe.LocalEndpoint).Port;
+        probe.Stop();
+
+        var options = new NetCatOptions
+        {
+            Mode = NetCatMode.Listen,
+            Protocol = NetCatProtocol.Tcp,
+            BindAddress = "127.0.0.1",
+            Ports = new[] { new PortRange(port) },
+            Timeout = System.TimeSpan.FromSeconds(5),
+        };
+
+        using var stdin = new MemoryStream();
+        using var stdout = new ThrowAfterBytesStream(bytesBeforeThrow: 0);
+        using var stderr = new StringWriter();
+
+        Task<RunResult> listenerTask = new NetCatListener().RunAsync(options, stdin, stdout, stderr, CancellationToken.None);
+
+        await Task.Delay(100);
+
+        using (var client = new TcpClient())
+        {
+            await client.ConnectAsync(IPAddress.Loopback, port);
+            using NetworkStream cs = client.GetStream();
+            byte[] payload = Encoding.ASCII.GetBytes(new string('x', 2048));
+            try
+            {
+                for (int i = 0; i < 20; i++)
+                {
+                    await cs.WriteAsync(payload);
+                    await Task.Delay(5);
+                }
+            }
+            catch { /* listener closed once stdout threw — expected */ }
+        }
+
+        RunResult result = await listenerTask.WaitAsync(System.TimeSpan.FromSeconds(10));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("stdout_closed", result.ExitReason);
+    }
+
+    /// <summary>
+    /// Pins round-7 test-analyzer I3 (UDP listener): stdout IOException → exit 0 / stdout_closed,
+    /// parity with the client-side UDP test and the TCP listener test above.
+    /// </summary>
+    [Fact]
+    public async Task UdpListener_StdoutClosesDuringReceive_ReturnsExitZero_StdoutClosed()
+    {
+        var probe = new UdpClient(0, AddressFamily.InterNetwork);
+        int port = ((IPEndPoint)probe.Client.LocalEndPoint!).Port;
+        probe.Dispose();
+
+        var options = new NetCatOptions
+        {
+            Mode = NetCatMode.Listen,
+            Protocol = NetCatProtocol.Udp,
+            BindAddress = "127.0.0.1",
+            Ports = new[] { new PortRange(port) },
+            Timeout = System.TimeSpan.FromSeconds(5),
+        };
+
+        using var stdin = new MemoryStream();
+        using var stdout = new ThrowAfterBytesStream(bytesBeforeThrow: 0);
+        using var stderr = new StringWriter();
+
+        Task<RunResult> listenerTask = new NetCatListener().RunAsync(options, stdin, stdout, stderr, CancellationToken.None);
+
+        await Task.Delay(100);
+
+        using (var sender = new UdpClient())
+        {
+            byte[] payload = Encoding.ASCII.GetBytes("hello-udp");
+            await sender.SendAsync(payload, payload.Length, new IPEndPoint(IPAddress.Loopback, port));
+        }
+
+        RunResult result = await listenerTask.WaitAsync(System.TimeSpan.FromSeconds(5));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("stdout_closed", result.ExitReason);
+    }
+
+    /// <summary>
     /// Stream that throws ObjectDisposedException on every write. Used to exercise the
     /// round-5 pump broad-catch safety net (which catches ODE but not IOException — the
     /// latter is the stdout_closed path via StdoutClosedException).

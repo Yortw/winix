@@ -138,7 +138,7 @@ Emitted to stderr after the run.
 ```json
 {
   "tool": "nc",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "mode": "check",
   "host": "target.com",
   "ports": [
@@ -155,7 +155,7 @@ Emitted to stderr after the run.
 ```json
 {
   "tool": "nc",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "mode": "connect",
   "host": "target.com",
   "port": 80,

@@ -157,6 +157,19 @@ public sealed class NetCatListener
             stderr.WriteLine(Formatting.FormatErrorLine($"accept {bind}:{port} — {ex.Message}", options.UseColor));
             return new RunResult { ExitCode = 1, ExitReason = NetCatClient.MapSocketError(ex), DurationMilliseconds = sw.Elapsed.TotalMilliseconds };
         }
+        catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException and not StackOverflowException)
+        {
+            // Round-7 SFH I-2: NetCatClient's connect path got a broad safety-net in round 3
+            // (→ connect_failed). The listener's outer accept block was left without the
+            // parallel arm — any ObjectDisposedException / InvalidOperationException /
+            // ArgumentException from a racy AcceptTcpClientAsync escaped the try/finally all
+            // the way to Main's 126 "unexpected_error" safety-net, losing the JSON envelope.
+            // Mirror the client's treatment here for symmetric class-B coverage.
+            sw.Stop();
+            string msg = string.IsNullOrEmpty(ex.Message) ? ex.GetType().Name : ex.Message;
+            stderr.WriteLine(Formatting.FormatErrorLine($"accept {bind}:{port} — {msg}", options.UseColor));
+            return new RunResult { ExitCode = 1, ExitReason = "accept_failed", DurationMilliseconds = sw.Elapsed.TotalMilliseconds };
+        }
         finally
         {
             listener.Stop();

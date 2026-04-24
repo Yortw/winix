@@ -36,6 +36,14 @@ large batch of Important diagnosability gaps.
   unexpected exceptions.
 - New JSON field `error` advertised in `--describe` (present only on the
   catch-all envelope).
+- New `exit_reason` enum values: `pump_failed` (emitted when the bidirectional
+  relay hits an unexpected exception class — ObjectDisposedException or
+  InvalidOperationException from a racy half-close — instead of escaping to
+  the safety-net), `accept_failed` (listener-side parity for non-SocketException
+  accept failures), `unexpected_error` (emitted on the Main safety-net's JSON
+  envelope when `--json` is set and an exception escaped all per-site catches),
+  and `connect_failed` (TCP/UDP client-side parity for non-SocketException
+  connect failures).
 
 ### Changed
 
