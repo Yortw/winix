@@ -17,6 +17,13 @@ namespace Winix.NetCat;
 public sealed class NetCatListener
 {
     /// <summary>Runs the listener for one connection (TCP) or one datagram (UDP).</summary>
+    /// <summary>
+    /// Test seam: when non-null, called instead of <c>listener.AcceptTcpClientAsync(ct)</c>
+    /// to let tests inject non-SocketException failure modes (ObjectDisposedException,
+    /// InvalidOperationException) into the outer accept path. Production always leaves this null.
+    /// </summary>
+    internal Func<TcpListener, CancellationToken, Task<TcpClient>>? AcceptHook;
+
     public async Task<RunResult> RunAsync(NetCatOptions options, Stream stdin, Stream stdout, TextWriter stderr, CancellationToken ct)
     {
         if (options.Protocol == NetCatProtocol.Udp)
@@ -27,7 +34,7 @@ public sealed class NetCatListener
         return await RunTcpAsync(options, stdin, stdout, stderr, ct).ConfigureAwait(false);
     }
 
-    private static async Task<RunResult> RunTcpAsync(NetCatOptions options, Stream stdin, Stream stdout, TextWriter stderr, CancellationToken ct)
+    private async Task<RunResult> RunTcpAsync(NetCatOptions options, Stream stdin, Stream stdout, TextWriter stderr, CancellationToken ct)
     {
         var sw = Stopwatch.StartNew();
         IPAddress bind = ResolveBind(options);
@@ -53,10 +60,41 @@ public sealed class NetCatListener
                 acceptCts.CancelAfter(options.Timeout);
             }
 
-            using TcpClient client = await listener.AcceptTcpClientAsync(acceptCts.Token).ConfigureAwait(false);
-            string remote = client.Client.RemoteEndPoint?.ToString() ?? "";
-            string local = client.Client.LocalEndPoint?.ToString() ?? "";
-            using NetworkStream stream = client.GetStream();
+            using TcpClient client = AcceptHook is not null
+                ? await AcceptHook(listener, acceptCts.Token).ConfigureAwait(false)
+                : await listener.AcceptTcpClientAsync(acceptCts.Token).ConfigureAwait(false);
+
+            // Round-9 SFH-I1 fix: the post-accept pre-pump setup window (RemoteEndPoint,
+            // LocalEndPoint, GetStream) used to sit outside a dedicated try — if the peer RST'd
+            // in the gap, the resulting ObjectDisposedException / InvalidOperationException
+            // fell through to the outer broad catch and got mis-labelled as `accept_failed`
+            // even though accept SUCCEEDED. Classify as `socket_error` with endpoint info so
+            // the user sees "peer disconnected before stream ready" rather than "accept failed".
+            string remote;
+            string local;
+            NetworkStream stream;
+            try
+            {
+                // Null-conditional guards because Client may be null on a disposed TcpClient
+                // (e.g. peer sent RST immediately after accept), and RemoteEndPoint/LocalEndPoint
+                // can throw if the socket is already in tear-down. Either condition is the same
+                // class of race — accept succeeded but stream setup raced with peer disconnect.
+                remote = client.Client?.RemoteEndPoint?.ToString() ?? "";
+                local = client.Client?.LocalEndPoint?.ToString() ?? "";
+                stream = client.GetStream();
+            }
+            catch (Exception ex) when (ex is SocketException or InvalidOperationException or ObjectDisposedException or System.NullReferenceException)
+            {
+                sw.Stop();
+                stderr.WriteLine(Formatting.FormatErrorLine(
+                    $"peer disconnected before stream was established — {(string.IsNullOrEmpty(ex.Message) ? ex.GetType().Name : ex.Message)}",
+                    options.UseColor));
+                return new RunResult { ExitCode = 1, ExitReason = "socket_error",
+                    DurationMilliseconds = sw.Elapsed.TotalMilliseconds, LocalAddress = $"{bind}:{port}" };
+            }
+            // `stream` is guaranteed assigned on this line — the catch block returns on failure.
+            // The `!` silences nullable flow analysis which can't see that invariant across the try.
+            using NetworkStream _ = stream!;
 
             var pump = new RelayPump();
             // See NetCatClient for why the shutdown must fire from the pump's
@@ -70,7 +108,7 @@ public sealed class NetCatListener
                 // SocketException/ObjectDisposedException lets InvalidOperationException
                 // (racy socket state) or IOException escape, which RelayPump then surfaces as
                 // a pump failure — silently mis-classifying a successful listen as socket_error.
-                try { capturedClient.Client.Shutdown(SocketShutdown.Send); }
+                try { capturedClient.Client?.Shutdown(SocketShutdown.Send); }
                 catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException and not StackOverflowException) { }
                 return Task.CompletedTask;
             };

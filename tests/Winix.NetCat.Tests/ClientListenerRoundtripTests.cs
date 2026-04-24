@@ -656,6 +656,91 @@ public sealed class ClientListenerRoundtripTests
     }
 
     /// <summary>
+    /// Pins round-9 test-analyzer I1 (and SFH-I2): NetCatListener's round-8 <c>accept_failed</c>
+    /// broad-catch arm. Uses the internal <c>AcceptHook</c> seam to inject an
+    /// InvalidOperationException at the accept step — the exact class-B non-SocketException the
+    /// broad catch is there to catch. Reverting the broad-catch arm would let this exception
+    /// escape to Main's 126 <c>unexpected_error</c> safety-net, failing this test.
+    /// </summary>
+    [Fact]
+    public async Task TcpListener_AcceptThrowsInvalidOperationException_ReturnsExitOne_AcceptFailed()
+    {
+        var probe = new TcpListener(IPAddress.Loopback, 0);
+        probe.Start();
+        int port = ((IPEndPoint)probe.LocalEndpoint).Port;
+        probe.Stop();
+
+        var options = new NetCatOptions
+        {
+            Mode = NetCatMode.Listen,
+            Protocol = NetCatProtocol.Tcp,
+            BindAddress = "127.0.0.1",
+            Ports = new[] { new PortRange(port) },
+            Timeout = System.TimeSpan.FromSeconds(2),
+        };
+
+        using var stdin = new MemoryStream();
+        using var stdout = new MemoryStream();
+        using var stderr = new StringWriter();
+
+        var listener = new NetCatListener
+        {
+            AcceptHook = (_, _) => throw new System.InvalidOperationException("simulated racy accept"),
+        };
+        RunResult result = await listener.RunAsync(options, stdin, stdout, stderr, CancellationToken.None);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Equal("accept_failed", result.ExitReason);
+        Assert.Contains("accept", stderr.ToString(), System.StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Pins round-9 SFH-I1: a post-accept pre-pump failure (peer disconnects between accept
+    /// and GetStream) must be classified as <c>socket_error</c>, NOT <c>accept_failed</c>.
+    /// Uses the AcceptHook to return a TcpClient whose stream accessor throws ODE.
+    /// </summary>
+    [Fact]
+    public async Task TcpListener_PostAcceptSetupFails_ReturnsExitOne_SocketError_NotAcceptFailed()
+    {
+        var probe = new TcpListener(IPAddress.Loopback, 0);
+        probe.Start();
+        int port = ((IPEndPoint)probe.LocalEndpoint).Port;
+        probe.Stop();
+
+        var options = new NetCatOptions
+        {
+            Mode = NetCatMode.Listen,
+            Protocol = NetCatProtocol.Tcp,
+            BindAddress = "127.0.0.1",
+            Ports = new[] { new PortRange(port) },
+            Timeout = System.TimeSpan.FromSeconds(2),
+        };
+
+        using var stdin = new MemoryStream();
+        using var stdout = new MemoryStream();
+        using var stderr = new StringWriter();
+
+        // Return a TcpClient that has been disposed — subsequent RemoteEndPoint / GetStream
+        // calls throw ObjectDisposedException, mirroring the "peer RSTs between accept and
+        // setup" race condition the round-9 fix targets.
+        var listener = new NetCatListener
+        {
+            AcceptHook = (_, _) =>
+            {
+                var tc = new TcpClient();
+                tc.Dispose();
+                return Task.FromResult(tc);
+            },
+        };
+        RunResult result = await listener.RunAsync(options, stdin, stdout, stderr, CancellationToken.None);
+
+        Assert.Equal(1, result.ExitCode);
+        // Round-9 fix: this MUST be socket_error, not accept_failed — accept itself succeeded.
+        Assert.Equal("socket_error", result.ExitReason);
+        Assert.Contains("peer disconnected", stderr.ToString());
+    }
+
+    /// <summary>
     /// Pins round-7 test-analyzer C1: NetCatListener's <c>pump_failed</c> arm (parity with
     /// NetCatClient's, which is already pinned). A regression dropping the listener's broad
     /// pump catch would let ObjectDisposedException escape to Main's 126 safety-net, losing
