@@ -65,12 +65,13 @@ public sealed class NetCatListener
             TcpClient capturedClient = client;
             Func<Task> onSendComplete = () =>
             {
-                try
-                {
-                    capturedClient.Client.Shutdown(SocketShutdown.Send);
-                }
-                catch (SocketException) { /* peer already gone — harmless */ }
-                catch (ObjectDisposedException) { /* socket disposed by a concurrent path */ }
+                // Half-close is cosmetic — any failure here must not mask the primary outcome.
+                // Broad catch mirrors the client-side fix (round-3 SFH I4): catching only
+                // SocketException/ObjectDisposedException lets InvalidOperationException
+                // (racy socket state) or IOException escape, which RelayPump then surfaces as
+                // a pump failure — silently mis-classifying a successful listen as socket_error.
+                try { capturedClient.Client.Shutdown(SocketShutdown.Send); }
+                catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException and not StackOverflowException) { }
                 return Task.CompletedTask;
             };
 
@@ -135,6 +136,15 @@ public sealed class NetCatListener
             sw.Stop();
             return new RunResult { ExitCode = 2, ExitReason = "timeout", DurationMilliseconds = sw.Elapsed.TotalMilliseconds };
         }
+        catch (SocketException ex)
+        {
+            // Accept can surface SocketException on some Linux paths (interface flap, fd limit).
+            // Without this, the exception escapes the try/finally to Main → exit 126 "unexpected
+            // error" with no JSON envelope. Round-3 I (SFH I1) fix.
+            sw.Stop();
+            stderr.WriteLine(Formatting.FormatErrorLine($"accept {bind}:{port} — {ex.Message}", options.UseColor));
+            return new RunResult { ExitCode = 1, ExitReason = NetCatClient.MapSocketError(ex), DurationMilliseconds = sw.Elapsed.TotalMilliseconds };
+        }
         finally
         {
             listener.Stop();
@@ -164,20 +174,10 @@ public sealed class NetCatListener
             using var receiveCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             if (options.Timeout > TimeSpan.Zero) { receiveCts.CancelAfter(options.Timeout); }
 
+            UdpReceiveResult rx;
             try
             {
-                UdpReceiveResult rx = await udp.ReceiveAsync(receiveCts.Token).ConfigureAwait(false);
-                await stdout.WriteAsync(rx.Buffer.AsMemory(), ct).ConfigureAwait(false);
-                sw.Stop();
-                return new RunResult
-                {
-                    ExitCode = 0,
-                    ExitReason = "success",
-                    BytesReceived = rx.Buffer.Length,
-                    DurationMilliseconds = sw.Elapsed.TotalMilliseconds,
-                    LocalAddress = $"{bind}:{port}",
-                    RemoteAddress = rx.RemoteEndPoint.ToString(),
-                };
+                rx = await udp.ReceiveAsync(receiveCts.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
@@ -188,6 +188,47 @@ public sealed class NetCatListener
                 sw.Stop();
                 return new RunResult { ExitCode = 2, ExitReason = "timeout", DurationMilliseconds = sw.Elapsed.TotalMilliseconds };
             }
+            catch (OperationCanceledException)
+            {
+                // User-cancel (Ctrl-C) during UDP receive. The TCP listen path already returns
+                // a RunResult(130) inside its pump try; the UDP path was missing this parity,
+                // so Ctrl-C fell through to Main's OCE arm with no byte counts / duration and
+                // --json mode never emitted an envelope. Round-3 I (SFH I2) fix.
+                sw.Stop();
+                return new RunResult { ExitCode = 130, ExitReason = "interrupted",
+                    DurationMilliseconds = sw.Elapsed.TotalMilliseconds, LocalAddress = $"{bind}:{port}" };
+            }
+            catch (SocketException ex)
+            {
+                sw.Stop();
+                stderr.WriteLine(Formatting.FormatErrorLine($"listen {bind}:{port} — {ex.Message}", options.UseColor));
+                return new RunResult { ExitCode = 1, ExitReason = NetCatClient.MapSocketError(ex),
+                    DurationMilliseconds = sw.Elapsed.TotalMilliseconds, LocalAddress = $"{bind}:{port}" };
+            }
+
+            try
+            {
+                await stdout.WriteAsync(rx.Buffer.AsMemory(), ct).ConfigureAwait(false);
+            }
+            catch (IOException)
+            {
+                // Downstream pipe closed. Treat as exit 0/stdout_closed — same BSD nc semantic
+                // as the client path. Round-3 I fix (parity with SFH C4).
+                sw.Stop();
+                return new RunResult { ExitCode = 0, ExitReason = "stdout_closed",
+                    BytesReceived = rx.Buffer.Length, DurationMilliseconds = sw.Elapsed.TotalMilliseconds,
+                    LocalAddress = $"{bind}:{port}", RemoteAddress = rx.RemoteEndPoint.ToString() };
+            }
+            sw.Stop();
+            return new RunResult
+            {
+                ExitCode = 0,
+                ExitReason = "success",
+                BytesReceived = rx.Buffer.Length,
+                DurationMilliseconds = sw.Elapsed.TotalMilliseconds,
+                LocalAddress = $"{bind}:{port}",
+                RemoteAddress = rx.RemoteEndPoint.ToString(),
+            };
         }
     }
 

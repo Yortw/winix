@@ -3,6 +3,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Authentication;
@@ -46,8 +47,26 @@ public sealed class NetCatClient
         TcpClient tcp;
         try
         {
-            tcp = new TcpClient();
-            await tcp.ConnectAsync(options.Host, port, connectCts.Token).ConfigureAwait(false);
+            if (options.AddressFamily is AddressFamily af)
+            {
+                // Honour --ipv4 / --ipv6 by resolving ourselves and filtering to the chosen
+                // family. The default TcpClient() + ConnectAsync(string,int) path lets the
+                // OS resolver pick dual-stack — silently defeating the flag. Round-3 C1 fix.
+                IPAddress[] addresses = await Dns.GetHostAddressesAsync(options.Host, af, connectCts.Token).ConfigureAwait(false);
+                if (addresses.Length == 0)
+                {
+                    string family = af == AddressFamily.InterNetwork ? "IPv4" : "IPv6";
+                    stderr.WriteLine(Formatting.FormatErrorLine($"{options.Host}:{port} — no {family} address for host", options.UseColor));
+                    return new RunResult { ExitCode = 1, ExitReason = "host_not_found", DurationMilliseconds = sw.Elapsed.TotalMilliseconds };
+                }
+                tcp = new TcpClient(af);
+                await tcp.ConnectAsync(addresses[0], port, connectCts.Token).ConfigureAwait(false);
+            }
+            else
+            {
+                tcp = new TcpClient();
+                await tcp.ConnectAsync(options.Host, port, connectCts.Token).ConfigureAwait(false);
+            }
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
@@ -58,6 +77,24 @@ public sealed class NetCatClient
         {
             stderr.WriteLine(Formatting.FormatErrorLine($"{options.Host}:{port} — {ex.Message}", options.UseColor));
             return new RunResult { ExitCode = 1, ExitReason = MapSocketError(ex), DurationMilliseconds = sw.Elapsed.TotalMilliseconds };
+        }
+        catch (IOException ex)
+        {
+            // DNS/transport failures that surface as IOException (e.g. some .NET runtime paths
+            // wrap resolver errors). Previously escaped to Main's safety-net → exit 126 with
+            // "unexpected error". Round-3 C (class B) fix — classify as connect_failed.
+            stderr.WriteLine(Formatting.FormatErrorLine($"{options.Host}:{port} — {ex.Message}", options.UseColor));
+            return new RunResult { ExitCode = 1, ExitReason = "socket_error", DurationMilliseconds = sw.Elapsed.TotalMilliseconds };
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException and not StackOverflowException)
+        {
+            // Final safety net: ConnectAsync can surface ArgumentException (invalid host chars),
+            // NotSupportedException (AF mismatch on some runtimes), or other types that would
+            // otherwise escape to Main → exit 126 "unexpected error" with no JSON envelope —
+            // the SFH-class-B defect. Classify as connect_failed so the user gets a proper
+            // exit 1 and JSON consumers see a complete envelope. Mirrors PortChecker.ProbeOneAsync.
+            stderr.WriteLine(Formatting.FormatErrorLine($"{options.Host}:{port} — {ex.Message}", options.UseColor));
+            return new RunResult { ExitCode = 1, ExitReason = "connect_failed", DurationMilliseconds = sw.Elapsed.TotalMilliseconds };
         }
 
         using (tcp)
@@ -121,20 +158,27 @@ public sealed class NetCatClient
             using (stream)
             {
                 var pump = new RelayPump();
-                // Capture tcp into a local for the closure (avoids capturing `this`-style surprises).
+                // Capture tcp + SSL stream into locals for the closure (avoids `this`-style surprises).
                 TcpClient capturedTcp = tcp;
-                Func<Task> onSendComplete = () =>
+                SslStream? capturedSsl = stream as SslStream;
+                Func<Task> onSendComplete = async () =>
                 {
-                    // Close the write half of the socket so the peer sees EOF and can respond.
-                    // Must fire BEFORE awaiting the receive direction — otherwise request/response
-                    // protocols deadlock (peer waits for our EOF before sending their reply).
-                    try
+                    // Close the write half so the peer sees EOF and can respond. Must fire
+                    // BEFORE awaiting the receive direction — request/response protocols deadlock
+                    // (peer waits for our EOF before sending their reply). For TLS, send
+                    // close_notify first so strict peers don't treat this as a truncation attack.
+                    //
+                    // Catch broadly: half-close is cosmetic — if any of it fails, the primary
+                    // pump outcome must still reach the user. The catch in RelayPump around
+                    // onSendComplete would otherwise mis-classify a successful transfer as a
+                    // socket failure when only the shutdown step blipped. SFH I4 fix (round 3).
+                    if (capturedSsl is not null)
                     {
-                        capturedTcp.Client.Shutdown(SocketShutdown.Send);
+                        try { await capturedSsl.ShutdownAsync().ConfigureAwait(false); }
+                        catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException and not StackOverflowException) { }
                     }
-                    catch (SocketException) { /* peer already gone — harmless */ }
-                    catch (ObjectDisposedException) { /* socket disposed by a concurrent path */ }
-                    return Task.CompletedTask;
+                    try { capturedTcp.Client.Shutdown(SocketShutdown.Send); }
+                    catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException and not StackOverflowException) { }
                 };
 
                 try
@@ -212,6 +256,16 @@ public sealed class NetCatClient
             stderr.WriteLine(Formatting.FormatErrorLine($"{options.Host}:{port} — {ex.Message}", options.UseColor));
             return new RunResult { ExitCode = 1, ExitReason = MapSocketError(ex), DurationMilliseconds = sw.Elapsed.TotalMilliseconds };
         }
+        catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException and not StackOverflowException)
+        {
+            // UdpClient.Connect(string,int) can also throw ArgumentException (empty/whitespace
+            // host), ArgumentOutOfRangeException (port race), or ObjectDisposedException. Without
+            // this arm those escape to Main's safety-net → exit 126 "unexpected error" with no
+            // JSON envelope. Round-3 class-B (SFH C2) fix.
+            sw.Stop();
+            stderr.WriteLine(Formatting.FormatErrorLine($"{options.Host}:{port} — {ex.Message}", options.UseColor));
+            return new RunResult { ExitCode = 1, ExitReason = "connect_failed", DurationMilliseconds = sw.Elapsed.TotalMilliseconds };
+        }
 
         // Read all of stdin and send each buffer as a datagram.
         long sent = 0;
@@ -226,6 +280,16 @@ public sealed class NetCatClient
                 sent += chunkSent;
             }
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // User-initiated Ctrl-C during the send loop. Return a RunResult with partial byte
+            // counts + duration so --json consumers see a complete envelope. Without this the
+            // OCE escapes to Main → exit 130 but the JSON write never happens. Mirrors TCP
+            // Connect's OCE arm inside the pump try/catch. Round-3 I (CR I5) fix.
+            sw.Stop();
+            return new RunResult { ExitCode = 130, ExitReason = "interrupted",
+                BytesSent = sent, DurationMilliseconds = sw.Elapsed.TotalMilliseconds };
+        }
         catch (SocketException ex)
         {
             // MTU mismatch, ICMP-unreachable feedback (on Windows — surfaced as WSAECONNRESET
@@ -235,6 +299,15 @@ public sealed class NetCatClient
             return new RunResult { ExitCode = 1, ExitReason = MapSocketError(ex),
                 BytesSent = sent, DurationMilliseconds = sw.Elapsed.TotalMilliseconds };
         }
+        catch (IOException ex)
+        {
+            // stdin pipe broken (redirected-from-file hit bad sector, closed pipe in some
+            // shells). Previously escaped to Main → exit 126. Round-3 class-B (SFH C3) fix.
+            sw.Stop();
+            stderr.WriteLine(Formatting.FormatErrorLine($"stdin — {ex.Message}", options.UseColor));
+            return new RunResult { ExitCode = 1, ExitReason = "io_error",
+                BytesSent = sent, DurationMilliseconds = sw.Elapsed.TotalMilliseconds };
+        }
 
         // Optionally wait briefly for a single response (timeout > 0 = wait).
         long received = 0;
@@ -242,11 +315,10 @@ public sealed class NetCatClient
         {
             using var receiveCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             receiveCts.CancelAfter(options.Timeout);
+            UdpReceiveResult rx;
             try
             {
-                UdpReceiveResult rx = await udp.ReceiveAsync(receiveCts.Token).ConfigureAwait(false);
-                await stdout.WriteAsync(rx.Buffer.AsMemory(), ct).ConfigureAwait(false);
-                received = rx.Buffer.Length;
+                rx = await udp.ReceiveAsync(receiveCts.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
@@ -259,6 +331,7 @@ public sealed class NetCatClient
                         $"no UDP response within {options.Timeout.TotalSeconds.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)}s",
                         options.UseColor));
                 }
+                rx = default;
             }
             catch (SocketException ex)
             {
@@ -268,6 +341,26 @@ public sealed class NetCatClient
                 stderr.WriteLine(Formatting.FormatErrorLine($"{options.Host}:{port} — {ex.Message}", options.UseColor));
                 return new RunResult { ExitCode = 1, ExitReason = MapSocketError(ex),
                     BytesSent = sent, DurationMilliseconds = sw.Elapsed.TotalMilliseconds };
+            }
+
+            if (rx.Buffer is not null && rx.Buffer.Length > 0)
+            {
+                // Write to stdout in its own try so a closed downstream pipe (`nc -u host 53 | head -c 4`)
+                // exits 0/stdout_closed per BSD nc semantics, not 126 "unexpected error". Round-3
+                // class-B (SFH C4) fix. The outer `ct` is correct here — the receive's timeout
+                // has already been consumed; blocking forever on stdout write is a policy question
+                // the outer cancel token handles.
+                try
+                {
+                    await stdout.WriteAsync(rx.Buffer.AsMemory(), ct).ConfigureAwait(false);
+                    received = rx.Buffer.Length;
+                }
+                catch (IOException)
+                {
+                    sw.Stop();
+                    return new RunResult { ExitCode = 0, ExitReason = "stdout_closed",
+                        BytesSent = sent, BytesReceived = rx.Buffer.Length, DurationMilliseconds = sw.Elapsed.TotalMilliseconds };
+                }
             }
         }
 

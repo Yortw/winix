@@ -26,12 +26,18 @@ public sealed class PortChecker
     /// <param name="timeout">Per-port connect timeout.</param>
     /// <param name="maxConcurrency">Maximum simultaneous in-flight probes.</param>
     /// <param name="ct">Cancellation token (e.g. Ctrl-C).</param>
+    /// <param name="addressFamily">
+    /// Optional address-family pin. When set (i.e. user passed <c>--ipv4</c> / <c>--ipv6</c>),
+    /// DNS resolution is filtered to that family and the socket is constructed with it.
+    /// Null = let the resolver + OS pick (legacy default).
+    /// </param>
     public async Task<IReadOnlyList<PortCheckResult>> CheckAsync(
         string host,
         IReadOnlyList<PortRange> ranges,
         TimeSpan timeout,
         int maxConcurrency,
-        CancellationToken ct)
+        CancellationToken ct,
+        AddressFamily? addressFamily = null)
     {
         var allPorts = new List<int>();
         foreach (PortRange range in ranges)
@@ -55,7 +61,7 @@ public sealed class PortChecker
                 await throttle.WaitAsync(ct).ConfigureAwait(false);
                 try
                 {
-                    results[idx] = await ProbeOneAsync(host, port, timeout, ct).ConfigureAwait(false);
+                    results[idx] = await ProbeOneAsync(host, port, timeout, addressFamily, ct).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -68,19 +74,57 @@ public sealed class PortChecker
         return results;
     }
 
-    private static async Task<PortCheckResult> ProbeOneAsync(string host, int port, TimeSpan timeout, CancellationToken ct)
+    private static async Task<PortCheckResult> ProbeOneAsync(string host, int port, TimeSpan timeout, AddressFamily? addressFamily, CancellationToken ct)
     {
         var sw = Stopwatch.StartNew();
-        using var client = new TcpClient();
         using var probeCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         if (timeout > TimeSpan.Zero)
         {
             probeCts.CancelAfter(timeout);
         }
 
+        // When the user pinned the AF with --ipv4/--ipv6, resolve ourselves and filter by
+        // family so the probe honours the flag. The default TcpClient() ctor uses
+        // AddressFamily.Unknown and the dual-stack resolver picks arbitrarily. Round-3 C1 fix.
+        IPAddress? resolvedAddress = null;
+        if (addressFamily is AddressFamily af)
+        {
+            IPAddress[] addresses;
+            try
+            {
+                addresses = await Dns.GetHostAddressesAsync(host, af, probeCts.Token).ConfigureAwait(false);
+            }
+            catch (SocketException ex)
+            {
+                return PortCheckResult.Error(port, ex.Message);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                return PortCheckResult.Timeout(port);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException and not StackOverflowException)
+            {
+                return PortCheckResult.Error(port, ex.Message);
+            }
+            if (addresses.Length == 0)
+            {
+                string family = af == AddressFamily.InterNetwork ? "IPv4" : "IPv6";
+                return PortCheckResult.Error(port, $"no {family} address for host");
+            }
+            resolvedAddress = addresses[0];
+        }
+
+        using TcpClient client = addressFamily is AddressFamily af2 ? new TcpClient(af2) : new TcpClient();
         try
         {
-            await client.ConnectAsync(host, port, probeCts.Token).ConfigureAwait(false);
+            if (resolvedAddress is not null)
+            {
+                await client.ConnectAsync(resolvedAddress, port, probeCts.Token).ConfigureAwait(false);
+            }
+            else
+            {
+                await client.ConnectAsync(host, port, probeCts.Token).ConfigureAwait(false);
+            }
             sw.Stop();
             return PortCheckResult.Open(port, sw.Elapsed.TotalMilliseconds);
         }

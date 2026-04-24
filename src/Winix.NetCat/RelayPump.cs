@@ -84,8 +84,8 @@ public sealed class RelayPump
             try { pumpCts.Cancel(); } catch (ObjectDisposedException) { }
         }
 
-        ShouldShutdownSend = halfCloseOnStdinEof && sendFailure is null;
-        if (ShouldShutdownSend && onSendComplete is not null)
+        bool shouldHalfClose = halfCloseOnStdinEof && sendFailure is null;
+        if (shouldHalfClose && onSendComplete is not null)
         {
             try
             {
@@ -93,13 +93,17 @@ public sealed class RelayPump
             }
             catch (Exception ex)
             {
-                // Half-close shutdown failure shouldn't mask the primary outcome. Surface the
-                // receive side (if it hasn't failed) and attach the onSendComplete failure only
-                // if nothing else did.
+                // Half-close shutdown failure shouldn't mask the primary outcome. Clear the flag
+                // so any post-RunAsync caller reading ShouldShutdownSend doesn't re-issue the
+                // shutdown that just failed. Attach the onSendComplete failure only if the primary
+                // send didn't already fail. Round-3 CR-I3: previously ShouldShutdownSend stayed
+                // true even after the callback threw — a latent trap for future callers.
+                shouldHalfClose = false;
                 sendFailure ??= ex;
                 try { pumpCts.Cancel(); } catch (ObjectDisposedException) { }
             }
         }
+        ShouldShutdownSend = shouldHalfClose;
 
         try
         {
@@ -166,6 +170,13 @@ public sealed class RelayPump
 /// Callers (NetCatClient / NetCatListener) treat this as a clean exit (code 0, reason
 /// <c>stdout_closed</c>), matching BSD netcat's SIGPIPE behaviour.
 /// </summary>
+/// <remarks>
+/// CATCH-ORDER IS LOAD-BEARING: callers MUST catch <see cref="StdoutClosedException"/> BEFORE
+/// <see cref="IOException"/> in their handler chain, or the IOException arm will consume this
+/// subtype first and silently mis-classify a clean broken-pipe as a generic "socket_error"
+/// exit 1. Reordering the catch blocks in NetCatClient / NetCatListener is a silent regression —
+/// round-3 CR-I7 flagged this trap explicitly.
+/// </remarks>
 public sealed class StdoutClosedException : IOException
 {
     /// <summary>Creates a new instance with the given message and inner exception.</summary>

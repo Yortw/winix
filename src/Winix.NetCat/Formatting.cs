@@ -102,6 +102,35 @@ public static class Formatting
         return JsonHelper.GetString(buffer);
     }
 
+    /// <summary>
+    /// Returns a minimal JSON error envelope for cases where an unexpected exception escapes
+    /// past all per-dispatch RunResult mapping (e.g. DispatchCoreAsync throws mid-flight).
+    /// This lets automation that requested <c>--json</c> still see structured output instead of
+    /// a stderr-only crash line plus exit 126. Mirrors the schema produced by
+    /// <see cref="FormatRunJson"/> so consumers can parse it with the same fields.
+    /// </summary>
+    public static string FormatErrorJson(string version, NetCatOptions options, int exitCode, string exitReason, string errorMessage)
+    {
+        (var writer, var buffer) = JsonHelper.CreateWriter();
+        writer.WriteStartObject();
+        writer.WriteString("tool", "nc");
+        writer.WriteString("version", version);
+        writer.WriteString("mode", options.Mode == NetCatMode.Listen ? "listen" : options.Mode == NetCatMode.Check ? "check" : "connect");
+        if (options.Host is not null) { writer.WriteString("host", options.Host); }
+        if (options.Ports is { Count: > 0 } && options.Ports[0].Low == options.Ports[0].High)
+        {
+            writer.WriteNumber("port", options.Ports[0].Low);
+        }
+        writer.WriteString("protocol", options.Protocol == NetCatProtocol.Udp ? "udp" : "tcp");
+        writer.WriteBoolean("tls", options.UseTls);
+        writer.WriteNumber("exit_code", exitCode);
+        writer.WriteString("exit_reason", exitReason);
+        writer.WriteString("error", errorMessage);
+        writer.WriteEndObject();
+        writer.Flush();
+        return JsonHelper.GetString(buffer);
+    }
+
     /// <summary>Formats an error message for stderr (red when colour enabled).</summary>
     public static string FormatErrorLine(string message, bool useColor)
         => useColor
