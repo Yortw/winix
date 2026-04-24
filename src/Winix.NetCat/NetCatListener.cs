@@ -112,6 +112,18 @@ public sealed class NetCatListener
                     BytesSent = pump.BytesSent, BytesReceived = pump.BytesReceived,
                     DurationMilliseconds = sw.Elapsed.TotalMilliseconds, LocalAddress = local, RemoteAddress = remote };
             }
+            catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException and not StackOverflowException)
+            {
+                // Round-5 SFH-I3 (listener parity): same defensive broad catch as NetCatClient's
+                // pump block — ObjectDisposedException / InvalidOperationException from racy
+                // socket state during half-close can no longer escape to Main's 126 safety-net
+                // (which would lose byte counts from the JSON envelope).
+                sw.Stop();
+                stderr.WriteLine(Formatting.FormatErrorLine($"{remote} — {ex.Message}", options.UseColor));
+                return new RunResult { ExitCode = 1, ExitReason = "pump_failed",
+                    BytesSent = pump.BytesSent, BytesReceived = pump.BytesReceived,
+                    DurationMilliseconds = sw.Elapsed.TotalMilliseconds, LocalAddress = local, RemoteAddress = remote };
+            }
 
             sw.Stop();
             return new RunResult
@@ -209,6 +221,16 @@ public sealed class NetCatListener
             try
             {
                 await stdout.WriteAsync(rx.Buffer.AsMemory(), ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                // Round-5 SFH-I2 (listener): user Ctrl-C during the stdout write after a datagram
+                // was received. Preserve BytesReceived + RemoteAddress so the envelope shows the
+                // datagram arrived — failure was only the downstream write.
+                sw.Stop();
+                return new RunResult { ExitCode = 130, ExitReason = "interrupted",
+                    BytesReceived = rx.Buffer.Length, DurationMilliseconds = sw.Elapsed.TotalMilliseconds,
+                    LocalAddress = $"{bind}:{port}", RemoteAddress = rx.RemoteEndPoint.ToString() };
             }
             catch (IOException)
             {

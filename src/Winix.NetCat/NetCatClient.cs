@@ -222,6 +222,21 @@ public sealed class NetCatClient
                         BytesSent = pump.BytesSent, BytesReceived = pump.BytesReceived,
                         DurationMilliseconds = sw.Elapsed.TotalMilliseconds, RemoteAddress = remote };
                 }
+                catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException and not StackOverflowException)
+                {
+                    // Round-5 SFH-I3: the pre-pump connect paths got defensive broad-catch arms
+                    // in round 3, but the post-connect pump was left narrow (OCE + StdoutClosed +
+                    // IOException + SocketException). Racy-disposal during half-close can surface
+                    // ObjectDisposedException or InvalidOperationException from NetworkStream —
+                    // those previously escaped to Main's 126 safety-net, losing byte counts from
+                    // the JSON envelope. Round-4's onSendComplete broad catch swallows the
+                    // shutdown-side error, making the recv-side bad-state path more likely.
+                    sw.Stop();
+                    stderr.WriteLine(Formatting.FormatErrorLine($"{options.Host}:{port} — {ex.Message}", options.UseColor));
+                    return new RunResult { ExitCode = 1, ExitReason = "pump_failed",
+                        BytesSent = pump.BytesSent, BytesReceived = pump.BytesReceived,
+                        DurationMilliseconds = sw.Elapsed.TotalMilliseconds, RemoteAddress = remote };
+                }
 
                 sw.Stop();
                 return new RunResult
@@ -320,6 +335,16 @@ public sealed class NetCatClient
             {
                 rx = await udp.ReceiveAsync(receiveCts.Token).ConfigureAwait(false);
             }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                // Round-5 SFH-I1: user Ctrl-C during the receive wait. Return a full RunResult
+                // with partial byte counts so --json consumers see a complete envelope. Without
+                // this the OCE escaped to Main → exit 130 via FormatErrorJson (which lacks the
+                // bytes_sent/duration fields). Mirrors the send-side cancel arm above.
+                sw.Stop();
+                return new RunResult { ExitCode = 130, ExitReason = "interrupted",
+                    BytesSent = sent, DurationMilliseconds = sw.Elapsed.TotalMilliseconds };
+            }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
                 // No response within timeout — BSD nc precedent is exit 0 with no output. Round-2
@@ -354,6 +379,15 @@ public sealed class NetCatClient
                 {
                     await stdout.WriteAsync(rx.Buffer.AsMemory(), ct).ConfigureAwait(false);
                     received = rx.Buffer.Length;
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    // Round-5 SFH-I2: user Ctrl-C during the stdout write AFTER the datagram was
+                    // received. Preserve BytesReceived so the envelope reflects that we did in
+                    // fact receive the response — the failure was the downstream write.
+                    sw.Stop();
+                    return new RunResult { ExitCode = 130, ExitReason = "interrupted",
+                        BytesSent = sent, BytesReceived = rx.Buffer.Length, DurationMilliseconds = sw.Elapsed.TotalMilliseconds };
                 }
                 catch (IOException)
                 {
