@@ -114,4 +114,87 @@ public sealed class RelayPumpTests
                 halfCloseOnStdinEof: false,
                 cts.Token));
     }
+
+    /// <summary>
+    /// Pins round-1 C1 fix: when the send leg throws, the receive leg must be observed
+    /// (not left running as an unobserved task) AND the original send-side exception must
+    /// propagate to the caller with its stack trace preserved. Reverting the linked-CTS +
+    /// try/finally scaffolding in RunAsync would either swallow the receive task
+    /// (UnobservedTaskException) or lose the send-side stack.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_SendSideThrows_ReceiveIsObservedAndSendExceptionPropagates()
+    {
+        using var throwingSocketWrite = new ThrowOnWriteStream("simulated send failure");
+        // Blocking recv source so the receive leg is still pending when the send leg throws.
+        var socketReadPipe = new System.IO.Pipelines.Pipe();
+        using var stdin = new MemoryStream(new byte[] { 1, 2, 3, 4 }); // non-empty so send leg writes
+        using var stdout = new MemoryStream();
+
+        var pump = new RelayPump();
+        var ex = await Assert.ThrowsAsync<IOException>(() =>
+            pump.RunAsync(
+                socketReadPipe.Reader.AsStream(),
+                throwingSocketWrite,
+                stdin,
+                stdout,
+                halfCloseOnStdinEof: false,
+                CancellationToken.None));
+
+        Assert.Equal("simulated send failure", ex.Message);
+        Assert.False(pump.ShouldShutdownSend);
+    }
+
+    /// <summary>
+    /// Pins round-2 I1 fix: an IOException from sink.WriteAsync during the receive leg
+    /// (i.e. downstream stdout pipe closed, e.g. `| head -c 10`) must surface as a
+    /// StdoutClosedException rather than a generic IOException — callers rely on the
+    /// typed exception to map to exit 0 instead of exit 1 "socket_error".
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_StdoutClosesDuringReceive_ThrowsStdoutClosedException()
+    {
+        byte[] response = Encoding.ASCII.GetBytes("peer-data");
+        using var socketRead = new MemoryStream(response);
+        using var socketWrite = new MemoryStream();
+        using var stdin = new MemoryStream(); // empty — send leg ends immediately
+        using var throwingStdout = new ThrowOnWriteStream("The pipe has been ended");
+
+        var pump = new RelayPump();
+        var ex = await Assert.ThrowsAsync<StdoutClosedException>(() =>
+            pump.RunAsync(
+                socketRead,
+                socketWrite,
+                stdin,
+                throwingStdout,
+                halfCloseOnStdinEof: false,
+                CancellationToken.None));
+
+        Assert.NotNull(ex.InnerException);
+        Assert.IsType<IOException>(ex.InnerException);
+    }
+
+    /// <summary>
+    /// Stream that reports success on Read and throws IOException on Write. Used to simulate
+    /// broken-pipe (stdout) and send-side failure conditions.
+    /// </summary>
+    private sealed class ThrowOnWriteStream : Stream
+    {
+        private readonly string _message;
+        public ThrowOnWriteStream(string message) { _message = message; }
+        public override bool CanRead => false;
+        public override bool CanSeek => false;
+        public override bool CanWrite => true;
+        public override long Length => 0;
+        public override long Position { get => 0; set { } }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => 0;
+        public override long Seek(long offset, SeekOrigin origin) => 0;
+        public override void SetLength(long value) { }
+        public override void Write(byte[] buffer, int offset, int count) => throw new IOException(_message);
+        public override ValueTask WriteAsync(System.ReadOnlyMemory<byte> buffer, CancellationToken ct = default)
+            => throw new IOException(_message);
+        public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken ct)
+            => throw new IOException(_message);
+    }
 }

@@ -182,6 +182,169 @@ public sealed class ClientListenerRoundtripTests
         Assert.Equal("client-says-hi", Encoding.ASCII.GetString(stdout.ToArray()));
     }
 
+    /// <summary>
+    /// Pins round-2 I2 + the exit-code-2 contract for listener accept timeout. Reverting the
+    /// stderr note would silently exit 2 with empty stderr (the original defect); reverting the
+    /// timeout arm would block indefinitely or exit with a different code.
+    /// </summary>
+    [Fact]
+    public async Task TcpListener_AcceptTimeout_ReturnsExitTwo_AndWritesStderrNote()
+    {
+        // Pick a free port; deliberately never connect to it so accept times out.
+        var probe = new TcpListener(IPAddress.Loopback, 0);
+        probe.Start();
+        int port = ((IPEndPoint)probe.LocalEndpoint).Port;
+        probe.Stop();
+
+        var options = new NetCatOptions
+        {
+            Mode = NetCatMode.Listen,
+            Protocol = NetCatProtocol.Tcp,
+            BindAddress = "127.0.0.1",
+            Ports = new[] { new PortRange(port) },
+            Timeout = System.TimeSpan.FromMilliseconds(300),
+        };
+
+        using var stdin = new MemoryStream();
+        using var stdout = new MemoryStream();
+        using var stderr = new StringWriter();
+
+        RunResult result = await new NetCatListener().RunAsync(options, stdin, stdout, stderr, CancellationToken.None);
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Equal("timeout", result.ExitReason);
+        string err = stderr.ToString();
+        Assert.Contains("no client within", err);
+        Assert.Contains("127.0.0.1", err);
+    }
+
+    /// <summary>
+    /// Pins round-2 I1: when the downstream stdout pipe closes during the receive leg (e.g.
+    /// `nc host 80 | head -c 10`), nc must exit 0 with exit_reason "stdout_closed" — matching
+    /// BSD nc's SIGPIPE semantics. Reverting the StdoutClosedException handler would
+    /// mis-classify this as exit 1 "socket_error".
+    /// </summary>
+    [Fact]
+    public async Task TcpClient_StdoutClosesDuringReceive_ReturnsExitZero_StdoutClosed()
+    {
+        // Echo server that sends a small payload then closes.
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+
+        Task serverTask = Task.Run(async () =>
+        {
+            using TcpClient peer = await listener.AcceptTcpClientAsync();
+            using NetworkStream s = peer.GetStream();
+            // Write continuously so the client definitely hits the broken-pipe write.
+            byte[] payload = Encoding.ASCII.GetBytes(new string('x', 4096));
+            try
+            {
+                for (int i = 0; i < 100; i++)
+                {
+                    await s.WriteAsync(payload);
+                    await Task.Delay(10);
+                }
+            }
+            catch (IOException) { /* peer closed */ }
+            catch (System.Net.Sockets.SocketException) { /* peer reset */ }
+        });
+
+        try
+        {
+            var options = new NetCatOptions
+            {
+                Mode = NetCatMode.Connect,
+                Protocol = NetCatProtocol.Tcp,
+                Host = "127.0.0.1",
+                Ports = new[] { new PortRange(port) },
+                Timeout = System.TimeSpan.FromSeconds(5),
+            };
+
+            using var stdin = new MemoryStream(); // empty stdin — send leg finishes fast
+            using var stdout = new ThrowAfterBytesStream(bytesBeforeThrow: 100);
+            using var stderr = new StringWriter();
+
+            RunResult result = await new NetCatClient().RunAsync(options, stdin, stdout, stderr, CancellationToken.None);
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Equal("stdout_closed", result.ExitReason);
+        }
+        finally
+        {
+            listener.Stop();
+            await serverTask.WaitAsync(System.TimeSpan.FromSeconds(5));
+        }
+    }
+
+    /// <summary>
+    /// Pins round-2 I3: UDP connect with no response emits a stderr warning so the user knows
+    /// WHY output is empty, rather than assuming the exchange silently succeeded.
+    /// </summary>
+    [Fact]
+    public async Task UdpConnect_NoResponseWithinTimeout_ReturnsZero_WithStderrWarning()
+    {
+        // Bind a UDP socket to reserve a port, but never answer. The send succeeds
+        // locally; the receive will hit the timeout.
+        using var black = new UdpClient(0, AddressFamily.InterNetwork);
+        int port = ((IPEndPoint)black.Client.LocalEndPoint!).Port;
+
+        var options = new NetCatOptions
+        {
+            Mode = NetCatMode.Connect,
+            Protocol = NetCatProtocol.Udp,
+            Host = "127.0.0.1",
+            Ports = new[] { new PortRange(port) },
+            Timeout = System.TimeSpan.FromMilliseconds(300),
+        };
+
+        byte[] payload = Encoding.ASCII.GetBytes("ping");
+        using var stdin = new MemoryStream(payload);
+        using var stdout = new MemoryStream();
+        using var stderr = new StringWriter();
+
+        RunResult result = await new NetCatClient().RunAsync(options, stdin, stdout, stderr, CancellationToken.None);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("no UDP response", stderr.ToString());
+    }
+
+    /// <summary>
+    /// Stream that lets the first N bytes land in a MemoryStream then throws IOException on
+    /// every subsequent write — simulating `nc host 80 | head -c 10` closing the downstream pipe.
+    /// </summary>
+    private sealed class ThrowAfterBytesStream : Stream
+    {
+        private readonly int _budget;
+        private int _written;
+        public ThrowAfterBytesStream(int bytesBeforeThrow) { _budget = bytesBeforeThrow; }
+        public override bool CanRead => false;
+        public override bool CanSeek => false;
+        public override bool CanWrite => true;
+        public override long Length => 0;
+        public override long Position { get => 0; set { } }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => 0;
+        public override long Seek(long offset, SeekOrigin origin) => 0;
+        public override void SetLength(long value) { }
+        public override void Write(byte[] buffer, int offset, int count) => WriteCore(count);
+        public override ValueTask WriteAsync(System.ReadOnlyMemory<byte> buffer, CancellationToken ct = default)
+        {
+            WriteCore(buffer.Length);
+            return ValueTask.CompletedTask;
+        }
+        public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken ct)
+        {
+            WriteCore(count);
+            return Task.CompletedTask;
+        }
+        private void WriteCore(int n)
+        {
+            if (_written >= _budget) { throw new IOException("The pipe has been ended."); }
+            _written += n;
+        }
+    }
+
     [Fact]
     public async Task TcpListener_PortAlreadyInUse_ReturnsExitOne()
     {
