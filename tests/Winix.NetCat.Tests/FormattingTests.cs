@@ -225,6 +225,164 @@ public sealed class FormattingTests
         Assert.Contains("\"error\":\"something exploded\"", json);
     }
 
+    // --- Round-5 test-analyzer Criticals: formatter branches with zero coverage. Each of
+    // these ternaries / conditional emits would flip silently in a refactor without a test.
+
+    [Fact]
+    public void FormatRunJson_Listen_IncludesModeListenAndLocalAddress()
+    {
+        var options = new NetCatOptions
+        {
+            Mode = NetCatMode.Listen,
+            Protocol = NetCatProtocol.Tcp,
+            Host = null, // Listen mode — no Host; Host is the inbound peer, reported as RemoteAddress on the result
+            Ports = new[] { new PortRange(8080) },
+            BindAddress = "127.0.0.1",
+        };
+        var result = new RunResult
+        {
+            ExitCode = 0,
+            ExitReason = "success",
+            BytesSent = 42,
+            BytesReceived = 17,
+            DurationMilliseconds = 100.0,
+            LocalAddress = "127.0.0.1:8080",
+            RemoteAddress = "192.0.2.1:54321",
+        };
+
+        string json = Formatting.FormatRunJson("0.4.0", options, result);
+
+        Assert.Contains("\"mode\":\"listen\"", json);
+        Assert.Contains("\"local_address\":\"127.0.0.1:8080\"", json);
+        // Host is null in Listen mode — must be omitted rather than emitted as null.
+        Assert.DoesNotContain("\"host\":", json);
+    }
+
+    [Fact]
+    public void FormatRunJson_Udp_IncludesProtocolUdp()
+    {
+        var options = new NetCatOptions
+        {
+            Mode = NetCatMode.Connect,
+            Protocol = NetCatProtocol.Udp,
+            Host = "target.com",
+            Ports = new[] { new PortRange(53) },
+        };
+        var result = new RunResult { ExitCode = 0, ExitReason = "success" };
+
+        string json = Formatting.FormatRunJson("0.4.0", options, result);
+
+        Assert.Contains("\"protocol\":\"udp\"", json);
+        Assert.Contains("\"tls\":false", json);
+    }
+
+    [Fact]
+    public void FormatRunJson_TlsEnabled_EmitsTlsTrue()
+    {
+        var options = new NetCatOptions
+        {
+            Mode = NetCatMode.Connect,
+            Protocol = NetCatProtocol.Tcp,
+            Host = "target.com",
+            Ports = new[] { new PortRange(443) },
+            UseTls = true,
+        };
+        var result = new RunResult { ExitCode = 0, ExitReason = "success" };
+
+        string json = Formatting.FormatRunJson("0.4.0", options, result);
+
+        Assert.Contains("\"tls\":true", json);
+    }
+
+    [Fact]
+    public void FormatCheckJson_WithErrorRow_EmitsErrorField()
+    {
+        var results = new[]
+        {
+            PortCheckResult.Error(80, "nodename nor servname provided"),
+        };
+
+        string json = Formatting.FormatCheckJson("0.4.0", "target.com", results, 1, "all_failed");
+
+        Assert.Contains("\"port\":80", json);
+        Assert.Contains("\"status\":\"error\"", json);
+        Assert.Contains("\"error\":\"nodename nor servname provided\"", json);
+    }
+
+    [Fact]
+    public void FormatCheckJson_WithTimeoutRow_EmitsTimeoutStatus()
+    {
+        var results = new[]
+        {
+            PortCheckResult.Timeout(443),
+        };
+
+        string json = Formatting.FormatCheckJson("0.4.0", "target.com", results, 2, "some_timeout");
+
+        Assert.Contains("\"port\":443", json);
+        Assert.Contains("\"status\":\"timeout\"", json);
+        // Timeout rows must NOT include a latency_ms or error field.
+        Assert.DoesNotContain("\"latency_ms\":", json);
+        Assert.DoesNotContain("\"error\":", json);
+    }
+
+    [Fact]
+    public void FormatErrorJson_Listen_IncludesModeListen_OmitsHost()
+    {
+        var options = new NetCatOptions
+        {
+            Mode = NetCatMode.Listen,
+            Protocol = NetCatProtocol.Tcp,
+            Host = null,
+            Ports = new[] { new PortRange(8080) },
+            BindAddress = "127.0.0.1",
+        };
+
+        string json = Formatting.FormatErrorJson("0.4.0", options, 126, "unexpected_error", "boom");
+
+        Assert.Contains("\"mode\":\"listen\"", json);
+        Assert.DoesNotContain("\"host\":", json);
+        Assert.Contains("\"port\":8080", json);
+    }
+
+    [Fact]
+    public void FormatErrorJson_Udp_IncludesProtocolUdp()
+    {
+        var options = new NetCatOptions
+        {
+            Mode = NetCatMode.Connect,
+            Protocol = NetCatProtocol.Udp,
+            Host = "dns.example",
+            Ports = new[] { new PortRange(53) },
+        };
+
+        string json = Formatting.FormatErrorJson("0.4.0", options, 126, "unexpected_error", "boom");
+
+        Assert.Contains("\"protocol\":\"udp\"", json);
+        Assert.Contains("\"tls\":false", json);
+    }
+
+    // --- Round-5 test-analyzer I10: pin each arm of NetCatClient.MapSocketError. A refactor
+    // swapping two cases (e.g. HostUnreachable → "network_unreachable") would silently break
+    // downstream JSON consumers relying on the exit_reason string contract.
+
+    [Theory]
+    [InlineData(System.Net.Sockets.SocketError.ConnectionRefused, "connection_refused")]
+    [InlineData(System.Net.Sockets.SocketError.HostNotFound, "host_not_found")]
+    [InlineData(System.Net.Sockets.SocketError.HostUnreachable, "host_unreachable")]
+    [InlineData(System.Net.Sockets.SocketError.NetworkUnreachable, "network_unreachable")]
+    [InlineData(System.Net.Sockets.SocketError.TimedOut, "timeout")]
+    [InlineData(System.Net.Sockets.SocketError.AccessDenied, "socket_error")] // fallback arm
+    [InlineData(System.Net.Sockets.SocketError.ConnectionReset, "socket_error")] // fallback arm
+    public void MapSocketError_AllKnownCodes_ReturnsExpectedReason(System.Net.Sockets.SocketError code, string expected)
+    {
+        var ex = new System.Net.Sockets.SocketException((int)code);
+
+        string reason = NetCatClient.MapSocketError(ex);
+
+        Assert.Equal(expected, reason);
+    }
+
     [Fact]
     public void FormatErrorJson_Check_IncludesModeCheck_WithoutPortWhenRange()
     {

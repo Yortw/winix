@@ -545,6 +545,140 @@ public sealed class ClientListenerRoundtripTests
     }
 
     /// <summary>
+    /// Pins round-5 SFH-I1: user Ctrl-C during UDP receive must return RunResult(130) with
+    /// partial bytes_sent + duration, not escape to Main's FormatErrorJson envelope (which
+    /// lacks those fields). Mirrors the send-side cancel pin above.
+    /// </summary>
+    [Fact]
+    public async Task UdpConnect_CtrlCDuringReceive_ReturnsExitOneThirty_WithPartialBytes()
+    {
+        // UdpClient that receives the ping but never replies — the client's ReceiveAsync blocks.
+        using var server = new UdpClient(0, AddressFamily.InterNetwork);
+        int port = ((IPEndPoint)server.Client.LocalEndPoint!).Port;
+
+        Task serverTask = Task.Run(async () =>
+        {
+            try { await server.ReceiveAsync(); } catch { }
+            // deliberately do NOT reply
+        });
+
+        var options = new NetCatOptions
+        {
+            Mode = NetCatMode.Connect,
+            Protocol = NetCatProtocol.Udp,
+            Host = "127.0.0.1",
+            Ports = new[] { new PortRange(port) },
+            Timeout = System.TimeSpan.FromSeconds(30), // long enough that Ctrl-C races it first
+        };
+
+        byte[] payload = Encoding.ASCII.GetBytes("ping");
+        using var stdin = new MemoryStream(payload);
+        using var stdout = new MemoryStream();
+        using var stderr = new StringWriter();
+
+        using var cts = new CancellationTokenSource();
+        Task<RunResult> runTask = new NetCatClient().RunAsync(options, stdin, stdout, stderr, cts.Token);
+        await Task.Delay(300); // send leg drains stdin and enters ReceiveAsync
+        cts.Cancel();
+
+        RunResult result = await runTask.WaitAsync(System.TimeSpan.FromSeconds(5));
+        try { await serverTask.WaitAsync(System.TimeSpan.FromSeconds(2)); } catch { }
+
+        Assert.Equal(130, result.ExitCode);
+        Assert.Equal("interrupted", result.ExitReason);
+        // BytesSent must reflect the datagram that actually left the wire — proves the OCE
+        // arm returned a real RunResult rather than letting OCE escape to FormatErrorJson.
+        Assert.True(result.BytesSent > 0, $"expected bytes_sent > 0, got {result.BytesSent}");
+    }
+
+    /// <summary>
+    /// Pins round-5 SFH-I3: the TCP pump's broad safety-net catches ObjectDisposedException
+    /// (and InvalidOperationException) so a racy-disposal during half-close maps to exit 1 +
+    /// <c>pump_failed</c> rather than escaping to Main's <c>unexpected_error</c> 126 envelope.
+    ///
+    /// Testing an actual OS-level race is flaky, so instead we force the defect's shape: a
+    /// NetworkStream whose WriteAsync throws ObjectDisposedException. If the broad-catch arm
+    /// is reverted, the exception escapes past RunAsync's catch chain and this test fails.
+    /// </summary>
+    [Fact]
+    public async Task TcpClient_PumpWriteThrowsObjectDisposedException_ReturnsExitOne_PumpFailed()
+    {
+        // Spin up a real TCP server so the connect/pump path runs. The server echoes any
+        // incoming bytes. Our stdin feeds a payload, and the test hooks the pump indirectly
+        // via a stdout stream that throws ObjectDisposedException on write — routing through
+        // the StdoutClosedException inheritance chain would otherwise take the stdout_closed
+        // arm, so we use ODE specifically (not IOException) to exercise the broad catch.
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+
+        Task serverTask = Task.Run(async () =>
+        {
+            try
+            {
+                using TcpClient peer = await listener.AcceptTcpClientAsync();
+                using NetworkStream s = peer.GetStream();
+                byte[] payload = Encoding.ASCII.GetBytes(new string('x', 1024));
+                for (int i = 0; i < 50; i++)
+                {
+                    try { await s.WriteAsync(payload); } catch { break; }
+                    await Task.Delay(5);
+                }
+            }
+            catch { }
+        });
+
+        try
+        {
+            var options = new NetCatOptions
+            {
+                Mode = NetCatMode.Connect,
+                Protocol = NetCatProtocol.Tcp,
+                Host = "127.0.0.1",
+                Ports = new[] { new PortRange(port) },
+                Timeout = System.TimeSpan.FromSeconds(5),
+            };
+
+            using var stdin = new MemoryStream();
+            using var stdout = new ThrowObjectDisposedStream();
+            using var stderr = new StringWriter();
+
+            RunResult result = await new NetCatClient().RunAsync(options, stdin, stdout, stderr, CancellationToken.None);
+
+            Assert.Equal(1, result.ExitCode);
+            Assert.Equal("pump_failed", result.ExitReason);
+        }
+        finally
+        {
+            listener.Stop();
+            try { await serverTask.WaitAsync(System.TimeSpan.FromSeconds(5)); } catch { }
+        }
+    }
+
+    /// <summary>
+    /// Stream that throws ObjectDisposedException on every write. Used to exercise the
+    /// round-5 pump broad-catch safety net (which catches ODE but not IOException — the
+    /// latter is the stdout_closed path via StdoutClosedException).
+    /// </summary>
+    private sealed class ThrowObjectDisposedStream : Stream
+    {
+        public override bool CanRead => false;
+        public override bool CanSeek => false;
+        public override bool CanWrite => true;
+        public override long Length => 0;
+        public override long Position { get => 0; set { } }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => 0;
+        public override void Write(byte[] buffer, int offset, int count) => throw new System.ObjectDisposedException(nameof(ThrowObjectDisposedStream));
+        public override ValueTask WriteAsync(System.ReadOnlyMemory<byte> buffer, CancellationToken ct = default)
+            => throw new System.ObjectDisposedException(nameof(ThrowObjectDisposedStream));
+        public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken ct)
+            => throw new System.ObjectDisposedException(nameof(ThrowObjectDisposedStream));
+        public override long Seek(long offset, SeekOrigin origin) => 0;
+        public override void SetLength(long value) { }
+    }
+
+    /// <summary>
     /// Stream whose ReadAsync blocks until the cancellation token fires, then throws OCE.
     /// Used to park the UDP send loop in a cancellable await so the test can deterministically
     /// trigger the user-cancel OCE arm.

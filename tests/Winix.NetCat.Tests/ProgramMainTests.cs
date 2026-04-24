@@ -413,6 +413,10 @@ public class ProgramMainTests
                 "remote_address", "local_address",
                 "bytes_sent", "bytes_received", "duration_ms",
                 "ports",
+                // Round-5 test-analyzer M3: FormatErrorJson emits "error" on the safety-net
+                // envelope; the JsonField was registered in round 4 but this test didn't
+                // require it, so dropping the registration would be silent.
+                "error",
             })
         {
             Assert.Contains(required, advertised);
