@@ -183,7 +183,7 @@ Automation switching on `exit_reason` should handle the full enumeration below. 
 | `all_failed` | check | Every probe hit a non-SocketException classification error. |
 | `some_failed` | check | Mix of errors and non-error statuses. |
 | `connection_refused` | connect | Peer RSTed the connect. |
-| `host_not_found` | connect, check | DNS lookup returned no result (or no address of the requested family when `-4`/`-6` is set). |
+| `host_not_found` | connect | DNS lookup returned no result (or no address of the requested family when `-4`/`-6` is set). In check mode, per-port DNS errors surface under `ports[].error`, not as a top-level `exit_reason`. |
 | `host_unreachable` | connect | OS returned EHOSTUNREACH. |
 | `network_unreachable` | connect | OS returned ENETUNREACH. |
 | `timeout` | connect, listen | Connection / handshake / accept / UDP receive did not complete within `--timeout`. |
