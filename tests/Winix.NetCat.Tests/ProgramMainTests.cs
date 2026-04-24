@@ -209,6 +209,135 @@ public class ProgramMainTests
         Assert.Contains("--listen", result.Stderr);
     }
 
+    // --- Round-3 pr-test-analyzer guardrail gaps (formerly untested BuildOptions arms).
+    // Each of these is a one-line refactor-regression-prone guard — a subagent table-drive
+    // would happily drop one row and these tests would catch it.
+
+    [Fact]
+    public void TlsWithUdp_ExitsUsageError()
+    {
+        // DTLS isn't supported — a regression dropping this guard would attempt to raw-byte
+        // a TLS ClientHello over UDP, which no real peer would answer.
+        var result = RunNc("--tls", "--udp", "host", "443");
+
+        Assert.Equal(125, result.ExitCode);
+        Assert.Contains("--tls", result.Stderr);
+        Assert.Contains("--udp", result.Stderr);
+    }
+
+    [Fact]
+    public void TlsWithListen_ExitsUsageError()
+    {
+        // Server certs aren't supported in this version — a regression dropping this guard
+        // would reach TlsWrapper.WrapClientAsync's SNI lookup with Host == null and crash.
+        var result = RunNc("--tls", "--listen", "8443");
+
+        Assert.Equal(125, result.ExitCode);
+        Assert.Contains("--tls", result.Stderr);
+        Assert.Contains("--listen", result.Stderr);
+    }
+
+    [Fact]
+    public void IPv4AndIPv6Together_ExitsUsageError()
+    {
+        var result = RunNc("--ipv4", "--ipv6", "host", "80");
+
+        Assert.Equal(125, result.ExitCode);
+        Assert.Contains("--ipv4", result.Stderr);
+        Assert.Contains("--ipv6", result.Stderr);
+    }
+
+    [Fact]
+    public void VerboseWithoutCheck_ExitsUsageError()
+    {
+        var result = RunNc("--verbose", "host", "80");
+
+        Assert.Equal(125, result.ExitCode);
+        Assert.Contains("--verbose", result.Stderr);
+    }
+
+    [Fact]
+    public void NoShutdownWithCheck_ExitsUsageError()
+    {
+        var result = RunNc("--no-shutdown", "-z", "host", "80");
+
+        Assert.Equal(125, result.ExitCode);
+        Assert.Contains("--no-shutdown", result.Stderr);
+    }
+
+    [Fact]
+    public void ConnectMode_MultiRangePorts_ExitsUsageError()
+    {
+        // Only --check accepts port ranges/lists. A regression dropping this guard would let
+        // connect/listen silently pick the first port and ignore the rest.
+        var result = RunNc("host", "80,443");
+
+        Assert.Equal(125, result.ExitCode);
+        Assert.Contains("--check", result.Stderr);
+    }
+
+    [Fact]
+    public void ListenMode_TooManyPositionals_ExitsUsageError()
+    {
+        // Listen expects exactly one positional (PORT). A regression dropping the arity guard
+        // would hit IndexOutOfRangeException reading positionals[1] and surface as exit 126
+        // "unexpected error" — wrong exit code class (usage vs crash).
+        var result = RunNc("--listen", "8080", "extra");
+
+        Assert.Equal(125, result.ExitCode);
+    }
+
+    [Fact]
+    public void ConnectMode_TooFewPositionals_ExitsUsageError()
+    {
+        // Connect needs HOST + PORT. Missing PORT would otherwise crash the positional indexer.
+        var result = RunNc("host");
+
+        Assert.Equal(125, result.ExitCode);
+    }
+
+    [Fact]
+    public void BindIPv4_WithIPv6Flag_ExitsUsageError()
+    {
+        // Round-3 CR-I1: --bind 127.0.0.1 with --ipv6 was silently honouring the v4 bind and
+        // ignoring the user's --ipv6 intent. Must now reject at parse time.
+        var result = RunNc("--listen", "--ipv6", "--bind", "127.0.0.1", "8080");
+
+        Assert.Equal(125, result.ExitCode);
+        Assert.Contains("--bind", result.Stderr);
+        Assert.Contains("--ipv6", result.Stderr);
+    }
+
+    [Fact]
+    public void BindIPv6_WithIPv4Flag_ExitsUsageError()
+    {
+        var result = RunNc("--listen", "--ipv4", "--bind", "::1", "8080");
+
+        Assert.Equal(125, result.ExitCode);
+        Assert.Contains("--bind", result.Stderr);
+        Assert.Contains("--ipv4", result.Stderr);
+    }
+
+    /// <summary>
+    /// Pins round-3 SFH-I5: the all-timeout case of --check was silent like the all-error case
+    /// that round 1 fixed. `nc -z blackhole 80,443` against a non-listening but firewall-
+    /// filtered host (or any unreachable routable target) must emit a stderr summary so the
+    /// user knows why stdout is empty.
+    /// </summary>
+    [Fact]
+    public void CheckMode_AllTimeout_NonVerbose_WritesStderrSummary()
+    {
+        // RFC 5737 TEST-NET-1 (192.0.2.0/24) is reserved for documentation — routing to it
+        // typically either blackholes silently or is filtered by outbound firewalls, giving
+        // us a deterministic timeout. Short timeout keeps the test fast.
+        var result = RunNc("-z", "192.0.2.1", "80,443", "-w", "1");
+
+        // All probes timed out → exit 2.
+        Assert.Equal(2, result.ExitCode);
+        Assert.Equal("", result.Stdout);
+        Assert.Contains("timed out", result.Stderr);
+    }
+
     // --- Round-2 regression pins ---
 
     /// <summary>
@@ -231,22 +360,17 @@ public class ProgramMainTests
     }
 
     /// <summary>
-    /// Pins round-2 C3: when some probes succeed and some error, exit_reason must be
-    /// "some_failed" (not misleadingly "all_failed") and the stderr summary must use the total
-    /// count as the denominator. The sibling-preservation here also pins round-1 I-4 at the
-    /// Program.cs seam.
+    /// Pins round-2 C3 at the process-spawn seam for the <b>all-failed</b> case: the JSON
+    /// envelope emits <c>exit_reason=all_failed</c> cleanly with ports[] populated. The
+    /// sibling <c>some_failed</c> branch is unreachable via real process-spawn (one host =
+    /// one DNS outcome, so Error probes hit every port) — it is pinned directly as a unit
+    /// test in <c>FormattingTests.ComputeCheckExitReason_MixedOpenError_ReturnsSomeFailed</c>
+    /// instead. The earlier version of this test claimed (via its name) to pin some_failed
+    /// but its body asserted all_failed — a rubber-stamp flagged by round-3 review.
     /// </summary>
     [Fact]
-    public void CheckMode_JsonMode_PartialFailed_UsesSomeFailedReason()
+    public void CheckMode_JsonMode_AllFailed_EmitsEnvelopeWithAllFailedReason()
     {
-        // A locally-bound listener gives us at least one Open port; an unresolvable host mixes
-        // Error. But we can't use two different hosts in one scan, so use a mix of open+closed
-        // ports against localhost and rely on a non-resolving hostname combined with valid ports
-        // — cleaner to run two scans:
-        // 1) all-failed case (verified above)
-        // 2) a scan that should return cleanly "some_failed" would require a custom probe-injection
-        //    harness. Instead, pin the JSON schema for the all-failed case here — which proves
-        //    the JSON envelope emits "all_failed" cleanly too.
         var result = RunNc("-z", "this-host-does-not-exist.invalid", "80,443", "--json");
 
         Assert.Equal(1, result.ExitCode);
@@ -254,7 +378,6 @@ public class ProgramMainTests
         JsonElement root = doc.RootElement;
         Assert.Equal("check", root.GetProperty("mode").GetString());
         Assert.Equal(1, root.GetProperty("exit_code").GetInt32());
-        // With all 2 probes erroring, the reason is still "all_failed".
         Assert.Equal("all_failed", root.GetProperty("exit_reason").GetString());
         JsonElement ports = root.GetProperty("ports");
         Assert.Equal(2, ports.GetArrayLength());

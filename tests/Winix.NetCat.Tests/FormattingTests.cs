@@ -112,4 +112,136 @@ public sealed class FormattingTests
         Assert.Equal("nc: warning — TLS validation disabled",
             Formatting.FormatWarningLine("TLS validation disabled", useColor: false));
     }
+
+    // --- Round-3 Track C: pin ComputeCheckExitReason for each arm. The `some_failed` arm is
+    // particularly important: it's not reachable via a real process-spawn scan (one host = one
+    // DNS outcome, so all-port Error sets have errorCount == results.Count) and so the round-2
+    // C3 distinction was left unpinned by the earlier ProgramMainTests attempt.
+
+    [Fact]
+    public void ComputeCheckExitReason_AllOpen_ReturnsAllOpen()
+    {
+        var results = new[] { PortCheckResult.Open(80, 1.0), PortCheckResult.Open(443, 1.0) };
+
+        Assert.Equal("all_open", Formatting.ComputeCheckExitReason(results));
+    }
+
+    [Fact]
+    public void ComputeCheckExitReason_MixedOpenClosed_ReturnsSomeClosed()
+    {
+        var results = new[] { PortCheckResult.Open(80, 1.0), PortCheckResult.Closed(443) };
+
+        Assert.Equal("some_closed", Formatting.ComputeCheckExitReason(results));
+    }
+
+    [Fact]
+    public void ComputeCheckExitReason_MixedOpenTimeout_ReturnsSomeTimeout()
+    {
+        var results = new[] { PortCheckResult.Open(80, 1.0), PortCheckResult.Timeout(443) };
+
+        Assert.Equal("some_timeout", Formatting.ComputeCheckExitReason(results));
+    }
+
+    [Fact]
+    public void ComputeCheckExitReason_AllError_ReturnsAllFailed()
+    {
+        var results = new[] { PortCheckResult.Error(80, "boom"), PortCheckResult.Error(443, "boom") };
+
+        Assert.Equal("all_failed", Formatting.ComputeCheckExitReason(results));
+    }
+
+    /// <summary>
+    /// Pins round-2 C3: when SOME probes error and others succeed, exit_reason must be
+    /// "some_failed" not the misleading "all_failed". Round-2's ProgramMainTests attempt at
+    /// pinning this was a rubber-stamp (its body asserted "all_failed" while the method name
+    /// claimed "some_failed"). This direct library unit test is the authoritative pin.
+    /// </summary>
+    [Fact]
+    public void ComputeCheckExitReason_MixedOpenError_ReturnsSomeFailed()
+    {
+        var results = new[]
+        {
+            PortCheckResult.Open(80, 1.0),
+            PortCheckResult.Error(443, "simulated error"),
+        };
+
+        Assert.Equal("some_failed", Formatting.ComputeCheckExitReason(results));
+    }
+
+    [Fact]
+    public void ComputeCheckExitReason_MixedClosedError_ReturnsSomeFailed()
+    {
+        // Closed + Error: worstStatus=3 (Error dominates) but errorCount=1, results.Count=2.
+        // The distinction matters: consumers scripting against "all_failed" behave differently
+        // from "some_failed" (e.g. "retry DNS" vs "retry individual probes").
+        var results = new[]
+        {
+            PortCheckResult.Closed(80),
+            PortCheckResult.Error(443, "simulated error"),
+        };
+
+        Assert.Equal("some_failed", Formatting.ComputeCheckExitReason(results));
+    }
+
+    [Fact]
+    public void ComputeCheckExitReason_MixedTimeoutError_ReturnsSomeFailed()
+    {
+        var results = new[]
+        {
+            PortCheckResult.Timeout(80),
+            PortCheckResult.Error(443, "simulated error"),
+        };
+
+        Assert.Equal("some_failed", Formatting.ComputeCheckExitReason(results));
+    }
+
+    // --- Round-3 SFH-I3: JSON error envelope schema pins. FormatErrorJson is the fallback
+    // envelope emitted from Main's safety-net when --json is set and an unexpected exception
+    // escaped. Downstream automation depends on the shape being consistent with FormatRunJson.
+
+    [Fact]
+    public void FormatErrorJson_Connect_IncludesCoreFields()
+    {
+        var options = new NetCatOptions
+        {
+            Mode = NetCatMode.Connect,
+            Protocol = NetCatProtocol.Tcp,
+            Host = "target.com",
+            Ports = new[] { new PortRange(443) },
+            UseTls = true,
+        };
+
+        string json = Formatting.FormatErrorJson("0.4.0", options, 126, "unexpected_error", "something exploded");
+
+        Assert.Contains("\"tool\":\"nc\"", json);
+        Assert.Contains("\"version\":\"0.4.0\"", json);
+        Assert.Contains("\"mode\":\"connect\"", json);
+        Assert.Contains("\"host\":\"target.com\"", json);
+        Assert.Contains("\"port\":443", json);
+        Assert.Contains("\"protocol\":\"tcp\"", json);
+        Assert.Contains("\"tls\":true", json);
+        Assert.Contains("\"exit_code\":126", json);
+        Assert.Contains("\"exit_reason\":\"unexpected_error\"", json);
+        Assert.Contains("\"error\":\"something exploded\"", json);
+    }
+
+    [Fact]
+    public void FormatErrorJson_Check_IncludesModeCheck_WithoutPortWhenRange()
+    {
+        // In check mode the user may have passed a range like "80-90" — port is NOT a single
+        // value in that case, so FormatErrorJson must suppress the "port" field rather than
+        // emit a misleading single value.
+        var options = new NetCatOptions
+        {
+            Mode = NetCatMode.Check,
+            Protocol = NetCatProtocol.Tcp,
+            Host = "target.com",
+            Ports = new[] { new PortRange(80, 90) },
+        };
+
+        string json = Formatting.FormatErrorJson("0.4.0", options, 126, "unexpected_error", "boom");
+
+        Assert.Contains("\"mode\":\"check\"", json);
+        Assert.DoesNotContain("\"port\":", json);
+    }
 }

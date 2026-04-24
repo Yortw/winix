@@ -142,6 +142,68 @@ public sealed class PortCheckerTests
         }
     }
 
+    /// <summary>
+    /// Pins round-3 C1: when the user pins <c>--ipv4</c>/<c>--ipv6</c>, the probe must resolve
+    /// via that family. Previously PortChecker ignored <c>options.AddressFamily</c> entirely,
+    /// silently running dual-stack. Here we ask for IPv6 against the v4 loopback literal —
+    /// the family filter must return empty and classify as Error.
+    /// </summary>
+    [Fact]
+    public async Task CheckAsync_RequestIPv6_HostIsV4Literal_ReturnsErrorAndSiblingsStillRun()
+    {
+        // Two ports, both going through the IPv6 family filter. "127.0.0.1" is an IPv4 literal —
+        // GetHostAddressesAsync(host, InterNetworkV6) returns empty for it, so both probes
+        // must classify as Error (no v6 address). Regression would be that the probe falls
+        // through to the default TcpClient() path and actually connects over v4.
+        var openListener = new TcpListener(IPAddress.Loopback, 0);
+        openListener.Start();
+        int openPort = ((IPEndPoint)openListener.LocalEndpoint).Port;
+        int otherPort = GetEphemeralPortNoLongerBound();
+        try
+        {
+            var checker = new PortChecker();
+            IReadOnlyList<PortCheckResult> results = await checker.CheckAsync(
+                host: "127.0.0.1",
+                ranges: new[] { new PortRange(openPort), new PortRange(otherPort) },
+                timeout: System.TimeSpan.FromSeconds(2),
+                maxConcurrency: 2,
+                ct: CancellationToken.None,
+                addressFamily: AddressFamily.InterNetworkV6);
+
+            Assert.Equal(2, results.Count);
+            // Both ports must be Error (no v6 address for host) — not Open, Closed, or Timeout.
+            // If the AF filter were ignored (the round-3 defect), openPort would come back Open.
+            Assert.All(results, r => Assert.Equal(PortCheckStatus.Error, r.Status));
+            Assert.All(results, r => Assert.Contains("IPv6", r.ErrorMessage ?? ""));
+        }
+        finally
+        {
+            openListener.Stop();
+        }
+    }
+
+    /// <summary>
+    /// Pins round-3 C1 the other direction: requesting IPv4 against a host that resolves only
+    /// to IPv6 returns Error. Uses the v6 loopback literal <c>::1</c> since it has no v4
+    /// companion under GetHostAddressesAsync's family filter.
+    /// </summary>
+    [Fact]
+    public async Task CheckAsync_RequestIPv4_HostIsV6Literal_ReturnsError()
+    {
+        var checker = new PortChecker();
+        IReadOnlyList<PortCheckResult> results = await checker.CheckAsync(
+            host: "::1",
+            ranges: new[] { new PortRange(80) },
+            timeout: System.TimeSpan.FromSeconds(2),
+            maxConcurrency: 1,
+            ct: CancellationToken.None,
+            addressFamily: AddressFamily.InterNetwork);
+
+        Assert.Single(results);
+        Assert.Equal(PortCheckStatus.Error, results[0].Status);
+        Assert.Contains("IPv4", results[0].ErrorMessage ?? "");
+    }
+
     private static int GetEphemeralPortNoLongerBound()
     {
         var listener = new TcpListener(IPAddress.Loopback, 0);

@@ -345,6 +345,256 @@ public sealed class ClientListenerRoundtripTests
         }
     }
 
+    /// <summary>
+    /// Pins round-3 C1 at the NetCatClient seam: when <c>--ipv6</c> is pinned via
+    /// <c>options.AddressFamily</c>, the connect path must resolve via v6 only. Using the v4
+    /// loopback literal with AF v6 must classify as <c>host_not_found</c> exit 1, not silently
+    /// fall through to dual-stack and connect to v4 loopback successfully.
+    /// </summary>
+    [Fact]
+    public async Task TcpClient_RequestIPv6_HostIsV4Literal_ReturnsExitOne_HostNotFound()
+    {
+        // Bind a real v4 listener so "silently fell through to v4" would show up as a
+        // successful connection (exit 0), proving the fix works.
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+
+        Task serverTask = Task.Run(async () =>
+        {
+            try { using TcpClient peer = await listener.AcceptTcpClientAsync(); }
+            catch { /* we expect no connection — the AF filter should stop it */ }
+        });
+
+        try
+        {
+            var options = new NetCatOptions
+            {
+                Mode = NetCatMode.Connect,
+                Protocol = NetCatProtocol.Tcp,
+                Host = "127.0.0.1",
+                Ports = new[] { new PortRange(port) },
+                AddressFamily = AddressFamily.InterNetworkV6,
+                Timeout = System.TimeSpan.FromSeconds(2),
+            };
+
+            using var stdin = new MemoryStream();
+            using var stdout = new MemoryStream();
+            using var stderr = new StringWriter();
+
+            RunResult result = await new NetCatClient().RunAsync(options, stdin, stdout, stderr, CancellationToken.None);
+
+            Assert.Equal(1, result.ExitCode);
+            Assert.Equal("host_not_found", result.ExitReason);
+            Assert.Contains("IPv6", stderr.ToString());
+        }
+        finally
+        {
+            listener.Stop();
+            // Listener.Stop cancels the pending AcceptTcpClientAsync — the server task's try/catch swallows.
+            try { await serverTask.WaitAsync(System.TimeSpan.FromSeconds(2)); } catch { }
+        }
+    }
+
+    /// <summary>
+    /// Pins round-3 class-B (SFH C3): a stdin stream that throws IOException during
+    /// ReadAsync on the UDP send leg must be classified as exit 1 <c>io_error</c> —
+    /// NOT escape to the safety-net as "unexpected error" exit 126.
+    /// </summary>
+    [Fact]
+    public async Task UdpConnect_StdinIOException_ReturnsExitOne_IoError()
+    {
+        // Bind a UDP socket so the connect step succeeds.
+        using var dest = new UdpClient(0, AddressFamily.InterNetwork);
+        int port = ((IPEndPoint)dest.Client.LocalEndPoint!).Port;
+
+        var options = new NetCatOptions
+        {
+            Mode = NetCatMode.Connect,
+            Protocol = NetCatProtocol.Udp,
+            Host = "127.0.0.1",
+            Ports = new[] { new PortRange(port) },
+            Timeout = System.TimeSpan.Zero, // skip the receive leg entirely
+        };
+
+        using var stdin = new ThrowOnReadStream();
+        using var stdout = new MemoryStream();
+        using var stderr = new StringWriter();
+
+        RunResult result = await new NetCatClient().RunAsync(options, stdin, stdout, stderr, CancellationToken.None);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Equal("io_error", result.ExitReason);
+    }
+
+    /// <summary>
+    /// Pins round-3 class-B (SFH C4): when the downstream stdout pipe closes during the UDP
+    /// receive write (`nc -u host port | head -c 4`), nc must exit 0 with exit_reason
+    /// <c>stdout_closed</c> — matching the TCP path's BSD nc semantics. Reverting the
+    /// round-3 stdout try/catch would mis-classify this as 126 "unexpected error".
+    /// </summary>
+    [Fact]
+    public async Task UdpConnect_StdoutClosesDuringReceive_ReturnsExitZero_StdoutClosed()
+    {
+        // Echo server that replies to the first datagram with a large buffer.
+        using var server = new UdpClient(0, AddressFamily.InterNetwork);
+        int port = ((IPEndPoint)server.Client.LocalEndPoint!).Port;
+
+        Task serverTask = Task.Run(async () =>
+        {
+            UdpReceiveResult rx = await server.ReceiveAsync();
+            byte[] reply = new byte[1024];
+            await server.SendAsync(reply, reply.Length, rx.RemoteEndPoint);
+        });
+
+        var options = new NetCatOptions
+        {
+            Mode = NetCatMode.Connect,
+            Protocol = NetCatProtocol.Udp,
+            Host = "127.0.0.1",
+            Ports = new[] { new PortRange(port) },
+            Timeout = System.TimeSpan.FromSeconds(2),
+        };
+
+        byte[] payload = Encoding.ASCII.GetBytes("ping");
+        using var stdin = new MemoryStream(payload);
+        // Budget 0 — every stdout write throws, simulating `| head -c 0`.
+        using var stdout = new ThrowAfterBytesStream(bytesBeforeThrow: 0);
+        using var stderr = new StringWriter();
+
+        RunResult result = await new NetCatClient().RunAsync(options, stdin, stdout, stderr, CancellationToken.None);
+        await serverTask.WaitAsync(System.TimeSpan.FromSeconds(5));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("stdout_closed", result.ExitReason);
+    }
+
+    /// <summary>
+    /// Pins round-3 SFH-I2: the UDP listener path must return RunResult(130) on user-cancel
+    /// so --json consumers see a complete envelope with duration/LocalAddress. The TCP listen
+    /// path already had this; UDP was inconsistent.
+    /// </summary>
+    [Fact]
+    public async Task UdpListener_CtrlC_ReturnsExitOneThirty_InterruptedReason()
+    {
+        // Bind a UDP listener on an ephemeral port; never send it a datagram. Pre-cancel
+        // the outer CT to simulate Ctrl-C arriving during ReceiveAsync.
+        var probe = new UdpClient(0, AddressFamily.InterNetwork);
+        int port = ((IPEndPoint)probe.Client.LocalEndPoint!).Port;
+        probe.Dispose(); // free the port for the listener under test
+
+        var options = new NetCatOptions
+        {
+            Mode = NetCatMode.Listen,
+            Protocol = NetCatProtocol.Udp,
+            BindAddress = "127.0.0.1",
+            Ports = new[] { new PortRange(port) },
+            Timeout = System.TimeSpan.FromSeconds(30),
+        };
+
+        using var stdin = new MemoryStream();
+        using var stdout = new MemoryStream();
+        using var stderr = new StringWriter();
+
+        using var cts = new CancellationTokenSource();
+        Task<RunResult> listenerTask = new NetCatListener().RunAsync(options, stdin, stdout, stderr, cts.Token);
+        await Task.Delay(100);
+        cts.Cancel();
+
+        RunResult result = await listenerTask.WaitAsync(System.TimeSpan.FromSeconds(5));
+
+        Assert.Equal(130, result.ExitCode);
+        Assert.Equal("interrupted", result.ExitReason);
+        Assert.NotNull(result.LocalAddress);
+    }
+
+    /// <summary>
+    /// Pins round-3 CR-I5: UDP Connect must also return RunResult(130) on user-cancel with
+    /// partial byte counts + duration, not let OCE escape RunUdpAsync to Main (which bypasses
+    /// the --json envelope).
+    /// </summary>
+    [Fact]
+    public async Task UdpConnect_CtrlCDuringSend_ReturnsExitOneThirty_WithPartialBytes()
+    {
+        using var dest = new UdpClient(0, AddressFamily.InterNetwork);
+        int port = ((IPEndPoint)dest.Client.LocalEndPoint!).Port;
+
+        var options = new NetCatOptions
+        {
+            Mode = NetCatMode.Connect,
+            Protocol = NetCatProtocol.Udp,
+            Host = "127.0.0.1",
+            Ports = new[] { new PortRange(port) },
+            Timeout = System.TimeSpan.Zero,
+        };
+
+        // Stdin that blocks forever on read, so the send loop is waiting when we cancel.
+        using var stdin = new BlockingReadStream();
+        using var stdout = new MemoryStream();
+        using var stderr = new StringWriter();
+
+        using var cts = new CancellationTokenSource();
+        Task<RunResult> runTask = new NetCatClient().RunAsync(options, stdin, stdout, stderr, cts.Token);
+        await Task.Delay(100);
+        cts.Cancel();
+
+        RunResult result = await runTask.WaitAsync(System.TimeSpan.FromSeconds(5));
+
+        Assert.Equal(130, result.ExitCode);
+        Assert.Equal("interrupted", result.ExitReason);
+    }
+
+    /// <summary>
+    /// Stream whose ReadAsync blocks until the cancellation token fires, then throws OCE.
+    /// Used to park the UDP send loop in a cancellable await so the test can deterministically
+    /// trigger the user-cancel OCE arm.
+    /// </summary>
+    private sealed class BlockingReadStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => 0;
+        public override long Position { get => 0; set { } }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => 0;
+        public override async ValueTask<int> ReadAsync(System.Memory<byte> buffer, CancellationToken ct = default)
+        {
+            await Task.Delay(System.Threading.Timeout.Infinite, ct).ConfigureAwait(false);
+            return 0;
+        }
+        public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken ct)
+        {
+            await Task.Delay(System.Threading.Timeout.Infinite, ct).ConfigureAwait(false);
+            return 0;
+        }
+        public override long Seek(long offset, SeekOrigin origin) => 0;
+        public override void SetLength(long value) { }
+        public override void Write(byte[] buffer, int offset, int count) { }
+    }
+
+    /// <summary>
+    /// Stream that throws IOException on every read — simulates a broken stdin pipe
+    /// (redirected-from-file hit bad sector, closed pipe in some shells).
+    /// </summary>
+    private sealed class ThrowOnReadStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => 0;
+        public override long Position { get => 0; set { } }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => throw new IOException("simulated stdin pipe broken");
+        public override ValueTask<int> ReadAsync(System.Memory<byte> buffer, CancellationToken ct = default)
+            => throw new IOException("simulated stdin pipe broken");
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken ct)
+            => throw new IOException("simulated stdin pipe broken");
+        public override long Seek(long offset, SeekOrigin origin) => 0;
+        public override void SetLength(long value) { }
+        public override void Write(byte[] buffer, int offset, int count) { }
+    }
+
     [Fact]
     public async Task TcpListener_PortAlreadyInUse_ReturnsExitOne()
     {

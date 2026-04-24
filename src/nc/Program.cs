@@ -356,17 +356,11 @@ internal sealed class Program
                     }
 
                     int exitCode = worstStatus == 0 ? 0 : worstStatus == 2 ? 2 : 1;
-                    // Round-2 C3 fix: distinguish "every probe errored" from "some errored, others
-                    // succeeded / closed / timed out". Previously we emitted `all_failed` whenever
-                    // ANY probe was in the Error bucket, even if most ports were open — misleading
-                    // downstream consumers of the JSON contract.
-                    string exitReason = worstStatus switch
-                    {
-                        0 => "all_open",
-                        1 => "some_closed",
-                        2 => "some_timeout",
-                        _ => errorCount == results.Count ? "all_failed" : "some_failed",
-                    };
+                    // Round-2 C3 / round-3 test fix: exit_reason computation extracted to the
+                    // library so `some_failed` can be pinned as a direct unit test — process-
+                    // spawn tests can't produce a mixed Error+success scan (single host, DNS
+                    // errors hit all ports identically).
+                    string exitReason = Formatting.ComputeCheckExitReason(results);
 
                     // Don't exit silently when probes errored in non-verbose plain-text mode.
                     // Round-1 I-5 fix: without this, DNS-failure scans returned exit 1 with NO
