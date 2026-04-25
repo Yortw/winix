@@ -12,17 +12,31 @@ internal sealed class Program
         ConsoleEnv.UseUtf8Streams();
         string version = GetVersion();
 
+        // Pre-scan args for the structured-output flags so Main's outer catches can honour
+        // the "envelope on every exit path" contract. The full parse happens later in
+        // RunAsync; this is a cheap forward-look for an unambiguous flag name (no value,
+        // no short alias). False-positive risk: a user passing literal "--json" as a child
+        // command argument after a `--` separator. Acceptable — the resulting envelope
+        // emission is harmless on stderr.
+        bool jsonOutput = ContainsFlag(args, "--json");
+        bool ndjsonOutput = ContainsFlag(args, "--ndjson");
+
         try
         {
             return await RunAsync(args, version).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
-            // User-initiated Ctrl+C — POSIX convention is exit 128+SIGINT(2)=130. Treating
-            // this as "unexpected error" with exit 126 (NotExecutable) was misleading both in
-            // diagnostic ("unexpected" implies a wargs bug) and exit code (126 implies the
-            // CHILD wasn't executable). The OCE arm must come BEFORE the broad catch since
-            // OperationCanceledException is an Exception.
+            // User-initiated Ctrl+C — POSIX convention is exit 128+SIGINT(2)=130. Under
+            // structured-output modes, emit a cancelled envelope before exiting so consumers
+            // parsing stderr always see a JSON object on cancel. Without this, Ctrl+C on
+            // `wargs --json ...` exited 130 with no stderr payload, indistinguishable from
+            // a SIGKILL or runtime crash for tooling.
+            if (jsonOutput || ndjsonOutput)
+            {
+                SafeWriteLine(Console.Error,
+                    Formatting.FormatJsonError(130, "cancelled", "wargs", version));
+            }
             return 130;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
@@ -32,13 +46,36 @@ internal sealed class Program
             // unhandled-exception handler firing. Combined with <StackTraceSupport>false</...>
             // in wargs.csproj that produces a near-blank "Unhandled exception" message —
             // unactionable. Mirrors the pattern in retry/Program.cs.
+            //
+            // Under structured-output modes, also emit an unexpected_error envelope so
+            // structured consumers always see a JSON object even on the unhappy path.
             Exception surface = UnwrapTypeInit(ex);
+            if (jsonOutput || ndjsonOutput)
+            {
+                SafeWriteLine(Console.Error,
+                    Formatting.FormatJsonError(ExitCode.NotExecutable, "unexpected_error", "wargs", version));
+            }
             string msg = string.IsNullOrEmpty(surface.Message)
                 ? $"wargs: unexpected error: {surface.GetType().Name}"
                 : $"wargs: unexpected error: {surface.GetType().Name}: {surface.Message}";
             SafeWriteLine(Console.Error, msg);
             return ExitCode.NotExecutable;
         }
+    }
+
+    /// <summary>
+    /// Pre-scans <paramref name="args"/> for an exact flag match, ignoring `--` separator
+    /// boundaries (we deliberately scan the whole array because `--` parsing happens later).
+    /// Used by Main to detect structured-output modes before parser construction so the
+    /// outer catches can emit JSON envelopes on cancellation / unexpected errors.
+    /// </summary>
+    private static bool ContainsFlag(string[] args, string flag)
+    {
+        for (int i = 0; i < args.Length; i++)
+        {
+            if (args[i] == flag) { return true; }
+        }
+        return false;
     }
 
     private static async Task<int> RunAsync(string[] args, string version)
@@ -205,12 +242,18 @@ internal sealed class Program
             and not StackOverflowException
             and not OperationCanceledException)
         {
+            // Mode discrimination: under --json/--ndjson, emit ONLY the envelope so the
+            // stream stays parseable as one JSON object per line. Mixing the plaintext
+            // diagnostic on the same stream broke strict NDJSON parsers (round-4 SFH).
             if (jsonOutput || ndjsonOutput)
             {
                 SafeWriteLine(Console.Error,
                     Formatting.FormatJsonError(ExitCode.NotExecutable, "input_read_failed", "wargs", version));
             }
-            SafeWriteLine(Console.Error, $"wargs: failed to read input: {ex.GetType().Name}: {ex.Message}");
+            else
+            {
+                SafeWriteLine(Console.Error, $"wargs: failed to read input: {ex.GetType().Name}: {ex.Message}");
+            }
             return ExitCode.NotExecutable;
         }
 
@@ -271,6 +314,25 @@ internal sealed class Program
         // --- Determine exit code ---
         if (dryRun)
         {
+            // Under structured-output modes, emit a dry_run envelope so consumers always
+            // see a JSON object even on the dry-run preview path. Without this, --json or
+            // --ndjson with --dry-run produced zero stderr — indistinguishable from a crash
+            // for tooling. The envelope reports the would-be invocation count via total_jobs
+            // so callers can tell whether anything would have run.
+            if (jsonOutput)
+            {
+                SafeWriteLine(Console.Error, Formatting.FormatJson(
+                    new WargsResult(invocations.Count, 0, 0, 0, TimeSpan.Zero, new List<JobResult>()),
+                    exitCode: 0,
+                    exitReason: "dry_run",
+                    "wargs",
+                    version));
+            }
+            else if (ndjsonOutput)
+            {
+                SafeWriteLine(Console.Error,
+                    Formatting.FormatJsonError(0, "dry_run", "wargs", version));
+            }
             return 0;
         }
 
