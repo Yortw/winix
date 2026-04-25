@@ -21,9 +21,26 @@ internal sealed class Program
         bool jsonOutput = ContainsFlag(args, "--json");
         bool ndjsonOutput = ContainsFlag(args, "--ndjson");
 
+        // Register Console.CancelKeyPress AT MAIN SCOPE, BEFORE RunAsync — including before
+        // input materialisation. Round-4 wrongly assumed an in-RunAsync handler caught
+        // Ctrl+C-during-stdin-read; in fact .NET's default Ctrl+C handling tears the
+        // process down before any handler installed later in the call stack can fire.
+        // With this early registration, e.Cancel=true keeps the process alive long enough
+        // for InputReader to observe the cancellation (Console.In.ReadLine returns null
+        // after Ctrl+C with e.Cancel=true) and for Main's OCE catch to emit the cancelled
+        // envelope.
+        using var cts = new CancellationTokenSource();
+        ConsoleCancelEventHandler cancelHandler = (_, e) =>
+        {
+            e.Cancel = true;
+            try { cts.Cancel(); }
+            catch (ObjectDisposedException) { /* raced with shutdown — safe to drop */ }
+        };
+        Console.CancelKeyPress += cancelHandler;
+
         try
         {
-            return await RunAsync(args, version).ConfigureAwait(false);
+            return await RunAsync(args, version, cts).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -47,19 +64,31 @@ internal sealed class Program
             // in wargs.csproj that produces a near-blank "Unhandled exception" message —
             // unactionable. Mirrors the pattern in retry/Program.cs.
             //
-            // Under structured-output modes, also emit an unexpected_error envelope so
-            // structured consumers always see a JSON object even on the unhappy path.
+            // Mode-discriminated: under structured-output modes emit ONLY the envelope so the
+            // stream stays parseable as one JSON object per line. Mixing the plaintext
+            // diagnostic alongside the envelope (the round-4 implementation) broke strict
+            // NDJSON parsers — same defect class as the round-4 input-pipeline catch fix that
+            // was missed here.
             Exception surface = UnwrapTypeInit(ex);
             if (jsonOutput || ndjsonOutput)
             {
                 SafeWriteLine(Console.Error,
                     Formatting.FormatJsonError(ExitCode.NotExecutable, "unexpected_error", "wargs", version));
             }
-            string msg = string.IsNullOrEmpty(surface.Message)
-                ? $"wargs: unexpected error: {surface.GetType().Name}"
-                : $"wargs: unexpected error: {surface.GetType().Name}: {surface.Message}";
-            SafeWriteLine(Console.Error, msg);
+            else
+            {
+                string msg = string.IsNullOrEmpty(surface.Message)
+                    ? $"wargs: unexpected error: {surface.GetType().Name}"
+                    : $"wargs: unexpected error: {surface.GetType().Name}: {surface.Message}";
+                SafeWriteLine(Console.Error, msg);
+            }
             return ExitCode.NotExecutable;
+        }
+        finally
+        {
+            // Unregister before 'using' disposes cts, so a late Ctrl+C
+            // doesn't call Cancel() on a disposed CancellationTokenSource.
+            Console.CancelKeyPress -= cancelHandler;
         }
     }
 
@@ -78,7 +107,7 @@ internal sealed class Program
         return false;
     }
 
-    private static async Task<int> RunAsync(string[] args, string version)
+    private static async Task<int> RunAsync(string[] args, string version, CancellationTokenSource cts)
     {
 
         var parser = new CommandLineParser("wargs", version)
@@ -132,7 +161,30 @@ internal sealed class Program
 
         var result = parser.Parse(args);
         if (result.IsHandled) { return result.ExitCode; }
-        if (result.HasErrors) { return result.WriteErrors(Console.Error); }
+        if (result.HasErrors)
+        {
+            // Round-5 SFH I2: ShellKit's WriteErrors emits plaintext under all modes. Under
+            // --ndjson that breaks line-discipline parsers expecting one JSON object per line.
+            // Under --json the existing behaviour (plaintext-only) silently violates the
+            // documented "envelope on every exit path" contract. Emit a usage_error envelope
+            // for both structured modes; ShellKit's plaintext is still emitted for human mode.
+            bool ndjsonModeHere = ContainsFlag(args, "--ndjson");
+            bool jsonModeHere = ContainsFlag(args, "--json");
+            if (ndjsonModeHere)
+            {
+                SafeWriteLine(Console.Error,
+                    Formatting.FormatJsonError(ExitCode.UsageError, "usage_error", "wargs", version));
+                return ExitCode.UsageError;
+            }
+            if (jsonModeHere)
+            {
+                SafeWriteLine(Console.Error,
+                    Formatting.FormatJsonError(ExitCode.UsageError, "usage_error", "wargs", version));
+                // Plaintext line follows for the human reader; --json emits a single envelope
+                // (not a stream) so mixed output is acceptable.
+            }
+            return result.WriteErrors(Console.Error);
+        }
 
         // --- Resolve options ---
         int parallelism = result.Has("--parallel") ? result.GetInt("--parallel") : 1;
@@ -155,7 +207,7 @@ internal sealed class Program
         int delimiterCount = (hasNull ? 1 : 0) + (hasDelimiter ? 1 : 0) + (hasCompat ? 1 : 0);
         if (delimiterCount > 1)
         {
-            return UsageError(result, "--null, --delimiter, and --compat are mutually exclusive", jsonOutput, version);
+            return UsageError(result, "--null, --delimiter, and --compat are mutually exclusive", jsonOutput, ndjsonOutput, version);
         }
 
         DelimiterMode delimMode = DelimiterMode.Line;
@@ -173,7 +225,7 @@ internal sealed class Program
             string delimStr = result.GetString("--delimiter");
             if (delimStr.Length != 1)
             {
-                return UsageError(result, "--delimiter requires a single character", jsonOutput, version);
+                return UsageError(result, "--delimiter requires a single character", jsonOutput, ndjsonOutput, version);
             }
             delimMode = DelimiterMode.Custom;
             customDelimiter = delimStr[0];
@@ -182,22 +234,32 @@ internal sealed class Program
         // --- Validate flag combinations ---
         if (confirm && parallelism != 1)
         {
-            return UsageError(result, "--confirm cannot be used with parallel execution", jsonOutput, version);
+            return UsageError(result, "--confirm cannot be used with parallel execution", jsonOutput, ndjsonOutput, version);
         }
 
         if (lineBuffered && keepOrder)
         {
-            return UsageError(result, "--line-buffered and --keep-order cannot be combined", jsonOutput, version);
+            return UsageError(result, "--line-buffered and --keep-order cannot be combined", jsonOutput, ndjsonOutput, version);
         }
 
         if (lineBuffered && parallelism != 1)
         {
-            return UsageError(result, "--line-buffered cannot be used with parallel execution (output would interleave)", jsonOutput, version);
+            return UsageError(result, "--line-buffered cannot be used with parallel execution (output would interleave)", jsonOutput, ndjsonOutput, version);
         }
 
         if (ndjsonOutput && lineBuffered)
         {
-            return UsageError(result, "--ndjson and --line-buffered cannot be combined", jsonOutput, version);
+            return UsageError(result, "--ndjson and --line-buffered cannot be combined", jsonOutput, ndjsonOutput, version);
+        }
+
+        if ((jsonOutput || ndjsonOutput) && verbose)
+        {
+            // Verbose writes raw "wargs: <command>" lines to stderr per invocation;
+            // structured-output modes also use stderr for envelopes/streaming JSON. Mixing
+            // the two breaks line-discipline parsers (the user piping `wargs --ndjson -v ... | jq`
+            // hit interleaved plaintext among NDJSON lines). Same root reason as the
+            // --ndjson/--line-buffered rejection above.
+            return UsageError(result, "--verbose cannot be combined with --json or --ndjson (would interleave plaintext with structured output)", jsonOutput, ndjsonOutput, version);
         }
 
         // --- Resolve buffer strategy ---
@@ -286,30 +348,12 @@ internal sealed class Program
         }
 
         // --- Execute ---
-        // Wire Ctrl+C to a CancellationToken so the kill-on-cancel registrations in
-        // JobRunner activate and cleanly terminate child process trees.
-        // Named delegate so we can unregister before the CTS is disposed.
-        using var cts = new CancellationTokenSource();
-        ConsoleCancelEventHandler cancelHandler = (_, e) =>
-        {
-            e.Cancel = true;  // Prevent immediate process termination — let RunAsync clean up
-            try { cts.Cancel(); }
-            catch (ObjectDisposedException) { /* raced with shutdown — safe to drop */ }
-        };
-        Console.CancelKeyPress += cancelHandler;
-
-        WargsResult wargsResult;
-        try
-        {
-            wargsResult = await jobRunner.RunAsync(
-                invocations, Console.Out, Console.Error, cts.Token).ConfigureAwait(false);
-        }
-        finally
-        {
-            // Unregister before 'using' disposes cts, so a late Ctrl+C
-            // doesn't call Cancel() on a disposed CancellationTokenSource.
-            Console.CancelKeyPress -= cancelHandler;
-        }
+        // The CancellationTokenSource and Console.CancelKeyPress handler are owned by Main
+        // (registered before input materialisation, see Main for rationale). RunAsync just
+        // observes the token. Kill-on-cancel registrations inside JobRunner cleanly terminate
+        // child process trees when the user hits Ctrl+C.
+        WargsResult wargsResult = await jobRunner.RunAsync(
+            invocations, Console.Out, Console.Error, cts.Token).ConfigureAwait(false);
 
         // --- Determine exit code ---
         if (dryRun)
@@ -402,17 +446,28 @@ internal sealed class Program
     }
 
     /// <summary>
-    /// Routes a usage error to either stderr (text) or a JSON envelope, depending on
-    /// whether <c>--json</c> was set. Replaces the call sites that previously emitted
-    /// plain text only, leaving JSON-mode tooling without a parseable error.
+    /// Routes a usage error to either plaintext stderr or a JSON envelope, depending on
+    /// the active output mode. Mode discrimination:
+    /// <para>- <c>--ndjson</c>: ONLY the envelope (strict NDJSON contract — no trailing plaintext).</para>
+    /// <para>- <c>--json</c>: envelope first, then a plaintext reason (mixed output is acceptable
+    /// for --json since it's a single envelope, not a stream — humans reading stderr still see
+    /// the cause).</para>
+    /// <para>- Neither: ShellKit's standard plaintext error format.</para>
     /// </summary>
-    private static int UsageError(ParseResult result, string message, bool jsonOutput, string version)
+    private static int UsageError(ParseResult result, string message, bool jsonOutput, bool ndjsonOutput, string version)
     {
+        if (ndjsonOutput)
+        {
+            // Strict NDJSON: envelope only, no trailing plaintext that would break parsers.
+            SafeWriteLine(Console.Error,
+                Formatting.FormatJsonError(ExitCode.UsageError, "usage_error", "wargs", version));
+            return ExitCode.UsageError;
+        }
         if (jsonOutput)
         {
             SafeWriteLine(Console.Error,
                 Formatting.FormatJsonError(ExitCode.UsageError, "usage_error", "wargs", version));
-            // Still emit the plain-text reason so a human reading mixed output sees the cause.
+            // Plain-text reason after the single envelope so a human reading mixed output sees the cause.
             SafeWriteLine(Console.Error, $"wargs: {message}");
             return ExitCode.UsageError;
         }
