@@ -235,4 +235,49 @@ public class FormattingTests
         foreach (var _ in root.EnumerateObject()) { fieldCount++; }
         Assert.Equal(4, fieldCount);
     }
+
+    // -- Round-4 review: pin the round-4-added exit_reason values. The same
+    //    FormatJsonError shape is reused across all of them; these tests catch a
+    //    future change that adds an extra field or renames an existing one. --
+
+    [Theory]
+    [InlineData(130, "cancelled")]
+    [InlineData(126, "unexpected_error")]
+    [InlineData(0, "dry_run")]
+    public void FormatJsonError_Round4ExitReasons_ParseAndContainExpectedFields(int exitCode, string exitReason)
+    {
+        string json = Formatting.FormatJsonError(exitCode, exitReason, "wargs", "0.1.0");
+
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        Assert.Equal(exitCode, root.GetProperty("exit_code").GetInt32());
+        Assert.Equal(exitReason, root.GetProperty("exit_reason").GetString());
+        Assert.Equal("wargs", root.GetProperty("tool").GetString());
+
+        int fieldCount = 0;
+        foreach (var _ in root.EnumerateObject()) { fieldCount++; }
+        Assert.Equal(4, fieldCount);
+    }
+
+    [Fact]
+    public void FormatJson_DryRunEnvelope_ReportsTotalJobsCount()
+    {
+        // Round-4 --dry-run path emits FormatJson with TotalJobs reflecting the would-be
+        // invocation count (so callers can tell whether anything would have run) and
+        // exit_reason="dry_run". Pin the shape.
+        var result = new WargsResult(
+            TotalJobs: 7, Succeeded: 0, Failed: 0, Skipped: 0,
+            WallTime: TimeSpan.Zero,
+            Jobs: new List<JobResult>());
+
+        string json = Formatting.FormatJson(result, 0, "dry_run", "wargs", Version);
+
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        Assert.Equal(0, root.GetProperty("exit_code").GetInt32());
+        Assert.Equal("dry_run", root.GetProperty("exit_reason").GetString());
+        Assert.Equal(7, root.GetProperty("total_jobs").GetInt32());
+        Assert.Equal(0, root.GetProperty("succeeded").GetInt32());
+        Assert.Equal(0, root.GetProperty("failed").GetInt32());
+    }
 }

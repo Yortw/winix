@@ -478,6 +478,11 @@ public class JobRunnerTests
             Assert.Equal(20, result.TotalJobs);
             // Either skipped (preferred) or zero successes — never a half-completed dangling state.
             Assert.True(result.Succeeded + result.Skipped + result.Failed == 20);
+            // Round-4 refinement: extend the SkippedJobs_NeverCarryFaultMessage invariant
+            // to the pre-cancel skip path. Skipped jobs from cancellation must never
+            // carry FaultMessage — formatters rely on the (Skipped=true ⇔ FaultMessage=null)
+            // invariant for output-mode consistency.
+            Assert.All(result.Jobs.Where(j => j.Skipped), j => Assert.Null(j.FaultMessage));
         }
         catch (OperationCanceledException)
         {
@@ -543,10 +548,12 @@ public class JobRunnerTests
         var result = await runner.RunAsync(invocations, brokenStdout, TextWriter.Null);
 
         Assert.Equal(3, result.TotalJobs);
-        // First flush attempted, set abort flag — subsequent jobs skip their flush. Exact
-        // count of WriteAttempts depends on whether the loop short-circuits before or after
-        // the next job's flush attempt; allow either outcome.
-        Assert.True(brokenStdout.WriteAttempts >= 1);
+        // Round-4 refinement: the first job's flush failure sets `abort = true`; subsequent
+        // jobs short-circuit at the loop top with Skipped before reaching their flush, so
+        // exactly one Write attempt should have happened. The earlier `>= 1` tolerance was
+        // weak; tightening to `== 1` catches a regression where abort isn't set on broken
+        // pipe and every subsequent job re-discovers the failure.
+        Assert.Equal(1, brokenStdout.WriteAttempts);
     }
 
     [Fact]
