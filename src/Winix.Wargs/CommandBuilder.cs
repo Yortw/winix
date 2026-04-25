@@ -111,13 +111,21 @@ public sealed class CommandBuilder
             return "''";
         }
 
-        // If the value contains no special characters, no quoting needed
+        // Quoting matters for safety, not just display: shell-fallback hands the formatted
+        // string to `sh -c`, so a bare newline or shell metacharacter in an item becomes a
+        // command separator. Items can contain newlines under -0 (null-delimited) or a custom
+        // -d delimiter, and the resulting injected text would run as a sibling command. The
+        // set below covers POSIX shell special chars, glob expansion (* ? [ ]), tilde
+        // expansion (~), comment (#), and history expansion (! ^), plus newline/CR/NUL.
         bool needsQuoting = false;
         foreach (char c in value)
         {
-            if (c == ' ' || c == '\t' || c == '"' || c == '\'' || c == '\\' || c == '|'
+            if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\0'
+                || c == '"' || c == '\'' || c == '\\' || c == '|'
                 || c == '&' || c == ';' || c == '(' || c == ')' || c == '<' || c == '>'
-                || c == '$' || c == '`' || c == '!' || c == '{' || c == '}')
+                || c == '$' || c == '`' || c == '!' || c == '^' || c == '{' || c == '}'
+                || c == '*' || c == '?' || c == '[' || c == ']' || c == '~' || c == '#'
+                || c < ' ')
             {
                 needsQuoting = true;
                 break;

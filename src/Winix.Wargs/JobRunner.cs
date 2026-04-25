@@ -135,15 +135,38 @@ public sealed class JobRunner
             }
 
             JobResult result;
-            if (_options.Strategy == BufferStrategy.LineBuffered)
+            try
             {
-                result = await ExecuteJobLineBufferedAsync(invocation, jobIndex, cancellationToken)
-                    .ConfigureAwait(false);
+                if (_options.Strategy == BufferStrategy.LineBuffered)
+                {
+                    result = await ExecuteJobLineBufferedAsync(invocation, jobIndex, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                else
+                {
+                    result = await ExecuteJobAsync(invocation, jobIndex, cancellationToken)
+                        .ConfigureAwait(false);
+                }
             }
-            else
+            catch (OperationCanceledException)
             {
-                result = await ExecuteJobAsync(invocation, jobIndex, cancellationToken)
-                    .ConfigureAwait(false);
+                // External cancel — propagate so the caller can finalise. Other jobs added
+                // to the result list so far survive.
+                throw;
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+            {
+                // Unexpected fault inside a single job — preserve partial history rather
+                // than crashing the whole sequential run. Capture the exception on
+                // FaultMessage so the user can diagnose.
+                result = new JobResult(
+                    JobIndex: jobIndex,
+                    ChildExitCode: -1,
+                    Output: null,
+                    Duration: TimeSpan.Zero,
+                    SourceItems: invocation.SourceItems,
+                    Skipped: false,
+                    FaultMessage: $"{ex.GetType().Name}: {ex.Message}");
             }
 
             jobs.Add(result);
@@ -251,12 +274,18 @@ public sealed class JobRunner
             int capturedIndex = jobIndex;
             CommandInvocation capturedInvocation = invocation;
 
+            // Don't pass cancellationToken to Task.Run — if the token is signalled between
+            // semaphore acquisition and Task.Run scheduling the body, the task transitions to
+            // Canceled and the finally block (semaphore.Release) never runs, leaking slots and
+            // potentially deadlocking subsequent jobs. Letting the body always run means the
+            // try/finally always executes; the body itself checks the token and returns Skipped.
             tasks[i] = Task.Run(async () =>
             {
                 try
                 {
-                    // Race check: abort may have been set while we waited for the semaphore
-                    if (Volatile.Read(ref aborted))
+                    // Race check: abort or external cancel may have fired while we waited
+                    // for the semaphore (or while Task.Run scheduled this body).
+                    if (Volatile.Read(ref aborted) || cancellationToken.IsCancellationRequested)
                     {
                         return new JobResult(
                             JobIndex: capturedIndex,
@@ -266,7 +295,6 @@ public sealed class JobRunner
                             SourceItems: capturedInvocation.SourceItems,
                             Skipped: true);
                     }
-
 
                     if (_options.Verbose)
                     {
@@ -304,7 +332,8 @@ public sealed class JobRunner
                     if (result.ChildExitCode != 0 && _options.FailFast)
                     {
                         Volatile.Write(ref aborted, true);
-                        failFastCts.Cancel();
+                        try { failFastCts.Cancel(); }
+                        catch (ObjectDisposedException) { /* race with end-of-run dispose */ }
                     }
 
                     return result;
@@ -320,15 +349,44 @@ public sealed class JobRunner
                         SourceItems: capturedInvocation.SourceItems,
                         Skipped: true);
                 }
+                catch (OperationCanceledException)
+                {
+                    // External cancel — preserve as skipped so the result row exists.
+                    return new JobResult(
+                        JobIndex: capturedIndex,
+                        ChildExitCode: -1,
+                        Output: null,
+                        Duration: TimeSpan.Zero,
+                        SourceItems: capturedInvocation.SourceItems,
+                        Skipped: true);
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+                {
+                    // Unexpected fault — capture the exception type/message so the user can
+                    // diagnose, rather than seeing a bare child_failed with no clue. Without
+                    // this, the catch at WhenAll below would swallow silently (silent-failure
+                    // class B). Surfacing FaultMessage means the JSON envelope and human
+                    // summary can include it later.
+                    return new JobResult(
+                        JobIndex: capturedIndex,
+                        ChildExitCode: -1,
+                        Output: null,
+                        Duration: TimeSpan.Zero,
+                        SourceItems: capturedInvocation.SourceItems,
+                        Skipped: false,
+                        FaultMessage: $"{ex.GetType().Name}: {ex.Message}");
+                }
                 finally
                 {
                     semaphore.Release();
                 }
-            }, cancellationToken);
+            });
         }
 
-        // Some tasks may have been cancelled by fail-fast or faulted unexpectedly.
-        // Collect results without letting the aggregate exception propagate.
+        // Some tasks may have been cancelled by fail-fast — task bodies handled the OCE
+        // internally and returned Skipped, so WhenAll should complete without throwing.
+        // The try/catch below is defence-in-depth: a future change that lets an exception
+        // escape the body shouldn't take down the run.
         try
         {
             await Task.WhenAll(tasks).ConfigureAwait(false);
@@ -431,8 +489,16 @@ public sealed class JobRunner
             process = Process.Start(startInfo)
                 ?? throw new Win32Exception("Process.Start returned null");
         }
-        catch (Win32Exception)
+        catch (Exception ex) when (IsSpawnFailure(ex))
         {
+            // Process.Start can throw more than Win32Exception: empty FileName produces
+            // InvalidOperationException, AOT trim edges produce PlatformNotSupportedException,
+            // and FileNotFoundException is plausible on stripped runtimes. Catching only
+            // Win32Exception leaves the others to escape into the parallel-loop catch with
+            // no observable evidence (silent-failure class A). Capture the original message
+            // on FaultMessage so the user can diagnose the failure rather than seeing a bare
+            // child_failed exit.
+            string directFault = FormatSpawnFault(ex, invocation);
             if (_options.ShellFallback)
             {
                 // Command not found as standalone executable — retry via platform shell
@@ -443,7 +509,7 @@ public sealed class JobRunner
                     process = Process.Start(startInfo)
                         ?? throw new Win32Exception("Process.Start returned null");
                 }
-                catch (Win32Exception)
+                catch (Exception ex2) when (IsSpawnFailure(ex2))
                 {
                     stopwatch.Stop();
                     return new JobResult(
@@ -452,7 +518,8 @@ public sealed class JobRunner
                         Output: null,
                         Duration: stopwatch.Elapsed,
                         SourceItems: invocation.SourceItems,
-                        Skipped: false);
+                        Skipped: false,
+                        FaultMessage: $"{directFault}; shell fallback: {FormatSpawnFault(ex2, invocation)}");
                 }
             }
             else
@@ -464,7 +531,8 @@ public sealed class JobRunner
                     Output: null,
                     Duration: stopwatch.Elapsed,
                     SourceItems: invocation.SourceItems,
-                    Skipped: false);
+                    Skipped: false,
+                    FaultMessage: directFault);
             }
         }
 
@@ -484,14 +552,18 @@ public sealed class JobRunner
                         process.Kill(entireProcessTree: true);
                     }
                 }
-                catch (InvalidOperationException)
+                catch (Exception ex) when (
+                    ex is InvalidOperationException
+                    || ex is Win32Exception
+                    || ex is NotSupportedException
+                    || ex is AggregateException)
                 {
-                    // Process already exited between the check and the kill — safe to ignore.
-                }
-                catch (Win32Exception)
-                {
-                    // Kill failed (e.g. access denied on elevated child, zombie process on Linux).
-                    // Swallow to avoid tearing down the process from an unhandled callback exception.
+                    // Process already exited, kill failed (access denied / zombie), platform
+                    // can't kill the process tree, or the kill produced an aggregate of child
+                    // failures. A CancellationToken callback that throws causes Cancel() at
+                    // the call site to throw an aggregate, which would then escape the parallel
+                    // task body's broad catch — silently broken. Swallow here so the kill is
+                    // strictly best-effort.
                 }
             });
 
@@ -530,7 +602,12 @@ public sealed class JobRunner
         }
         finally
         {
-            process.Dispose();
+            // Dispose-in-finally: must not mask the original exception. Process.Dispose can
+            // throw on Windows when the underlying handle is in an unusual state during
+            // process-tree teardown after Kill; if that happened, swallowing here keeps the
+            // real exception (cancellation, WaitForExit failure) propagating.
+            try { process.Dispose(); }
+            catch (Exception) { /* dispose-in-finally — original exception must propagate */ }
         }
     }
 
@@ -573,8 +650,10 @@ public sealed class JobRunner
             process = Process.Start(startInfo)
                 ?? throw new Win32Exception("Process.Start returned null");
         }
-        catch (Win32Exception)
+        catch (Exception ex) when (IsSpawnFailure(ex))
         {
+            // See ExecuteJobAsync for rationale on the broader catch set.
+            string directFault = FormatSpawnFault(ex, invocation);
             if (_options.ShellFallback)
             {
                 startInfo = BuildShellFallbackStartInfo(invocation, redirectIo: false);
@@ -583,7 +662,7 @@ public sealed class JobRunner
                     process = Process.Start(startInfo)
                         ?? throw new Win32Exception("Process.Start returned null");
                 }
-                catch (Win32Exception)
+                catch (Exception ex2) when (IsSpawnFailure(ex2))
                 {
                     stopwatch.Stop();
                     return new JobResult(
@@ -592,7 +671,8 @@ public sealed class JobRunner
                         Output: null,
                         Duration: stopwatch.Elapsed,
                         SourceItems: invocation.SourceItems,
-                        Skipped: false);
+                        Skipped: false,
+                        FaultMessage: $"{directFault}; shell fallback: {FormatSpawnFault(ex2, invocation)}");
                 }
             }
             else
@@ -604,7 +684,8 @@ public sealed class JobRunner
                     Output: null,
                     Duration: stopwatch.Elapsed,
                     SourceItems: invocation.SourceItems,
-                    Skipped: false);
+                    Skipped: false,
+                    FaultMessage: directFault);
             }
         }
 
@@ -621,14 +702,18 @@ public sealed class JobRunner
                         process.Kill(entireProcessTree: true);
                     }
                 }
-                catch (InvalidOperationException)
+                catch (Exception ex) when (
+                    ex is InvalidOperationException
+                    || ex is Win32Exception
+                    || ex is NotSupportedException
+                    || ex is AggregateException)
                 {
-                    // Process already exited between the check and the kill — safe to ignore.
-                }
-                catch (Win32Exception)
-                {
-                    // Kill failed (e.g. access denied on elevated child, zombie process on Linux).
-                    // Swallow to avoid tearing down the process from an unhandled callback exception.
+                    // Process already exited, kill failed (access denied / zombie), platform
+                    // can't kill the process tree, or the kill produced an aggregate of child
+                    // failures. A CancellationToken callback that throws causes Cancel() at
+                    // the call site to throw an aggregate, which would then escape the parallel
+                    // task body's broad catch — silently broken. Swallow here so the kill is
+                    // strictly best-effort.
                 }
             });
 
@@ -647,7 +732,12 @@ public sealed class JobRunner
         }
         finally
         {
-            process.Dispose();
+            // Dispose-in-finally: must not mask the original exception. Process.Dispose can
+            // throw on Windows when the underlying handle is in an unusual state during
+            // process-tree teardown after Kill; if that happened, swallowing here keeps the
+            // real exception (cancellation, WaitForExit failure) propagating.
+            try { process.Dispose(); }
+            catch (Exception) { /* dispose-in-finally — original exception must propagate */ }
         }
     }
 
@@ -731,10 +821,41 @@ public sealed class JobRunner
             string? response = tty.ReadLine();
             return string.Equals(response?.Trim(), "y", StringComparison.OrdinalIgnoreCase);
         }
-        catch (IOException)
+        catch (Exception ex) when (
+            ex is IOException
+            || ex is UnauthorizedAccessException
+            || ex is PlatformNotSupportedException
+            || ex is ArgumentException)
         {
-            // No terminal available — default to skip
+            // No terminal available (CI, daemon, sandbox) — surface a diagnostic so the user
+            // doesn't get a silent "all jobs skipped, exit 0". --confirm was deliberately
+            // requested; silently no-op'ing it is a footgun.
+            try
+            {
+                Console.Error.WriteLine("wargs: --confirm requested but no terminal available; declining.");
+            }
+            catch (Exception) { /* stderr also unavailable — best-effort */ }
             return false;
         }
     }
+
+    /// <summary>
+    /// Identifies <see cref="Process.Start"/> exceptions that should be classified as a spawn
+    /// failure (and converted to a JobResult with FaultMessage) rather than escaping into the
+    /// parallel-loop broad catch. Catching only <see cref="Win32Exception"/> leaves
+    /// <see cref="InvalidOperationException"/> (empty FileName), <see cref="FileNotFoundException"/>,
+    /// and <see cref="PlatformNotSupportedException"/> escaping with no observable evidence.
+    /// </summary>
+    private static bool IsSpawnFailure(Exception ex)
+        => ex is Win32Exception
+        || ex is InvalidOperationException
+        || ex is FileNotFoundException
+        || ex is PlatformNotSupportedException
+        || ex is ObjectDisposedException;
+
+    /// <summary>
+    /// Renders a spawn-failure exception as a one-line diagnostic for <see cref="JobResult.FaultMessage"/>.
+    /// </summary>
+    private static string FormatSpawnFault(Exception ex, CommandInvocation invocation)
+        => $"failed to spawn '{invocation.Command}': {ex.GetType().Name}: {ex.Message}";
 }

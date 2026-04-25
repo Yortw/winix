@@ -12,6 +12,29 @@ internal sealed class Program
         ConsoleEnv.UseUtf8Streams();
         string version = GetVersion();
 
+        try
+        {
+            return await RunAsync(args, version).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            // Final safety net. Without this, an unexpected exception (e.g. IOException on
+            // stdin read, an uncaught InvalidOperationException) escapes Main with the CLR's
+            // unhandled-exception handler firing. Combined with <StackTraceSupport>false</...>
+            // in wargs.csproj that produces a near-blank "Unhandled exception" message —
+            // unactionable. Mirrors the pattern in retry/Program.cs.
+            Exception surface = UnwrapTypeInit(ex);
+            string msg = string.IsNullOrEmpty(surface.Message)
+                ? $"wargs: unexpected error: {surface.GetType().Name}"
+                : $"wargs: unexpected error: {surface.GetType().Name}: {surface.Message}";
+            SafeWriteLine(Console.Error, msg);
+            return ExitCode.NotExecutable;
+        }
+    }
+
+    private static async Task<int> RunAsync(string[] args, string version)
+    {
+
         var parser = new CommandLineParser("wargs", version)
             .Description("Read items from stdin and execute a command for each one.")
             .StandardFlags()
@@ -86,7 +109,7 @@ internal sealed class Program
         int delimiterCount = (hasNull ? 1 : 0) + (hasDelimiter ? 1 : 0) + (hasCompat ? 1 : 0);
         if (delimiterCount > 1)
         {
-            return result.WriteError("--null, --delimiter, and --compat are mutually exclusive", Console.Error);
+            return UsageError(result, "--null, --delimiter, and --compat are mutually exclusive", jsonOutput, version);
         }
 
         DelimiterMode delimMode = DelimiterMode.Line;
@@ -104,7 +127,7 @@ internal sealed class Program
             string delimStr = result.GetString("--delimiter");
             if (delimStr.Length != 1)
             {
-                return result.WriteError("--delimiter requires a single character", Console.Error);
+                return UsageError(result, "--delimiter requires a single character", jsonOutput, version);
             }
             delimMode = DelimiterMode.Custom;
             customDelimiter = delimStr[0];
@@ -113,22 +136,22 @@ internal sealed class Program
         // --- Validate flag combinations ---
         if (confirm && parallelism != 1)
         {
-            return result.WriteError("--confirm cannot be used with parallel execution", Console.Error);
+            return UsageError(result, "--confirm cannot be used with parallel execution", jsonOutput, version);
         }
 
         if (lineBuffered && keepOrder)
         {
-            return result.WriteError("--line-buffered and --keep-order cannot be combined", Console.Error);
+            return UsageError(result, "--line-buffered and --keep-order cannot be combined", jsonOutput, version);
         }
 
         if (lineBuffered && parallelism != 1)
         {
-            return result.WriteError("--line-buffered cannot be used with parallel execution (output would interleave)", Console.Error);
+            return UsageError(result, "--line-buffered cannot be used with parallel execution (output would interleave)", jsonOutput, version);
         }
 
         if (ndjsonOutput && lineBuffered)
         {
-            return result.WriteError("--ndjson and --line-buffered cannot be combined", Console.Error);
+            return UsageError(result, "--ndjson and --line-buffered cannot be combined", jsonOutput, version);
         }
 
         // --- Resolve buffer strategy ---
@@ -159,6 +182,29 @@ internal sealed class Program
         IEnumerable<string> items = inputReader.ReadItems();
         List<CommandInvocation> invocations = commandBuilder.Build(items).ToList();
 
+        // Empty-input diagnostic: previously `findfiles | wargs rm` with zero matches produced
+        // a silent exit 0, indistinguishable from "all jobs succeeded". Emit a notice to stderr
+        // (or a JSON envelope with total_jobs:0) so the user can tell which case occurred. xargs
+        // has the same default behaviour, but its --no-run-if-empty flag is a tacit acknowledgement
+        // that silent-on-empty is a footgun.
+        if (invocations.Count == 0 && !dryRun)
+        {
+            if (jsonOutput)
+            {
+                SafeWriteLine(Console.Error, Formatting.FormatJson(
+                    new WargsResult(0, 0, 0, 0, TimeSpan.Zero, new List<JobResult>()),
+                    exitCode: 0,
+                    exitReason: "no_input",
+                    "wargs",
+                    version));
+            }
+            else if (!ndjsonOutput)
+            {
+                SafeWriteLine(Console.Error, "wargs: no input items, nothing to do");
+            }
+            return 0;
+        }
+
         // --- Execute ---
         // Wire Ctrl+C to a CancellationToken so the kill-on-cancel registrations in
         // JobRunner activate and cleanly terminate child process trees.
@@ -167,7 +213,8 @@ internal sealed class Program
         ConsoleCancelEventHandler cancelHandler = (_, e) =>
         {
             e.Cancel = true;  // Prevent immediate process termination — let RunAsync clean up
-            cts.Cancel();
+            try { cts.Cancel(); }
+            catch (ObjectDisposedException) { /* raced with shutdown — safe to drop */ }
         };
         Console.CancelKeyPress += cancelHandler;
 
@@ -206,6 +253,10 @@ internal sealed class Program
         }
 
         // --- NDJSON: emit per-job lines to stderr ---
+        // Skipped jobs are intentionally omitted from streaming output to match the
+        // "one line per job actually run" contract; the JSON summary's `skipped` field is the
+        // single source of truth for skip count. Callers correlating job count with NDJSON
+        // line count must add `skipped` to the line count.
         if (ndjsonOutput)
         {
             foreach (JobResult job in wargsResult.Jobs)
@@ -214,7 +265,7 @@ internal sealed class Program
                 {
                     int jobExitCode = job.ChildExitCode == 0 ? 0 : WargsExitCode.ChildFailed;
                     string jobExitReason = job.ChildExitCode == 0 ? "success" : "child_failed";
-                    Console.Error.WriteLine(
+                    SafeWriteLine(Console.Error,
                         Formatting.FormatNdjsonLine(job, jobExitCode, jobExitReason, "wargs", version));
                 }
             }
@@ -223,21 +274,77 @@ internal sealed class Program
         // --- JSON: summary to stderr ---
         if (jsonOutput)
         {
-            Console.Error.WriteLine(
+            SafeWriteLine(Console.Error,
                 Formatting.FormatJson(wargsResult, exitCode, exitReason, "wargs", version));
         }
 
-        // --- Human: failure summary to stderr ---
+        // --- Human: surface fault diagnostics + failure summary ---
         if (!jsonOutput && !ndjsonOutput)
         {
+            // Each fault that wasn't a normal child non-zero exit (FaultMessage was set)
+            // gets a stderr line. Without this, a spawn-failure or task-body fault becomes
+            // a bare "wargs: N/M jobs failed" with no clue why — silent-failure class B.
+            foreach (JobResult job in wargsResult.Jobs)
+            {
+                if (job.FaultMessage is not null)
+                {
+                    SafeWriteLine(Console.Error, $"wargs: job {job.JobIndex}: {job.FaultMessage}");
+                }
+            }
+
             string? summary = Formatting.FormatHumanSummary(wargsResult);
             if (summary is not null)
             {
-                Console.Error.WriteLine(summary);
+                SafeWriteLine(Console.Error, summary);
             }
         }
 
         return exitCode;
+    }
+
+    /// <summary>
+    /// Routes a usage error to either stderr (text) or a JSON envelope, depending on
+    /// whether <c>--json</c> was set. Replaces the call sites that previously emitted
+    /// plain text only, leaving JSON-mode tooling without a parseable error.
+    /// </summary>
+    private static int UsageError(ParseResult result, string message, bool jsonOutput, string version)
+    {
+        if (jsonOutput)
+        {
+            SafeWriteLine(Console.Error,
+                Formatting.FormatJsonError(ExitCode.UsageError, "usage_error", "wargs", version));
+            // Still emit the plain-text reason so a human reading mixed output sees the cause.
+            SafeWriteLine(Console.Error, $"wargs: {message}");
+            return ExitCode.UsageError;
+        }
+        return result.WriteError(message, Console.Error);
+    }
+
+    /// <summary>
+    /// Best-effort write to <paramref name="writer"/>. Broken pipe, closed stream, or disposed
+    /// writer must not convert a clean exit code into a CLR crash. Matches the suite-wide
+    /// SafeWriteLine convention (see retry/Program.cs and envvault/Cli.cs for precedents).
+    /// </summary>
+    private static void SafeWriteLine(TextWriter writer, string message)
+    {
+        try { writer.WriteLine(message); }
+        catch (IOException) { /* downstream pipe closed */ }
+        catch (ObjectDisposedException) { /* writer already disposed */ }
+    }
+
+    /// <summary>
+    /// Peels TypeInitializationException wrappers to reveal the actionable inner exception.
+    /// The wrapper's Message is "The type initializer for X threw an exception." — useless to
+    /// the user. Same pattern as retry/Program.cs and envvault's Cli.UnwrapTypeInit.
+    /// </summary>
+    private static Exception UnwrapTypeInit(Exception ex)
+    {
+        Exception current = ex;
+        for (int depth = 0; depth < 32 && current is TypeInitializationException tie && tie.InnerException != null; depth++)
+        {
+            current = tie.InnerException;
+        }
+        return current;
     }
 
     private static string GetVersion()
