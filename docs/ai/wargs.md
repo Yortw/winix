@@ -132,7 +132,9 @@ Each line contains: `tool`, `version`, `job` (1-based index), `exit_code`, `exit
 
 When stdin produces no items, NDJSON emits a single `{"exit_reason":"no_input", ...}` envelope so streaming consumers have a positive signal rather than an indistinguishable silent exit.
 
-**Cancellation**: pressing `Ctrl+C` cancels the run with exit code `130` (POSIX `128 + SIGINT`). In-flight child processes are killed (`Process.Kill(entireProcessTree:true)`). Under `--json` or `--ndjson`, a `{"exit_reason":"cancelled"}` envelope is emitted on stderr before the process exits.
+**Cancellation**: pressing `Ctrl+C` cancels the run with exit code `130` (POSIX `128 + SIGINT`). In-flight child processes are killed (`Process.Kill(entireProcessTree:true)`). Under `--json` or `--ndjson`, a `{"exit_reason":"cancelled"}` envelope is emitted on stderr before the process exits. Cancellation is honoured during input reading too — pressing Ctrl+C while wargs is blocked on a slow stdin producer produces the same envelope and exit 130, not a runtime termination.
+
+**`--verbose` not allowed with structured output**: `--verbose` writes per-invocation plaintext lines to stderr; `--json` and `--ndjson` use stderr for structured envelopes. Combining the two would interleave plaintext among JSON, breaking line-discipline parsers. Wargs rejects the combination at parse time with `usage_error`.
 
 **Envelope contract**: under `--json` or `--ndjson`, every exit path emits an envelope on stderr — including `success`, `child_failed`, `fail_fast_abort`, `no_input`, `input_read_failed`, `usage_error`, `dry_run`, `cancelled`, and `unexpected_error`. Streaming consumers can rely on the stream being parseable as one JSON object per line.
 
