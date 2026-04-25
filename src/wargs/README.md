@@ -136,8 +136,9 @@ dir /b *.log | wargs del {}
 | 123 | One or more child processes failed |
 | 124 | Aborted due to `--fail-fast` |
 | 125 | Usage error (bad arguments) |
-| 126 | Command not executable |
+| 126 | Command not executable / input read failed |
 | 127 | Command not found |
+| 130 | Cancelled by signal (Ctrl+C / SIGINT) |
 
 ## Shell Builtins
 

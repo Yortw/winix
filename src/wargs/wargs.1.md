@@ -93,10 +93,13 @@ Commands like **echo**, **del**, **type**, and **ver** are shell builtins on Win
 :   Usage error (bad arguments).
 
 **126**
-:   Command not executable.
+:   Command not executable, or wargs failed to read items from stdin.
 
 **127**
 :   Command not found.
+
+**130**
+:   Cancelled by signal (Ctrl+C / SIGINT).
 
 # ENVIRONMENT
 
