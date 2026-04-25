@@ -42,10 +42,14 @@ public class IntegrationTests
     [Fact]
     public async Task FullPipeline_ParallelWithKeepOrder_OutputInOrder()
     {
-        // Use distinct multi-char tokens so IndexOf doesn't false-positive on substring matches.
-        // The previous version used "1\n2\n3\n4" which made the four IndexOf calls find their
-        // tokens in order regardless of actual output ordering — the test passed even if
-        // KeepOrder was bypassed entirely.
+        // Smoke-test that the input-reader → command-builder → job-runner pipeline composes
+        // correctly under KeepOrder + parallelism. NOTE: this is not a true KeepOrder
+        // ordering pin — fast echo commands tend to complete in input order regardless of
+        // strategy, so the test would still pass if KeepOrder were a no-op. The genuine
+        // out-of-order pin lives at JobRunnerTests.RunAsync_KeepOrder_PreservesOrder_
+        // WhenJobsCompleteOutOfOrder, which uses descending sleep durations (Unix-only).
+        // Using distinct multi-char tokens here avoids the IndexOf substring false-positive
+        // a single-digit version would have.
         var input = new InputReader(new StringReader("alpha\nbravo\ncharlie\ndelta"), DelimiterMode.Line);
 
         string[] template;

@@ -187,4 +187,52 @@ public class FormattingTests
 
         Assert.DoesNotContain("\"faults\"", json);
     }
+
+    // -- Round-3 review: formatter contract pins. --
+
+    [Fact]
+    public void FormatNdjsonLine_FaultMessageWithJsonSpecials_IsEscapedAndStaysSingleLine()
+    {
+        // Real-world Win32Exception.Message and shell-error text can contain quotes,
+        // newlines, tabs, and backslashes (especially Windows paths). Pin that JsonHelper
+        // / Utf8JsonWriter escape correctly and the NDJSON line discipline (no embedded
+        // raw newline) holds. Without this pin a future replacement of JsonHelper with a
+        // hand-rolled writer could break NDJSON parseability in production.
+        var job = new JobResult(
+            JobIndex: 1, ChildExitCode: -1, Output: null,
+            Duration: TimeSpan.FromSeconds(0.05),
+            SourceItems: new[] { "x" }, Skipped: false,
+            FaultMessage: "Win32Exception: \"quoted\"\nsecond line\twith\ttabs\\path");
+
+        string line = Formatting.FormatNdjsonLine(job, 1, "child_failed", "wargs", Version);
+
+        // NDJSON contract: must be a single line. Embedded \n in fault must be JSON-escaped.
+        Assert.DoesNotContain('\n', line.TrimEnd('\r', '\n'));
+        Assert.Contains("fault_message", line);
+
+        using var doc = System.Text.Json.JsonDocument.Parse(line);
+        string parsed = doc.RootElement.GetProperty("fault_message").GetString()!;
+        Assert.Equal("Win32Exception: \"quoted\"\nsecond line\twith\ttabs\\path", parsed);
+    }
+
+    [Fact]
+    public void FormatJsonError_NoInput_HasExpectedShape()
+    {
+        // Round-2 reused FormatJsonError to emit the no_input envelope under --ndjson and
+        // the input_read_failed envelope under --json/--ndjson. Pin the exact shape so a
+        // future change to FormatJsonError doesn't accidentally break those callers'
+        // contract.
+        string json = Formatting.FormatJsonError(0, "no_input", "wargs", "0.1.0");
+
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        Assert.Equal("wargs", root.GetProperty("tool").GetString());
+        Assert.Equal("0.1.0", root.GetProperty("version").GetString());
+        Assert.Equal(0, root.GetProperty("exit_code").GetInt32());
+        Assert.Equal("no_input", root.GetProperty("exit_reason").GetString());
+
+        int fieldCount = 0;
+        foreach (var _ in root.EnumerateObject()) { fieldCount++; }
+        Assert.Equal(4, fieldCount);
+    }
 }

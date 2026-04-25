@@ -368,6 +368,14 @@ public class JobRunnerTests
         Assert.True(sw.Elapsed.TotalSeconds < 15, $"Expected fast completion but took {sw.Elapsed.TotalSeconds:F1}s");
         int nonSucceeded = result.Failed + result.Skipped;
         Assert.True(nonSucceeded >= 2, $"Expected at least 2 non-succeeded jobs but got {nonSucceeded}");
+        // Round-3 Q2: at least one of the cancelled-in-flight jobs must classify as
+        // Skipped (the fail-fast OCE arm at JobRunner.cs:359-368 returns Skipped). If a
+        // future change misroutes that arm to Failed, total non-succeeded count would
+        // still satisfy the previous assertion but the specific contract would silently
+        // regress. Pinning Skipped >= 1 disambiguates the fail-fast arm from a generic
+        // failure path.
+        Assert.True(result.Skipped >= 1,
+            $"Fail-fast must produce at least one Skipped job (got {result.Skipped} skipped, {result.Failed} failed).");
     }
 
     /// <summary>
@@ -433,6 +441,11 @@ public class JobRunnerTests
         Assert.Contains("InvalidOperationException", job.FaultMessage);
     }
 
+    // Note: this test deliberately tolerates BOTH OCE-throw and clean-result-with-skipped
+    // because its purpose is to pin the no-hang invariant (semaphore slots aren't leaked
+    // on pre-cancel). The tighter "external cancel must propagate OCE" contract is pinned
+    // separately by RunAsync_Parallel_ExternalCancelMidRun_PropagatesOperationCanceledException
+    // (round 3). Don't tighten this test's tolerance — it would regress the no-hang signal.
     [Fact]
     public async Task RunAsync_PreCancelledToken_ParallelDoesNotHangAndReleasesSemaphoreSlots()
     {
@@ -658,6 +671,150 @@ public class JobRunnerTests
         // observably more than just the "in-flight at moment of failure" handful.
         Assert.True(result.Skipped >= 25,
             $"Expected bulk skip (>=25), got {result.Skipped} skipped, {result.Succeeded} succeeded — fail-fast may not be hitting the dispatch-loop short-circuit.");
+    }
+
+    // -- Round-3 review pinning tests. --
+
+    [Fact]
+    public async Task RunAsync_Sequential_ExternalCancelMidRun_PropagatesOperationCanceledException()
+    {
+        // Sequential mode has always rethrown OCE on external cancel (line 151). Pin that
+        // contract so a future change can't silently regress to the parallel-mode bug
+        // round-3 fixed.
+        using var cts = new CancellationTokenSource();
+        var invocations = new[]
+        {
+            MakeSleepInvocation(10, "slow1"),
+            MakeSleepInvocation(10, "slow2"),
+        };
+
+        var runner = new JobRunner(new JobRunnerOptions(Parallelism: 1));
+        Task<WargsResult> runTask = runner.RunAsync(
+            invocations, TextWriter.Null, TextWriter.Null, cts.Token);
+
+        await Task.Delay(300);
+        cts.Cancel();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => runTask);
+    }
+
+    [Fact]
+    public async Task RunAsync_Parallel_ExternalCancelMidRun_PropagatesOperationCanceledException()
+    {
+        // Round-3 Critical: each task body's external-cancel arm correctly catches OCE and
+        // returns Skipped, so Task.WhenAll completes normally — without an explicit
+        // ThrowIfCancellationRequested at the join point, RunParallelAsync would return a
+        // "successful" all-skipped WargsResult and Program.Main would emit exit 0 with
+        // exit_reason=success. This test pins the contract: external cancel propagates OCE
+        // out of RunAsync so Main's catch arm produces exit 130.
+        using var cts = new CancellationTokenSource();
+        var invocations = Enumerable.Range(0, 8)
+            .Select(_ => MakeSleepInvocation(10, "slow"))
+            .ToArray();
+
+        var runner = new JobRunner(new JobRunnerOptions(Parallelism: 4));
+        Task<WargsResult> runTask = runner.RunAsync(
+            invocations, TextWriter.Null, TextWriter.Null, cts.Token);
+
+        await Task.Delay(300);
+        cts.Cancel();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => runTask);
+    }
+
+    [Fact]
+    public async Task RunAsync_Sequential_Verbose_BrokenStderrPipe_DoesNotMisattributeFault()
+    {
+        // Round-3: verbose stderr writes now use SafeWriteAsync. Pre-fix, a broken stderr
+        // pipe in verbose mode raised IOException that escaped to the body's catch and
+        // misattributed the pipe-closed condition as a FaultMessage on an otherwise
+        // successful job. Now the IOException is swallowed and the job reports clean.
+        var brokenStderr = new BrokenPipeWriter();
+        var runner = new JobRunner(new JobRunnerOptions(Verbose: true));
+        var invocations = new[] { MakeEchoInvocation("hello", 1) };
+
+        var result = await runner.RunAsync(invocations, TextWriter.Null, brokenStderr);
+
+        Assert.Equal(1, result.Succeeded);
+        Assert.Null(result.Jobs[0].FaultMessage);
+    }
+
+    [Fact]
+    public async Task RunAsync_Parallel_Verbose_BrokenStderrPipe_DoesNotMisattributeFault()
+    {
+        var brokenStderr = new BrokenPipeWriter();
+        var runner = new JobRunner(new JobRunnerOptions(Parallelism: 4, Verbose: true));
+        var invocations = Enumerable.Range(0, 4)
+            .Select(i => MakeEchoInvocation($"x{i}", i + 1))
+            .ToArray();
+
+        var result = await runner.RunAsync(invocations, TextWriter.Null, brokenStderr);
+
+        Assert.Equal(4, result.Succeeded);
+        // Every job must report clean — pre-fix, every parallel task hit the same broken
+        // stderr concurrently and produced N misattributed FaultMessages.
+        Assert.All(result.Jobs, j => Assert.Null(j.FaultMessage));
+    }
+
+    [Fact]
+    public async Task RunAsync_FaultedJob_AlwaysHasChildExitCodeNegativeOne()
+    {
+        // Pin the FaultMessage <-> ChildExitCode invariant. Every code path that sets
+        // FaultMessage also sets ChildExitCode = -1. Formatters and the human summary rely
+        // on this; an accidental "ChildExitCode: 42, FaultMessage: ..." combination would
+        // surface inconsistently across output modes (Failed count vs human stderr line).
+        var bad = new CommandInvocation("", Array.Empty<string>(), "(bad)", new[] { "x" });
+        var runner = new JobRunner(new JobRunnerOptions(ShellFallback: false));
+        var result = await runner.RunAsync(new[] { bad }, TextWriter.Null, TextWriter.Null);
+
+        JobResult job = Assert.Single(result.Jobs);
+        Assert.NotNull(job.FaultMessage);
+        Assert.Equal(-1, job.ChildExitCode);
+    }
+
+    [Fact]
+    public async Task RunAsync_Parallel_EmptyFileName_FaultMessageHasSpawnPrefix()
+    {
+        // Pin that spawn-failure classification fires inside ExecuteJobAsync (where the
+        // "failed to spawn 'X': ..." prefix is added by FormatSpawnFault) rather than
+        // escaping to the task body's outer catch (which produces the bare
+        // "ExceptionType: message" form). A future narrowing of IsSpawnFailure would
+        // silently re-classify spawn faults as task-body faults — observable contract
+        // drift this test catches.
+        var bad = new CommandInvocation("", Array.Empty<string>(), "(bad)", new[] { "x" });
+        var runner = new JobRunner(new JobRunnerOptions(Parallelism: 2, ShellFallback: false));
+
+        var result = await runner.RunAsync(new[] { bad }, TextWriter.Null, TextWriter.Null);
+
+        JobResult job = Assert.Single(result.Jobs);
+        Assert.NotNull(job.FaultMessage);
+        Assert.StartsWith("failed to spawn", job.FaultMessage);
+    }
+
+    [Fact]
+    public async Task RunAsync_SkippedJobs_NeverCarryFaultMessage()
+    {
+        // Pin the unwritten invariant that no JobResult has both Skipped=true AND
+        // FaultMessage set. Formatters rely on this: NDJSON omits skipped jobs entirely
+        // (so a fault on a skip would be invisible), while the JSON faults array and
+        // human-stderr fault loop don't filter on Skipped — so a skip-with-fault row
+        // would surface inconsistently across output modes. This test runs the major
+        // skip-producing paths (confirm decline, fail-fast skip, pre-cancel skip) and
+        // asserts none of them attach a FaultMessage.
+
+        // (a) Confirm prompt declined (sequential — confirm + parallel rejected at parser).
+        var declinedRunner = new JobRunner(new JobRunnerOptions(
+            Confirm: true, ConfirmPrompt: _ => false));
+        var declinedResult = await declinedRunner.RunAsync(
+            new[] { MakeEchoInvocation("x", 1) }, TextWriter.Null, TextWriter.Null);
+        Assert.All(declinedResult.Jobs.Where(j => j.Skipped), j => Assert.Null(j.FaultMessage));
+
+        // (b) Fail-fast triggered: first job exits non-zero, remaining jobs skipped.
+        var ffRunner = new JobRunner(new JobRunnerOptions(FailFast: true));
+        var ffResult = await ffRunner.RunAsync(
+            new[] { MakeExitInvocation(1, "fail"), MakeEchoInvocation("skip", 2) },
+            TextWriter.Null, TextWriter.Null);
+        Assert.All(ffResult.Jobs.Where(j => j.Skipped), j => Assert.Null(j.FaultMessage));
     }
 
     [SkippableFact]
