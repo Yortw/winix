@@ -16,6 +16,15 @@ internal sealed class Program
         {
             return await RunAsync(args, version).ConfigureAwait(false);
         }
+        catch (OperationCanceledException)
+        {
+            // User-initiated Ctrl+C — POSIX convention is exit 128+SIGINT(2)=130. Treating
+            // this as "unexpected error" with exit 126 (NotExecutable) was misleading both in
+            // diagnostic ("unexpected" implies a wargs bug) and exit code (126 implies the
+            // CHILD wasn't executable). The OCE arm must come BEFORE the broad catch since
+            // OperationCanceledException is an Exception.
+            return 130;
+        }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
             // Final safety net. Without this, an unexpected exception (e.g. IOException on
@@ -178,15 +187,33 @@ internal sealed class Program
             ShellFallback: !noShellFallback);
         var jobRunner = new JobRunner(runnerOptions);
 
-        // JobRunner.RunAsync takes IReadOnlyList<CommandInvocation>, so materialise the pipeline
-        IEnumerable<string> items = inputReader.ReadItems();
-        List<CommandInvocation> invocations = commandBuilder.Build(items).ToList();
+        // JobRunner.RunAsync takes IReadOnlyList<CommandInvocation>, so materialise the pipeline.
+        // Materialisation does the actual stdin reads (ReadItems is a streaming enumerable).
+        // A broken stdin pipe or encoding fault here would otherwise escape to the top-level
+        // catch as "unexpected error" — which bypasses the --json contract that promises an
+        // envelope on every exit path. Route input failures through the structured channel.
+        List<CommandInvocation> invocations;
+        try
+        {
+            IEnumerable<string> items = inputReader.ReadItems();
+            invocations = commandBuilder.Build(items).ToList();
+        }
+        catch (Exception ex) when (ex is IOException || ex is System.Text.DecoderFallbackException)
+        {
+            if (jsonOutput)
+            {
+                SafeWriteLine(Console.Error,
+                    Formatting.FormatJsonError(ExitCode.NotExecutable, "input_read_failed", "wargs", version));
+            }
+            SafeWriteLine(Console.Error, $"wargs: failed to read input: {ex.Message}");
+            return ExitCode.NotExecutable;
+        }
 
         // Empty-input diagnostic: previously `findfiles | wargs rm` with zero matches produced
-        // a silent exit 0, indistinguishable from "all jobs succeeded". Emit a notice to stderr
-        // (or a JSON envelope with total_jobs:0) so the user can tell which case occurred. xargs
-        // has the same default behaviour, but its --no-run-if-empty flag is a tacit acknowledgement
-        // that silent-on-empty is a footgun.
+        // a silent exit 0, indistinguishable from "all jobs succeeded". Each output mode gets
+        // a positive signal — round 1 covered --json + human; --ndjson previously emitted
+        // nothing (silent-failure class L). Now NDJSON gets a single no_input envelope line,
+        // matching its "one JSON object per outcome" contract.
         if (invocations.Count == 0 && !dryRun)
         {
             if (jsonOutput)
@@ -198,7 +225,12 @@ internal sealed class Program
                     "wargs",
                     version));
             }
-            else if (!ndjsonOutput)
+            else if (ndjsonOutput)
+            {
+                SafeWriteLine(Console.Error,
+                    Formatting.FormatJsonError(0, "no_input", "wargs", version));
+            }
+            else
             {
                 SafeWriteLine(Console.Error, "wargs: no input items, nothing to do");
             }

@@ -171,10 +171,15 @@ public sealed class JobRunner
 
             jobs.Add(result);
 
-            // Flush captured output to stdout
+            // Flush captured output to stdout. SafeWriteAsync swallows IOException (broken
+            // downstream pipe — `wargs ... | head -1` is a normal usage pattern, not an
+            // error) and signals abort so subsequent jobs don't re-trigger the same failure.
             if (result.Output != null)
             {
-                await stdout.WriteAsync(result.Output).ConfigureAwait(false);
+                if (!await SafeWriteAsync(stdout, result.Output).ConfigureAwait(false))
+                {
+                    abort = true;
+                }
             }
 
             if (result.ChildExitCode == 0)
@@ -321,19 +326,32 @@ public sealed class JobRunner
                     // LineBuffered: Output is null (children wrote directly to inherited stdio).
                     if (_options.Strategy == BufferStrategy.JobBuffered && result.Output != null)
                     {
+                        bool written;
                         lock (outputLock)
                         {
-                            stdout.Write(result.Output);
+                            written = SafeWrite(stdout, result.Output);
+                        }
+                        if (!written)
+                        {
+                            // Broken downstream pipe — set the abort flag so subsequent jobs
+                            // skip rather than each rediscover the failure.
+                            Volatile.Write(ref aborted, true);
+                            try { failFastCts.Cancel(); }
+                            catch (Exception) { /* race with end-of-run dispose */ }
                         }
                     }
 
                     // Check for fail-fast trigger — cancel the linked CTS so in-flight
-                    // jobs are killed rather than running to completion.
+                    // jobs are killed rather than running to completion. Cancel synchronously
+                    // fires registered callbacks; if any of those callbacks throw, Cancel
+                    // wraps them in AggregateException. Catch broadly so a callback fault
+                    // doesn't clobber this job's captured result via the body's outer catch.
                     if (result.ChildExitCode != 0 && _options.FailFast)
                     {
                         Volatile.Write(ref aborted, true);
                         try { failFastCts.Cancel(); }
                         catch (ObjectDisposedException) { /* race with end-of-run dispose */ }
+                        catch (AggregateException) { /* registered callbacks faulted; abort flag is set, that's enough */ }
                     }
 
                     return result;
@@ -401,8 +419,9 @@ public sealed class JobRunner
             // by checking task status before accessing .Result.
         }
 
-        // Keep-order: write all output in input order after all jobs complete.
-        // Check task status before accessing .Result — a faulted task would re-throw.
+        // Keep-order: write all output in input order after all jobs complete. SafeWrite
+        // swallows broken-pipe IOException so a downstream `| head -1` doesn't crash the run
+        // out of an otherwise complete pipeline.
         if (_options.Strategy == BufferStrategy.KeepOrder)
         {
             for (int i = 0; i < tasks.Length; i++)
@@ -412,7 +431,12 @@ public sealed class JobRunner
                     JobResult r = tasks[i].Result;
                     if (r.Output != null)
                     {
-                        stdout.Write(r.Output);
+                        if (!SafeWrite(stdout, r.Output))
+                        {
+                            // Pipe closed — stop flushing remaining captures; the JSON/NDJSON
+                            // path on stderr is unaffected.
+                            break;
+                        }
                     }
                 }
             }
@@ -420,7 +444,10 @@ public sealed class JobRunner
 
         wallStopwatch.Stop();
 
-        // Collect results sorted by JobIndex (tasks array is already in order)
+        // Collect results sorted by JobIndex (tasks array is already in order). The body's
+        // broad catch should mean tasks always land in IsCompletedSuccessfully; the
+        // IsCanceled / IsFaulted branches are defence-in-depth and must still classify
+        // correctly so a future change to the body doesn't silently degrade observability.
         var jobs = new List<JobResult>(invocations.Count);
         int succeeded = 0;
         int failed = 0;
@@ -433,16 +460,37 @@ public sealed class JobRunner
             {
                 result = tasks[i].Result;
             }
-            else
+            else if (tasks[i].IsCanceled)
             {
-                // Task faulted with an unexpected exception — treat as failed
+                // Task was cancelled before its body ran or its body's OCE arms were bypassed
+                // by a future change. Logically a skip, not a failure — counting as Failed
+                // would inflate the failure metric for a user-initiated cancel.
                 result = new JobResult(
                     JobIndex: i + 1,
                     ChildExitCode: -1,
                     Output: null,
                     Duration: TimeSpan.Zero,
                     SourceItems: invocations[i].SourceItems,
-                    Skipped: false);
+                    Skipped: true);
+            }
+            else
+            {
+                // Task faulted. Surface the underlying exception on FaultMessage so the user
+                // can diagnose. Without this the silent-failure regression class B re-opens:
+                // the body's catch is broad but if a future change narrows it, an escaping
+                // exception lands here with no observable evidence.
+                Exception? rootEx = tasks[i].Exception?.GetBaseException();
+                string fault = rootEx is null
+                    ? "task faulted with no exception details"
+                    : $"{rootEx.GetType().Name}: {rootEx.Message}";
+                result = new JobResult(
+                    JobIndex: i + 1,
+                    ChildExitCode: -1,
+                    Output: null,
+                    Duration: TimeSpan.Zero,
+                    SourceItems: invocations[i].SourceItems,
+                    Skipped: false,
+                    FaultMessage: fault);
             }
 
             jobs.Add(result);
@@ -536,11 +584,18 @@ public sealed class JobRunner
             }
         }
 
-        // Close stdin immediately — child commands don't read interactive input
-        process.StandardInput.Close();
-
         try
         {
+            // Close stdin immediately — child commands don't read interactive input. Wrap
+            // in try/swallow: if the child exited fast enough that its end of the pipe is
+            // already torn down, Close throws IOException/InvalidOperationException — that's
+            // not a real failure of THIS job, and letting it escape would bury the real
+            // exit code under a misleading FaultMessage. Done inside the outer try so we
+            // still hit the finally that disposes the process.
+            try { process.StandardInput.Close(); }
+            catch (IOException) { /* child exited before stdin closed — benign */ }
+            catch (InvalidOperationException) { /* same — also covers ObjectDisposedException */ }
+
             // Kill the child process tree if cancellation is requested, so we don't
             // leak long-running children after wargs exits.
             using var killReg = cancellationToken.Register(() =>
@@ -858,4 +913,28 @@ public sealed class JobRunner
     /// </summary>
     private static string FormatSpawnFault(Exception ex, CommandInvocation invocation)
         => $"failed to spawn '{invocation.Command}': {ex.GetType().Name}: {ex.Message}";
+
+    /// <summary>
+    /// Best-effort synchronous write to <paramref name="writer"/>. A broken downstream pipe
+    /// (`wargs ... | head -1`) raises <see cref="IOException"/> on Write; that's a normal
+    /// end-of-stream condition for an xargs-style tool, not a wargs error. Returns true if
+    /// the write succeeded; false if the pipe is closed and the caller should stop flushing.
+    /// </summary>
+    private static bool SafeWrite(TextWriter writer, string value)
+    {
+        try { writer.Write(value); return true; }
+        catch (IOException) { return false; }
+        catch (ObjectDisposedException) { return false; }
+    }
+
+    /// <summary>
+    /// Best-effort asynchronous write. See <see cref="SafeWrite"/> for the pipe-closed
+    /// rationale. Returns true on success, false on broken-pipe / disposed-writer.
+    /// </summary>
+    private static async Task<bool> SafeWriteAsync(TextWriter writer, string value)
+    {
+        try { await writer.WriteAsync(value).ConfigureAwait(false); return true; }
+        catch (IOException) { return false; }
+        catch (ObjectDisposedException) { return false; }
+    }
 }
