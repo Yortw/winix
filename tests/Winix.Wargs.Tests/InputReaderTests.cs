@@ -140,4 +140,69 @@ public class InputReaderTests
         var items = reader.ReadItems().ToList();
         Assert.Empty(items);
     }
+
+    // -- Round-7 review: pin the cancellation-observability contract added to InputReader.
+    //    The materialisation path in Program.RunAsync depends on this contract — without it,
+    //    a Ctrl+C-driven Console.In.Close() that produces EOF would silently land in the
+    //    empty-input branch as no_input/exit-0 instead of cancelled/exit-130. This is the
+    //    deterministic library-level pin the round-7 SFH/test-analyzer agents flagged as
+    //    needed alongside the Linux-only subprocess SIGINT test. --
+
+    [Fact]
+    public void ReadItems_LineMode_TokenAlreadyCancelled_ThrowsOperationCanceledException()
+    {
+        var reader = new InputReader(new StringReader("alpha\nbeta\ngamma"), DelimiterMode.Line);
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        Assert.Throws<OperationCanceledException>(() => reader.ReadItems(cts.Token).ToList());
+    }
+
+    [Fact]
+    public void ReadItems_NullMode_TokenAlreadyCancelled_ThrowsOperationCanceledException()
+    {
+        var reader = new InputReader(new StringReader("a\0b\0c"), DelimiterMode.Null);
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        Assert.Throws<OperationCanceledException>(() => reader.ReadItems(cts.Token).ToList());
+    }
+
+    [Fact]
+    public void ReadItems_WhitespaceMode_TokenAlreadyCancelled_ThrowsOperationCanceledException()
+    {
+        var reader = new InputReader(new StringReader("a b c"), DelimiterMode.Whitespace);
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        Assert.Throws<OperationCanceledException>(() => reader.ReadItems(cts.Token).ToList());
+    }
+
+    [Fact]
+    public void ReadItems_LineMode_TokenCancelledAfterFirstRead_ThrowsOperationCanceledException()
+    {
+        // Pin the between-reads observability — the loop must check the token between each
+        // ReadLine, not just at the start. This catches a future change that hoists the
+        // token check out of the loop body.
+        var reader = new InputReader(new StringReader("alpha\nbeta\ngamma"), DelimiterMode.Line);
+        using var cts = new CancellationTokenSource();
+
+        var items = new List<string>();
+        Assert.Throws<OperationCanceledException>(() =>
+        {
+            foreach (string item in reader.ReadItems(cts.Token))
+            {
+                items.Add(item);
+                cts.Cancel();
+            }
+        });
+        Assert.Single(items); // first item yielded before cancel observed
+    }
+
+    [Fact]
+    public void ReadItems_DefaultToken_DoesNotThrowOnEmptyInput()
+    {
+        // Pin the default-CancellationToken path — backwards compatibility for callers
+        // that don't pass a token. This is the codepath everything pre-round-7 used.
+        var reader = new InputReader(new StringReader(""), DelimiterMode.Line);
+        var items = reader.ReadItems().ToList();
+        Assert.Empty(items);
+    }
 }

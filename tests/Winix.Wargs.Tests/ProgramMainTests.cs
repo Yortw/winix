@@ -86,6 +86,24 @@ public class ProgramMainTests
         Assert.Equal("wargs", doc.RootElement.GetProperty("tool").GetString());
     }
 
+    [Theory]
+    [InlineData("--describe")]
+    [InlineData("--help")]
+    [InlineData("--version")]
+    public void IntrospectionFlag_UnderNdjson_StderrIsClean(string flag)
+    {
+        // Round-7 SFH/test-analyzer: introspection flags are handled by ShellKit's parser
+        // and return ExitCode 0 with output on stdout. Under --ndjson the envelope contract
+        // says "every exit path emits a parseable JSON envelope on stderr". Introspection is
+        // an exception — there's no failure to envelope. Pin that stderr is empty (or
+        // whitespace-only) so a future change that accidentally emits a half-formed
+        // envelope here can't slip through.
+        var result = RunWargs(stdin: null, "--ndjson", flag);
+        Assert.Equal(0, result.ExitCode);
+        Assert.True(string.IsNullOrWhiteSpace(result.Stderr),
+            $"Expected empty stderr for --ndjson {flag} introspection but got: {result.Stderr}");
+    }
+
     // --- Envelope contract: every exit path under --json/--ndjson emits a parseable JSON ---
 
     [Fact]
