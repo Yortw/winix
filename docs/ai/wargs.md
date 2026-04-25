@@ -118,6 +118,9 @@ Fields: `tool`, `version`, `exit_code`, `exit_reason`, `total_jobs`, `succeeded`
 | `no_input` | stdin produced no items — nothing was executed |
 | `input_read_failed` | wargs could not read items from stdin (broken pipe, encoding error) |
 | `usage_error` | A flag combination or argument was invalid (exit 125, only emitted under `--json` or `--ndjson`) |
+| `dry_run` | `--dry-run` was set; no jobs ran. `total_jobs` reports the would-be invocation count under `--json` |
+| `cancelled` | User pressed Ctrl+C; emitted under `--json` or `--ndjson` alongside exit 130 |
+| `unexpected_error` | An unexpected exception escaped to Main's safety net; emitted under `--json` or `--ndjson` alongside exit 126 |
 
 **NDJSON** (`--ndjson`, stderr) — one JSON object per executed job as it completes. Skipped jobs (fail-fast or confirm declined) are omitted from the stream; the JSON summary's `skipped` field is the source of truth for skip count.
 
@@ -129,7 +132,9 @@ Each line contains: `tool`, `version`, `job` (1-based index), `exit_code`, `exit
 
 When stdin produces no items, NDJSON emits a single `{"exit_reason":"no_input", ...}` envelope so streaming consumers have a positive signal rather than an indistinguishable silent exit.
 
-**Cancellation**: pressing `Ctrl+C` cancels the run with exit code `130` (POSIX `128 + SIGINT`). In-flight child processes are killed (`Process.Kill(entireProcessTree:true)`).
+**Cancellation**: pressing `Ctrl+C` cancels the run with exit code `130` (POSIX `128 + SIGINT`). In-flight child processes are killed (`Process.Kill(entireProcessTree:true)`). Under `--json` or `--ndjson`, a `{"exit_reason":"cancelled"}` envelope is emitted on stderr before the process exits.
+
+**Envelope contract**: under `--json` or `--ndjson`, every exit path emits an envelope on stderr — including `success`, `child_failed`, `fail_fast_abort`, `no_input`, `input_read_failed`, `usage_error`, `dry_run`, `cancelled`, and `unexpected_error`. Streaming consumers can rely on the stream being parseable as one JSON object per line.
 
 **--describe** — machine-readable flag reference:
 ```bash
