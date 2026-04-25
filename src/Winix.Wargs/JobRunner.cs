@@ -127,10 +127,13 @@ public sealed class JobRunner
                 }
             }
 
-            // Verbose: print command before execution
+            // Verbose: print command before execution. SafeWriteAsync swallows IOException
+            // on broken stderr — a closed stderr (e.g. `wargs -v ... 2>&1 | head -1`) is not
+            // a job failure; letting the IOException escape would misattribute the
+            // pipe-closed condition as a fault on the next job's FaultMessage.
             if (_options.Verbose)
             {
-                await stderr.WriteLineAsync($"wargs: {invocation.DisplayString}")
+                await SafeWriteAsync(stderr, $"wargs: {invocation.DisplayString}{Environment.NewLine}")
                     .ConfigureAwait(false);
             }
 
@@ -305,7 +308,9 @@ public sealed class JobRunner
                     {
                         lock (outputLock)
                         {
-                            stderr.WriteLine($"wargs: {capturedInvocation.DisplayString}");
+                            // See sequential equivalent: a broken stderr in verbose mode must
+                            // not become a misattributed FaultMessage on this job.
+                            SafeWrite(stderr, $"wargs: {capturedInvocation.DisplayString}{Environment.NewLine}");
                         }
                     }
 
@@ -349,9 +354,13 @@ public sealed class JobRunner
                     if (result.ChildExitCode != 0 && _options.FailFast)
                     {
                         Volatile.Write(ref aborted, true);
+                        // Broad catch matches the sibling broken-pipe branch above. Cancel()
+                        // can throw ODE (race with end-of-run dispose) or AggregateException
+                        // (a registered callback threw); either way the abort flag is already
+                        // set so the abort signal is delivered. A failure here must not
+                        // clobber this job's captured result via the body's outer catch.
                         try { failFastCts.Cancel(); }
-                        catch (ObjectDisposedException) { /* race with end-of-run dispose */ }
-                        catch (AggregateException) { /* registered callbacks faulted; abort flag is set, that's enough */ }
+                        catch (Exception) { /* see comment */ }
                     }
 
                     return result;
@@ -418,6 +427,14 @@ public sealed class JobRunner
             // Unexpected exception from a task body. Faulted tasks are handled below
             // by checking task status before accessing .Result.
         }
+
+        // External Ctrl+C: each task body's external-cancel arm caught the OCE and returned
+        // Skipped, so Task.WhenAll completed normally. Without this throw the run would
+        // return a "successful" all-skipped WargsResult and Program.Main would emit exit 0
+        // with exit_reason="success" — silently violating the documented "Ctrl+C → exit 130"
+        // contract. Sequential mode achieves the same propagation via the rethrowing catch
+        // at line 151; the parallel path needs an explicit re-check at the join point.
+        cancellationToken.ThrowIfCancellationRequested();
 
         // Keep-order: write all output in input order after all jobs complete. SafeWrite
         // swallows broken-pipe IOException so a downstream `| head -1` doesn't crash the run

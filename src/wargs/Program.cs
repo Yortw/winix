@@ -190,22 +190,27 @@ internal sealed class Program
         // JobRunner.RunAsync takes IReadOnlyList<CommandInvocation>, so materialise the pipeline.
         // Materialisation does the actual stdin reads (ReadItems is a streaming enumerable).
         // A broken stdin pipe or encoding fault here would otherwise escape to the top-level
-        // catch as "unexpected error" — which bypasses the --json contract that promises an
-        // envelope on every exit path. Route input failures through the structured channel.
+        // catch as "unexpected error" — which bypasses the --json/--ndjson contract that
+        // promises an envelope on every exit path. The catch matches Main's outer-catch
+        // breadth (excluding OOM, SOE, and OCE which have their own handling) so any
+        // realistic input-side failure is classified as input_read_failed.
         List<CommandInvocation> invocations;
         try
         {
             IEnumerable<string> items = inputReader.ReadItems();
             invocations = commandBuilder.Build(items).ToList();
         }
-        catch (Exception ex) when (ex is IOException || ex is System.Text.DecoderFallbackException)
+        catch (Exception ex) when (
+            ex is not OutOfMemoryException
+            and not StackOverflowException
+            and not OperationCanceledException)
         {
-            if (jsonOutput)
+            if (jsonOutput || ndjsonOutput)
             {
                 SafeWriteLine(Console.Error,
                     Formatting.FormatJsonError(ExitCode.NotExecutable, "input_read_failed", "wargs", version));
             }
-            SafeWriteLine(Console.Error, $"wargs: failed to read input: {ex.Message}");
+            SafeWriteLine(Console.Error, $"wargs: failed to read input: {ex.GetType().Name}: {ex.Message}");
             return ExitCode.NotExecutable;
         }
 
