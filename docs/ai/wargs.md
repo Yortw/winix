@@ -77,7 +77,7 @@ git diff --name-only HEAD | wargs dotnet format {}
 
 **wargs --ndjson + jq** — parse streaming results:
 ```bash
-cat servers.txt | wargs --ndjson ssh {} uptime 2>&1 >/dev/null | jq 'select(.exit_code != 0) | .item'
+cat servers.txt | wargs --ndjson ssh {} uptime 2>&1 >/dev/null | jq 'select(.exit_code != 0) | .input'
 ```
 
 **wargs + squeeze** — compress files found by files:
@@ -106,14 +106,25 @@ files . --ext log --older 7d | wargs squeeze --gzip --remove
 cat servers.txt | wargs --json ssh {} uptime 2>results.json
 ```
 
-Fields: `tool`, `version`, `exit_code`, `exit_reason`, `job_count`, `success_count`, `failure_count`.
+Fields: `tool`, `version`, `exit_code`, `exit_reason`, `total_jobs`, `succeeded`, `failed`, `skipped`, `wall_seconds`.
 
-**NDJSON** (`--ndjson`, stderr) — one JSON object per job as it completes:
+`exit_reason` values:
+
+| Reason | Meaning |
+|---|---|
+| `success` | All jobs exited 0 |
+| `child_failed` | One or more child processes exited non-zero |
+| `fail_fast_abort` | `--fail-fast` triggered after a failure (some jobs were skipped) |
+| `no_input` | stdin produced no items — nothing was executed |
+| `usage_error` | A flag combination or argument was invalid (exit 125, only emitted under `--json`) |
+
+**NDJSON** (`--ndjson`, stderr) — one JSON object per executed job as it completes. Skipped jobs (fail-fast or confirm declined) are omitted from the stream; the JSON summary's `skipped` field is the source of truth for skip count.
+
 ```bash
 cat servers.txt | wargs --ndjson ssh {} uptime
 ```
 
-Each line contains: `tool`, `version`, `item`, `exit_code`, `exit_reason`, `command`, `stdout`, `stderr`.
+Each line contains: `tool`, `version`, `job` (1-based index), `exit_code`, `exit_reason`, `child_exit_code`, `input`, `wall_seconds`. The `input` field is a string when the job has one source item, or a JSON array when batched (`--batch N` with N>1).
 
 **--describe** — machine-readable flag reference:
 ```bash
