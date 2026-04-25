@@ -40,7 +40,7 @@ internal sealed class Program
 
         try
         {
-            return await RunAsync(args, version, cts).ConfigureAwait(false);
+            return await RunAsync(args, version, cts.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -107,7 +107,7 @@ internal sealed class Program
         return false;
     }
 
-    private static async Task<int> RunAsync(string[] args, string version, CancellationTokenSource cts)
+    private static async Task<int> RunAsync(string[] args, string version, CancellationToken cancellationToken)
     {
 
         var parser = new CommandLineParser("wargs", version)
@@ -163,25 +163,20 @@ internal sealed class Program
         if (result.IsHandled) { return result.ExitCode; }
         if (result.HasErrors)
         {
-            // Round-5 SFH I2: ShellKit's WriteErrors emits plaintext under all modes. Under
-            // --ndjson that breaks line-discipline parsers expecting one JSON object per line.
-            // Under --json the existing behaviour (plaintext-only) silently violates the
-            // documented "envelope on every exit path" contract. Emit a usage_error envelope
-            // for both structured modes; ShellKit's plaintext is still emitted for human mode.
+            // Mode discrimination on the parser-error path:
+            //  - --ndjson: emit ONLY wargs's envelope (strict NDJSON line discipline). ShellKit's
+            //    WriteErrors emits a multi-line envelope which would break parsers; suppress it.
+            //  - --json: defer to ShellKit's WriteErrors. ShellKit's --json mode emits a richer
+            //    envelope including the `errors[]` array — strictly more useful than wargs's
+            //    bare usage_error envelope. Emitting our own AS WELL (round 5) produced a
+            //    double envelope on stderr (round-6 CR/SFH I1).
+            //  - Human mode: ShellKit's plaintext error formatting.
             bool ndjsonModeHere = ContainsFlag(args, "--ndjson");
-            bool jsonModeHere = ContainsFlag(args, "--json");
             if (ndjsonModeHere)
             {
                 SafeWriteLine(Console.Error,
                     Formatting.FormatJsonError(ExitCode.UsageError, "usage_error", "wargs", version));
                 return ExitCode.UsageError;
-            }
-            if (jsonModeHere)
-            {
-                SafeWriteLine(Console.Error,
-                    Formatting.FormatJsonError(ExitCode.UsageError, "usage_error", "wargs", version));
-                // Plaintext line follows for the human reader; --json emits a single envelope
-                // (not a stream) so mixed output is acceptable.
             }
             return result.WriteErrors(Console.Error);
         }
@@ -319,6 +314,15 @@ internal sealed class Program
             return ExitCode.NotExecutable;
         }
 
+        // Round-6 SFH I2: if Ctrl+C fired during stdin materialisation, .NET's CancelKeyPress
+        // handler set e.Cancel=true and Console.In.ReadLine() returned null (EOF). The read
+        // loop yield-broke and we landed here with invocations.Count==0 AND the cancel token
+        // signalled. Without this check the empty-input branch below would classify the run
+        // as exit 0 / no_input — silently misclassifying a user-initiated cancel as a
+        // benign empty-input case. Throwing OCE here lets Main's OCE catch produce the
+        // documented exit 130 / cancelled envelope.
+        cancellationToken.ThrowIfCancellationRequested();
+
         // Empty-input diagnostic: previously `findfiles | wargs rm` with zero matches produced
         // a silent exit 0, indistinguishable from "all jobs succeeded". Each output mode gets
         // a positive signal — round 1 covered --json + human; --ndjson previously emitted
@@ -353,7 +357,7 @@ internal sealed class Program
         // observes the token. Kill-on-cancel registrations inside JobRunner cleanly terminate
         // child process trees when the user hits Ctrl+C.
         WargsResult wargsResult = await jobRunner.RunAsync(
-            invocations, Console.Out, Console.Error, cts.Token).ConfigureAwait(false);
+            invocations, Console.Out, Console.Error, cancellationToken).ConfigureAwait(false);
 
         // --- Determine exit code ---
         if (dryRun)
