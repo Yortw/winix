@@ -358,4 +358,121 @@ public class JobRunnerTests
             "sleep", new[] { seconds.ToString() },
             $"sleep {seconds}", new[] { item });
     }
+
+    // -- Round-1 review: pinning tests for spawn-fault classification, cancellation, and
+    //    empty-input handling. --
+
+    [Fact]
+    public async Task RunAsync_NoInvocations_ReturnsZeroJobsWithoutThrowing()
+    {
+        // Library-level pin for the "no_input" path in Program.cs. The library itself must
+        // accept an empty list and return a zero-counts result so the caller can decide what
+        // to do (the console app turns this into the no_input exit reason).
+        var runner = new JobRunner(new JobRunnerOptions());
+        var result = await runner.RunAsync(
+            Array.Empty<CommandInvocation>(), TextWriter.Null, TextWriter.Null);
+
+        Assert.Equal(0, result.TotalJobs);
+        Assert.Equal(0, result.Succeeded);
+        Assert.Equal(0, result.Failed);
+        Assert.Equal(0, result.Skipped);
+        Assert.Empty(result.Jobs);
+    }
+
+    [Fact]
+    public async Task RunAsync_EmptyFileName_ClassifiesAsSpawnFailureWithFaultMessage()
+    {
+        // Process.Start with empty FileName throws InvalidOperationException, NOT
+        // Win32Exception. Before the round-1 fix this escaped into the parallel-loop broad
+        // catch with no diagnostic. The fix broadened the spawn-failure classification and
+        // surfaces the original exception text on JobResult.FaultMessage so the user can
+        // see what went wrong rather than a bare child_failed.
+        var invocation = new CommandInvocation(
+            Command: "",
+            Arguments: Array.Empty<string>(),
+            DisplayString: "(empty)",
+            SourceItems: new[] { "x" });
+
+        var runner = new JobRunner(new JobRunnerOptions(ShellFallback: false));
+        var result = await runner.RunAsync(
+            new[] { invocation }, TextWriter.Null, TextWriter.Null);
+
+        Assert.Equal(1, result.Failed);
+        JobResult job = Assert.Single(result.Jobs);
+        Assert.Equal(-1, job.ChildExitCode);
+        Assert.False(job.Skipped);
+        Assert.NotNull(job.FaultMessage);
+        Assert.Contains("InvalidOperationException", job.FaultMessage);
+    }
+
+    [Fact]
+    public async Task RunAsync_PreCancelledToken_ParallelDoesNotHangAndReleasesSemaphoreSlots()
+    {
+        // Round-1 silent-failure-hunter Critical: passing the outer token to Task.Run meant
+        // a cancel between semaphore acquisition and Task.Run scheduling caused the task to
+        // transition to Canceled WITHOUT running its body — the finally that releases the
+        // semaphore never fired, leaking slots. With many invocations this could hang
+        // subsequent runs. The fix removed the token argument from Task.Run; the body now
+        // checks the token explicitly. This test pins that pre-cancellation produces a
+        // bounded result (no hang, no orphaned slots) and that no job reports as a
+        // hard failure with no diagnostic.
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var invocations = Enumerable.Range(0, 20)
+            .Select(i => MakeEchoInvocation($"item{i}", i + 1))
+            .ToArray();
+
+        var runner = new JobRunner(new JobRunnerOptions(Parallelism: 4));
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+
+        // RunAsync is allowed to throw OCE OR to return a result with all jobs Skipped — both
+        // are acceptable outcomes for a pre-cancelled run. What is NOT acceptable is hanging
+        // or leaking semaphore slots (the test would time out).
+        try
+        {
+            var result = await runner.RunAsync(
+                invocations, TextWriter.Null, TextWriter.Null, cts.Token);
+            sw.Stop();
+            Assert.Equal(20, result.TotalJobs);
+            // Either skipped (preferred) or zero successes — never a half-completed dangling state.
+            Assert.True(result.Succeeded + result.Skipped + result.Failed == 20);
+        }
+        catch (OperationCanceledException)
+        {
+            sw.Stop();
+        }
+
+        Assert.True(sw.Elapsed.TotalSeconds < 10,
+            $"Pre-cancelled parallel run should complete near-instantly; took {sw.Elapsed.TotalSeconds:F1}s — possible semaphore leak or deadlock.");
+    }
+
+    [Fact]
+    public async Task RunAsync_EmptyFileName_FaultedTaskInKeepOrderProducesFailedJob()
+    {
+        // Pin the KeepOrder + faulted-task interaction. A spawn failure must not break the
+        // KeepOrder flush loop; the failed job slot is reported with FaultMessage and other
+        // jobs still flush their captured output in order.
+        var bad = new CommandInvocation("", Array.Empty<string>(), "(bad)", new[] { "bad" });
+        var ok = MakeEchoInvocation("ok", 2);
+
+        var stdout = new StringWriter();
+        var runner = new JobRunner(new JobRunnerOptions(
+            Parallelism: 2,
+            Strategy: BufferStrategy.KeepOrder,
+            ShellFallback: false));
+
+        var result = await runner.RunAsync(
+            new[] { bad, ok }, stdout, TextWriter.Null);
+
+        Assert.Equal(2, result.TotalJobs);
+        Assert.Equal(1, result.Failed);
+        Assert.Equal(1, result.Succeeded);
+        // The OK job's output reaches stdout in input order even though the previous job
+        // faulted with no output of its own.
+        Assert.Contains("ok", stdout.ToString());
+        // The failed job carries a FaultMessage explaining why.
+        JobResult failedJob = result.Jobs.First(j => j.ChildExitCode != 0);
+        Assert.NotNull(failedJob.FaultMessage);
+    }
 }

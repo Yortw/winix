@@ -42,7 +42,11 @@ public class IntegrationTests
     [Fact]
     public async Task FullPipeline_ParallelWithKeepOrder_OutputInOrder()
     {
-        var input = new InputReader(new StringReader("1\n2\n3\n4"), DelimiterMode.Line);
+        // Use distinct multi-char tokens so IndexOf doesn't false-positive on substring matches.
+        // The previous version used "1\n2\n3\n4" which made the four IndexOf calls find their
+        // tokens in order regardless of actual output ordering — the test passed even if
+        // KeepOrder was bypassed entirely.
+        var input = new InputReader(new StringReader("alpha\nbravo\ncharlie\ndelta"), DelimiterMode.Line);
 
         string[] template;
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
@@ -65,15 +69,15 @@ public class IntegrationTests
         Assert.Equal(4, result.Succeeded);
 
         string output = stdout.ToString();
-        int pos1 = output.IndexOf("1");
-        int pos2 = output.IndexOf("2");
-        int pos3 = output.IndexOf("3");
-        int pos4 = output.IndexOf("4");
+        int posAlpha = output.IndexOf("alpha");
+        int posBravo = output.IndexOf("bravo");
+        int posCharlie = output.IndexOf("charlie");
+        int posDelta = output.IndexOf("delta");
 
-        Assert.True(pos1 >= 0 && pos2 >= 0 && pos3 >= 0 && pos4 >= 0, "All items should appear in output");
-        Assert.True(pos1 < pos2, "1 before 2");
-        Assert.True(pos2 < pos3, "2 before 3");
-        Assert.True(pos3 < pos4, "3 before 4");
+        Assert.True(posAlpha >= 0 && posBravo >= 0 && posCharlie >= 0 && posDelta >= 0, "All items should appear in output");
+        Assert.True(posAlpha < posBravo, "alpha before bravo");
+        Assert.True(posBravo < posCharlie, "bravo before charlie");
+        Assert.True(posCharlie < posDelta, "charlie before delta");
     }
 
     [Fact]
