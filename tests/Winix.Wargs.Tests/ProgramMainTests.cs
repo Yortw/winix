@@ -193,6 +193,80 @@ public class ProgramMainTests
     }
 
     [Fact]
+    public void ParserError_UnderJson_EmitsExactlyOneEnvelope()
+    {
+        // Round-6 CR/SFH I1: round-5 emitted wargs's bare envelope AND ShellKit's richer
+        // envelope on the parser-error path under --json — two consecutive JSON objects on
+        // stderr broke strict single-envelope parsers. Round 6 defers to ShellKit's
+        // WriteErrors (its envelope includes the `errors[]` array — strictly more useful).
+        // This test pins exactly-one-JSON-object on stderr for the --json parser-error case.
+        var result = RunWargs(stdin: null, "--json", "--definitely-not-a-flag", "echo");
+        Assert.Equal(125, result.ExitCode);
+
+        // Trim and split into non-empty lines. Each line that parses as JSON counts as an
+        // envelope — there must be exactly one. (ShellKit's --json envelope MAY span
+        // multiple lines if it pretty-prints; if so, count parseable JSON objects via
+        // JsonDocument.Parse over the full stderr.)
+        string stderr = result.Stderr.Trim();
+        // Try to parse the entire stderr as a single JSON document — this is the cleanest
+        // pin of "exactly one envelope". If ShellKit emits compact JSON, this works directly.
+        using var doc = JsonDocument.Parse(stderr);
+        Assert.Equal("usage_error", doc.RootElement.GetProperty("exit_reason").GetString());
+    }
+
+    [SkippableFact]
+    public async Task CtrlCDuringStdin_UnderNdjson_EmitsCancelledEnvelope()
+    {
+        // Round-6 SFH I2 pin: Ctrl+C during stdin materialisation must produce exit 130 +
+        // a cancelled envelope, not exit 0 + no_input. Pre-fix the empty-input branch fired
+        // BEFORE the cancellation token was checked — a Ctrl+C that produced empty input
+        // (because Console.In.ReadLine returned null after e.Cancel=true) was misclassified
+        // as "no input items" silent success.
+        //
+        // Linux-only: Windows GenerateConsoleCtrlEvent only delivers to processes attached
+        // to the same console as the test runner, which xunit doesn't provide. Linux can
+        // straightforwardly send SIGINT via `kill`.
+        Skip.IfNot(!OperatingSystem.IsWindows(), "Unix-only — uses POSIX SIGINT delivery");
+
+        string wargsDll = LocateWargsDll();
+        var psi = new ProcessStartInfo
+        {
+            FileName = "dotnet",
+            UseShellExecute = false,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        psi.ArgumentList.Add(wargsDll);
+        psi.ArgumentList.Add("--ndjson");
+        psi.ArgumentList.Add("echo");
+
+        using Process p = Process.Start(psi) ?? throw new System.InvalidOperationException("failed to start dotnet");
+        // Give wargs ~250ms to start and block on the stdin pipe (we hold it open).
+        await Task.Delay(250);
+
+        // SIGINT. .NET's Process.Kill is SIGTERM; spawn `kill -SIGINT <pid>` for Ctrl+C semantics.
+        var kill = new ProcessStartInfo { FileName = "kill", UseShellExecute = false };
+        kill.ArgumentList.Add("-SIGINT");
+        kill.ArgumentList.Add(p.Id.ToString());
+        Process.Start(kill)!.WaitForExit();
+
+        if (!p.WaitForExit(10_000))
+        {
+            p.Kill(entireProcessTree: true);
+            throw new System.TimeoutException("wargs did not respond to SIGINT within 10s");
+        }
+        string stderr = await p.StandardError.ReadToEndAsync();
+
+        Assert.Equal(130, p.ExitCode);
+        // Stderr should contain a cancelled envelope (single line under --ndjson).
+        string firstLine = stderr.Split('\n').First(l => !string.IsNullOrWhiteSpace(l)).Trim();
+        using var doc = JsonDocument.Parse(firstLine);
+        Assert.Equal("cancelled", doc.RootElement.GetProperty("exit_reason").GetString());
+        Assert.Equal(130, doc.RootElement.GetProperty("exit_code").GetInt32());
+    }
+
+    [Fact]
     public void Success_UnderNdjson_StderrIsLineDelimitedValidJson()
     {
         // End-to-end pin of the NDJSON line-discipline contract: every line on stderr must
