@@ -118,4 +118,73 @@ public class FormattingTests
         Assert.Contains("3", summary);
         Assert.Contains("10", summary);
     }
+
+    // -- Round 2: pin FaultMessage flowing through structured output. Round 1 added
+    //    FaultMessage to JobResult; round 2 wired it through the formatters so JSON and
+    //    NDJSON consumers can see fault diagnostics. --
+
+    [Fact]
+    public void FormatNdjsonLine_FaultedJob_IncludesFaultMessage()
+    {
+        var job = new JobResult(
+            JobIndex: 7, ChildExitCode: -1, Output: null,
+            Duration: TimeSpan.FromSeconds(0.05),
+            SourceItems: new[] { "input" }, Skipped: false,
+            FaultMessage: "failed to spawn 'foo': Win32Exception: No such file or directory");
+
+        string line = Formatting.FormatNdjsonLine(job, 1, "child_failed", "wargs", Version);
+
+        Assert.Contains("\"fault_message\":\"failed to spawn 'foo': Win32Exception: No such file or directory\"", line);
+        Assert.Contains("\"job\":7", line);
+    }
+
+    [Fact]
+    public void FormatNdjsonLine_NormalJob_OmitsFaultMessage()
+    {
+        var job = new JobResult(
+            JobIndex: 1, ChildExitCode: 0, Output: null,
+            Duration: TimeSpan.FromSeconds(0.1),
+            SourceItems: new[] { "x" }, Skipped: false);
+
+        string line = Formatting.FormatNdjsonLine(job, 0, "success", "wargs", Version);
+
+        Assert.DoesNotContain("fault_message", line);
+    }
+
+    [Fact]
+    public void FormatJson_AnyFaults_AppendsFaultsArray()
+    {
+        var jobs = new List<JobResult>
+        {
+            new(1, 0, "ok\n", TimeSpan.FromSeconds(0.1), new[] { "a" }, false),
+            new(2, -1, null, TimeSpan.FromSeconds(0.05), new[] { "b" }, false,
+                FaultMessage: "InvalidOperationException: empty FileName"),
+            new(3, -1, null, TimeSpan.FromSeconds(0.06), new[] { "c" }, false,
+                FaultMessage: "Win32Exception: command not found"),
+        };
+        var result = new WargsResult(3, 1, 2, 0, TimeSpan.FromSeconds(0.2), jobs);
+
+        string json = Formatting.FormatJson(result, WargsExitCode.ChildFailed, "child_failed", "wargs", Version);
+
+        Assert.Contains("\"faults\":[", json);
+        Assert.Contains("\"job\":2", json);
+        Assert.Contains("\"message\":\"InvalidOperationException: empty FileName\"", json);
+        Assert.Contains("\"job\":3", json);
+        Assert.Contains("\"message\":\"Win32Exception: command not found\"", json);
+    }
+
+    [Fact]
+    public void FormatJson_NoFaults_OmitsFaultsArray()
+    {
+        var jobs = new List<JobResult>
+        {
+            new(1, 0, "ok\n", TimeSpan.FromSeconds(0.1), new[] { "a" }, false),
+            new(2, 1, null, TimeSpan.FromSeconds(0.1), new[] { "b" }, false),
+        };
+        var result = new WargsResult(2, 1, 1, 0, TimeSpan.FromSeconds(0.2), jobs);
+
+        string json = Formatting.FormatJson(result, WargsExitCode.ChildFailed, "child_failed", "wargs", Version);
+
+        Assert.DoesNotContain("\"faults\"", json);
+    }
 }

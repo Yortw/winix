@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Text;
 using Winix.Wargs;
 using Xunit;
 
@@ -6,6 +7,33 @@ namespace Winix.Wargs.Tests;
 
 public class JobRunnerTests
 {
+    /// <summary>
+    /// TextWriter that throws <see cref="IOException"/> on Write/WriteAsync to simulate a
+    /// downstream pipe being closed (e.g. <c>wargs ... | head -1</c>). Used to pin that
+    /// JobRunner's flush paths swallow the IOException and abort gracefully rather than
+    /// crashing the whole run.
+    /// </summary>
+    private sealed class BrokenPipeWriter : TextWriter
+    {
+        public int WriteAttempts { get; private set; }
+        public override Encoding Encoding => Encoding.UTF8;
+        public override void Write(string? value)
+        {
+            WriteAttempts++;
+            throw new IOException("simulated broken pipe");
+        }
+        public override void Write(char value)
+        {
+            WriteAttempts++;
+            throw new IOException("simulated broken pipe");
+        }
+        public override Task WriteAsync(string? value)
+        {
+            WriteAttempts++;
+            return Task.FromException(new IOException("simulated broken pipe"));
+        }
+    }
+
     // Helper: cross-platform echo command
     private static CommandInvocation MakeEchoInvocation(string text, int jobIndex)
     {
@@ -474,5 +502,199 @@ public class JobRunnerTests
         // The failed job carries a FaultMessage explaining why.
         JobResult failedJob = result.Jobs.First(j => j.ChildExitCode != 0);
         Assert.NotNull(failedJob.FaultMessage);
+    }
+
+    // -- Round-2 review: broken-pipe handling, many-job fail-fast race, real KeepOrder
+    //    re-ordering, and Unix shell-injection canary. --
+
+    [Fact]
+    public async Task RunAsync_Sequential_BrokenStdoutPipe_DoesNotCrashRun()
+    {
+        // `wargs ... | head -1` is a normal usage pattern: the downstream consumer closes
+        // the pipe after one read, the next stdout flush raises IOException. Round 1 left
+        // sequential flushes unwrapped — the IOException escaped to Main as "unexpected
+        // error" with exit 126. Round 2 wraps via SafeWriteAsync; this test pins that
+        // behaviour: the run completes, abort flag stops further flushing, no exception
+        // escapes RunAsync.
+        var invocations = new[]
+        {
+            MakeEchoInvocation("first", 1),
+            MakeEchoInvocation("second", 2),
+            MakeEchoInvocation("third", 3),
+        };
+
+        var brokenStdout = new BrokenPipeWriter();
+        var runner = new JobRunner(new JobRunnerOptions());
+
+        // Should not throw — the IOException must be swallowed.
+        var result = await runner.RunAsync(invocations, brokenStdout, TextWriter.Null);
+
+        Assert.Equal(3, result.TotalJobs);
+        // First flush attempted, set abort flag — subsequent jobs skip their flush. Exact
+        // count of WriteAttempts depends on whether the loop short-circuits before or after
+        // the next job's flush attempt; allow either outcome.
+        Assert.True(brokenStdout.WriteAttempts >= 1);
+    }
+
+    [Fact]
+    public async Task RunAsync_ParallelJobBuffered_BrokenStdoutPipe_DoesNotCrashRun()
+    {
+        var invocations = Enumerable.Range(0, 8)
+            .Select(i => MakeEchoInvocation($"item{i}", i + 1))
+            .ToArray();
+
+        var brokenStdout = new BrokenPipeWriter();
+        var runner = new JobRunner(new JobRunnerOptions(
+            Parallelism: 4,
+            Strategy: BufferStrategy.JobBuffered));
+
+        // Should not throw — every flush IOException must be swallowed and the abort
+        // flag must stop further dispatch.
+        var result = await runner.RunAsync(invocations, brokenStdout, TextWriter.Null);
+
+        Assert.Equal(8, result.TotalJobs);
+    }
+
+    [Fact]
+    public async Task RunAsync_KeepOrder_BrokenStdoutPipe_DoesNotCrashRun()
+    {
+        var invocations = Enumerable.Range(0, 4)
+            .Select(i => MakeEchoInvocation($"item{i}", i + 1))
+            .ToArray();
+
+        var brokenStdout = new BrokenPipeWriter();
+        var runner = new JobRunner(new JobRunnerOptions(
+            Parallelism: 2,
+            Strategy: BufferStrategy.KeepOrder));
+
+        var result = await runner.RunAsync(invocations, brokenStdout, TextWriter.Null);
+
+        Assert.Equal(4, result.TotalJobs);
+        // KeepOrder breaks the flush loop on first IOException — subsequent attempts
+        // skipped. WriteAttempts should be 1 (the first-job flush that triggered the break).
+        Assert.Equal(1, brokenStdout.WriteAttempts);
+    }
+
+    [Fact]
+    public async Task RunAsync_KeepOrder_PreservesOrder_WhenJobsCompleteOutOfOrder()
+    {
+        // Round-1 Q2: the existing KeepOrder test used fast echo; even if KeepOrder were a
+        // no-op, fast jobs would naturally complete in input order. This test deliberately
+        // forces out-of-order completion: jobs 1-4 sleep for decreasing durations, so
+        // job 4 finishes first, job 1 last. With KeepOrder the output must STILL be in
+        // input order.
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            // Use ping for sleep on Windows. ping -n N localhost takes ~(N-1) seconds.
+            return;
+        }
+
+        // Linux/macOS: use sh -c with sleep + echo, durations descending so completion order
+        // is reverse of input order.
+        CommandInvocation MakeSleepEcho(double seconds, string token, int idx)
+            => new CommandInvocation(
+                "sh",
+                new[] { "-c", $"sleep {seconds.ToString(System.Globalization.CultureInfo.InvariantCulture)}; echo {token}" },
+                $"sh -c 'sleep {seconds}; echo {token}'",
+                new[] { token });
+
+        var invocations = new[]
+        {
+            MakeSleepEcho(0.6, "alpha", 1),
+            MakeSleepEcho(0.45, "bravo", 2),
+            MakeSleepEcho(0.30, "charlie", 3),
+            MakeSleepEcho(0.15, "delta", 4),
+        };
+
+        var stdout = new StringWriter();
+        var runner = new JobRunner(new JobRunnerOptions(
+            Parallelism: 4,
+            Strategy: BufferStrategy.KeepOrder));
+
+        var result = await runner.RunAsync(invocations, stdout, TextWriter.Null);
+
+        Assert.Equal(4, result.Succeeded);
+        string output = stdout.ToString();
+        int posAlpha = output.IndexOf("alpha");
+        int posBravo = output.IndexOf("bravo");
+        int posCharlie = output.IndexOf("charlie");
+        int posDelta = output.IndexOf("delta");
+        Assert.True(posAlpha >= 0 && posBravo >= 0 && posCharlie >= 0 && posDelta >= 0);
+        Assert.True(posAlpha < posBravo, "alpha before bravo (despite finishing last)");
+        Assert.True(posBravo < posCharlie, "bravo before charlie");
+        Assert.True(posCharlie < posDelta, "charlie before delta (despite finishing first)");
+    }
+
+    [Fact]
+    public async Task RunAsync_ParallelFailFast_ManyJobs_BulkSkipsRemaining()
+    {
+        // With many invocations (50) and Parallelism=4 + FailFast, the early-failing job
+        // must trigger the skip path at the dispatch loop's `Volatile.Read(ref aborted)`
+        // check (line 242) — not just the in-flight cancellation path. Pre-round-1 this was
+        // covered only with 4 jobs + Parallelism=4, where the dispatch-loop short-circuit
+        // never had a chance to fire. This test pins the bulk-skip behaviour.
+        var invocations = new List<CommandInvocation>();
+        // First two jobs: success
+        invocations.Add(MakeEchoInvocation("ok-1", 1));
+        invocations.Add(MakeEchoInvocation("ok-2", 2));
+        // Third job: failure (triggers fail-fast)
+        invocations.Add(MakeExitInvocation(7, "fail-3"));
+        // Remaining 47 jobs: should be skipped, NOT executed
+        for (int i = 4; i <= 50; i++)
+        {
+            invocations.Add(MakeEchoInvocation($"would-skip-{i}", i));
+        }
+
+        var runner = new JobRunner(new JobRunnerOptions(
+            Parallelism: 4,
+            FailFast: true));
+
+        var result = await runner.RunAsync(invocations, TextWriter.Null, TextWriter.Null);
+
+        Assert.Equal(50, result.TotalJobs);
+        Assert.True(result.Failed >= 1, $"Expected at least 1 failure, got {result.Failed}");
+        // The bulk-skip should leave a high skipped count — at least half of the remaining
+        // jobs must be skipped before they can dispatch. Allow scheduling slack but require
+        // observably more than just the "in-flight at moment of failure" handful.
+        Assert.True(result.Skipped >= 25,
+            $"Expected bulk skip (>=25), got {result.Skipped} skipped, {result.Succeeded} succeeded — fail-fast may not be hitting the dispatch-loop short-circuit.");
+    }
+
+    [SkippableFact]
+    public async Task RunAsync_ShellFallback_ItemWithNewline_DoesNotInjectShellCommand()
+    {
+        // End-to-end safety pin for the round-1 Critical (shell-fallback newline injection).
+        // The CommandBuilder ShellQuote tests pin DisplayString — but the actual safety
+        // property is "an item containing a newline does not become a shell command
+        // separator when fed to sh -c". This test triggers the shell-fallback path with a
+        // canary file: if the injection succeeded, the canary would be removed.
+        Skip.IfNot(!RuntimeInformation.IsOSPlatform(OSPlatform.Windows), "Unix-only — exercises the sh -c fallback path.");
+
+        string canaryPath = Path.Combine(Path.GetTempPath(), $"wargs-injection-canary-{Guid.NewGuid():N}");
+        File.WriteAllText(canaryPath, "canary present");
+        try
+        {
+            // Item value: "safe\nrm -f <canaryPath>". If ShellQuote omitted \n from its
+            // special-char set (the round-1 Critical), the formatted sh -c string would
+            // contain a literal newline, splitting into two commands and removing the canary.
+            string maliciousItem = "safe\nrm -f " + canaryPath;
+            // Use a deliberately-non-existent direct command so we hit the shell fallback,
+            // and a shell builtin that exists on every Unix `:` will be invoked via sh.
+            var invocation = new CommandInvocation(
+                Command: "wargs_test_definitely_not_a_command_xyz",
+                Arguments: new[] { maliciousItem },
+                DisplayString: "wargs_test_definitely_not_a_command_xyz '<malicious>'",
+                SourceItems: new[] { maliciousItem });
+
+            var runner = new JobRunner(new JobRunnerOptions(ShellFallback: true));
+            await runner.RunAsync(new[] { invocation }, TextWriter.Null, TextWriter.Null);
+
+            Assert.True(File.Exists(canaryPath),
+                "Canary file was removed — shell-fallback newline injection succeeded. ShellQuote must single-quote items containing newlines.");
+        }
+        finally
+        {
+            try { File.Delete(canaryPath); } catch { /* test cleanup best-effort */ }
+        }
     }
 }
