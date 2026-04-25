@@ -106,7 +106,7 @@ files . --ext log --older 7d | wargs squeeze --gzip --remove
 cat servers.txt | wargs --json ssh {} uptime 2>results.json
 ```
 
-Fields: `tool`, `version`, `exit_code`, `exit_reason`, `total_jobs`, `succeeded`, `failed`, `skipped`, `wall_seconds`.
+Fields: `tool`, `version`, `exit_code`, `exit_reason`, `total_jobs`, `succeeded`, `failed`, `skipped`, `wall_seconds`. When at least one job carries a fault diagnostic (spawn failure, unexpected task exception), an additional `faults` array is appended — each entry is a `{job, message}` object, where `job` is the 1-based job index and `message` is a human-readable description of the fault (e.g. `"failed to spawn 'foo': Win32Exception: No such file or directory"`).
 
 `exit_reason` values:
 
@@ -116,7 +116,8 @@ Fields: `tool`, `version`, `exit_code`, `exit_reason`, `total_jobs`, `succeeded`
 | `child_failed` | One or more child processes exited non-zero |
 | `fail_fast_abort` | `--fail-fast` triggered after a failure (some jobs were skipped) |
 | `no_input` | stdin produced no items — nothing was executed |
-| `usage_error` | A flag combination or argument was invalid (exit 125, only emitted under `--json`) |
+| `input_read_failed` | wargs could not read items from stdin (broken pipe, encoding error) |
+| `usage_error` | A flag combination or argument was invalid (exit 125, only emitted under `--json` or `--ndjson`) |
 
 **NDJSON** (`--ndjson`, stderr) — one JSON object per executed job as it completes. Skipped jobs (fail-fast or confirm declined) are omitted from the stream; the JSON summary's `skipped` field is the source of truth for skip count.
 
@@ -124,7 +125,11 @@ Fields: `tool`, `version`, `exit_code`, `exit_reason`, `total_jobs`, `succeeded`
 cat servers.txt | wargs --ndjson ssh {} uptime
 ```
 
-Each line contains: `tool`, `version`, `job` (1-based index), `exit_code`, `exit_reason`, `child_exit_code`, `input`, `wall_seconds`. The `input` field is a string when the job has one source item, or a JSON array when batched (`--batch N` with N>1).
+Each line contains: `tool`, `version`, `job` (1-based index), `exit_code`, `exit_reason`, `child_exit_code`, `input`, `wall_seconds`. The `input` field is a string when the job has one source item, or a JSON array when batched (`--batch N` with N>1). When the job's spawn failed or its task body faulted, an additional `fault_message` field carries the diagnostic.
+
+When stdin produces no items, NDJSON emits a single `{"exit_reason":"no_input", ...}` envelope so streaming consumers have a positive signal rather than an indistinguishable silent exit.
+
+**Cancellation**: pressing `Ctrl+C` cancels the run with exit code `130` (POSIX `128 + SIGINT`). In-flight child processes are killed (`Process.Kill(entireProcessTree:true)`).
 
 **--describe** — machine-readable flag reference:
 ```bash
