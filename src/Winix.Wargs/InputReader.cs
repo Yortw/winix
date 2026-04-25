@@ -27,38 +27,47 @@ public sealed class InputReader
     }
 
     /// <summary>
-    /// Yields items from the input stream one at a time.
+    /// Yields items from the input stream one at a time. The optional
+    /// <paramref name="cancellationToken"/> is observed between reads — when signalled,
+    /// the enumerator throws <see cref="OperationCanceledException"/> so a Ctrl+C during a
+    /// slow stdin read is reported as cancellation rather than misclassified as
+    /// empty-input or input-read-failed by the caller. Without this observation, a
+    /// blocked TextReader.Read() that returns null/EOF after Console.In is closed by a
+    /// cancellation callback would silently land in the empty-input branch.
     /// </summary>
-    public IEnumerable<string> ReadItems()
+    public IEnumerable<string> ReadItems(CancellationToken cancellationToken = default)
     {
         return _mode switch
         {
-            DelimiterMode.Line => ReadLineDelimited(),
-            DelimiterMode.Null => ReadCharDelimited('\0'),
-            DelimiterMode.Custom => ReadCharDelimited(_customDelimiter),
-            DelimiterMode.Whitespace => ReadWhitespaceDelimited(),
+            DelimiterMode.Line => ReadLineDelimited(cancellationToken),
+            DelimiterMode.Null => ReadCharDelimited('\0', cancellationToken),
+            DelimiterMode.Custom => ReadCharDelimited(_customDelimiter, cancellationToken),
+            DelimiterMode.Whitespace => ReadWhitespaceDelimited(cancellationToken),
             _ => throw new ArgumentOutOfRangeException()
         };
     }
 
-    private IEnumerable<string> ReadLineDelimited()
+    private IEnumerable<string> ReadLineDelimited(CancellationToken ct)
     {
         string? line;
         while ((line = _source.ReadLine()) is not null)
         {
+            ct.ThrowIfCancellationRequested();
             if (!string.IsNullOrWhiteSpace(line))
             {
                 yield return line;
             }
         }
+        ct.ThrowIfCancellationRequested();
     }
 
-    private IEnumerable<string> ReadCharDelimited(char delimiter)
+    private IEnumerable<string> ReadCharDelimited(char delimiter, CancellationToken ct)
     {
         var buffer = new System.Text.StringBuilder();
         int ch;
         while ((ch = _source.Read()) != -1)
         {
+            ct.ThrowIfCancellationRequested();
             if ((char)ch == delimiter)
             {
                 if (buffer.Length > 0)
@@ -73,6 +82,8 @@ public sealed class InputReader
             }
         }
 
+        ct.ThrowIfCancellationRequested();
+
         // Emit trailing item if no final delimiter
         if (buffer.Length > 0)
         {
@@ -80,7 +91,7 @@ public sealed class InputReader
         }
     }
 
-    private IEnumerable<string> ReadWhitespaceDelimited()
+    private IEnumerable<string> ReadWhitespaceDelimited(CancellationToken ct)
     {
         var buffer = new System.Text.StringBuilder();
         int ch;
@@ -90,6 +101,7 @@ public sealed class InputReader
 
         while ((ch = _source.Read()) != -1)
         {
+            ct.ThrowIfCancellationRequested();
             char c = (char)ch;
 
             if (escaped)
@@ -129,6 +141,8 @@ public sealed class InputReader
 
             buffer.Append(c);
         }
+
+        ct.ThrowIfCancellationRequested();
 
         if (buffer.Length > 0)
         {

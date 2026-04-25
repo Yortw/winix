@@ -33,10 +33,29 @@ internal sealed class Program
         ConsoleCancelEventHandler cancelHandler = (_, e) =>
         {
             e.Cancel = true;
+            // Round-7 SFH: broaden from ObjectDisposedException to all exceptions.
+            // CancellationTokenSource.Cancel() invokes registered callbacks synchronously
+            // and aggregates any callback throws into AggregateException. A SIGINT handler
+            // that throws ANY exception lets the runtime tear the process down — bypassing
+            // the entire envelope-emission catch in Main. Best-effort: never crash the
+            // process from the SIGINT handler.
             try { cts.Cancel(); }
-            catch (ObjectDisposedException) { /* raced with shutdown — safe to drop */ }
+            catch (Exception) { /* see comment */ }
         };
         Console.CancelKeyPress += cancelHandler;
+
+        // Round-7 SFH C1/I1: a blocked Console.In.ReadLine() on Linux may not return null
+        // after `e.Cancel=true` (the runtime may translate EINTR to IOException, restart
+        // the read, or block indefinitely depending on the .NET runtime version). The
+        // round-6 fix assumed null-return — fragile across platforms. Forcibly closing
+        // stdin on cancel makes a blocked read unblock with EOF on every platform; the
+        // InputReader's cancellation-aware enumerator (round-7) then propagates OCE
+        // before the empty-input branch fires.
+        cts.Token.Register(() =>
+        {
+            try { Console.In.Close(); }
+            catch (Exception) { /* best-effort — Console.In may already be closed */ }
+        });
 
         try
         {
@@ -291,7 +310,7 @@ internal sealed class Program
         List<CommandInvocation> invocations;
         try
         {
-            IEnumerable<string> items = inputReader.ReadItems();
+            IEnumerable<string> items = inputReader.ReadItems(cancellationToken);
             invocations = commandBuilder.Build(items).ToList();
         }
         catch (Exception ex) when (
@@ -299,6 +318,18 @@ internal sealed class Program
             and not StackOverflowException
             and not OperationCanceledException)
         {
+            // Round-7 SFH: re-check the cancellation token before classifying as
+            // input_read_failed. On Linux a SIGINT may translate to an IOException
+            // (EINTR-restart failure) on a blocked stdin read — the cancellation token
+            // is already signalled at that point. Without this re-check the user sees
+            // input_read_failed (exit 126) instead of the documented cancelled (exit
+            // 130) for a Ctrl+C-during-stdin path. Throwing OCE here lets Main's OCE
+            // catch produce the cancelled envelope.
+            if (cancellationToken.IsCancellationRequested)
+            {
+                throw new OperationCanceledException(cancellationToken);
+            }
+
             // Mode discrimination: under --json/--ndjson, emit ONLY the envelope so the
             // stream stays parseable as one JSON object per line. Mixing the plaintext
             // diagnostic on the same stream broke strict NDJSON parsers (round-4 SFH).
@@ -479,15 +510,16 @@ internal sealed class Program
     }
 
     /// <summary>
-    /// Best-effort write to <paramref name="writer"/>. Broken pipe, closed stream, or disposed
-    /// writer must not convert a clean exit code into a CLR crash. Matches the suite-wide
-    /// SafeWriteLine convention (see retry/Program.cs and envvault/Cli.cs for precedents).
+    /// Best-effort write to <paramref name="writer"/>. Broken pipe, closed stream, disposed
+    /// writer, encoder fallback, or any other write-time fault must not convert a clean exit
+    /// code into a CLR crash. The catch is intentionally broad (excluding only OOM/SOE which
+    /// would already terminate the process) — diagnostic writes must be strictly weaker than
+    /// the production paths they diagnose. Matches the suite-wide convention.
     /// </summary>
     private static void SafeWriteLine(TextWriter writer, string message)
     {
         try { writer.WriteLine(message); }
-        catch (IOException) { /* downstream pipe closed */ }
-        catch (ObjectDisposedException) { /* writer already disposed */ }
+        catch (Exception) { /* IOException, ObjectDisposedException, EncoderFallbackException, NotSupportedException — all best-effort-swallowed */ }
     }
 
     /// <summary>
