@@ -98,36 +98,58 @@ public class ProgramMainTests
         // the schema would not learn about those fields. Fix landed in round-10 by adding
         // 5 JsonField declarations covering the previously-missing emission paths.
         //
-        // This test pins the contract by parsing --describe and asserting every name we
-        // know the formatter emits is declared.
+        // Round-11 TA I1+I2: this test was extended to also assert that fields emitted in
+        // BOTH --json and --ndjson modes carry per-mode qualifiers in their descriptions.
+        // Round-10 added (--json)/(--ndjson) qualifiers to single-mode fields but left
+        // dual-mode fields with summary-only descriptions, silently misclaiming the
+        // per-line scope.
         var result = RunWargs(stdin: null, "--describe");
         Assert.Equal(0, result.ExitCode);
         using var doc = JsonDocument.Parse(result.Stdout);
 
-        var fieldNames = doc.RootElement.GetProperty("json_output_fields")
+        var fields = doc.RootElement.GetProperty("json_output_fields")
             .EnumerateArray()
-            .Select(e => e.GetProperty("name").GetString())
-            .ToHashSet();
+            .ToDictionary(
+                e => e.GetProperty("name").GetString()!,
+                e => e.GetProperty("description").GetString()!);
 
+        // -- Field-name presence (round-10 contract) --
         // JSON summary fields (FormatJson)
-        Assert.Contains("tool", fieldNames);
-        Assert.Contains("version", fieldNames);
-        Assert.Contains("exit_code", fieldNames);
-        Assert.Contains("exit_reason", fieldNames);
-        Assert.Contains("total_jobs", fieldNames);
-        Assert.Contains("succeeded", fieldNames);
-        Assert.Contains("failed", fieldNames);
-        Assert.Contains("skipped", fieldNames);
-        Assert.Contains("wall_seconds", fieldNames);
+        Assert.Contains("tool", fields.Keys);
+        Assert.Contains("version", fields.Keys);
+        Assert.Contains("exit_code", fields.Keys);
+        Assert.Contains("exit_reason", fields.Keys);
+        Assert.Contains("total_jobs", fields.Keys);
+        Assert.Contains("succeeded", fields.Keys);
+        Assert.Contains("failed", fields.Keys);
+        Assert.Contains("skipped", fields.Keys);
+        Assert.Contains("wall_seconds", fields.Keys);
 
         // Conditional summary field (FormatJson when any job carries FaultMessage)
-        Assert.Contains("faults", fieldNames);
+        Assert.Contains("faults", fields.Keys);
 
         // NDJSON-only fields (FormatNdjsonLine)
-        Assert.Contains("job", fieldNames);
-        Assert.Contains("child_exit_code", fieldNames);
-        Assert.Contains("input", fieldNames);
-        Assert.Contains("fault_message", fieldNames);
+        Assert.Contains("job", fields.Keys);
+        Assert.Contains("child_exit_code", fields.Keys);
+        Assert.Contains("input", fields.Keys);
+        Assert.Contains("fault_message", fields.Keys);
+
+        // -- Round-11 per-mode description accuracy --
+        // Fields emitted in BOTH --json summary and --ndjson per-line modes must mention
+        // both in their description, OR (for tool/version where semantics are identical
+        // in both modes) explicitly note "both". Otherwise a code-gen consumer parsing
+        // --describe will think the field is summary-only when it's actually dual-emitted.
+        Assert.Contains("--json", fields["wall_seconds"]);
+        Assert.Contains("--ndjson", fields["wall_seconds"]);
+        Assert.Contains("--json", fields["exit_code"]);
+        Assert.Contains("--ndjson", fields["exit_code"]);
+        Assert.Contains("--json", fields["exit_reason"]);
+        Assert.Contains("--ndjson", fields["exit_reason"]);
+        // exit_code and exit_reason carry NARROWER value sets per NDJSON line than in the
+        // summary envelope; the description must surface the narrowing so consumers don't
+        // generate validators that accept summary-only values on per-line input.
+        Assert.Contains("123", fields["exit_code"]);  // narrowed-to set under --ndjson
+        Assert.Contains("success", fields["exit_reason"]);  // narrowed-to set under --ndjson
     }
 
     [Theory]
