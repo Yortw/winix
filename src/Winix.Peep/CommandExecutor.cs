@@ -87,9 +87,36 @@ public static class CommandExecutor
 
             throw new CommandNotFoundException(command);
         }
+        catch (FileNotFoundException)
+        {
+            // .NET 5+ may surface a missing executable as FileNotFoundException directly
+            // rather than wrapping it in Win32Exception. Map to the typed exit reason
+            // (command_not_found / 127) so the user sees the right diagnostic instead of
+            // hitting the watch-loop's last-resort "unexpected error" arm.
+            throw new CommandNotFoundException(command);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException
+                                    or PlatformNotSupportedException
+                                    or ArgumentException)
+        {
+            // Process.Start can throw these for malformed StartInfo, an empty FileName,
+            // or platform configurations that don't support process spawn. These are
+            // structural problems with the request rather than runtime command failures
+            // — surface as command_not_executable (126) so the user sees a typed exit
+            // code instead of unexpected_error (the catch-all in InteractiveSession).
+            throw new CommandNotExecutableException(command);
+        }
 
-        // Close stdin immediately -- peep commands don't read interactive input
-        process.StandardInput.Close();
+        // Close stdin immediately -- peep commands don't read interactive input.
+        // Wrap in try/catch because a fast-exiting child (echo-style commands or one
+        // that died on its own start) can have its stdin pipe already gone by the time
+        // Close() runs, raising IOException ("pipe has been ended") — closing a pipe
+        // that's already gone is the success state we want, not an error to surface.
+        // Without this, peep emits a flaky "unexpected error: IOException" envelope
+        // that looks like a CI flake but is actually a race.
+        try { process.StandardInput.Close(); }
+        catch (IOException) { /* child already exited and pipe is gone — benign */ }
+        catch (ObjectDisposedException) { /* same */ }
 
         try
         {

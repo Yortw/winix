@@ -28,6 +28,13 @@ public sealed class InteractiveSession
     private int _historyOverlaySelection;
     private bool _diffEnabled;
 
+    // Tracks --exit-on-match regex instances that have already produced a one-shot
+    // timeout warning. Without this, a pathological pattern that times out on every
+    // run would silently never trigger the auto-exit AND emit no diagnostic — the user
+    // would see peep run forever with no idea why their match isn't firing. We warn
+    // once per pattern (not per run) to avoid stderr spam during long sessions.
+    private readonly HashSet<Regex> _regexTimeoutWarned = new();
+
     /// <summary>
     /// Creates a new interactive session with the specified configuration.
     /// </summary>
@@ -55,11 +62,16 @@ public sealed class InteractiveSession
         // Set up Ctrl+C handler -- cancel cleanly instead of killing the process.
         // Must be a named delegate so we can unregister in the finally block to avoid
         // calling Cancel() on a disposed CTS if Ctrl+C fires after RunAsync returns.
+        // Even with the unregister, there's a small race: Console.CancelKeyPress -=
+        // does NOT synchronise with in-flight handler invocations, so a Ctrl+C that
+        // started invoking just before the unregister can still execute against a
+        // disposed CTS. Swallow ObjectDisposedException to keep the handler silent in
+        // that race — same pattern as RunOnceAsync's once-mode handler.
         ConsoleCancelEventHandler cancelHandler = (_, e) =>
         {
             e.Cancel = true;
             _exitReason = "interrupted";
-            cts.Cancel();
+            try { cts.Cancel(); } catch (ObjectDisposedException) { }
         };
         Console.CancelKeyPress += cancelHandler;
 
@@ -706,6 +718,26 @@ public sealed class InteractiveSession
                     // Pattern timed out against this output — treat as non-match rather
                     // than hanging the session. Only fires for patterns that fell back to
                     // the standard engine (NonBacktracking never times out).
+                    //
+                    // SFH I3: emit a one-shot warning per pattern. Without it, the user
+                    // who supplied --exit-on-match expecting auto-exit sees peep run
+                    // forever with no clue why their match isn't firing. Track via
+                    // HashSet<Regex> on this instance — single-threaded access from the
+                    // main loop, no lock needed. Diagnostic write is strictly weaker
+                    // than production: a failing stderr write must not crash the loop.
+                    if (_regexTimeoutWarned.Add(regex))
+                    {
+                        try
+                        {
+                            Console.Error.WriteLine(
+                                $"[peep] warning: --exit-on-match pattern '{regex}' timed out; " +
+                                "treating as non-match for this and future runs of this pattern.");
+                        }
+                        catch
+                        {
+                            // best effort
+                        }
+                    }
                 }
             }
         }
