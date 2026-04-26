@@ -64,6 +64,27 @@ public class CommandBuilderTests
     }
 
     [Fact]
+    public void IsSubstitutionMode_PlaceholderInCommandName_NotTreatedAsSubstitution()
+    {
+        // Round-17 TA I2: xargs-compatible behaviour — a placeholder in template[0] (the
+        // command name itself) is NOT treated as substitution. Today the user gets the
+        // literal string "{}" as the command name, which fails to spawn. A "helpful" future
+        // refactor that scanned the full template for {} would silently change behaviour:
+        // items would substitute into the command name and the run would either succeed (or
+        // fail differently). Either direction is observable to users; pin the current shape.
+        var builder = new CommandBuilder(new[] { "{}", "arg" });
+        Assert.False(builder.IsSubstitutionMode);
+
+        var invocations = builder.Build(new[] { "item1" }).ToList();
+        Assert.Single(invocations);
+        // template[0] is the command — passed through verbatim, NOT substituted.
+        Assert.Equal("{}", invocations[0].Command);
+        // template[1..] become the arguments. With no substitution mode, the input item is
+        // appended as a trailing arg (xargs default behaviour).
+        Assert.Equal(new[] { "arg", "item1" }, invocations[0].Arguments);
+    }
+
+    [Fact]
     public void Build_EmptyTemplate_DefaultsToEcho()
     {
         var builder = new CommandBuilder(Array.Empty<string>());

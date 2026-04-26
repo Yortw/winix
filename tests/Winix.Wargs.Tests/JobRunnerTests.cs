@@ -757,6 +757,48 @@ public class JobRunnerTests
     }
 
     [Fact]
+    public async Task RunAsync_Parallel_ExternalCancel_JobResultsCarrySkipReasonExternalCancel()
+    {
+        // Round-17 TA I1: SkipReason.ExternalCancel is set in three production sites
+        // (JobRunner.cs:354 race-check arm, :435 external-cancel arm, :567 IsCanceled
+        // defence-in-depth) but no test pinned the actual SkipReason value on a JobResult.
+        // The round-12 SFH+TA I4 fix introduced SkipReason specifically so Program.cs's
+        // actualFailFastTriggered classifier could distinguish external-cancel skips from
+        // fail-fast skips. A regression silently flipping ExternalCancel to FailFastAbort
+        // would mis-promote exit_reason on Ctrl+C+child_failed runs from child_failed to
+        // fail_fast_abort — and every other test would still pass.
+        //
+        // The OnJobCompleted callback fires from each of the three production sites BEFORE
+        // RunAsync's join-point throw, so the callback captures results that the WargsResult
+        // never returns (the throw at JobRunner.cs:490 prevents that).
+        using var cts = new CancellationTokenSource();
+        var capturedResults = new System.Collections.Concurrent.ConcurrentBag<JobResult>();
+        var invocations = Enumerable.Range(0, 8)
+            .Select(_ => MakeSleepInvocation(10, "slow"))
+            .ToArray();
+
+        var runner = new JobRunner(new JobRunnerOptions(
+            Parallelism: 4,
+            OnJobCompleted: capturedResults.Add));
+        Task<WargsResult> runTask = runner.RunAsync(
+            invocations, TextWriter.Null, TextWriter.Null, cts.Token);
+
+        await Task.Delay(300);
+        cts.Cancel();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => runTask);
+
+        // At least one captured result must carry SkipReason.ExternalCancel — the contract
+        // is that external-cancel skips are classified as such, distinct from fail-fast or
+        // confirm-declined.
+        Assert.Contains(capturedResults, r => r.Skipped && r.SkipReason == SkipReason.ExternalCancel);
+        // None should be misclassified as FailFastAbort (no fail-fast was requested) or
+        // ConfirmDeclined (no --confirm was used).
+        Assert.DoesNotContain(capturedResults, r => r.SkipReason == SkipReason.FailFastAbort);
+        Assert.DoesNotContain(capturedResults, r => r.SkipReason == SkipReason.ConfirmDeclined);
+    }
+
+    [Fact]
     public async Task RunAsync_Sequential_Verbose_BrokenStderrPipe_DoesNotMisattributeFault()
     {
         // Round-3: verbose stderr writes now use SafeWriteAsync. Pre-fix, a broken stderr
