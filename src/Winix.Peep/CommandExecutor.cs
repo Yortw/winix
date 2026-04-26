@@ -12,6 +12,21 @@ namespace Winix.Peep;
 public static class CommandExecutor
 {
     /// <summary>
+    /// Default cap on captured child output, in characters. A runaway child (e.g. a
+    /// `find /` that should have been gitignored, or an infinite loop printing to
+    /// stdout) would otherwise grow the StringBuilder without bound and OOM the peep
+    /// process. 64 MB is generous enough that any realistic interactive output fits,
+    /// while still bounded.
+    /// </summary>
+    internal const int DefaultMaxOutputChars = 64 * 1024 * 1024;
+
+    /// <summary>
+    /// Test seam: tests override this to a small value to exercise the truncation path
+    /// without having to generate 64 MB of output.
+    /// </summary>
+    internal static int MaxOutputChars { get; set; } = DefaultMaxOutputChars;
+
+    /// <summary>
     /// Runs the specified command with arguments, capturing all output.
     /// </summary>
     /// <param name="command">The executable name or full path to run.</param>
@@ -21,6 +36,7 @@ public static class CommandExecutor
     /// <returns>A <see cref="PeepResult"/> with the merged output, exit code, duration, and trigger source.</returns>
     /// <exception cref="CommandNotFoundException">The command was not found on PATH.</exception>
     /// <exception cref="CommandNotExecutableException">The command exists but cannot be executed.</exception>
+    /// <exception cref="CommandStreamException">Reading the child's stdout/stderr failed (e.g. the child closed a pipe abnormally). The child process is killed before this is thrown.</exception>
     public static async Task<PeepResult> RunAsync(
         string command,
         string[] arguments,
@@ -73,9 +89,10 @@ public static class CommandExecutor
             // writes enough to fill one pipe's buffer while we're only reading the other.
             var output = new StringBuilder();
             var outputLock = new object();
+            var truncation = new TruncationFlag();
 
-            Task stdoutTask = ReadStreamAsync(process.StandardOutput, output, outputLock);
-            Task stderrTask = ReadStreamAsync(process.StandardError, output, outputLock);
+            Task stdoutTask = ReadStreamAsync(process.StandardOutput, output, outputLock, truncation);
+            Task stderrTask = ReadStreamAsync(process.StandardError, output, outputLock, truncation);
 
             // Wait for both stream reads to complete and for the process to exit.
             // If cancelled, kill the child process so we don't leak it.
@@ -88,13 +105,40 @@ public static class CommandExecutor
                         process.Kill(entireProcessTree: true);
                     }
                 }
-                catch (InvalidOperationException)
+                catch (Exception)
                 {
-                    // Process already exited between the check and the kill -- safe to ignore.
+                    // Diagnostic must be strictly weaker than production. A Kill failure here
+                    // (already-exited race, Win32 access denied on protected process, Linux
+                    // PID-reuse race) must not propagate out of the cancellation callback —
+                    // doing so would re-throw at `using var reg`'s dispose point and corrupt
+                    // the alternate-screen-buffer state during teardown.
                 }
             });
 
-            await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
+            try
+            {
+                await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
+            }
+            catch (Exception streamEx) when (streamEx is IOException or ObjectDisposedException)
+            {
+                // A redirected pipe became invalid mid-read. Kill the child to avoid
+                // a leaked process, then surface a typed exception so the watch loop
+                // can produce a clean error envelope rather than crashing the session.
+                try
+                {
+                    if (!process.HasExited)
+                    {
+                        process.Kill(entireProcessTree: true);
+                    }
+                }
+                catch (Exception)
+                {
+                    // best effort — see Register-callback rationale above.
+                }
+                throw new CommandStreamException(
+                    $"failed to read child output ({streamEx.GetType().Name}): {streamEx.Message}",
+                    streamEx);
+            }
 
             // Use CancellationToken.None so WaitForExitAsync waits for the kill
             // (triggered by the Register callback above) to fully complete, giving
@@ -110,6 +154,11 @@ public static class CommandExecutor
             string captured;
             lock (outputLock)
             {
+                if (truncation.Triggered)
+                {
+                    output.AppendLine();
+                    output.Append($"[peep: output truncated at {MaxOutputChars:N0} characters; child likely runaway]");
+                }
                 captured = output.ToString();
             }
 
@@ -123,9 +172,12 @@ public static class CommandExecutor
 
     /// <summary>
     /// Reads a redirected stream in chunks and appends to the shared StringBuilder.
-    /// The lock serialises interleaved stdout/stderr writes so chunks don't get torn.
+    /// The lock serialises interleaved stdout/stderr writes so chunks don't get torn,
+    /// and enforces the <see cref="MaxOutputChars"/> cap by setting the shared
+    /// <paramref name="truncation"/> flag and dropping further input once exceeded.
     /// </summary>
-    private static async Task ReadStreamAsync(StreamReader reader, StringBuilder output, object outputLock)
+    private static async Task ReadStreamAsync(
+        StreamReader reader, StringBuilder output, object outputLock, TruncationFlag truncation)
     {
         char[] buffer = new char[4096];
         int charsRead;
@@ -134,8 +186,37 @@ public static class CommandExecutor
         {
             lock (outputLock)
             {
-                output.Append(buffer, 0, charsRead);
+                if (truncation.Triggered)
+                {
+                    // Already over cap — drain and discard the rest so the child can't
+                    // wedge on a full pipe. Continue the loop rather than break: the
+                    // child's writes still need to drain so it sees EPIPE / EOF cleanly.
+                    continue;
+                }
+
+                int remaining = MaxOutputChars - output.Length;
+                if (remaining <= 0)
+                {
+                    truncation.Triggered = true;
+                    continue;
+                }
+
+                int toAppend = Math.Min(charsRead, remaining);
+                output.Append(buffer, 0, toAppend);
+                if (toAppend < charsRead)
+                {
+                    truncation.Triggered = true;
+                }
             }
         }
+    }
+
+    /// <summary>
+    /// Shared mutable state between stdout and stderr readers indicating whether the
+    /// output cap has been reached. Mutated under <c>outputLock</c>.
+    /// </summary>
+    private sealed class TruncationFlag
+    {
+        public bool Triggered;
     }
 }

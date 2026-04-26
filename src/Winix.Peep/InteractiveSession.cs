@@ -582,6 +582,29 @@ public sealed class InteractiveSession
         {
             return null;
         }
+        catch (CommandStreamException ex)
+        {
+            // Stream-read failure: the child closed a pipe abnormally or the OS handle
+            // became invalid mid-read. CommandExecutor has already killed the child;
+            // surface a clean diagnostic so the watch loop can continue / exit cleanly
+            // rather than crash the alternate-screen-buffer session.
+            Console.Error.WriteLine($"peep: {ex.Message}");
+            _failedExitCode = ExitCode.NotExecutable;
+            _exitReason = "command_stream_failed";
+            return null;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            // Last-resort safety net. Without this, an unexpected exception (e.g. a
+            // future runtime IOException class we didn't anticipate, or a misuse bug)
+            // escapes the watch loop and crashes peep with a stack trace overlapping
+            // the alternate-screen-buffer exit, leaving the user's terminal corrupt.
+            // Diagnostic strictly weaker than production: emit type + message only.
+            Console.Error.WriteLine($"peep: unexpected error running command: {ex.GetType().Name}: {ex.Message}");
+            _failedExitCode = ExitCode.NotExecutable;
+            _exitReason = "command_unexpected_error";
+            return null;
+        }
     }
 
     /// <summary>
