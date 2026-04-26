@@ -558,4 +558,76 @@ public class ProgramMainTests
             Assert.Equal("wargs", doc.RootElement.GetProperty("tool").GetString());
         }
     }
+
+    // --- Round-15 TA C1: line-buffered combo rejections (grid completion) ---
+    // The --verbose and --confirm rejection combos with --json/--ndjson are pinned above.
+    // The remaining rejection grid covers --line-buffered and the --delimiter validator.
+
+    [Fact]
+    public void LineBufferedWithKeepOrder_IsRejectedAsUsageError()
+    {
+        // Program.cs:272 — output ordering is meaningless when children inherit stdio.
+        var result = RunWargs(stdin: "a", "--line-buffered", "--keep-order", "echo");
+        Assert.Equal(125, result.ExitCode);
+    }
+
+    [Fact]
+    public void LineBufferedWithParallel_IsRejectedAsUsageError()
+    {
+        // Program.cs:277 — parallel children writing direct stdio would interleave.
+        var result = RunWargs(stdin: "a", "--line-buffered", "-P", "2", "echo");
+        Assert.Equal(125, result.ExitCode);
+    }
+
+    [Fact]
+    public void NdjsonWithLineBuffered_IsRejectedAsUsageError()
+    {
+        // Program.cs:282 — child stdio inheritance would dump unstructured output to stderr,
+        // breaking NDJSON line discipline.
+        var result = RunWargs(stdin: "a", "--ndjson", "--line-buffered", "echo");
+        Assert.Equal(125, result.ExitCode);
+        string trimmed = result.Stderr.Trim();
+        using var doc = JsonDocument.Parse(trimmed);
+        Assert.Equal("usage_error", doc.RootElement.GetProperty("exit_reason").GetString());
+    }
+
+    // --- Round-15 TA I1: --delimiter validator (single character requirement) ---
+
+    [Theory]
+    [InlineData("ab")]      // multi-char rejection
+    [InlineData("")]        // empty rejection
+    public void MultiCharOrEmptyDelimiter_IsRejectedAsUsageError(string delimiter)
+    {
+        // Program.cs:258 — InputReader assumes a single delimiter char; multi-char or empty
+        // would silently use the first char (or throw IndexOutOfRangeException for empty).
+        var result = RunWargs(stdin: "a", "--delimiter", delimiter, "echo");
+        Assert.Equal(125, result.ExitCode);
+    }
+
+    // --- Round-15 TA I2: faults-array per-job stderr line in human (non-structured) mode ---
+
+    [Fact]
+    public void FailedJob_HumanMode_EmitsPerJobFaultLineToStderr()
+    {
+        // Program.cs faults loop emits "wargs: job N: <FaultMessage>" to stderr in human mode
+        // for every job carrying a FaultMessage. A regression that drops this loop converts
+        // diagnosable failures into a bare "1/1 jobs failed" with no per-job context.
+        //
+        // --no-shell-fallback is required: without it, Windows wargs retries the failed
+        // spawn via `cmd /c`, which always spawns successfully and converts the failure into
+        // a normal child non-zero exit (no FaultMessage set). With --no-shell-fallback the
+        // spawn failure surfaces as a Win32Exception/FileNotFoundException, IsSpawnFailure
+        // captures it onto FaultMessage, and the faults loop emits the per-job line.
+        var result = RunWargs(
+            stdin: "definitely-not-a-real-binary-2c8d4f",
+            "--no-shell-fallback",
+            "definitely-not-a-real-binary-2c8d4f");
+        Assert.Equal(123, result.ExitCode);
+        Assert.Contains("wargs: job 1:", result.Stderr);
+    }
+
+    // SFH I3 / TA I4 (UnwrapTypeInit depth cap) is unit-tested in ExceptionUnwrapTests.cs
+    // — the helper was extracted from Program.cs in round 15 specifically to make the
+    // depth-cap notice behaviour directly testable (CLAUDE.md: "Test-infeasible branches →
+    // extract or seam, don't skip").
 }

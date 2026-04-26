@@ -97,7 +97,7 @@ internal sealed class Program
             // diagnostic alongside the envelope (the round-4 implementation) broke strict
             // NDJSON parsers — same defect class as the round-4 input-pipeline catch fix that
             // was missed here.
-            Exception surface = UnwrapTypeInit(ex);
+            (Exception surface, bool depthCapped) = ExceptionUnwrap.UnwrapTypeInit(ex);
             if (jsonOutput || ndjsonOutput)
             {
                 SafeWriteLine(Console.Error,
@@ -108,6 +108,10 @@ internal sealed class Program
                 string msg = string.IsNullOrEmpty(surface.Message)
                     ? $"wargs: unexpected error: {surface.GetType().Name}"
                     : $"wargs: unexpected error: {surface.GetType().Name}: {surface.Message}";
+                if (depthCapped)
+                {
+                    msg += " (unwrap depth limit reached — root cause may be deeper)";
+                }
                 SafeWriteLine(Console.Error, msg);
             }
             return ExitCode.NotExecutable;
@@ -616,21 +620,6 @@ internal sealed class Program
     {
         try { writer.WriteLine(message); }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException) { /* IOException, ObjectDisposedException, EncoderFallbackException, NotSupportedException — all best-effort-swallowed */ }
-    }
-
-    /// <summary>
-    /// Peels TypeInitializationException wrappers to reveal the actionable inner exception.
-    /// The wrapper's Message is "The type initializer for X threw an exception." — useless to
-    /// the user. Same pattern as retry/Program.cs and envvault's Cli.UnwrapTypeInit.
-    /// </summary>
-    private static Exception UnwrapTypeInit(Exception ex)
-    {
-        Exception current = ex;
-        for (int depth = 0; depth < 32 && current is TypeInitializationException tie && tie.InnerException != null; depth++)
-        {
-            current = tie.InnerException;
-        }
-        return current;
     }
 
     private static string GetVersion()

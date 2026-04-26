@@ -492,6 +492,16 @@ public sealed class JobRunner
         // Keep-order: write all output in input order after all jobs complete. SafeWrite
         // swallows broken-pipe IOException so a downstream `| head -1` doesn't crash the run
         // out of an otherwise complete pipeline.
+        //
+        // Round-15 SFH I1: defence-in-depth for IsFaulted/IsCanceled tasks. The body's broad
+        // catch keeps us in IsCompletedSuccessfully today, so this branch is unreachable in
+        // practice. If a future change narrows the body's catch and a task lands faulted/
+        // cancelled, we'd otherwise silently skip it during the flush — the JSON summary
+        // would still report it, but a keep-order user reading stdout would see a hole with
+        // no evidence of why job N produced no output. Surface a stderr diagnostic so the
+        // contract "every dispatched job has user-visible evidence" holds even if the body
+        // changes. Stdout output is never available for these arms (the synthesised JobResult
+        // sets Output=null below), so the diagnostic is stderr-only.
         if (_options.Strategy == BufferStrategy.KeepOrder)
         {
             for (int i = 0; i < tasks.Length; i++)
@@ -508,6 +518,18 @@ public sealed class JobRunner
                             break;
                         }
                     }
+                }
+                else if (tasks[i].IsFaulted)
+                {
+                    Exception? rootEx = tasks[i].Exception?.GetBaseException();
+                    string detail = rootEx is null
+                        ? "no exception details"
+                        : $"{rootEx.GetType().Name}: {rootEx.Message}";
+                    SafeWrite(stderr, $"wargs: job {i + 1}: faulted ({detail}){Environment.NewLine}");
+                }
+                else if (tasks[i].IsCanceled)
+                {
+                    SafeWrite(stderr, $"wargs: job {i + 1}: cancelled{Environment.NewLine}");
                 }
             }
         }
