@@ -97,7 +97,7 @@ files . --ext log --older 7d | wargs squeeze --gzip --remove
 
 **Parallel output is buffered by default.** With `-P`, each job's stdout and stderr are buffered and printed atomically after the job completes, preventing interleaved output. Use `--line-buffered` to have children inherit stdio directly — output appears immediately but may interleave.
 
-**Exit code 123 means child failures, not wargs failures.** If one or more child processes exit non-zero, `wargs` exits 123. Exit 124 means `--fail-fast` triggered. Exit 125/126/127 are wargs-own errors (usage, not executable, not found).
+**Exit code 123 means child failures, not wargs failures.** If one or more child processes exit non-zero (or could not be spawned), `wargs` exits 123. Per-job spawn failures surface in `fault_message` rather than as a separate exit code — wargs intentionally collapses spawn failures into 123 + per-job diagnostic. Exit 124 means `--fail-fast` triggered. Exit 125 is usage error. Exit 126 is internal/IO failure (stdin read failed, unexpected exception). Exit 130 is Ctrl+C.
 
 ## Getting Structured Data
 

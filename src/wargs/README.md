@@ -133,12 +133,17 @@ dir /b *.log | wargs del {}
 | Code | Meaning |
 |------|---------|
 | 0 | All jobs succeeded |
-| 123 | One or more child processes failed |
+| 123 | One or more child processes failed (or could not be spawned). Per-job spawn failures surface in `fault_message` rather than as a separate exit code — wargs intentionally collapses spawn failures into 123 + per-job diagnostic. |
 | 124 | Aborted due to `--fail-fast` |
 | 125 | Usage error (bad arguments) |
-| 126 | Command not executable / input read failed |
-| 127 | Command not found |
+| 126 | Internal/IO failure: stdin read failed, or unexpected exception escaped to safety net |
 | 130 | Cancelled by signal (Ctrl+C / SIGINT) |
+
+### Restrictions
+
+- `--confirm` (`-p`) and `--verbose` (`-v`) cannot be combined with `--json` or `--ndjson`. Confirm prompts and verbose plaintext lines write to stderr — the same channel as structured envelopes — and would interleave plaintext among JSON output. Wargs rejects these combinations at parse time with `usage_error` (exit 125).
+- `--ndjson` and `--line-buffered` cannot be combined. Line-buffered children inherit stdio directly, which conflicts with NDJSON's stderr line discipline.
+- `--keep-order` and `--line-buffered` cannot be combined. Order preservation requires per-job buffering.
 
 ## Shell Builtins
 

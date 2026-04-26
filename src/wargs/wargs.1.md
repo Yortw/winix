@@ -84,7 +84,9 @@ Commands like **echo**, **del**, **type**, and **ver** are shell builtins on Win
 :   All jobs succeeded.
 
 **123**
-:   One or more child processes failed.
+:   One or more child processes failed (or could not be spawned). Per-job spawn failures
+    surface in **fault_message** rather than as a separate exit code — wargs intentionally
+    collapses spawn failures into 123 + per-job diagnostic.
 
 **124**
 :   Aborted due to **--fail-fast**.
@@ -93,13 +95,21 @@ Commands like **echo**, **del**, **type**, and **ver** are shell builtins on Win
 :   Usage error (bad arguments).
 
 **126**
-:   Command not executable, or wargs failed to read items from stdin.
-
-**127**
-:   Command not found.
+:   Internal/IO failure: stdin read failed, or unexpected exception escaped to safety net.
 
 **130**
 :   Cancelled by signal (Ctrl+C / SIGINT).
+
+# RESTRICTIONS
+
+**--confirm** (**-p**) and **--verbose** (**-v**) cannot be combined with **--json** or
+**--ndjson**. Confirm prompts and verbose plaintext lines write to stderr — the same channel
+as structured envelopes — and would interleave plaintext among JSON output. Wargs rejects
+these combinations at parse time with **usage_error** (exit 125).
+
+**--ndjson** and **--line-buffered** cannot be combined.
+
+**--keep-order** and **--line-buffered** cannot be combined.
 
 # ENVIRONMENT
 
