@@ -151,9 +151,25 @@ internal sealed class Program
     {
         var sessionStopwatch = Stopwatch.StartNew();
 
+        // CR I4 / CR I9: --once must respect Ctrl+C and not orphan the child.
+        // Without our own CTS + CancelKeyPress handler, hitting Ctrl+C during
+        // `peep --once -- some-slow-cmd` lets the .NET default handler tear down
+        // peep without ever cancelling the token we passed to CommandExecutor —
+        // so its kill-on-cancel callback never fires and the child leaks.
+        using var cts = new CancellationTokenSource();
+        ConsoleCancelEventHandler cancelHandler = (_, e) =>
+        {
+            e.Cancel = true;
+            // Best-effort cancel; if the token source is already disposed (race during
+            // shutdown), suppress so a late Ctrl+C doesn't propagate as ObjectDisposed.
+            try { cts.Cancel(); } catch (ObjectDisposedException) { }
+        };
+        Console.CancelKeyPress += cancelHandler;
+
         try
         {
-            PeepResult peepResult = await CommandExecutor.RunAsync(command, commandArgs, TriggerSource.Initial);
+            PeepResult peepResult = await CommandExecutor.RunAsync(
+                command, commandArgs, TriggerSource.Initial, cts.Token);
             sessionStopwatch.Stop();
 
             Console.Write(peepResult.Output);
@@ -169,10 +185,25 @@ internal sealed class Program
                     command: commandDisplay,
                     lastOutput: jsonOutputIncludeOutput ? peepResult.Output : null,
                     toolName: "peep",
-                    version: version));
+                    version: version,
+                    // TA R2-C4: --describe advertises history_retained, so emit it as 0
+                    // for once-mode rather than omitting (would fail describe-vs-actual
+                    // contract checks). Once-mode keeps zero snapshots.
+                    historyRetained: 0));
             }
 
             return peepResult.ExitCode;
+        }
+        catch (OperationCanceledException)
+        {
+            // Ctrl+C during once-mode. CommandExecutor's cancellation-Register kill
+            // already terminated the child process tree. Exit 130 (POSIX cancelled).
+            sessionStopwatch.Stop();
+            if (jsonOutput)
+            {
+                Console.Error.WriteLine(Formatting.FormatJsonError(130, "cancelled", "peep", version));
+            }
+            return 130;
         }
         catch (CommandNotFoundException ex)
         {
@@ -197,6 +228,29 @@ internal sealed class Program
                 Console.Error.WriteLine($"peep: {ex.Message}");
             }
             return ExitCode.NotExecutable;
+        }
+        catch (CommandStreamException ex)
+        {
+            // CR I9: child closed a pipe abnormally. CommandExecutor has already killed
+            // the child. The interactive path's TryRunCommandAsync handles this; once-mode
+            // previously did not, so a stream error escaped as an unhandled exception with
+            // no envelope and an unspecified exit. Mirror the typed-exception arm above.
+            if (jsonOutput)
+            {
+                Console.Error.WriteLine(Formatting.FormatJsonError(ExitCode.NotExecutable, "command_stream_failed", "peep", version));
+            }
+            else
+            {
+                Console.Error.WriteLine($"peep: {ex.Message}");
+            }
+            return ExitCode.NotExecutable;
+        }
+        finally
+        {
+            // Unregister BEFORE the using disposes the CTS, so a late Ctrl+C cannot
+            // call Cancel() on a disposed source and surface as ObjectDisposedException
+            // (the cancel-handler swallows that, but unregistering first is cleaner).
+            Console.CancelKeyPress -= cancelHandler;
         }
     }
 

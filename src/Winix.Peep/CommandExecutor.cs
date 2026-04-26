@@ -18,13 +18,7 @@ public static class CommandExecutor
     /// process. 64 MB is generous enough that any realistic interactive output fits,
     /// while still bounded.
     /// </summary>
-    internal const int DefaultMaxOutputChars = 64 * 1024 * 1024;
-
-    /// <summary>
-    /// Test seam: tests override this to a small value to exercise the truncation path
-    /// without having to generate 64 MB of output.
-    /// </summary>
-    internal static int MaxOutputChars { get; set; } = DefaultMaxOutputChars;
+    public const int DefaultMaxOutputChars = 64 * 1024 * 1024;
 
     /// <summary>
     /// Runs the specified command with arguments, capturing all output.
@@ -33,6 +27,13 @@ public static class CommandExecutor
     /// <param name="arguments">Arguments to pass to the process.</param>
     /// <param name="trigger">What triggered this execution (for inclusion in the result).</param>
     /// <param name="cancellationToken">Cancellation token to abort the run. When cancelled, the child process is killed.</param>
+    /// <param name="maxOutputChars">
+    /// Cap on captured output in characters. Beyond this, output is truncated and a trailing
+    /// marker is appended. Null (default) uses <see cref="DefaultMaxOutputChars"/>.
+    /// Per-call parameter (rather than a static seam) so tests running in parallel cannot
+    /// race on the cap value, AND so user-facing error text never carries a test-overridden
+    /// number leaking from a concurrent test case.
+    /// </param>
     /// <returns>A <see cref="PeepResult"/> with the merged output, exit code, duration, and trigger source.</returns>
     /// <exception cref="CommandNotFoundException">The command was not found on PATH.</exception>
     /// <exception cref="CommandNotExecutableException">The command exists but cannot be executed.</exception>
@@ -41,8 +42,15 @@ public static class CommandExecutor
         string command,
         string[] arguments,
         TriggerSource trigger,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        int? maxOutputChars = null)
     {
+        int effectiveMaxOutputChars = maxOutputChars ?? DefaultMaxOutputChars;
+        if (effectiveMaxOutputChars < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maxOutputChars),
+                "maxOutputChars must be non-negative.");
+        }
         var startInfo = new ProcessStartInfo
         {
             FileName = command,
@@ -91,8 +99,8 @@ public static class CommandExecutor
             var outputLock = new object();
             var truncation = new TruncationFlag();
 
-            Task stdoutTask = ReadStreamAsync(process.StandardOutput, output, outputLock, truncation);
-            Task stderrTask = ReadStreamAsync(process.StandardError, output, outputLock, truncation);
+            Task stdoutTask = ReadStreamAsync(process.StandardOutput, output, outputLock, truncation, effectiveMaxOutputChars);
+            Task stderrTask = ReadStreamAsync(process.StandardError, output, outputLock, truncation, effectiveMaxOutputChars);
 
             // Wait for both stream reads to complete and for the process to exit.
             // If cancelled, kill the child process so we don't leak it.
@@ -157,7 +165,7 @@ public static class CommandExecutor
                 if (truncation.Triggered)
                 {
                     output.AppendLine();
-                    output.Append($"[peep: output truncated at {MaxOutputChars:N0} characters; child likely runaway]");
+                    output.Append($"[peep: output truncated at {effectiveMaxOutputChars:N0} characters; child likely runaway]");
                 }
                 captured = output.ToString();
             }
@@ -173,11 +181,11 @@ public static class CommandExecutor
     /// <summary>
     /// Reads a redirected stream in chunks and appends to the shared StringBuilder.
     /// The lock serialises interleaved stdout/stderr writes so chunks don't get torn,
-    /// and enforces the <see cref="MaxOutputChars"/> cap by setting the shared
+    /// and enforces the <paramref name="maxOutputChars"/> cap by setting the shared
     /// <paramref name="truncation"/> flag and dropping further input once exceeded.
     /// </summary>
     private static async Task ReadStreamAsync(
-        StreamReader reader, StringBuilder output, object outputLock, TruncationFlag truncation)
+        StreamReader reader, StringBuilder output, object outputLock, TruncationFlag truncation, int maxOutputChars)
     {
         char[] buffer = new char[4096];
         int charsRead;
@@ -194,7 +202,7 @@ public static class CommandExecutor
                     continue;
                 }
 
-                int remaining = MaxOutputChars - output.Length;
+                int remaining = maxOutputChars - output.Length;
                 if (remaining <= 0)
                 {
                     truncation.Triggered = true;

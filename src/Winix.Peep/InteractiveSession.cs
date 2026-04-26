@@ -79,8 +79,20 @@ public sealed class InteractiveSession
             fileWatcher = new FileWatcher(_config.WatchPatterns, _config.DebounceMs, excludeFilter);
             fileWatcher.FileChanged += () =>
             {
-                // Release the semaphore to signal the main loop
-                fileChangeSemaphore.Release();
+                // Release the semaphore to signal the main loop. Wrap in try/catch
+                // because FileChanged can fire from the FSW callback thread or the
+                // debounce Timer callback during shutdown — after the finally block
+                // disposed the semaphore but before FileWatcher.Dispose drained
+                // in-flight callbacks. ObjectDisposedException at this point is the
+                // benign shutdown race; lost change is fine because peep is exiting.
+                try
+                {
+                    fileChangeSemaphore.Release();
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Shutdown race — see comment above.
+                }
             };
             fileWatcher.WatchError += (message) =>
             {
@@ -149,7 +161,32 @@ public sealed class InteractiveSession
                     }
                     catch (OperationCanceledException)
                     {
-                        // Expected on shutdown
+                        // Expected on shutdown.
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        // Shutdown race — finally block disposed the semaphore before
+                        // this task observed cancellation. Benign during shutdown.
+                    }
+                    catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+                    {
+                        // Fallback: monitor task crashed unexpectedly. Without this catch the
+                        // exception would be silently swallowed by the unobserved-task handler
+                        // and file-change triggering would silently stop working — peep would
+                        // keep running on interval-only (or appear frozen if interval is
+                        // disabled). Surface to stderr so the user can see the regression.
+                        // Diagnostic strictly weaker than production: a failing stderr write
+                        // must not crash the watch loop.
+                        try
+                        {
+                            Console.Error.WriteLine(
+                                $"[peep] warning: file-change monitor crashed; file-change triggering disabled: " +
+                                $"{ex.GetType().Name}: {ex.Message}");
+                        }
+                        catch
+                        {
+                            // best effort
+                        }
                     }
                 }, ct);
             }
@@ -179,12 +216,20 @@ public sealed class InteractiveSession
                 bool shouldRun = false;
                 TriggerSource trigger = TriggerSource.Interval;
 
-                if (Interlocked.CompareExchange(ref fileChangeFlag, 0, 1) == 1 && !_running)
+                // CR R2-C1: check _running BEFORE consuming the file-change flag.
+                // The previous order — Interlocked.CompareExchange first, then check
+                // _running — silently dropped triggers whenever a save landed during
+                // an in-flight run, because CompareExchange consumed the flag before
+                // the _running check failed. With long-running children (`dotnet test`),
+                // this is the COMMON case, not the edge. _running mutates only inside
+                // RunAndProcessResultAsync awaited from this loop, so reading it here
+                // is single-threaded and a stale read isn't possible.
+                if (!_running && Interlocked.CompareExchange(ref fileChangeFlag, 0, 1) == 1)
                 {
                     shouldRun = true;
                     trigger = TriggerSource.FileChange;
                 }
-                else if (_config.UseInterval && DateTime.UtcNow >= nextRunTime && !_running)
+                else if (!_running && _config.UseInterval && DateTime.UtcNow >= nextRunTime)
                 {
                     shouldRun = true;
                     trigger = TriggerSource.Interval;
@@ -731,8 +776,16 @@ public sealed class InteractiveSession
 
         int exitCode = _lastResult?.ExitCode ?? _failedExitCode;
 
-        // For auto-exit conditions that represent success, use exit code 0
-        if (_exitReason == "exit_on_change" || _exitReason == "exit_on_success")
+        // For auto-exit conditions that represent a user-requested success condition
+        // being reached, override the child's exit code with 0. exit_on_match is in
+        // the same family — the user asked "exit when output matches PAT", which is a
+        // success signal. Without including it here, `peep --exit-on-match READY -- cmd`
+        // returns the child's last exit code (often non-zero on the run during which
+        // the match appeared) — confusing and contradicts the README contract that
+        // says "0 = Auto-exit condition met".
+        if (_exitReason == "exit_on_change"
+            || _exitReason == "exit_on_success"
+            || _exitReason == "exit_on_match")
         {
             exitCode = 0;
         }
