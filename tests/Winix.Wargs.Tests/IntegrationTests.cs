@@ -139,6 +139,43 @@ public class IntegrationTests
         Assert.Equal(mdCodes, grfCodes);
     }
 
+    [Fact]
+    public void Convention_BareCatchException_RequiresOomSoeFilterOrExplicitMarker()
+    {
+        // Round-14 SFH I2 broadening: bare `catch (Exception)` swallows OOM/StackOverflow,
+        // hiding process-wide instability under best-effort handlers. Convention is to
+        // exclude OOM/SOE via a `when` filter unless the catch is in a position where
+        // the original exception MUST propagate (dispose-in-finally) — those sites carry
+        // the marker comment "bare by design" so this test honours the exemption.
+        //
+        // Why a source-scan rather than behavioural: round-14's SafeWriteLine drift was
+        // an xmldoc-vs-code mismatch (doc claimed exclusion, code didn't have it). A
+        // behavioural test for OOM-swallow would test C# compiler semantics; a source
+        // scan catches the actual drift class.
+        string repoRoot = LocateRepoRoot();
+        string[] files = new[]
+        {
+            Path.Combine(repoRoot, "src", "Winix.Wargs", "JobRunner.cs"),
+            Path.Combine(repoRoot, "src", "wargs", "Program.cs"),
+        };
+        var bareCatchPattern = new Regex(@"catch\s*\(\s*Exception(\s+\w+)?\s*\)(?!\s*when)");
+
+        foreach (string path in files)
+        {
+            string[] lines = File.ReadAllLines(path);
+            for (int i = 0; i < lines.Length; i++)
+            {
+                if (!bareCatchPattern.IsMatch(lines[i])) { continue; }
+                int windowStart = Math.Max(0, i - 4);
+                string window = string.Join('\n', lines.Skip(windowStart).Take(i - windowStart + 1));
+                Assert.True(window.Contains("bare by design"),
+                    $"{Path.GetFileName(path)}:{i + 1} — bare catch(Exception) needs OOM/SOE filter " +
+                    "(catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)) " +
+                    "or a 'bare by design' marker comment within 4 lines preceding.");
+            }
+        }
+    }
+
     private static string LocateRepoRoot()
     {
         string assemblyPath = typeof(IntegrationTests).Assembly.Location;

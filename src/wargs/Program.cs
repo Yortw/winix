@@ -40,7 +40,7 @@ internal sealed class Program
             // the entire envelope-emission catch in Main. Best-effort: never crash the
             // process from the SIGINT handler.
             try { cts.Cancel(); }
-            catch (Exception) { /* see comment */ }
+            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException) { /* see comment */ }
         };
         Console.CancelKeyPress += cancelHandler;
 
@@ -63,7 +63,7 @@ internal sealed class Program
         cts.Token.Register(() =>
         {
             try { Console.In.Close(); }
-            catch (Exception) { /* best-effort — Console.In may already be closed */ }
+            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException) { /* best-effort — Console.In may already be closed */ }
         });
 
         try
@@ -159,7 +159,7 @@ internal sealed class Program
             .CommandMode()
             .ExitCodes(
                 (0, "All jobs succeeded"),
-                (WargsExitCode.ChildFailed, "One or more child processes failed (or could not be spawned). Per-job spawn failures surface in fault_message rather than as exit 127 — wargs intentionally collapses spawn failures into 123 + per-job diagnostic."),
+                (WargsExitCode.ChildFailed, "One or more child processes failed (or could not be spawned). Per-job spawn failures surface in fault_message rather than as a separate exit code — wargs intentionally collapses spawn failures into 123 + per-job diagnostic."),
                 (WargsExitCode.FailFastAbort, "Aborted due to --fail-fast"),
                 (ExitCode.UsageError, "Usage error"),
                 (ExitCode.NotExecutable, "Internal/IO failure: stdin read failed, unexpected exception escaped to safety net"),
@@ -615,7 +615,7 @@ internal sealed class Program
     private static void SafeWriteLine(TextWriter writer, string message)
     {
         try { writer.WriteLine(message); }
-        catch (Exception) { /* IOException, ObjectDisposedException, EncoderFallbackException, NotSupportedException — all best-effort-swallowed */ }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException) { /* IOException, ObjectDisposedException, EncoderFallbackException, NotSupportedException — all best-effort-swallowed */ }
     }
 
     /// <summary>

@@ -132,7 +132,7 @@ public sealed class JobRunner
                 // custom delegates injected via the test seam / library API.
                 bool proceed;
                 try { proceed = prompt(invocation.DisplayString); }
-                catch (Exception) { proceed = false; }
+                catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException) { proceed = false; }
                 if (!proceed)
                 {
                     JobResult declinedResult = new JobResult(
@@ -300,7 +300,7 @@ public sealed class JobRunner
                 // consumers who construct JobRunner directly (and the test seam).
                 bool proceed;
                 try { proceed = prompt(invocation.DisplayString); }
-                catch (Exception) { proceed = false; }
+                catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException) { proceed = false; }
                 if (!proceed)
                 {
                     JobResult declinedSkipped = new JobResult(
@@ -393,7 +393,7 @@ public sealed class JobRunner
                                 // skip rather than each rediscover the failure.
                                 Volatile.Write(ref aborted, true);
                                 try { failFastCts.Cancel(); }
-                                catch (Exception) { /* race with end-of-run dispose */ }
+                                catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException) { /* race with end-of-run dispose */ }
                             }
                         }
 
@@ -406,7 +406,7 @@ public sealed class JobRunner
                         {
                             Volatile.Write(ref aborted, true);
                             try { failFastCts.Cancel(); }
-                            catch (Exception) { /* race with end-of-run dispose */ }
+                            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException) { /* race with end-of-run dispose */ }
                         }
                     }
                 }
@@ -475,7 +475,7 @@ public sealed class JobRunner
         {
             // Fail-fast cancellation — tasks already returned Skipped results
         }
-        catch (Exception)
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
             // Unexpected exception from a task body. Faulted tasks are handled below
             // by checking task status before accessing .Result.
@@ -740,9 +740,12 @@ public sealed class JobRunner
             // Dispose-in-finally: must not mask the original exception. Process.Dispose can
             // throw on Windows when the underlying handle is in an unusual state during
             // process-tree teardown after Kill; if that happened, swallowing here keeps the
-            // real exception (cancellation, WaitForExit failure) propagating.
+            // real exception (cancellation, WaitForExit failure) propagating. Bare catch is
+            // deliberate (no OOM/SOE filter): if Dispose throws OOM/SOE, the original
+            // exception still matters more than the disposal failure — the process is
+            // already terminating, surface what triggered it.
             try { process.Dispose(); }
-            catch (Exception) { /* dispose-in-finally — original exception must propagate */ }
+            catch (Exception) { /* dispose-in-finally — original exception must propagate; bare by design */ }
         }
     }
 
@@ -870,9 +873,12 @@ public sealed class JobRunner
             // Dispose-in-finally: must not mask the original exception. Process.Dispose can
             // throw on Windows when the underlying handle is in an unusual state during
             // process-tree teardown after Kill; if that happened, swallowing here keeps the
-            // real exception (cancellation, WaitForExit failure) propagating.
+            // real exception (cancellation, WaitForExit failure) propagating. Bare catch is
+            // deliberate (no OOM/SOE filter): if Dispose throws OOM/SOE, the original
+            // exception still matters more than the disposal failure — the process is
+            // already terminating, surface what triggered it.
             try { process.Dispose(); }
-            catch (Exception) { /* dispose-in-finally — original exception must propagate */ }
+            catch (Exception) { /* dispose-in-finally — original exception must propagate; bare by design */ }
         }
     }
 
@@ -969,7 +975,7 @@ public sealed class JobRunner
             {
                 Console.Error.WriteLine("wargs: --confirm requested but no terminal available; declining.");
             }
-            catch (Exception) { /* stderr also unavailable — best-effort */ }
+            catch (Exception ex2) when (ex2 is not OutOfMemoryException and not StackOverflowException) { /* stderr also unavailable — best-effort */ }
             return false;
         }
     }
@@ -1032,6 +1038,6 @@ public sealed class JobRunner
     {
         if (_options.OnJobCompleted is null) { return; }
         try { _options.OnJobCompleted(result); }
-        catch (Exception) { /* streaming subscriber must not abort the run */ }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException) { /* streaming subscriber must not abort the run */ }
     }
 }
