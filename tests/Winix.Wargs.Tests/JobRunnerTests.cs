@@ -576,6 +576,33 @@ public class JobRunnerTests
     }
 
     [Fact]
+    public async Task RunAsync_DryRun_BrokenStdoutPipe_DoesNotCrashRun()
+    {
+        // Round-8 SFH C1 / TA C1: RunDryRun was the lone unwrapped stdout path. Without
+        // protection, `wargs --dry-run --json | head -1` raised IOException on the second
+        // WriteLine, escaped JobRunner.RunAsync, and surfaced as unexpected_error/exit 126
+        // instead of dry_run/exit 0. Round-8 wraps each WriteLine in try/catch IOException +
+        // ObjectDisposedException, breaking the loop on first failure so Main can still
+        // emit the dry_run envelope on stderr.
+        var brokenStdout = new BrokenPipeWriter();
+        var runner = new JobRunner(new JobRunnerOptions(DryRun: true));
+        var invocations = new[]
+        {
+            MakeEchoInvocation("a", 1),
+            MakeEchoInvocation("b", 2),
+            MakeEchoInvocation("c", 3),
+        };
+
+        // Must not throw — the IOException must be swallowed so Main can emit the envelope.
+        var result = await runner.RunAsync(invocations, brokenStdout, TextWriter.Null);
+
+        Assert.Equal(0, result.TotalJobs); // RunDryRun returns zero by contract
+        // First WriteLine attempted; loop should break on first IOException so subsequent
+        // jobs don't re-discover the failure.
+        Assert.Equal(1, brokenStdout.WriteAttempts);
+    }
+
+    [Fact]
     public async Task RunAsync_KeepOrder_BrokenStdoutPipe_DoesNotCrashRun()
     {
         var invocations = Enumerable.Range(0, 4)

@@ -87,21 +87,25 @@ public class ProgramMainTests
     }
 
     [Theory]
-    [InlineData("--describe")]
-    [InlineData("--help")]
-    [InlineData("--version")]
-    public void IntrospectionFlag_UnderNdjson_StderrIsClean(string flag)
+    [InlineData("--ndjson", "--describe")]
+    [InlineData("--ndjson", "--help")]
+    [InlineData("--ndjson", "--version")]
+    [InlineData("--json", "--describe")]
+    [InlineData("--json", "--help")]
+    [InlineData("--json", "--version")]
+    public void IntrospectionFlag_UnderStructuredOutput_StderrIsClean(string mode, string flag)
     {
-        // Round-7 SFH/test-analyzer: introspection flags are handled by ShellKit's parser
-        // and return ExitCode 0 with output on stdout. Under --ndjson the envelope contract
-        // says "every exit path emits a parseable JSON envelope on stderr". Introspection is
-        // an exception — there's no failure to envelope. Pin that stderr is empty (or
-        // whitespace-only) so a future change that accidentally emits a half-formed
-        // envelope here can't slip through.
-        var result = RunWargs(stdin: null, "--ndjson", flag);
+        // Round-7 SFH/test-analyzer + round-8 TA I3: introspection flags are handled by
+        // ShellKit's parser and return ExitCode 0 with output on stdout. Under --json or
+        // --ndjson the envelope contract says "every exit path emits a parseable JSON
+        // envelope on stderr". Introspection is an exception — there's no failure to
+        // envelope. Pin that stderr is empty (or whitespace-only) for both modes so a
+        // future change that accidentally emits a half-formed envelope here can't slip
+        // through. Round-8 added --json variants for symmetry with the round-7 --ndjson pin.
+        var result = RunWargs(stdin: null, mode, flag);
         Assert.Equal(0, result.ExitCode);
         Assert.True(string.IsNullOrWhiteSpace(result.Stderr),
-            $"Expected empty stderr for --ndjson {flag} introspection but got: {result.Stderr}");
+            $"Expected empty stderr for {mode} {flag} introspection but got: {result.Stderr}");
     }
 
     // --- Envelope contract: every exit path under --json/--ndjson emits a parseable JSON ---
@@ -196,6 +200,31 @@ public class ProgramMainTests
         string trimmed = result.Stderr.Trim();
         using var doc = JsonDocument.Parse(trimmed);
         Assert.Equal("usage_error", doc.RootElement.GetProperty("exit_reason").GetString());
+    }
+
+    [Fact]
+    public void ConfirmWithJson_IsRejectedAsUsageError()
+    {
+        // Round-8 SFH I1 / TA I1: --confirm prompts to stderr (and the "no terminal
+        // available" diagnostic does too) — same channel as structured envelopes. Same
+        // defect class as the round-5 --verbose rejection. Rejected at parse time.
+        var result = RunWargs(stdin: "a", "--json", "--confirm", "echo");
+        Assert.Equal(125, result.ExitCode);
+        string firstLine = result.Stderr.Split('\n', 2)[0].Trim();
+        using var doc = JsonDocument.Parse(firstLine);
+        Assert.Equal("usage_error", doc.RootElement.GetProperty("exit_reason").GetString());
+    }
+
+    [Fact]
+    public void ConfirmWithNdjson_IsRejectedAsUsageError()
+    {
+        var result = RunWargs(stdin: "a", "--ndjson", "--confirm", "echo");
+        Assert.Equal(125, result.ExitCode);
+        string trimmed = result.Stderr.Trim();
+        using var doc = JsonDocument.Parse(trimmed);
+        Assert.Equal("usage_error", doc.RootElement.GetProperty("exit_reason").GetString());
+        // Strict NDJSON: must be exactly one line on stderr.
+        Assert.Single(trimmed.Split('\n'));
     }
 
     [Fact]
