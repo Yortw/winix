@@ -851,6 +851,161 @@ public class JobRunnerTests
         Assert.All(ffResult.Jobs.Where(j => j.Skipped), j => Assert.Null(j.FaultMessage));
     }
 
+    // -- Round-12 review: SkipReason classification + NDJSON streaming via OnJobCompleted. --
+
+    [Fact]
+    public async Task RunAsync_FailFastSkipsCarryFailFastAbortReason()
+    {
+        // Round-12 SFH+TA I4: when --fail-fast triggers and skips remaining jobs, those
+        // skipped jobs must carry SkipReason.FailFastAbort so Program.cs's classifier can
+        // distinguish them from confirm-declined or external-cancel skips.
+        var runner = new JobRunner(new JobRunnerOptions(FailFast: true));
+        var invocations = new[]
+        {
+            MakeExitInvocation(1, "fail"),                // job 1: fails
+            MakeEchoInvocation("would-skip-2", 2),        // job 2+: skipped due to fail-fast
+            MakeEchoInvocation("would-skip-3", 3),
+        };
+
+        var result = await runner.RunAsync(invocations, TextWriter.Null, TextWriter.Null);
+
+        Assert.True(result.Failed >= 1);
+        Assert.True(result.Skipped >= 1);
+        // Every skipped job from this run must be classified as FailFastAbort
+        // (the only skip-producing path here besides the failure itself).
+        Assert.All(result.Jobs.Where(j => j.Skipped),
+            j => Assert.Equal(SkipReason.FailFastAbort, j.SkipReason));
+    }
+
+    [Fact]
+    public async Task RunAsync_ConfirmDeclinedSkipsCarryConfirmDeclinedReason()
+    {
+        // Round-12 SFH+TA I4: confirm-declined skips must carry SkipReason.ConfirmDeclined,
+        // NOT FailFastAbort. Without this distinction Program.cs would mis-classify a
+        // confirm-decline + later child failure as fail_fast_abort.
+        var runner = new JobRunner(new JobRunnerOptions(
+            Confirm: true,
+            ConfirmPrompt: _ => false));  // decline every prompt
+        var invocations = new[]
+        {
+            MakeEchoInvocation("a", 1),
+            MakeEchoInvocation("b", 2),
+        };
+
+        var result = await runner.RunAsync(invocations, TextWriter.Null, TextWriter.Null);
+
+        Assert.Equal(2, result.Skipped);
+        Assert.All(result.Jobs.Where(j => j.Skipped),
+            j => Assert.Equal(SkipReason.ConfirmDeclined, j.SkipReason));
+    }
+
+    [Fact]
+    public async Task RunAsync_OnJobCompleted_FiresPerJobAsTheyComplete_NotBatched()
+    {
+        // Round-12 CR/SFH/TA C1: NDJSON was documented as "streaming per job" but the prior
+        // implementation emitted lines after Task.WhenAll. The fix added an OnJobCompleted
+        // callback invoked from inside the task body. This pin asserts the callback is
+        // invoked at LEAST as many times as completed jobs (the structural shape — actual
+        // timing is covered by an integration test that compares timestamps).
+        var completedJobs = new List<int>();
+        var lockObj = new object();
+        var runner = new JobRunner(new JobRunnerOptions(
+            OnJobCompleted: job =>
+            {
+                lock (lockObj) { completedJobs.Add(job.JobIndex); }
+            }));
+        var invocations = new[]
+        {
+            MakeEchoInvocation("a", 1),
+            MakeEchoInvocation("b", 2),
+            MakeEchoInvocation("c", 3),
+        };
+
+        var result = await runner.RunAsync(invocations, TextWriter.Null, TextWriter.Null);
+
+        Assert.Equal(3, result.Succeeded);
+        // Three completed jobs → three callback invocations.
+        Assert.Equal(3, completedJobs.Count);
+        Assert.Contains(1, completedJobs);
+        Assert.Contains(2, completedJobs);
+        Assert.Contains(3, completedJobs);
+    }
+
+    [Fact]
+    public async Task RunAsync_OnJobCompleted_NotInvokedForSkippedJobs()
+    {
+        // Round-12: existing per-job-stream contract is "one line per job actually run."
+        // Skipped jobs are intentionally OMITTED from the stream. The OnJobCompleted
+        // callback must respect this — it should not fire for Skipped JobResults.
+        int callbackCount = 0;
+        var runner = new JobRunner(new JobRunnerOptions(
+            FailFast: true,
+            OnJobCompleted: _ => { Interlocked.Increment(ref callbackCount); }));
+        var invocations = new[]
+        {
+            MakeExitInvocation(1, "fail"),                // fires
+            MakeEchoInvocation("would-skip", 2),          // skipped, no fire
+            MakeEchoInvocation("would-skip-too", 3),      // skipped, no fire
+        };
+
+        var result = await runner.RunAsync(invocations, TextWriter.Null, TextWriter.Null);
+
+        Assert.Equal(1, result.Failed);
+        Assert.True(result.Skipped >= 1);
+        // Only the failed job (which actually ran) should fire the callback.
+        Assert.Equal(1, callbackCount);
+    }
+
+    [Fact]
+    public async Task RunAsync_OnJobCompleted_CallbackFault_DoesNotAbortRun()
+    {
+        // The callback is best-effort; a buggy subscriber must not abort the run.
+        // Pin via a callback that throws on every invocation.
+        var runner = new JobRunner(new JobRunnerOptions(
+            OnJobCompleted: _ => throw new InvalidOperationException("subscriber bug")));
+        var invocations = new[]
+        {
+            MakeEchoInvocation("a", 1),
+            MakeEchoInvocation("b", 2),
+        };
+
+        var result = await runner.RunAsync(invocations, TextWriter.Null, TextWriter.Null);
+
+        // All jobs ran successfully despite the callback throwing on each.
+        Assert.Equal(2, result.Succeeded);
+        Assert.Equal(0, result.Failed);
+    }
+
+    [Fact]
+    public async Task RunAsync_Parallel_WallSecondsIsRunDurationNotSum()
+    {
+        // Round-12 CR/SFH/TA I2: wall_seconds is wall-clock duration of the run, NOT sum
+        // of per-job durations. Under -P 4 with 4 jobs each sleeping ~500ms, the run takes
+        // ~500ms not ~2000ms. The earlier "across all jobs" wording suggested summation;
+        // the new wording explicitly disclaims it. Pin the actual semantics.
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            return; // Windows ping-based sleep is too coarse for sub-second timing pins
+        }
+
+        CommandInvocation MakeSleep(double seconds, string token)
+            => new CommandInvocation(
+                "sh",
+                new[] { "-c", $"sleep {seconds.ToString(System.Globalization.CultureInfo.InvariantCulture)}" },
+                $"sh -c 'sleep {seconds}'",
+                new[] { token });
+
+        var invocations = Enumerable.Range(0, 4).Select(i => MakeSleep(0.5, $"j{i}")).ToArray();
+        var runner = new JobRunner(new JobRunnerOptions(Parallelism: 4));
+
+        var result = await runner.RunAsync(invocations, TextWriter.Null, TextWriter.Null);
+
+        Assert.Equal(4, result.Succeeded);
+        // Sum of per-job durations would be ~2.0s; wall-clock should be < 1.5s under -P 4.
+        Assert.True(result.WallTime.TotalSeconds < 1.5,
+            $"Expected wall_seconds < 1.5s under -P 4 (concurrent execution), got {result.WallTime.TotalSeconds:F2}s");
+    }
+
     [SkippableFact]
     public async Task RunAsync_ShellFallback_ItemWithNewline_DoesNotInjectShellCommand()
     {

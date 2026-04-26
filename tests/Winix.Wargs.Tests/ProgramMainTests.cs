@@ -327,6 +327,101 @@ public class ProgramMainTests
         Assert.Equal("usage_error", doc.RootElement.GetProperty("exit_reason").GetString());
     }
 
+    // -- Round-12 review: NDJSON streaming timing pin + advertised exit-code reachability. --
+
+    [SkippableFact]
+    public async Task Ndjson_StreamsLinesAsJobsCompleteNotAfterTaskWhenAll()
+    {
+        // Round-12 CR/SFH/TA C1: NDJSON was documented as "streaming per job" but the prior
+        // implementation emitted all lines after RunAsync returned (i.e. after Task.WhenAll).
+        // For long-running jobs this meant zero stderr output until the last job finished.
+        // The fix added an OnJobCompleted callback wired to per-job NDJSON emission.
+        //
+        // This test pins the streaming behaviour by spawning wargs with three sleep-then-echo
+        // jobs of decreasing duration. We read stderr line-by-line as the subprocess runs and
+        // record the wall-clock time of each line's arrival. If streaming works, line 1
+        // (corresponding to the fastest-finishing job) arrives well before all three have
+        // finished. If batched, lines arrive in a burst at end-of-run.
+        //
+        // Linux-only: Windows ping-based sleep is too coarse and the timing is harder to
+        // reason about deterministically. The library-level test
+        // RunAsync_OnJobCompleted_FiresPerJobAsTheyComplete pins the structural shape on
+        // every platform; this test pins the end-to-end timing on Linux.
+        Skip.IfNot(!OperatingSystem.IsWindows(), "Unix-only — sleep-driven timing");
+
+        string wargsDll = LocateWargsDll();
+        var psi = new ProcessStartInfo
+        {
+            FileName = "dotnet",
+            UseShellExecute = false,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        psi.ArgumentList.Add(wargsDll);
+        psi.ArgumentList.Add("--ndjson");
+        psi.ArgumentList.Add("-P");
+        psi.ArgumentList.Add("4");
+        psi.ArgumentList.Add("sh");
+        psi.ArgumentList.Add("-c");
+        psi.ArgumentList.Add("sleep $1; echo $1");  // each job sleeps for its input
+        psi.ArgumentList.Add("--");
+
+        using Process p = Process.Start(psi)!;
+        // Three jobs: durations 0.2s, 0.5s, 1.5s. Under streaming, the 0.2s line should
+        // arrive well before the 1.5s line. Under batched emission, all three arrive at ~1.5s.
+        var startTime = DateTime.UtcNow;
+        await p.StandardInput.WriteAsync("0.2\n0.5\n1.5\n");
+        p.StandardInput.Close();
+
+        var lineArrivals = new List<(double seconds, string line)>();
+        string? line;
+        while ((line = await p.StandardError.ReadLineAsync()) != null)
+        {
+            double secondsSinceStart = (DateTime.UtcNow - startTime).TotalSeconds;
+            lineArrivals.Add((secondsSinceStart, line));
+        }
+        if (!p.WaitForExit(15_000))
+        {
+            p.Kill(entireProcessTree: true);
+            throw new System.TimeoutException("wargs did not exit within 15s");
+        }
+
+        Assert.Equal(0, p.ExitCode);
+        Assert.Equal(3, lineArrivals.Count);
+
+        // The first line should arrive within ~1.0s of start (the 0.2s job finishes plus
+        // dispatch overhead). If batched, it would arrive after ~1.5s when the slowest job
+        // finishes. Use 1.0s as the threshold to give CI runners some slack.
+        Assert.True(lineArrivals[0].seconds < 1.0,
+            $"First NDJSON line should arrive < 1.0s from start (streaming). Got {lineArrivals[0].seconds:F2}s. " +
+            "If this fails, NDJSON is being batched after Task.WhenAll instead of streamed via OnJobCompleted.");
+    }
+
+    [Fact]
+    public void DescribeExitCodes_AllAdvertisedAreReachableOrIntentionallyOmitted()
+    {
+        // Round-12 CR/SFH/TA I1: exit code 127 was advertised in --describe but no code
+        // path returned it. Round-12 removed it. This test pins the new contract: the
+        // exit_codes section of --describe lists exactly { 0, 123, 124, 125, 126, 130 }.
+        // 127 is intentionally omitted (spawn failures collapse to 123 + per-job
+        // fault_message). A future change that re-adds 127 to the advertised list without
+        // adding a real code path returning it would fail this test.
+        var result = RunWargs(stdin: null, "--describe");
+        Assert.Equal(0, result.ExitCode);
+        using var doc = JsonDocument.Parse(result.Stdout);
+
+        var advertisedCodes = doc.RootElement.GetProperty("exit_codes")
+            .EnumerateArray()
+            .Select(e => e.GetProperty("code").GetInt32())
+            .OrderBy(c => c)
+            .ToArray();
+
+        // Pin the exact set. If a new exit code is added (or removed), this test must be
+        // updated alongside the corresponding code path.
+        Assert.Equal(new[] { 0, 123, 124, 125, 126, 130 }, advertisedCodes);
+    }
+
     [SkippableFact]
     public async Task CtrlCDuringStdin_UnderNdjson_EmitsCancelledEnvelope()
     {
