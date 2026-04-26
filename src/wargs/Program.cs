@@ -424,16 +424,57 @@ internal sealed class Program
             // Reconstruct JobRunnerOptions with the streaming callback wired in. The earlier
             // construction at runnerOptions creation didn't have it because we hadn't yet
             // resolved the output mode.
-            runnerOptions = runnerOptions with { OnJobCompleted = job =>
+            //
+            // Two callback shapes:
+            //   1. Default --ndjson: emit-on-receive in completion order. Skipped jobs are
+            //      omitted from the stream (per-job-stream contract).
+            //   2. --ndjson --keep-order: reorder-buffer in input order. Out-of-order
+            //      completions are held back until all earlier-indexed jobs have been
+            //      received (skipped jobs advance the next-expected pointer without
+            //      emitting). Original wargs design (2026-03-31 design doc line 219:
+            //      "With --keep-order, NDJSON lines emitted in order") explicitly required
+            //      this — round-12's first streaming attempt missed it because the agents
+            //      framed the bug as one-way "implementation doesn't match docs" without
+            //      checking whether the docs had a second clause that batched-emission
+            //      satisfied trivially.
+            if (keepOrder)
             {
-                int jobExitCode = job.ChildExitCode == 0 ? 0 : WargsExitCode.ChildFailed;
-                string jobExitReason = job.ChildExitCode == 0 ? "success" : "child_failed";
-                string line = Formatting.FormatNdjsonLine(job, jobExitCode, jobExitReason, "wargs", version);
-                lock (ndjsonStderrLock)
+                var ndjsonBuffer = new Dictionary<int, JobResult>();
+                int ndjsonNextExpected = 1;  // 1-based job index
+                runnerOptions = runnerOptions with { OnJobCompleted = job =>
                 {
-                    SafeWriteLine(Console.Error, line);
-                }
-            }};
+                    lock (ndjsonStderrLock)
+                    {
+                        ndjsonBuffer[job.JobIndex] = job;
+                        // Drain consecutive completed jobs starting from next-expected.
+                        // Skipped jobs advance the pointer without emitting.
+                        while (ndjsonBuffer.TryGetValue(ndjsonNextExpected, out JobResult? head))
+                        {
+                            ndjsonBuffer.Remove(ndjsonNextExpected);
+                            ndjsonNextExpected++;
+                            if (head.Skipped) { continue; }
+                            int jobExitCode = head.ChildExitCode == 0 ? 0 : WargsExitCode.ChildFailed;
+                            string jobExitReason = head.ChildExitCode == 0 ? "success" : "child_failed";
+                            string line = Formatting.FormatNdjsonLine(head, jobExitCode, jobExitReason, "wargs", version);
+                            SafeWriteLine(Console.Error, line);
+                        }
+                    }
+                }};
+            }
+            else
+            {
+                runnerOptions = runnerOptions with { OnJobCompleted = job =>
+                {
+                    if (job.Skipped) { return; }  // omit skipped from default stream
+                    int jobExitCode = job.ChildExitCode == 0 ? 0 : WargsExitCode.ChildFailed;
+                    string jobExitReason = job.ChildExitCode == 0 ? "success" : "child_failed";
+                    string line = Formatting.FormatNdjsonLine(job, jobExitCode, jobExitReason, "wargs", version);
+                    lock (ndjsonStderrLock)
+                    {
+                        SafeWriteLine(Console.Error, line);
+                    }
+                }};
+            }
             jobRunner = new JobRunner(runnerOptions);
         }
 

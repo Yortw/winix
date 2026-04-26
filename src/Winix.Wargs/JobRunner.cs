@@ -103,14 +103,16 @@ public sealed class JobRunner
             // Fail-fast: skip remaining jobs after a failure
             if (abort)
             {
-                jobs.Add(new JobResult(
+                JobResult skippedResult = new JobResult(
                     JobIndex: jobIndex,
                     ChildExitCode: -1,
                     Output: null,
                     Duration: TimeSpan.Zero,
                     SourceItems: invocation.SourceItems,
                     Skipped: true,
-                    SkipReason: SkipReason.FailFastAbort));
+                    SkipReason: SkipReason.FailFastAbort);
+                jobs.Add(skippedResult);
+                InvokeJobCompleted(skippedResult);
                 skipped++;
                 continue;
             }
@@ -121,14 +123,16 @@ public sealed class JobRunner
                 Func<string, bool> prompt = _options.ConfirmPrompt ?? DefaultConfirmPrompt;
                 if (!prompt(invocation.DisplayString))
                 {
-                    jobs.Add(new JobResult(
+                    JobResult declinedResult = new JobResult(
                         JobIndex: jobIndex,
                         ChildExitCode: -1,
                         Output: null,
                         Duration: TimeSpan.Zero,
                         SourceItems: invocation.SourceItems,
                         Skipped: true,
-                        SkipReason: SkipReason.ConfirmDeclined));
+                        SkipReason: SkipReason.ConfirmDeclined);
+                    jobs.Add(declinedResult);
+                    InvokeJobCompleted(declinedResult);
                     skipped++;
                     continue;
                 }
@@ -181,8 +185,9 @@ public sealed class JobRunner
 
             jobs.Add(result);
             // Round-12 streaming: notify subscribers as each job completes (Program.cs uses
-            // this for true NDJSON streaming). Skipped jobs are NOT notified — the existing
-            // contract is that skipped jobs are omitted from the per-job stream.
+            // this for true NDJSON streaming). Fires for every job — skipped subscribers
+            // filter on JobResult.Skipped if they want to omit. Reorder-buffer subscribers
+            // (--keep-order) need ALL completions to advance their next-expected pointer.
             InvokeJobCompleted(result);
 
             // Flush captured output to stdout. SafeWriteAsync swallows IOException (broken
@@ -260,14 +265,16 @@ public sealed class JobRunner
             // Fail-fast: skip remaining jobs after a failure (checked before acquiring semaphore)
             if (Volatile.Read(ref aborted))
             {
-                tasks[i] = Task.FromResult(new JobResult(
+                JobResult abortSkipped = new JobResult(
                     JobIndex: jobIndex,
                     ChildExitCode: -1,
                     Output: null,
                     Duration: TimeSpan.Zero,
                     SourceItems: invocation.SourceItems,
                     Skipped: true,
-                    SkipReason: SkipReason.FailFastAbort));
+                    SkipReason: SkipReason.FailFastAbort);
+                tasks[i] = Task.FromResult(abortSkipped);
+                InvokeJobCompleted(abortSkipped);
                 continue;
             }
 
@@ -277,14 +284,16 @@ public sealed class JobRunner
                 Func<string, bool> prompt = _options.ConfirmPrompt ?? DefaultConfirmPrompt;
                 if (!prompt(invocation.DisplayString))
                 {
-                    tasks[i] = Task.FromResult(new JobResult(
+                    JobResult declinedSkipped = new JobResult(
                         JobIndex: jobIndex,
                         ChildExitCode: -1,
                         Output: null,
                         Duration: TimeSpan.Zero,
                         SourceItems: invocation.SourceItems,
                         Skipped: true,
-                        SkipReason: SkipReason.ConfirmDeclined));
+                        SkipReason: SkipReason.ConfirmDeclined);
+                    tasks[i] = Task.FromResult(declinedSkipped);
+                    InvokeJobCompleted(declinedSkipped);
                     continue;
                 }
             }
@@ -302,13 +311,20 @@ public sealed class JobRunner
             // try/finally always executes; the body itself checks the token and returns Skipped.
             tasks[i] = Task.Run(async () =>
             {
+                // Round-12.5: result is set by every code path (try, all catches) so the
+                // single InvokeJobCompleted call after the try/finally fires for EVERY task
+                // body completion — happy path, fail-fast OCE, external-cancel OCE, and
+                // unexpected-fault. Reorder-buffer subscribers (--keep-order NDJSON) need
+                // notifications for ALL completions to advance their next-expected pointer
+                // past skipped/cancelled slots.
+                JobResult result;
                 try
                 {
                     // Race check: abort or external cancel may have fired while we waited
                     // for the semaphore (or while Task.Run scheduled this body).
                     if (Volatile.Read(ref aborted) || cancellationToken.IsCancellationRequested)
                     {
-                        return new JobResult(
+                        result = new JobResult(
                             JobIndex: capturedIndex,
                             ChildExitCode: -1,
                             Output: null,
@@ -319,78 +335,66 @@ public sealed class JobRunner
                                 ? SkipReason.ExternalCancel
                                 : SkipReason.FailFastAbort);
                     }
-
-                    if (_options.Verbose)
-                    {
-                        lock (outputLock)
-                        {
-                            // See sequential equivalent: a broken stderr in verbose mode must
-                            // not become a misattributed FaultMessage on this job.
-                            SafeWrite(stderr, $"wargs: {capturedInvocation.DisplayString}{Environment.NewLine}");
-                        }
-                    }
-
-                    JobResult result;
-                    if (_options.Strategy == BufferStrategy.LineBuffered)
-                    {
-                        result = await ExecuteJobLineBufferedAsync(capturedInvocation, capturedIndex, jobToken)
-                            .ConfigureAwait(false);
-                    }
                     else
                     {
-                        result = await ExecuteJobAsync(capturedInvocation, capturedIndex, jobToken)
-                            .ConfigureAwait(false);
-                    }
-
-                    // JobBuffered: flush captured output atomically as each job completes.
-                    // KeepOrder: defer output until all jobs finish (written in input order below).
-                    // LineBuffered: Output is null (children wrote directly to inherited stdio).
-                    if (_options.Strategy == BufferStrategy.JobBuffered && result.Output != null)
-                    {
-                        bool written;
-                        lock (outputLock)
+                        if (_options.Verbose)
                         {
-                            written = SafeWrite(stdout, result.Output);
+                            lock (outputLock)
+                            {
+                                // See sequential equivalent: a broken stderr in verbose mode must
+                                // not become a misattributed FaultMessage on this job.
+                                SafeWrite(stderr, $"wargs: {capturedInvocation.DisplayString}{Environment.NewLine}");
+                            }
                         }
-                        if (!written)
+
+                        if (_options.Strategy == BufferStrategy.LineBuffered)
                         {
-                            // Broken downstream pipe — set the abort flag so subsequent jobs
-                            // skip rather than each rediscover the failure.
+                            result = await ExecuteJobLineBufferedAsync(capturedInvocation, capturedIndex, jobToken)
+                                .ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            result = await ExecuteJobAsync(capturedInvocation, capturedIndex, jobToken)
+                                .ConfigureAwait(false);
+                        }
+
+                        // JobBuffered: flush captured output atomically as each job completes.
+                        // KeepOrder: defer output until all jobs finish (written in input order below).
+                        // LineBuffered: Output is null (children wrote directly to inherited stdio).
+                        if (_options.Strategy == BufferStrategy.JobBuffered && result.Output != null)
+                        {
+                            bool written;
+                            lock (outputLock)
+                            {
+                                written = SafeWrite(stdout, result.Output);
+                            }
+                            if (!written)
+                            {
+                                // Broken downstream pipe — set the abort flag so subsequent jobs
+                                // skip rather than each rediscover the failure.
+                                Volatile.Write(ref aborted, true);
+                                try { failFastCts.Cancel(); }
+                                catch (Exception) { /* race with end-of-run dispose */ }
+                            }
+                        }
+
+                        // Check for fail-fast trigger — cancel the linked CTS so in-flight
+                        // jobs are killed rather than running to completion. Cancel synchronously
+                        // fires registered callbacks; if any of those callbacks throw, Cancel
+                        // wraps them in AggregateException. Catch broadly so a callback fault
+                        // doesn't clobber this job's captured result via the body's outer catch.
+                        if (result.ChildExitCode != 0 && _options.FailFast)
+                        {
                             Volatile.Write(ref aborted, true);
                             try { failFastCts.Cancel(); }
                             catch (Exception) { /* race with end-of-run dispose */ }
                         }
                     }
-
-                    // Check for fail-fast trigger — cancel the linked CTS so in-flight
-                    // jobs are killed rather than running to completion. Cancel synchronously
-                    // fires registered callbacks; if any of those callbacks throw, Cancel
-                    // wraps them in AggregateException. Catch broadly so a callback fault
-                    // doesn't clobber this job's captured result via the body's outer catch.
-                    if (result.ChildExitCode != 0 && _options.FailFast)
-                    {
-                        Volatile.Write(ref aborted, true);
-                        // Broad catch matches the sibling broken-pipe branch above. Cancel()
-                        // can throw ODE (race with end-of-run dispose) or AggregateException
-                        // (a registered callback threw); either way the abort flag is already
-                        // set so the abort signal is delivered. A failure here must not
-                        // clobber this job's captured result via the body's outer catch.
-                        try { failFastCts.Cancel(); }
-                        catch (Exception) { /* see comment */ }
-                    }
-
-                    // Round-12 streaming: notify subscribers as each parallel job completes.
-                    // Invoked from the task thread (not the dispatcher) so the callback runs
-                    // concurrently with other completing jobs — caller's Program.cs locks
-                    // stderr writes for thread-safe NDJSON output.
-                    InvokeJobCompleted(result);
-
-                    return result;
                 }
                 catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
                 {
                     // Cancelled by fail-fast, not by the caller — treat as skipped
-                    return new JobResult(
+                    result = new JobResult(
                         JobIndex: capturedIndex,
                         ChildExitCode: -1,
                         Output: null,
@@ -402,7 +406,7 @@ public sealed class JobRunner
                 catch (OperationCanceledException)
                 {
                     // External cancel — preserve as skipped so the result row exists.
-                    return new JobResult(
+                    result = new JobResult(
                         JobIndex: capturedIndex,
                         ChildExitCode: -1,
                         Output: null,
@@ -418,7 +422,7 @@ public sealed class JobRunner
                     // this, the catch at WhenAll below would swallow silently (silent-failure
                     // class B). Surfacing FaultMessage means the JSON envelope and human
                     // summary can include it later.
-                    return new JobResult(
+                    result = new JobResult(
                         JobIndex: capturedIndex,
                         ChildExitCode: -1,
                         Output: null,
@@ -431,6 +435,12 @@ public sealed class JobRunner
                 {
                     semaphore.Release();
                 }
+
+                // Notify the streaming subscriber for every task body completion (happy,
+                // skipped, cancelled, faulted). Reorder-buffer subscribers depend on this
+                // to advance their next-expected pointer past every slot.
+                InvokeJobCompleted(result);
+                return result;
             });
         }
 
@@ -983,13 +993,16 @@ public sealed class JobRunner
     /// <summary>
     /// Invokes the optional <see cref="JobRunnerOptions.OnJobCompleted"/> callback with
     /// best-effort semantics: any exception from the callback is swallowed so a buggy
-    /// streaming subscriber cannot abort the run. Skipped jobs are NOT notified — the
-    /// existing per-job-stream contract (Program.cs's NDJSON emission) is "one line per
-    /// job actually run."
+    /// streaming subscriber cannot abort the run. The callback fires for EVERY job
+    /// completion — including skipped jobs (so reorder-buffer subscribers like Program.cs's
+    /// keep-order NDJSON emitter can advance their next-expected-index pointer past
+    /// skipped slots). Subscribers that want to ignore skipped jobs in their own emission
+    /// (the default --ndjson contract: "one line per job actually run") must filter on
+    /// <see cref="JobResult.Skipped"/> themselves.
     /// </summary>
     private void InvokeJobCompleted(JobResult result)
     {
-        if (_options.OnJobCompleted is null || result.Skipped) { return; }
+        if (_options.OnJobCompleted is null) { return; }
         try { _options.OnJobCompleted(result); }
         catch (Exception) { /* streaming subscriber must not abort the run */ }
     }

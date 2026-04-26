@@ -398,6 +398,74 @@ public class ProgramMainTests
             "If this fails, NDJSON is being batched after Task.WhenAll instead of streamed via OnJobCompleted.");
     }
 
+    [SkippableFact]
+    public async Task Ndjson_KeepOrder_EmitsLinesInInputOrderEvenUnderParallelOutOfOrderCompletion()
+    {
+        // Round-12.5: pin the design-doc-specified contract that "with --keep-order,
+        // NDJSON lines emitted in order" (2026-03-31-wargs-design.md line 219). The
+        // default --ndjson behaviour streams in completion order; --keep-order adds
+        // a reorder buffer so lines emit in INPUT order despite parallel out-of-order
+        // completion.
+        //
+        // Three jobs of decreasing duration (1.5s, 0.5s, 0.2s) — under -P 4 they
+        // complete in reverse order (job 3 finishes first, job 1 last). With
+        // --keep-order the NDJSON lines must still emit in input order: 1, 2, 3.
+        //
+        // Linux-only: same reason as the Ndjson_Streams... test above (Windows ping-
+        // based sleep is too coarse for sub-second timing).
+        Skip.IfNot(!OperatingSystem.IsWindows(), "Unix-only — sleep-driven timing");
+
+        string wargsDll = LocateWargsDll();
+        var psi = new ProcessStartInfo
+        {
+            FileName = "dotnet",
+            UseShellExecute = false,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        psi.ArgumentList.Add(wargsDll);
+        psi.ArgumentList.Add("--ndjson");
+        psi.ArgumentList.Add("--keep-order");
+        psi.ArgumentList.Add("-P");
+        psi.ArgumentList.Add("4");
+        psi.ArgumentList.Add("sh");
+        psi.ArgumentList.Add("-c");
+        psi.ArgumentList.Add("sleep $1; echo $1");
+        psi.ArgumentList.Add("--");
+
+        using Process p = Process.Start(psi)!;
+        // Reverse-duration order: job 1 = 1.5s (slowest), job 2 = 0.5s, job 3 = 0.2s (fastest).
+        await p.StandardInput.WriteAsync("1.5\n0.5\n0.2\n");
+        p.StandardInput.Close();
+
+        var stderrLines = new List<string>();
+        string? line;
+        while ((line = await p.StandardError.ReadLineAsync()) != null)
+        {
+            stderrLines.Add(line);
+        }
+        if (!p.WaitForExit(15_000))
+        {
+            p.Kill(entireProcessTree: true);
+            throw new System.TimeoutException("wargs did not exit within 15s");
+        }
+
+        Assert.Equal(0, p.ExitCode);
+        Assert.Equal(3, stderrLines.Count);
+
+        // Parse each line's job index. With --keep-order they MUST be in input order
+        // (1, 2, 3) despite reverse completion order. Without the reorder buffer this
+        // assertion would fail — lines would arrive in (3, 2, 1) order.
+        var jobIndices = stderrLines.Select(l =>
+        {
+            using var doc = JsonDocument.Parse(l);
+            return doc.RootElement.GetProperty("job").GetInt32();
+        }).ToArray();
+
+        Assert.Equal(new[] { 1, 2, 3 }, jobIndices);
+    }
+
     [Fact]
     public void DescribeExitCodes_AllAdvertisedAreReachableOrIntentionallyOmitted()
     {

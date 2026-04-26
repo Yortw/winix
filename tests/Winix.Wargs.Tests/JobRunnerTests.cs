@@ -932,28 +932,79 @@ public class JobRunnerTests
     }
 
     [Fact]
-    public async Task RunAsync_OnJobCompleted_NotInvokedForSkippedJobs()
+    public async Task RunAsync_OnJobCompleted_FiresForEveryJobIncludingSkipped()
     {
-        // Round-12: existing per-job-stream contract is "one line per job actually run."
-        // Skipped jobs are intentionally OMITTED from the stream. The OnJobCompleted
-        // callback must respect this — it should not fire for Skipped JobResults.
+        // Round-12.5: contract changed to "callback fires for EVERY job (including skipped)
+        // so reorder-buffer subscribers can advance their next-expected pointer past
+        // skipped slots." Subscribers that want to omit skipped from their own stream
+        // (the default --ndjson contract: "one line per job actually run") filter on
+        // JobResult.Skipped themselves. This test pins the new contract — total
+        // invocation count equals total job count, regardless of skip state.
         int callbackCount = 0;
+        int skippedCallbackCount = 0;
         var runner = new JobRunner(new JobRunnerOptions(
             FailFast: true,
-            OnJobCompleted: _ => { Interlocked.Increment(ref callbackCount); }));
+            OnJobCompleted: job =>
+            {
+                Interlocked.Increment(ref callbackCount);
+                if (job.Skipped) { Interlocked.Increment(ref skippedCallbackCount); }
+            }));
         var invocations = new[]
         {
-            MakeExitInvocation(1, "fail"),                // fires
-            MakeEchoInvocation("would-skip", 2),          // skipped, no fire
-            MakeEchoInvocation("would-skip-too", 3),      // skipped, no fire
+            MakeExitInvocation(1, "fail"),                // fires; failure
+            MakeEchoInvocation("would-skip", 2),          // fires; Skipped=true
+            MakeEchoInvocation("would-skip-too", 3),      // fires; Skipped=true
         };
 
         var result = await runner.RunAsync(invocations, TextWriter.Null, TextWriter.Null);
 
         Assert.Equal(1, result.Failed);
         Assert.True(result.Skipped >= 1);
-        // Only the failed job (which actually ran) should fire the callback.
-        Assert.Equal(1, callbackCount);
+        // Callback must fire for all 3 jobs (1 failed + N skipped, total = invocations.Count).
+        Assert.Equal(3, callbackCount);
+        Assert.True(skippedCallbackCount >= 1,
+            "At least one skipped job must have fired the callback so reorder-buffer subscribers can advance.");
+    }
+
+    [Fact]
+    public async Task RunAsync_OnJobCompleted_FiresInCompletionOrderUnderParallel()
+    {
+        // Round-12.5: pin that the callback fires in COMPLETION order under parallel
+        // execution (not input order). This is the contract Program.cs's --keep-order
+        // reorder buffer is designed against — without out-of-order callback delivery,
+        // the buffer would be unnecessary. Cross-platform via descending sleeps.
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            return; // Windows ping-based sleep is too coarse for the timing
+        }
+
+        CommandInvocation MakeSleep(double seconds, int jobIndex)
+            => new CommandInvocation(
+                "sh",
+                new[] { "-c", $"sleep {seconds.ToString(System.Globalization.CultureInfo.InvariantCulture)}" },
+                $"sh -c 'sleep {seconds}'",
+                new[] { jobIndex.ToString() });
+
+        var completionOrder = new List<int>();
+        var lockObj = new object();
+        var runner = new JobRunner(new JobRunnerOptions(
+            Parallelism: 4,
+            OnJobCompleted: job =>
+            {
+                lock (lockObj) { completionOrder.Add(job.JobIndex); }
+            }));
+        // Job 1 sleeps 0.6s (slowest), 2 sleeps 0.4s, 3 sleeps 0.2s (fastest).
+        var invocations = new[]
+        {
+            MakeSleep(0.6, 1),
+            MakeSleep(0.4, 2),
+            MakeSleep(0.2, 3),
+        };
+
+        await runner.RunAsync(invocations, TextWriter.Null, TextWriter.Null);
+
+        // Completion order should be reverse of input order under parallel execution.
+        Assert.Equal(new[] { 3, 2, 1 }, completionOrder.ToArray());
     }
 
     [Fact]

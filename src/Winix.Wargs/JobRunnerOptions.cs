@@ -21,16 +21,18 @@ namespace Winix.Wargs;
 /// Injected for testability.
 /// </param>
 /// <param name="OnJobCompleted">
-/// Optional callback invoked AS each non-skipped job completes (not after Task.WhenAll).
-/// Round-12 CR/SFH/TA C1: --ndjson advertised "streaming per job" but the prior
-/// implementation emitted all NDJSON lines after RunAsync returned. Callers wiring this
-/// callback can stream results as they arrive (Program.cs uses it for true NDJSON
-/// streaming). The callback is invoked from within the parallel task body (any thread)
-/// or the sequential loop (caller thread) — implementations must be thread-safe and
-/// must NOT throw (a fault here is swallowed by the runner; see
-/// <see cref="JobRunner"/> for the swallow-with-no-rethrow rationale: a callback fault
-/// must not abort the run since the JobResult itself is correct and the streaming hook
-/// is best-effort observability).
+/// Optional callback invoked AS each job completes (not after Task.WhenAll). Fires for
+/// EVERY job — successful, failed, AND skipped — so reorder-buffer subscribers (like
+/// Program.cs's --ndjson --keep-order emitter) can advance their next-expected-index
+/// pointer past skipped slots. Subscribers that want to ignore skipped jobs in their
+/// own emission must filter on <see cref="JobResult.Skipped"/> themselves.
+///
+/// Invoked from within the parallel task body (any thread) for jobs whose body ran, OR
+/// from the dispatch loop (caller thread) for jobs skipped at dispatch time (fail-fast,
+/// confirm-declined). Implementations must be thread-safe and must NOT throw (a fault
+/// here is swallowed by the runner; see <see cref="JobRunner"/> for the swallow-with-no-
+/// rethrow rationale: a callback fault must not abort the run since the JobResult itself
+/// is correct and the streaming hook is best-effort observability).
 /// </param>
 public sealed record JobRunnerOptions(
     int Parallelism = 1,
