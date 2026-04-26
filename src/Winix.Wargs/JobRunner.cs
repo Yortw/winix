@@ -121,7 +121,19 @@ public sealed class JobRunner
             if (_options.Confirm)
             {
                 Func<string, bool> prompt = _options.ConfirmPrompt ?? DefaultConfirmPrompt;
-                if (!prompt(invocation.DisplayString))
+                // Round-13 SFH I3 / TA I2: a custom ConfirmPrompt delegate (test-seam) that
+                // throws would otherwise escape RunSequentialAsync entirely and land in
+                // Main's broad catch as unexpected_error/exit 126 — taking down the entire
+                // run for one prompt fault. Symmetric with OnJobCompleted's swallow rule
+                // (callback faults must not abort the run). Treat throws as decline so the
+                // run continues — preserves the Skipped ⇔ FaultMessage=null invariant pinned
+                // at RunAsync_SkippedJobs_NeverCarryFaultMessage. The default in-tree
+                // DefaultConfirmPrompt has its own broad catch; this guard exists only for
+                // custom delegates injected via the test seam / library API.
+                bool proceed;
+                try { proceed = prompt(invocation.DisplayString); }
+                catch (Exception) { proceed = false; }
+                if (!proceed)
                 {
                     JobResult declinedResult = new JobResult(
                         JobIndex: jobIndex,
@@ -282,7 +294,14 @@ public sealed class JobRunner
             if (_options.Confirm)
             {
                 Func<string, bool> prompt = _options.ConfirmPrompt ?? DefaultConfirmPrompt;
-                if (!prompt(invocation.DisplayString))
+                // Round-13 SFH I3 / TA I2: see sequential equivalent. Custom prompt fault
+                // → treat as decline so the run continues. Production --confirm is rejected
+                // with parallel mode at parse time; this branch exists only for library
+                // consumers who construct JobRunner directly (and the test seam).
+                bool proceed;
+                try { proceed = prompt(invocation.DisplayString); }
+                catch (Exception) { proceed = false; }
+                if (!proceed)
                 {
                     JobResult declinedSkipped = new JobResult(
                         JobIndex: jobIndex,
@@ -524,6 +543,13 @@ public sealed class JobRunner
                     SourceItems: invocations[i].SourceItems,
                     Skipped: true,
                     SkipReason: SkipReason.ExternalCancel);
+                // Round-13 CR/SFH/TA I1: round-12.5 contract is "callback fires for EVERY job".
+                // The body's broad catch keeps us out of this branch in practice, but if a
+                // future change narrows the body's catch and a task lands here, the
+                // --keep-order NDJSON reorder buffer would stall on the missing index and
+                // silently truncate every higher-indexed line. Defence-in-depth: notify here
+                // so the contract holds even if the body changes.
+                InvokeJobCompleted(result);
             }
             else
             {
@@ -543,6 +569,8 @@ public sealed class JobRunner
                     SourceItems: invocations[i].SourceItems,
                     Skipped: false,
                     FaultMessage: fault);
+                // Round-13 CR/SFH/TA I1: see IsCanceled branch above.
+                InvokeJobCompleted(result);
             }
 
             jobs.Add(result);

@@ -1008,6 +1008,57 @@ public class JobRunnerTests
     }
 
     [Fact]
+    public async Task RunAsync_CustomConfirmPromptThrows_DoesNotAbortRun_Sequential()
+    {
+        // Round-13 SFH I3 / TA I2: a custom ConfirmPrompt delegate (test-seam) that throws
+        // would otherwise escape RunSequentialAsync entirely and land in Main's broad catch
+        // as unexpected_error/exit 126 — taking down the entire run for one prompt fault.
+        // Symmetric with OnJobCompleted's swallow rule (callback faults must not abort the
+        // run). Round-13 wraps the prompt call in try/catch; on throw, treats as decline so
+        // the run continues.
+        var runner = new JobRunner(new JobRunnerOptions(
+            Confirm: true,
+            ConfirmPrompt: _ => throw new InvalidOperationException("simulated prompt bug")));
+        var invocations = new[] { MakeEchoInvocation("a", 1), MakeEchoInvocation("b", 2) };
+
+        // Should not throw — the prompt fault should classify each affected job as Skipped
+        // and continue.
+        var result = await runner.RunAsync(invocations, TextWriter.Null, TextWriter.Null);
+
+        Assert.Equal(2, result.TotalJobs);
+        Assert.Equal(2, result.Skipped);
+        Assert.Equal(0, result.Failed);
+        // Skipped jobs must NOT carry FaultMessage (preserves the
+        // SkippedJobs_NeverCarryFaultMessage invariant pinned earlier).
+        Assert.All(result.Jobs.Where(j => j.Skipped), j => Assert.Null(j.FaultMessage));
+    }
+
+    [Fact]
+    public async Task RunAsync_Sequential_OnJobCompleted_FiresInDispatchOrder()
+    {
+        // Round-13 TA I4: explicitly pin that the OnJobCompleted callback fires for
+        // sequential mode in dispatch (= input) order. Existing tests cover parallel-mode
+        // completion-order delivery; sequential delivery order is implied but not separately
+        // pinned. A future change that splits the sequential vs parallel callback contracts
+        // (e.g. only fires from parallel) would silently break Program.cs's keep-order
+        // reorder buffer for sequential runs.
+        var completionOrder = new List<int>();
+        var runner = new JobRunner(new JobRunnerOptions(
+            Parallelism: 1,  // explicit sequential
+            OnJobCompleted: job => completionOrder.Add(job.JobIndex)));
+        var invocations = new[]
+        {
+            MakeEchoInvocation("a", 1),
+            MakeEchoInvocation("b", 2),
+            MakeEchoInvocation("c", 3),
+        };
+
+        await runner.RunAsync(invocations, TextWriter.Null, TextWriter.Null);
+
+        Assert.Equal(new[] { 1, 2, 3 }, completionOrder.ToArray());
+    }
+
+    [Fact]
     public async Task RunAsync_OnJobCompleted_CallbackFault_DoesNotAbortRun()
     {
         // The callback is best-effort; a buggy subscriber must not abort the run.

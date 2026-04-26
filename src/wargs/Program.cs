@@ -414,10 +414,14 @@ internal sealed class Program
         //
         // Round-12: NDJSON streaming wired via OnJobCompleted callback (was emitted in a
         // batched post-run loop in earlier rounds — that violated the documented "as it
-        // completes" contract). The callback is invoked from the parallel task body (any
-        // thread) or the sequential loop, so we lock stderr writes for thread safety.
-        // Skipped jobs are NOT notified by the callback (existing per-job-stream contract:
-        // "one line per job actually run").
+        // completes" contract). Round-12.5: callback contract changed to fire for EVERY
+        // job (including skipped) so reorder-buffer subscribers below can advance their
+        // next-expected pointer past skipped slots. The default callback shape filters
+        // skipped jobs in the SUBSCRIBER per the per-job-stream contract: "one line per
+        // job actually run". The --keep-order callback uses the skipped notifications to
+        // advance its next-expected pointer past skipped slots without emitting. Both
+        // callbacks are invoked from the parallel task body (any thread) or the sequential
+        // dispatch loop (caller thread), so we lock stderr writes for thread safety.
         var ndjsonStderrLock = new object();
         if (ndjsonOutput && !dryRun)
         {
