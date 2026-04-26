@@ -630,4 +630,94 @@ public class ProgramMainTests
     // — the helper was extracted from Program.cs in round 15 specifically to make the
     // depth-cap notice behaviour directly testable (CLAUDE.md: "Test-infeasible branches →
     // extract or seam, don't skip").
+
+    // --- Round-16 TA I1: actualFailFastTriggered classifier (Program.cs:520-544) ---
+    // Library-level tests pin SkipReason classification at the JobRunner layer; these
+    // subprocess pins lock the Program.cs predicate that maps SkipReason.FailFastAbort onto
+    // the exit_reason="fail_fast_abort" / exit_code=124 contract. A regression flipping the
+    // predicate (e.g. back to `Skipped > 0` from the round-12 fix) would silently misreport
+    // exit_reason in mixed-skip-cause runs.
+
+    [Fact]
+    public void FailFast_FirstItemFailsRemainingSkipped_ExitReasonIsFailFastAbort()
+    {
+        // Three items, --fail-fast, --no-shell-fallback: item 1 fails to spawn (Win32Exception
+        // surfaces as ChildFailed with FaultMessage), items 2/3 are pre-skipped at dispatch
+        // time with SkipReason.FailFastAbort. actualFailFastTriggered=true → exit 124.
+        var result = RunWargs(
+            stdin: "x\ny\nz",
+            "--no-shell-fallback", "--json", "--fail-fast",
+            "definitely-not-a-real-binary-2c8d4f");
+        Assert.Equal(124, result.ExitCode);
+        string firstLine = result.Stderr.Split('\n', 2)[0].Trim();
+        using var doc = JsonDocument.Parse(firstLine);
+        Assert.Equal("fail_fast_abort", doc.RootElement.GetProperty("exit_reason").GetString());
+    }
+
+    [Fact]
+    public void FailFast_SingleItemFailsNoneToSkip_ExitReasonIsChildFailed()
+    {
+        // Single item, --fail-fast, --no-shell-fallback: item 1 fails. No remaining items
+        // to pre-skip → no SkipReason.FailFastAbort jobs in result set → predicate evaluates
+        // false → exit_reason stays at "child_failed" (123), NOT promoted to fail_fast_abort.
+        // This is the round-12 SFH+TA I4 fix: the prior `Skipped > 0` predicate would have
+        // misclassified runs where confirm-declined skips happened to coexist with unrelated
+        // child failures; the SkipReason filter prevents that.
+        var result = RunWargs(
+            stdin: "x",
+            "--no-shell-fallback", "--json", "--fail-fast",
+            "definitely-not-a-real-binary-2c8d4f");
+        Assert.Equal(123, result.ExitCode);
+        string firstLine = result.Stderr.Split('\n', 2)[0].Trim();
+        using var doc = JsonDocument.Parse(firstLine);
+        Assert.Equal("child_failed", doc.RootElement.GetProperty("exit_reason").GetString());
+    }
+
+    // --- Round-16 TA I2: --keep-order --ndjson reorder buffer drains past skipped slots ---
+
+    [Fact]
+    public void NdjsonKeepOrder_FailFastSkipsMidStream_BufferDrainsPastSkippedSlots()
+    {
+        // Four items, --fail-fast --keep-order --ndjson --no-shell-fallback: item 1 fails to
+        // spawn, items 2-4 are pre-skipped via FailFastAbort. The keep-order subscriber must
+        // drain the buffer past the Skipped slots without stalling and without emitting per-
+        // skip NDJSON lines (skipped jobs are intentionally absent from the stream — the JSON
+        // summary's `skipped` field is the source of truth for skip count). NDJSON mode emits
+        // no summary envelope; only per-job lines are written.
+        //
+        // Expected stderr: exactly 1 NDJSON line (item 1, child_failed). A regression where
+        // the subscriber stalled on Skipped jobs (failed to advance the pointer) would
+        // prevent any later-indexed completed job from emitting; in this test the failure
+        // mode would manifest as the run hanging (caught by the 30s subprocess timeout).
+        // A regression where the subscriber emitted per-job lines for skipped jobs would
+        // produce 4 lines instead of 1.
+        var result = RunWargs(
+            stdin: "a\nb\nc\nd",
+            "--ndjson", "--keep-order", "--fail-fast", "--no-shell-fallback",
+            "definitely-not-a-real-binary-2c8d4f");
+        Assert.Equal(124, result.ExitCode);
+        string[] lines = result.Stderr.Split('\n', System.StringSplitOptions.RemoveEmptyEntries);
+        Assert.Single(lines);
+        using var doc = JsonDocument.Parse(lines[0]);
+        Assert.Equal("wargs", doc.RootElement.GetProperty("tool").GetString());
+        Assert.Equal("child_failed", doc.RootElement.GetProperty("exit_reason").GetString());
+    }
+
+    // --- Round-16 TA I3: --dry-run with empty stdin emits dry_run envelope (not no_input) ---
+
+    [Fact]
+    public void DryRunWithEmptyStdin_EmitsDryRunEnvelopeWithZeroJobs()
+    {
+        // Program.cs:390 short-circuits empty input only when !dryRun. Under --dry-run the
+        // run reaches the dry-run block with invocations.Count=0 and emits a dry_run envelope
+        // with total_jobs=0 — unintuitive but documented. A future refactor combining the
+        // two checks could silently produce no_input under --dry-run --json instead, breaking
+        // tooling that expects dry_run to always emit a dry_run envelope regardless of input.
+        var result = RunWargs(stdin: "", "--json", "--dry-run", "echo");
+        Assert.Equal(0, result.ExitCode);
+        string trimmed = result.Stderr.Trim();
+        using var doc = JsonDocument.Parse(trimmed);
+        Assert.Equal("dry_run", doc.RootElement.GetProperty("exit_reason").GetString());
+        Assert.Equal(0, doc.RootElement.GetProperty("total_jobs").GetInt32());
+    }
 }
