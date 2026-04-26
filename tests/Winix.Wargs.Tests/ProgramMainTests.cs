@@ -1,5 +1,6 @@
 #nullable enable
 using System.Diagnostics;
+using System.Linq;
 using System.Text.Json;
 using Xunit;
 
@@ -84,6 +85,49 @@ public class ProgramMainTests
         Assert.Equal(0, result.ExitCode);
         using var doc = JsonDocument.Parse(result.Stdout);
         Assert.Equal("wargs", doc.RootElement.GetProperty("tool").GetString());
+    }
+
+    [Fact]
+    public void Describe_AdvertisesAllEmittedJsonFields()
+    {
+        // Round-10 TA I1: --describe must declare every field the formatter actually emits.
+        // Pre-fix, declarations covered only the JSON summary's 9 fields; the formatter also
+        // emits a conditional `faults` array (FormatJson when any job carries FaultMessage)
+        // and 4 NDJSON-only fields per line (FormatNdjsonLine: job, child_exit_code, input,
+        // fault_message). Code-gen tools and AI agents that consume --describe to discover
+        // the schema would not learn about those fields. Fix landed in round-10 by adding
+        // 5 JsonField declarations covering the previously-missing emission paths.
+        //
+        // This test pins the contract by parsing --describe and asserting every name we
+        // know the formatter emits is declared.
+        var result = RunWargs(stdin: null, "--describe");
+        Assert.Equal(0, result.ExitCode);
+        using var doc = JsonDocument.Parse(result.Stdout);
+
+        var fieldNames = doc.RootElement.GetProperty("json_output_fields")
+            .EnumerateArray()
+            .Select(e => e.GetProperty("name").GetString())
+            .ToHashSet();
+
+        // JSON summary fields (FormatJson)
+        Assert.Contains("tool", fieldNames);
+        Assert.Contains("version", fieldNames);
+        Assert.Contains("exit_code", fieldNames);
+        Assert.Contains("exit_reason", fieldNames);
+        Assert.Contains("total_jobs", fieldNames);
+        Assert.Contains("succeeded", fieldNames);
+        Assert.Contains("failed", fieldNames);
+        Assert.Contains("skipped", fieldNames);
+        Assert.Contains("wall_seconds", fieldNames);
+
+        // Conditional summary field (FormatJson when any job carries FaultMessage)
+        Assert.Contains("faults", fieldNames);
+
+        // NDJSON-only fields (FormatNdjsonLine)
+        Assert.Contains("job", fieldNames);
+        Assert.Contains("child_exit_code", fieldNames);
+        Assert.Contains("input", fieldNames);
+        Assert.Contains("fault_message", fieldNames);
     }
 
     [Theory]
