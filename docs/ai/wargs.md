@@ -136,6 +136,8 @@ When stdin produces no items, NDJSON emits a single `{"exit_reason":"no_input", 
 
 **`--verbose` not allowed with structured output**: `--verbose` writes per-invocation plaintext lines to stderr; `--json` and `--ndjson` use stderr for structured envelopes. Combining the two would interleave plaintext among JSON, breaking line-discipline parsers. Wargs rejects the combination at parse time with `usage_error`.
 
+**`--confirm` not allowed with structured output**: same root reason — confirm prompts and the "no terminal available" diagnostic write plaintext to stderr. Wargs rejects `--confirm --json` and `--confirm --ndjson` at parse time with `usage_error`.
+
 **Envelope contract**: under `--json` or `--ndjson`, every exit path emits an envelope on stderr — including `success`, `child_failed`, `fail_fast_abort`, `no_input`, `input_read_failed`, `usage_error`, `dry_run`, `cancelled`, and `unexpected_error`. Streaming consumers can rely on the stream being parseable as one JSON object per line.
 
 **--describe** — machine-readable flag reference:
