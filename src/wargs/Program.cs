@@ -159,11 +159,11 @@ internal sealed class Program
             .CommandMode()
             .ExitCodes(
                 (0, "All jobs succeeded"),
-                (WargsExitCode.ChildFailed, "One or more child processes failed"),
+                (WargsExitCode.ChildFailed, "One or more child processes failed (or could not be spawned). Per-job spawn failures surface in fault_message rather than as exit 127 — wargs intentionally collapses spawn failures into 123 + per-job diagnostic."),
                 (WargsExitCode.FailFastAbort, "Aborted due to --fail-fast"),
                 (ExitCode.UsageError, "Usage error"),
-                (ExitCode.NotExecutable, "Command not executable"),
-                (ExitCode.NotFound, "Command not found"))
+                (ExitCode.NotExecutable, "Internal/IO failure: stdin read failed, unexpected exception escaped to safety net"),
+                (130, "Cancelled by signal (Ctrl+C / SIGINT)"))
             .Platform("cross-platform",
                 replaces: new[] { "xargs" },
                 valueOnWindows: "No native xargs; Git Bash xargs has path-mangling issues with Windows paths",
@@ -179,13 +179,13 @@ internal sealed class Program
             .ComposesWith("squeeze", "files . --ext csv | wargs squeeze --zstd", "Batch compress")
             .JsonField("tool", "string", "Tool name (\"wargs\"). Emitted in both --json summary envelope and --ndjson per-job lines.")
             .JsonField("version", "string", "Tool version. Emitted in both --json summary envelope and --ndjson per-job lines.")
-            .JsonField("exit_code", "int", "(--json summary) Tool exit code: 0 = success; 123 = child_failed; 124 = fail_fast_abort; 125 = usage_error; 126 = unexpected_error / input_read_failed; 127 = command not found; 130 = cancelled. (--ndjson per-job) Restricted to 0 (job succeeded) or 123 (job's child failed).")
+            .JsonField("exit_code", "int", "(--json summary) Tool exit code: 0 = success; 123 = child_failed (any child non-zero exit OR spawn failure — spawn failures surface via per-job fault_message rather than a separate exit code); 124 = fail_fast_abort; 125 = usage_error; 126 = unexpected_error / input_read_failed; 130 = cancelled. (--ndjson per-job) Restricted to 0 (job succeeded) or 123 (job's child failed or could not be spawned).")
             .JsonField("exit_reason", "string", "(--json summary) One of: success, child_failed, fail_fast_abort, no_input, input_read_failed, usage_error, dry_run, cancelled, unexpected_error. (--ndjson per-job) Restricted to: success or child_failed.")
             .JsonField("total_jobs", "int", "(--json summary) Total number of jobs. Reflects --dry-run plan count when emitted under exit_reason=dry_run.")
             .JsonField("succeeded", "int", "(--json summary) Jobs that exited 0")
             .JsonField("failed", "int", "(--json summary) Jobs that exited non-zero")
             .JsonField("skipped", "int", "(--json summary) Jobs skipped (fail-fast or confirm declined)")
-            .JsonField("wall_seconds", "float", "(--json summary) Total wall time across all jobs in seconds. (--ndjson per-job) Per-job duration in seconds.")
+            .JsonField("wall_seconds", "float", "(--json summary) Wall-clock duration of the wargs run in seconds — NOT the sum of per-job durations (under -P parallel jobs overlap, so wall_seconds is closer to max(per-job durations) plus dispatch overhead). (--ndjson per-job) Per-job wall-clock duration in seconds.")
             .JsonField("faults", "object[]|null", "(--json summary) Per-job fault diagnostics; present only when at least one job carries a FaultMessage. Each entry is {job: int, message: string}.")
             .JsonField("job", "int", "(--ndjson per-job) 1-based job index of this line")
             .JsonField("child_exit_code", "int", "(--ndjson per-job) Child process exit code; -1 on spawn failure")
@@ -411,6 +411,32 @@ internal sealed class Program
         // (registered before input materialisation, see Main for rationale). RunAsync just
         // observes the token. Kill-on-cancel registrations inside JobRunner cleanly terminate
         // child process trees when the user hits Ctrl+C.
+        //
+        // Round-12: NDJSON streaming wired via OnJobCompleted callback (was emitted in a
+        // batched post-run loop in earlier rounds — that violated the documented "as it
+        // completes" contract). The callback is invoked from the parallel task body (any
+        // thread) or the sequential loop, so we lock stderr writes for thread safety.
+        // Skipped jobs are NOT notified by the callback (existing per-job-stream contract:
+        // "one line per job actually run").
+        var ndjsonStderrLock = new object();
+        if (ndjsonOutput && !dryRun)
+        {
+            // Reconstruct JobRunnerOptions with the streaming callback wired in. The earlier
+            // construction at runnerOptions creation didn't have it because we hadn't yet
+            // resolved the output mode.
+            runnerOptions = runnerOptions with { OnJobCompleted = job =>
+            {
+                int jobExitCode = job.ChildExitCode == 0 ? 0 : WargsExitCode.ChildFailed;
+                string jobExitReason = job.ChildExitCode == 0 ? "success" : "child_failed";
+                string line = Formatting.FormatNdjsonLine(job, jobExitCode, jobExitReason, "wargs", version);
+                lock (ndjsonStderrLock)
+                {
+                    SafeWriteLine(Console.Error, line);
+                }
+            }};
+            jobRunner = new JobRunner(runnerOptions);
+        }
+
         WargsResult wargsResult = await jobRunner.RunAsync(
             invocations, Console.Out, Console.Error, cancellationToken).ConfigureAwait(false);
 
@@ -447,31 +473,32 @@ internal sealed class Program
             exitCode = WargsExitCode.ChildFailed;
             exitReason = "child_failed";
 
-            if (failFast && wargsResult.Skipped > 0)
+            // Round-12 SFH+TA I4: fail_fast_abort must fire ONLY when at least one job was
+            // skipped specifically because of fail-fast. The prior `Skipped > 0` test mis-
+            // classified runs where a confirm-declined skip happened to coexist with an
+            // unrelated child failure (or external cancel + child failure). Now we check
+            // SkipReason on each Skipped JobResult to filter for actual fail-fast skips.
+            bool actualFailFastTriggered = false;
+            foreach (JobResult j in wargsResult.Jobs)
+            {
+                if (j.Skipped && j.SkipReason == SkipReason.FailFastAbort)
+                {
+                    actualFailFastTriggered = true;
+                    break;
+                }
+            }
+            if (failFast && actualFailFastTriggered)
             {
                 exitCode = WargsExitCode.FailFastAbort;
                 exitReason = "fail_fast_abort";
             }
         }
 
-        // --- NDJSON: emit per-job lines to stderr ---
-        // Skipped jobs are intentionally omitted from streaming output to match the
-        // "one line per job actually run" contract; the JSON summary's `skipped` field is the
-        // single source of truth for skip count. Callers correlating job count with NDJSON
-        // line count must add `skipped` to the line count.
-        if (ndjsonOutput)
-        {
-            foreach (JobResult job in wargsResult.Jobs)
-            {
-                if (!job.Skipped)
-                {
-                    int jobExitCode = job.ChildExitCode == 0 ? 0 : WargsExitCode.ChildFailed;
-                    string jobExitReason = job.ChildExitCode == 0 ? "success" : "child_failed";
-                    SafeWriteLine(Console.Error,
-                        Formatting.FormatNdjsonLine(job, jobExitCode, jobExitReason, "wargs", version));
-                }
-            }
-        }
+        // --- NDJSON per-job lines were already streamed via OnJobCompleted (see above) ---
+        // Skipped jobs are intentionally omitted from the stream to match the "one line
+        // per job actually run" contract; the JSON summary's `skipped` field is the single
+        // source of truth for skip count. Callers correlating job count with NDJSON line
+        // count must add `skipped` to the line count.
 
         // --- JSON: summary to stderr ---
         if (jsonOutput)

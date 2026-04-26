@@ -20,6 +20,18 @@ namespace Winix.Wargs;
 /// Null uses the default console prompt (reads from /dev/tty or CON).
 /// Injected for testability.
 /// </param>
+/// <param name="OnJobCompleted">
+/// Optional callback invoked AS each non-skipped job completes (not after Task.WhenAll).
+/// Round-12 CR/SFH/TA C1: --ndjson advertised "streaming per job" but the prior
+/// implementation emitted all NDJSON lines after RunAsync returned. Callers wiring this
+/// callback can stream results as they arrive (Program.cs uses it for true NDJSON
+/// streaming). The callback is invoked from within the parallel task body (any thread)
+/// or the sequential loop (caller thread) — implementations must be thread-safe and
+/// must NOT throw (a fault here is swallowed by the runner; see
+/// <see cref="JobRunner"/> for the swallow-with-no-rethrow rationale: a callback fault
+/// must not abort the run since the JobResult itself is correct and the streaming hook
+/// is best-effort observability).
+/// </param>
 public sealed record JobRunnerOptions(
     int Parallelism = 1,
     BufferStrategy Strategy = BufferStrategy.JobBuffered,
@@ -28,5 +40,6 @@ public sealed record JobRunnerOptions(
     bool Verbose = false,
     bool Confirm = false,
     bool ShellFallback = true,
-    Func<string, bool>? ConfirmPrompt = null
+    Func<string, bool>? ConfirmPrompt = null,
+    Action<JobResult>? OnJobCompleted = null
 );

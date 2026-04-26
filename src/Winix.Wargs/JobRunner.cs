@@ -109,7 +109,8 @@ public sealed class JobRunner
                     Output: null,
                     Duration: TimeSpan.Zero,
                     SourceItems: invocation.SourceItems,
-                    Skipped: true));
+                    Skipped: true,
+                    SkipReason: SkipReason.FailFastAbort));
                 skipped++;
                 continue;
             }
@@ -126,7 +127,8 @@ public sealed class JobRunner
                         Output: null,
                         Duration: TimeSpan.Zero,
                         SourceItems: invocation.SourceItems,
-                        Skipped: true));
+                        Skipped: true,
+                        SkipReason: SkipReason.ConfirmDeclined));
                     skipped++;
                     continue;
                 }
@@ -178,6 +180,10 @@ public sealed class JobRunner
             }
 
             jobs.Add(result);
+            // Round-12 streaming: notify subscribers as each job completes (Program.cs uses
+            // this for true NDJSON streaming). Skipped jobs are NOT notified — the existing
+            // contract is that skipped jobs are omitted from the per-job stream.
+            InvokeJobCompleted(result);
 
             // Flush captured output to stdout. SafeWriteAsync swallows IOException (broken
             // downstream pipe — `wargs ... | head -1` is a normal usage pattern, not an
@@ -260,7 +266,8 @@ public sealed class JobRunner
                     Output: null,
                     Duration: TimeSpan.Zero,
                     SourceItems: invocation.SourceItems,
-                    Skipped: true));
+                    Skipped: true,
+                    SkipReason: SkipReason.FailFastAbort));
                 continue;
             }
 
@@ -276,7 +283,8 @@ public sealed class JobRunner
                         Output: null,
                         Duration: TimeSpan.Zero,
                         SourceItems: invocation.SourceItems,
-                        Skipped: true));
+                        Skipped: true,
+                        SkipReason: SkipReason.ConfirmDeclined));
                     continue;
                 }
             }
@@ -306,7 +314,10 @@ public sealed class JobRunner
                             Output: null,
                             Duration: TimeSpan.Zero,
                             SourceItems: capturedInvocation.SourceItems,
-                            Skipped: true);
+                            Skipped: true,
+                            SkipReason: cancellationToken.IsCancellationRequested
+                                ? SkipReason.ExternalCancel
+                                : SkipReason.FailFastAbort);
                     }
 
                     if (_options.Verbose)
@@ -368,6 +379,12 @@ public sealed class JobRunner
                         catch (Exception) { /* see comment */ }
                     }
 
+                    // Round-12 streaming: notify subscribers as each parallel job completes.
+                    // Invoked from the task thread (not the dispatcher) so the callback runs
+                    // concurrently with other completing jobs — caller's Program.cs locks
+                    // stderr writes for thread-safe NDJSON output.
+                    InvokeJobCompleted(result);
+
                     return result;
                 }
                 catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -379,7 +396,8 @@ public sealed class JobRunner
                         Output: null,
                         Duration: TimeSpan.Zero,
                         SourceItems: capturedInvocation.SourceItems,
-                        Skipped: true);
+                        Skipped: true,
+                        SkipReason: SkipReason.FailFastAbort);
                 }
                 catch (OperationCanceledException)
                 {
@@ -390,7 +408,8 @@ public sealed class JobRunner
                         Output: null,
                         Duration: TimeSpan.Zero,
                         SourceItems: capturedInvocation.SourceItems,
-                        Skipped: true);
+                        Skipped: true,
+                        SkipReason: SkipReason.ExternalCancel);
                 }
                 catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
                 {
@@ -493,7 +512,8 @@ public sealed class JobRunner
                     Output: null,
                     Duration: TimeSpan.Zero,
                     SourceItems: invocations[i].SourceItems,
-                    Skipped: true);
+                    Skipped: true,
+                    SkipReason: SkipReason.ExternalCancel);
             }
             else
             {
@@ -958,5 +978,19 @@ public sealed class JobRunner
         try { await writer.WriteAsync(value).ConfigureAwait(false); return true; }
         catch (IOException) { return false; }
         catch (ObjectDisposedException) { return false; }
+    }
+
+    /// <summary>
+    /// Invokes the optional <see cref="JobRunnerOptions.OnJobCompleted"/> callback with
+    /// best-effort semantics: any exception from the callback is swallowed so a buggy
+    /// streaming subscriber cannot abort the run. Skipped jobs are NOT notified — the
+    /// existing per-job-stream contract (Program.cs's NDJSON emission) is "one line per
+    /// job actually run."
+    /// </summary>
+    private void InvokeJobCompleted(JobResult result)
+    {
+        if (_options.OnJobCompleted is null || result.Skipped) { return; }
+        try { _options.OnJobCompleted(result); }
+        catch (Exception) { /* streaming subscriber must not abort the run */ }
     }
 }
