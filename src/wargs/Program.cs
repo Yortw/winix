@@ -179,13 +179,18 @@ internal sealed class Program
             .ComposesWith("squeeze", "files . --ext csv | wargs squeeze --zstd", "Batch compress")
             .JsonField("tool", "string", "Tool name (\"wargs\")")
             .JsonField("version", "string", "Tool version")
-            .JsonField("exit_code", "int", "Tool exit code (0 = success)")
-            .JsonField("exit_reason", "string", "Machine-readable exit reason")
-            .JsonField("total_jobs", "int", "Total number of jobs")
-            .JsonField("succeeded", "int", "Jobs that exited 0")
-            .JsonField("failed", "int", "Jobs that exited non-zero")
-            .JsonField("skipped", "int", "Jobs skipped (fail-fast)")
-            .JsonField("wall_seconds", "float", "Total wall time in seconds");
+            .JsonField("exit_code", "int", "Tool exit code: 0 = success; 123 = child_failed; 124 = fail_fast_abort; 125 = usage_error; 126 = unexpected_error / input_read_failed; 127 = command not found; 130 = cancelled")
+            .JsonField("exit_reason", "string", "Machine-readable exit reason: success, child_failed, fail_fast_abort, no_input, input_read_failed, usage_error, dry_run, cancelled, unexpected_error")
+            .JsonField("total_jobs", "int", "(--json) Total number of jobs")
+            .JsonField("succeeded", "int", "(--json) Jobs that exited 0")
+            .JsonField("failed", "int", "(--json) Jobs that exited non-zero")
+            .JsonField("skipped", "int", "(--json) Jobs skipped (fail-fast or confirm declined)")
+            .JsonField("wall_seconds", "float", "(--json) Total wall time in seconds")
+            .JsonField("faults", "object[]|null", "(--json) Per-job fault diagnostics; present only when at least one job carries a FaultMessage. Each entry is {job: int, message: string}.")
+            .JsonField("job", "int", "(--ndjson) 1-based job index of this line")
+            .JsonField("child_exit_code", "int", "(--ndjson) Child process exit code; -1 on spawn failure")
+            .JsonField("input", "string|string[]", "(--ndjson) Source item(s) — string when --batch=1, array when batched")
+            .JsonField("fault_message", "string|null", "(--ndjson) Spawn/task fault diagnostic; omitted on normal paths");
 
         var result = parser.Parse(args);
         if (result.IsHandled) { return result.ExitCode; }
