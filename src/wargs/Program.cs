@@ -47,10 +47,19 @@ internal sealed class Program
         // Round-7 SFH C1/I1: a blocked Console.In.ReadLine() on Linux may not return null
         // after `e.Cancel=true` (the runtime may translate EINTR to IOException, restart
         // the read, or block indefinitely depending on the .NET runtime version). The
-        // round-6 fix assumed null-return — fragile across platforms. Forcibly closing
-        // stdin on cancel makes a blocked read unblock with EOF on every platform; the
-        // InputReader's cancellation-aware enumerator (round-7) then propagates OCE
-        // before the empty-input branch fires.
+        // round-6 fix assumed null-return — fragile on Linux. Closing stdin on cancel
+        // forces the read to unblock with EOF; the InputReader's cancellation-aware
+        // enumerator (round-7) then propagates OCE before the empty-input branch fires.
+        //
+        // Coverage caveat: this is end-to-end pinned for Linux only via SkippableFact
+        // CtrlCDuringStdin_UnderNdjson_EmitsCancelledEnvelope. On Windows, SyncTextReader
+        // wraps Close() with `lock(this)` — same lock the read holds — so cross-thread
+        // close from the SIGINT handler is a documented synchronization concern. The
+        // fallback Windows behaviour (CancelKeyPress + e.Cancel=true alone returning null
+        // from ReadLine) is empirically observed to work for the dev-box smoke test but
+        // not regression-pinned. Round-8 SFH I2 / TA I2 — left as a known coverage gap;
+        // see project_wargs_progress.md for the planned Windows GenerateConsoleCtrlEvent
+        // integration test.
         cts.Token.Register(() =>
         {
             try { Console.In.Close(); }
@@ -264,6 +273,16 @@ internal sealed class Program
         if (ndjsonOutput && lineBuffered)
         {
             return UsageError(result, "--ndjson and --line-buffered cannot be combined", jsonOutput, ndjsonOutput, version);
+        }
+
+        if ((jsonOutput || ndjsonOutput) && confirm)
+        {
+            // Confirm prompts to stderr ("wargs: run 'X'? [y/N] ") and the
+            // "no terminal available; declining" diagnostic both write plaintext
+            // to stderr — the same channel as structured envelopes/streaming JSON.
+            // Mixing breaks line-discipline parsers. Same root reason as the
+            // --verbose rejection below and the --ndjson + --line-buffered rejection above.
+            return UsageError(result, "--confirm cannot be combined with --json or --ndjson (prompt would interleave plaintext with structured output)", jsonOutput, ndjsonOutput, version);
         }
 
         if ((jsonOutput || ndjsonOutput) && verbose)

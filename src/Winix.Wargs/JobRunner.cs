@@ -54,13 +54,18 @@ public sealed class JobRunner
 
     /// <summary>
     /// Prints each command without executing. Returns a result with zero TotalJobs
-    /// (no jobs were actually executed).
+    /// (no jobs were actually executed). Stdout writes use broken-pipe protection so
+    /// `wargs --dry-run --json | head -1` aborts cleanly and Main can still emit the
+    /// dry_run envelope on stderr — without protection, the IOException escaped to
+    /// Main's broad catch and surfaced as unexpected_error/exit 126 (round-8 SFH C1).
     /// </summary>
     private static WargsResult RunDryRun(IReadOnlyList<CommandInvocation> invocations, TextWriter stdout)
     {
         foreach (CommandInvocation invocation in invocations)
         {
-            stdout.WriteLine(invocation.DisplayString);
+            try { stdout.WriteLine(invocation.DisplayString); }
+            catch (IOException) { break; }              // downstream pipe closed
+            catch (ObjectDisposedException) { break; }  // writer already disposed
         }
 
         return new WargsResult(
