@@ -69,9 +69,8 @@ public sealed class InteractiveSession
         // that race — same pattern as RunOnceAsync's once-mode handler.
         ConsoleCancelEventHandler cancelHandler = (_, e) =>
         {
-            e.Cancel = true;
             _exitReason = "interrupted";
-            try { cts.Cancel(); } catch (ObjectDisposedException) { }
+            SessionHelpers.RequestCancellationSilently(e, cts);
         };
         Console.CancelKeyPress += cancelHandler;
 
@@ -224,30 +223,14 @@ public sealed class InteractiveSession
                     break;
                 }
 
-                // Check if we should trigger a run
-                bool shouldRun = false;
-                TriggerSource trigger = TriggerSource.Interval;
-
-                // CR R2-C1: check _running BEFORE consuming the file-change flag.
-                // The previous order — Interlocked.CompareExchange first, then check
-                // _running — silently dropped triggers whenever a save landed during
-                // an in-flight run, because CompareExchange consumed the flag before
-                // the _running check failed. With long-running children (`dotnet test`),
-                // this is the COMMON case, not the edge. _running mutates only inside
+                // R4 TA I4: dispatch decision extracted to SessionHelpers.ShouldDispatch
+                // so the CR R2-C1 contract (check _running BEFORE consuming the file-
+                // change flag) is regression-pinned. _running mutates only inside
                 // RunAndProcessResultAsync awaited from this loop, so reading it here
                 // is single-threaded and a stale read isn't possible.
-                if (!_running && Interlocked.CompareExchange(ref fileChangeFlag, 0, 1) == 1)
-                {
-                    shouldRun = true;
-                    trigger = TriggerSource.FileChange;
-                }
-                else if (!_running && _config.UseInterval && DateTime.UtcNow >= nextRunTime)
-                {
-                    shouldRun = true;
-                    trigger = TriggerSource.Interval;
-                }
-
-                if (shouldRun)
+                if (SessionHelpers.ShouldDispatch(
+                        _running, _config.UseInterval, ref fileChangeFlag,
+                        DateTime.UtcNow, nextRunTime, out TriggerSource trigger))
                 {
                     await RunAndProcessResultAsync(trigger, cts, ct);
                     nextRunTime = DateTime.UtcNow.AddSeconds(_config.IntervalSeconds);
@@ -676,72 +659,17 @@ public sealed class InteractiveSession
     /// <returns>True if the session should exit.</returns>
     private bool CheckAutoExit(string? prevOutput)
     {
-        if (_lastResult is null)
+        // R4 TA I3: pure logic lives in SessionHelpers.TryGetAutoExit so all four
+        // exit-on-X branches plus the regex-timeout one-shot warning policy can be
+        // unit-pinned. Wrapper just promotes the out-param to the session field
+        // when the predicate fires.
+        if (SessionHelpers.TryGetAutoExit(
+                _config, _lastResult, prevOutput, _regexTimeoutWarned,
+                Console.Error, out string reason))
         {
-            return false;
-        }
-
-        if (_config.ExitOnSuccess && _lastResult.ExitCode == 0)
-        {
-            _exitReason = "exit_on_success";
+            _exitReason = reason;
             return true;
         }
-
-        if (_config.ExitOnError && _lastResult.ExitCode != 0)
-        {
-            _exitReason = "exit_on_error";
-            return true;
-        }
-
-        if (_config.ExitOnChange && prevOutput is not null
-            && !string.Equals(_lastResult.Output, prevOutput, StringComparison.Ordinal))
-        {
-            _exitReason = "exit_on_change";
-            return true;
-        }
-
-        if (_config.ExitOnMatchRegexes.Length > 0 && _lastResult.Output is not null)
-        {
-            string stripped = Formatting.StripAnsi(_lastResult.Output);
-            foreach (Regex regex in _config.ExitOnMatchRegexes)
-            {
-                try
-                {
-                    if (regex.IsMatch(stripped))
-                    {
-                        _exitReason = "exit_on_match";
-                        return true;
-                    }
-                }
-                catch (RegexMatchTimeoutException)
-                {
-                    // Pattern timed out against this output — treat as non-match rather
-                    // than hanging the session. Only fires for patterns that fell back to
-                    // the standard engine (NonBacktracking never times out).
-                    //
-                    // SFH I3: emit a one-shot warning per pattern. Without it, the user
-                    // who supplied --exit-on-match expecting auto-exit sees peep run
-                    // forever with no clue why their match isn't firing. Track via
-                    // HashSet<Regex> on this instance — single-threaded access from the
-                    // main loop, no lock needed. Diagnostic write is strictly weaker
-                    // than production: a failing stderr write must not crash the loop.
-                    if (_regexTimeoutWarned.Add(regex))
-                    {
-                        try
-                        {
-                            Console.Error.WriteLine(
-                                $"[peep] warning: --exit-on-match pattern '{regex}' timed out; " +
-                                "treating as non-match for this and future runs of this pattern.");
-                        }
-                        catch
-                        {
-                            // best effort
-                        }
-                    }
-                }
-            }
-        }
-
         return false;
     }
 
@@ -806,21 +734,10 @@ public sealed class InteractiveSession
     {
         sessionStopwatch.Stop();
 
-        int exitCode = _lastResult?.ExitCode ?? _failedExitCode;
-
-        // For auto-exit conditions that represent a user-requested success condition
-        // being reached, override the child's exit code with 0. exit_on_match is in
-        // the same family — the user asked "exit when output matches PAT", which is a
-        // success signal. Without including it here, `peep --exit-on-match READY -- cmd`
-        // returns the child's last exit code (often non-zero on the run during which
-        // the match appeared) — confusing and contradicts the README contract that
-        // says "0 = Auto-exit condition met".
-        if (_exitReason == "exit_on_change"
-            || _exitReason == "exit_on_success"
-            || _exitReason == "exit_on_match")
-        {
-            exitCode = 0;
-        }
+        // R4 TA I3: exit-code override extracted to SessionHelpers.ResolveExitCode
+        // so the round-2 CR I2 fix (exit_on_match → 0) is regression-pinned.
+        int exitCode = SessionHelpers.ResolveExitCode(
+            _exitReason, _lastResult?.ExitCode, _failedExitCode);
 
         if (_config.JsonOutput)
         {

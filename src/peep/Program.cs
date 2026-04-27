@@ -157,13 +157,11 @@ internal sealed class Program
         // peep without ever cancelling the token we passed to CommandExecutor —
         // so its kill-on-cancel callback never fires and the child leaks.
         using var cts = new CancellationTokenSource();
-        ConsoleCancelEventHandler cancelHandler = (_, e) =>
-        {
-            e.Cancel = true;
-            // Best-effort cancel; if the token source is already disposed (race during
-            // shutdown), suppress so a late Ctrl+C doesn't propagate as ObjectDisposed.
-            try { cts.Cancel(); } catch (ObjectDisposedException) { }
-        };
+        // R4 TA I6: handler body lives in SessionHelpers.RequestCancellationSilently
+        // so the "Cancel after dispose must not throw" contract is regression-pinned
+        // (Console.CancelKeyPress is a static event that doesn't compose with xunit).
+        ConsoleCancelEventHandler cancelHandler = (_, e)
+            => SessionHelpers.RequestCancellationSilently(e, cts);
         Console.CancelKeyPress += cancelHandler;
 
         try

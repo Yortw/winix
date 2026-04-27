@@ -73,6 +73,13 @@ public static class GitIgnoreChecker
             var psi = new ProcessStartInfo("git")
             {
                 UseShellExecute = false,
+                // R4 SFH I3: redirect stdin + close it immediately. Git itself doesn't
+                // read stdin for `rev-parse`, but credential helpers (Git Credential
+                // Manager, askpass) and pre-/post-command hooks can. Without redirection
+                // the spawned git inherits peep's console stdin and a hung credential
+                // helper holds the parent until the 5s timeout — surfacing as "git
+                // rev-parse timed out" when the real cause is a credential prompt.
+                RedirectStandardInput = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 CreateNoWindow = true,
@@ -87,6 +94,14 @@ public static class GitIgnoreChecker
                 DisableGit("git could not be started; gitignore filtering disabled");
                 return false;
             }
+
+            // Close stdin immediately so any helper attempting to read sees EOF and
+            // either falls through silently or fails fast (rather than hanging).
+            // Wrap in try/catch to mirror CommandExecutor's precedent — a fast-exiting
+            // git child can have stdin gone before Close() runs.
+            try { process.StandardInput.Close(); }
+            catch (IOException) { /* benign — pipe already gone */ }
+            catch (ObjectDisposedException) { /* same */ }
 
             bool exited = process.WaitForExit(5000);
             if (!exited)
@@ -130,6 +145,8 @@ public static class GitIgnoreChecker
                 var psi = new ProcessStartInfo("git")
                 {
                     UseShellExecute = false,
+                    // R4 SFH I3: see IsGitRepo above for stdin-redirect rationale.
+                    RedirectStandardInput = true,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     CreateNoWindow = true,
@@ -146,6 +163,10 @@ public static class GitIgnoreChecker
                     DisableGit("git check-ignore could not be started; gitignore filtering disabled");
                     return false;
                 }
+
+                try { process.StandardInput.Close(); }
+                catch (IOException) { /* benign */ }
+                catch (ObjectDisposedException) { /* same */ }
 
                 bool exited = process.WaitForExit(3000);
                 if (!exited)
