@@ -357,7 +357,20 @@ internal sealed class Program
             }
         }
 
-        IReadOnlyList<DateTimeOffset> occurrences = cron.GetNextOccurrences(DateTimeOffset.Now, count);
+        IReadOnlyList<DateTimeOffset> occurrences;
+        try
+        {
+            occurrences = cron.GetNextOccurrences(DateTimeOffset.Now, count);
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Parseable expressions can still be unsatisfiable — e.g. '0 0 30 2 *' (Feb 30).
+            // GetNextOccurrence throws after exhausting an 8-year search horizon. Without this
+            // catch the exception escapes RunNext as an unhandled CLR error with a stack trace.
+            // CrontabParser already learned this lesson; mirror it here. Treat as a usage error
+            // since the cron is technically valid syntax but logically impossible.
+            return result.WriteError(ex.Message, Console.Error);
+        }
 
         if (json)
         {
