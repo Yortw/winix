@@ -21,12 +21,18 @@ public sealed class SchtasksBackend : ISchedulerBackend
     {
         string taskPath = BuildTaskPath(folder, name);
 
+        // Map cron to schtasks schedule parameters before any I/O — if the expression has
+        // no clean mapping, fail fast with a clear diagnostic rather than registering a
+        // task that runs every minute, 24/7. The original fallback silently mis-scheduled.
+        SchtasksSchedule schedule = CronToSchtasksMapper.Map(cron);
+        if (schedule.Degraded)
+        {
+            return ScheduleResult.Fail(schedule.DegradedReason ?? "cron expression cannot be mapped to schtasks.");
+        }
+
         // Build the command string for schtasks /TR.
         // schtasks /TR takes a single string. We must quote the command and arguments.
         string taskRun = BuildTaskRunString(command, arguments);
-
-        // Map cron to schtasks schedule parameters.
-        SchtasksSchedule schedule = CronToSchtasksMapper.Map(cron);
 
         var args = new List<string>
         {
