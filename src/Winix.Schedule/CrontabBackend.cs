@@ -155,14 +155,20 @@ public sealed class CrontabBackend : ISchedulerBackend
             return ScheduleResult.Fail($"Task '{name}' not found.");
         }
 
-        // Detach the spawned task's stdio from our terminal AND background it via shell:
+        // Detach the spawned task's stdio from our terminal AND background it via shell.
+        // The user command is wrapped in '{ ... ; }' so the redirects and trailing '&' bind
+        // to the whole compound. Without the braces:
+        //  - 'cmd1 | cmd2' leaks the redirect to cmd2 only; cmd1's stdout still inherits.
+        //  - 'cmd1 && cmd2' is mostly fine, but a target ending in '&' (already-backgrounded
+        //    by the user) produces 'cmd & </dev/null …' which the shell rejects as syntax.
+        //  - 'cmd ;' similarly produces a parse error before the redirects.
+        // The terminating ';' inside the braces handles the user-already-ended-the-statement
+        // case: '{ cmd & ; }' is well-formed; bare '{ cmd & }' is a parse error in some shells.
+        // Redirect components:
         //  - </dev/null  detaches stdin so the child cannot consume keystrokes
-        //  - >/dev/null 2>&1  prevents the task's output mixing into schedule's stderr
-        //  - &  backgrounds the job so /bin/sh exits immediately, leaving the task running
-        // Without redirection the child inherits stdio (UseShellExecute=false + no
-        // RedirectStandard*) and any output the task produces appears interleaved with
-        // schedule's own messages on the user's terminal.
-        string detachedCommand = target.Command + " </dev/null >/dev/null 2>&1 &";
+        //  - >/dev/null 2>&1  prevents output mixing into schedule's stderr
+        //  - &  backgrounds the compound so /bin/sh exits immediately
+        string detachedCommand = "{ " + target.Command + " ; } </dev/null >/dev/null 2>&1 &";
         var psi = new ProcessStartInfo("/bin/sh")
         {
             UseShellExecute = false,
