@@ -68,9 +68,13 @@ internal sealed class Program
         bool jsonOutput = result.Has("--json");
         bool useColor = result.ResolveColor(checkStdErr: true);
 
-        // Default folder is \Winix\ on Windows, empty on Linux/macOS.
-        string folder = result.Has("--folder")
-            ? result.GetString("--folder")
+        // Default folder is \Winix\ on Windows, empty on Linux/macOS. An explicit empty
+        // --folder ("" passed by the user) is treated the same as "flag absent" — without
+        // this fall-back the empty string would propagate to schtasks as /TN "" which it
+        // rejects with a confusing error.
+        string folderArg = result.Has("--folder") ? result.GetString("--folder") : "";
+        string folder = !string.IsNullOrEmpty(folderArg)
+            ? folderArg
             : (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? @"\Winix\" : string.Empty);
 
         switch (subcommand)
@@ -477,6 +481,6 @@ internal sealed class Program
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
             ?.InformationalVersion ?? "0.0.0";
         int plus = raw.IndexOf('+');
-        return plus >= 0 ? raw[..plus] : raw;
+        return plus >= 0 ? raw.Substring(0, plus) : raw;
     }
 }

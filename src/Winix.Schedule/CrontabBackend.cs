@@ -358,8 +358,14 @@ public sealed class CrontabBackend : ISchedulerBackend
 
             if (process.ExitCode != 0)
             {
+                // Some crontab implementations emit nothing on stderr even when failing
+                // (e.g. permission-denied returns 1 with empty stderr on macOS). A bare
+                // "crontab failed (exit 1):" message with a trailing colon is confusing —
+                // surface "no stderr output" so the user knows there's no further detail
+                // to dig into rather than wondering what got truncated.
+                string detail = string.IsNullOrWhiteSpace(stderr) ? "no stderr output" : stderr.Trim();
                 throw new CrontabUnavailableException(
-                    $"crontab failed (exit {process.ExitCode}): {stderr.Trim()}");
+                    $"crontab failed (exit {process.ExitCode}): {detail}");
             }
 
             return stderr.Trim();
