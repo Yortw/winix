@@ -73,6 +73,70 @@ public sealed class CrontabParserAdjacencyTests
     }
 
     [Fact]
+    public void ParseEntries_BlankLineBetweenTagAndCronLine_TaskStillExtracted()
+    {
+        // Regression test for the R2-introduced over-aggressive orphan-at-EOF check
+        // (silent-failure-hunter R3 finding F3): a user-typed crontab with a readability
+        // blank line between the tag and the cron line was misattributed — the tag
+        // emitted an Unknown placeholder and the actual cron line was either silently
+        // dropped (winixOnly=true) or shown as an untagged entry with the user's tag
+        // appearing destroyed (winixOnly=false). Now the parser skips blank lines
+        // between tag and cron entry and treats them as a single task.
+        string crontab =
+            "# winix:foo\n" +
+            "\n" +
+            "0 2 * * * /usr/bin/run.sh\n";
+
+        var tasks = CrontabParser.ParseEntries(crontab, winixOnly: true);
+
+        Assert.Single(tasks);
+        Assert.Equal("foo", tasks[0].Name);
+        Assert.Equal("Enabled", tasks[0].Status);
+        Assert.Equal("0 2 * * *", tasks[0].Schedule);
+        Assert.Equal("/usr/bin/run.sh", tasks[0].Command);
+    }
+
+    [Fact]
+    public void ParseEntries_MultipleBlankLinesBetweenTagAndCron_StillExtractsCorrectly()
+    {
+        // Two or three blank lines between tag and cron line should still resolve to
+        // a single task — defensive against unusual editor configurations or merge
+        // artifacts that introduce extra whitespace.
+        string crontab =
+            "# winix:multi-blank\n" +
+            "\n" +
+            "  \n" +   // line with only whitespace
+            "\t\n" +   // tab-only line
+            "*/15 * * * * /opt/poller\n";
+
+        var tasks = CrontabParser.ParseEntries(crontab, winixOnly: true);
+
+        Assert.Single(tasks);
+        Assert.Equal("multi-blank", tasks[0].Name);
+        Assert.Equal("*/15 * * * *", tasks[0].Schedule);
+    }
+
+    [Fact]
+    public void ParseEntries_BlankLinesBetweenAdjacentWinixTags_BothMarkedUnknown()
+    {
+        // Blank lines between two adjacent winix tags don't somehow rescue the first —
+        // the second tag is still a distinct entry.
+        string crontab =
+            "# winix:first\n" +
+            "\n" +
+            "# winix:second\n" +
+            "*/5 * * * * /run\n";
+
+        var tasks = CrontabParser.ParseEntries(crontab, winixOnly: true);
+
+        Assert.Equal(2, tasks.Count);
+        Assert.Equal("first", tasks[0].Name);
+        Assert.Contains("Unknown", tasks[0].Status);
+        Assert.Equal("second", tasks[1].Name);
+        Assert.Equal("Enabled", tasks[1].Status);
+    }
+
+    [Fact]
     public void ParseEntries_DisabledMalformedCron_StillReportsDisabledStatus()
     {
         string crontab =

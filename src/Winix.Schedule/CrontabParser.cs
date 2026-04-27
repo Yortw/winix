@@ -39,26 +39,37 @@ public static class CrontabParser
             {
                 string name = line.Substring(WinixTagPrefix.Length).Trim();
 
-                // The next line should be the cron entry (possibly commented-out if disabled).
-                if (i + 1 < lines.Length)
+                // Look forward for the cron line, skipping blank/whitespace-only lines —
+                // a user editing the crontab by hand can legitimately put a blank line
+                // between the tag and the cron entry for readability. The previous
+                // adjacency guard treated any whitespace-only "next line" as orphan,
+                // which silently misattributed the user's actual cron line on the line
+                // after the blank as a separate untagged entry.
+                int next = i + 1;
+                while (next < lines.Length && string.IsNullOrWhiteSpace(lines[next].TrimEnd('\r')))
                 {
-                    string cronLine = lines[i + 1].TrimEnd('\r');
+                    next++;
+                }
 
-                    // Adjacency guard: a hand-edited crontab can leave two consecutive winix
-                    // tags with the cron line between them deleted, OR a single tag at EOF
-                    // with no following cron line at all (which the trailing newline split
-                    // surfaces as a blank line). Without this check the parser would either
-                    // consume the next tag as the current task's cron line (corrupting both
-                    // entries) or produce a task with empty Schedule/Command but Status=
-                    // "Enabled" (misleading the user). Either case: emit an explicit
-                    // Unknown placeholder so the listing surfaces the corruption.
-                    if (cronLine.StartsWith(WinixTagPrefix, StringComparison.Ordinal)
-                        || string.IsNullOrWhiteSpace(cronLine))
-                    {
-                        tasks.Add(new ScheduledTask(name, "", null, "Unknown (no cron line)", "", ""));
-                        continue;
-                    }
+                // Orphan tag: ran off the end of the file with nothing but blanks after it.
+                if (next >= lines.Length)
+                {
+                    tasks.Add(new ScheduledTask(name, "", null, "Unknown (no cron line)", "", ""));
+                    continue;
+                }
 
+                string cronLine = lines[next].TrimEnd('\r');
+
+                // Adjacent winix tag (possibly with blank lines between): the current tag
+                // has no cron line, and the next tag should be processed independently —
+                // do NOT advance i past it.
+                if (cronLine.StartsWith(WinixTagPrefix, StringComparison.Ordinal))
+                {
+                    tasks.Add(new ScheduledTask(name, "", null, "Unknown (no cron line)", "", ""));
+                    continue;
+                }
+
+                {
                     bool disabled = cronLine.StartsWith("# ", StringComparison.Ordinal);
                     string activeLine = disabled ? cronLine.Substring(2) : cronLine;
 
@@ -84,7 +95,10 @@ public static class CrontabParser
                     }
 
                     tasks.Add(new ScheduledTask(name, cronFields, nextRun, status, command, ""));
-                    i++; // Skip the cron line — we already consumed it.
+                    // Advance the index PAST the cron line we just consumed (which lived at
+                    // 'next', possibly several lines ahead of i+1 due to blank-line spacing).
+                    // The for-loop's i++ then moves us to next+1.
+                    i = next;
                 }
 
                 continue;
