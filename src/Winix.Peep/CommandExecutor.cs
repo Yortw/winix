@@ -197,6 +197,24 @@ public static class CommandExecutor
                 captured = output.ToString();
             }
 
+            // Normalise Windows CRLF line endings to LF at the API boundary. Windows
+            // children (notably `dotnet`, `cmd`, and any .NET console app) write \r\n;
+            // passing CRLF through to peep's downstream consumers causes:
+            //   (a) Display rendering bugs in --once mode — Console.Write on Windows
+            //       (with Console.OutputEncoding=UTF8 set by ShellKit) routes through
+            //       a different code path than direct console output; ConPTY + mintty
+            //       mangles CRLF near terminal-width wrap boundaries. Verified
+            //       empirically: same bytes render correctly via `cat` from a file
+            //       but break via .NET's Console.Write on the same terminal.
+            //   (b) Cross-platform JSON envelope inconsistency — last_output for
+            //       `dotnet --version` should be the same shape on Windows and Linux.
+            //   (c) Downstream pipe consumers (jq, etc.) expect LF, not CRLF.
+            // SnapshotHistory.SplitLines already normalises for diff/render; this is
+            // the single API-boundary normalisation that covers Console.Write, JSON
+            // envelope last_output, --exit-on-match regex input, and any future
+            // consumer of PeepResult.Output.
+            captured = captured.Replace("\r\n", "\n");
+
             return new PeepResult(captured, process.ExitCode, stopwatch.Elapsed, trigger);
         }
         finally
@@ -206,42 +224,78 @@ public static class CommandExecutor
     }
 
     /// <summary>
-    /// Reads a redirected stream in chunks and appends to the shared StringBuilder.
-    /// The lock serialises interleaved stdout/stderr writes so chunks don't get torn,
-    /// and enforces the <paramref name="maxOutputChars"/> cap by setting the shared
-    /// <paramref name="truncation"/> flag and dropping further input once exceeded.
+    /// Reads a redirected stream in chunks and emits one line at a time into the shared
+    /// <paramref name="output"/> StringBuilder, holding the lock only across each line
+    /// flush. This prevents cross-stream chunk interleaving from landing mid-line —
+    /// which corrupts output when a child writes to BOTH stdout and stderr (notably
+    /// `dotnet`, which writes the first line of a not-found-subcommand error to stderr
+    /// and the rest to stdout: pre-fix, peep's reader could land a stdout chunk inside
+    /// a stderr line, producing output like
+    /// <c>"this naCould not execute...me could not be found"</c>).
+    /// <para/>
+    /// Lines from stdout and stderr can still interleave at line boundaries (true
+    /// chronological merge across two pipes is impossible without OS-level support),
+    /// but the granularity is line-atomic instead of chunk-atomic. The output cap is
+    /// enforced per line; a pathological single line larger than the cap is truncated
+    /// at the flush boundary.
     /// </summary>
     private static async Task ReadStreamAsync(
         StreamReader reader, StringBuilder output, object outputLock, TruncationFlag truncation, int maxOutputChars)
     {
         char[] buffer = new char[4096];
+        var lineBuffer = new StringBuilder();
         int charsRead;
 
         while ((charsRead = await reader.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false)) > 0)
         {
-            lock (outputLock)
+            for (int i = 0; i < charsRead; i++)
             {
-                if (truncation.Triggered)
+                char c = buffer[i];
+                lineBuffer.Append(c);
+                if (c == '\n')
                 {
-                    // Already over cap — drain and discard the rest so the child can't
-                    // wedge on a full pipe. Continue the loop rather than break: the
-                    // child's writes still need to drain so it sees EPIPE / EOF cleanly.
-                    continue;
+                    FlushLine(lineBuffer, output, outputLock, truncation, maxOutputChars);
+                    lineBuffer.Clear();
                 }
+            }
+        }
 
-                int remaining = maxOutputChars - output.Length;
-                if (remaining <= 0)
-                {
-                    truncation.Triggered = true;
-                    continue;
-                }
+        // Final partial line at EOF (no trailing newline) — flush so it isn't lost.
+        if (lineBuffer.Length > 0)
+        {
+            FlushLine(lineBuffer, output, outputLock, truncation, maxOutputChars);
+        }
+    }
 
-                int toAppend = Math.Min(charsRead, remaining);
-                output.Append(buffer, 0, toAppend);
-                if (toAppend < charsRead)
-                {
-                    truncation.Triggered = true;
-                }
+    /// <summary>
+    /// Atomically appends one line (already accumulated in <paramref name="line"/>) to
+    /// the shared output buffer under the lock, applying the per-call truncation cap.
+    /// </summary>
+    private static void FlushLine(
+        StringBuilder line, StringBuilder output, object outputLock,
+        TruncationFlag truncation, int maxOutputChars)
+    {
+        lock (outputLock)
+        {
+            if (truncation.Triggered)
+            {
+                // Already capped — drop the line so the child still drains its pipe
+                // (no wedge), but no further bytes are appended.
+                return;
+            }
+
+            int remaining = maxOutputChars - output.Length;
+            if (remaining <= 0)
+            {
+                truncation.Triggered = true;
+                return;
+            }
+
+            int toAppend = Math.Min(line.Length, remaining);
+            output.Append(line.ToString(0, toAppend));
+            if (toAppend < line.Length)
+            {
+                truncation.Triggered = true;
             }
         }
     }
