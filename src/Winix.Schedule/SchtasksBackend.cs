@@ -329,10 +329,18 @@ public sealed class SchtasksBackend : ISchedulerBackend
         {
             // Any other launch failure (ERROR_ACCESS_DENIED=5, ERROR_ELEVATION_REQUIRED=740, etc.).
             // Surface the NativeErrorCode so the user can diagnose rather than collapsing to
-            // an opaque "not found" or letting the exception escape uncaught.
+            // an opaque "not found" or letting the exception escape uncaught. For 740 specifically
+            // append the actionable recovery hint — the only thing the user can do is re-run
+            // from an elevated command prompt.
+            string hint = ex.NativeErrorCode switch
+            {
+                740 => " (try running from an elevated command prompt)",
+                5   => " (access denied — try running from an elevated command prompt)",
+                _   => "",
+            };
             return new ProcessRunResult(
                 -1, "",
-                $"schtasks.exe could not be launched (Win32 error {ex.NativeErrorCode.ToString(CultureInfo.InvariantCulture)}): {ex.Message}");
+                $"could not launch schtasks.exe (Win32 error {ex.NativeErrorCode.ToString(CultureInfo.InvariantCulture)}): {ex.Message}{hint}");
         }
 
         using (process)
