@@ -251,6 +251,34 @@ public class ProgramMainTests
 
     // ---- Help / version output goes to stdout (ShellKit convention) ----
 
+    // ---- Crontab newline-injection rejection (R3 SFH F1+F2) ----
+
+    [Fact]
+    public void AddWithNewlineInName_ExitCode125_DoesNotInjectExtraEntry()
+    {
+        // Use bash-style $'...' if invoked by a shell, but here we inject the literal newline
+        // through the argv array. Pin the usage-error gate at the Program.cs validation layer.
+        var r = RunSchedule("add", "--cron", "0 2 * * *", "--name", "foo\nbar", "--", "/bin/legit");
+        Assert.Equal(125, r.ExitCode);
+        Assert.Contains("--name must not contain newline", r.Stderr);
+    }
+
+    [Fact]
+    public void AddWithNewlineInCommand_ExitCode125()
+    {
+        var r = RunSchedule("add", "--cron", "0 2 * * *", "--", "/bin/run\n# winix:hidden\n0 0 * * * /malicious");
+        Assert.Equal(125, r.ExitCode);
+        Assert.Contains("command must not contain newline", r.Stderr);
+    }
+
+    [Fact]
+    public void AddWithNewlineInArgument_ExitCode125()
+    {
+        var r = RunSchedule("add", "--cron", "0 2 * * *", "--", "/bin/legit", "--flag\nINJECTED");
+        Assert.Equal(125, r.ExitCode);
+        Assert.Contains("argument 1 must not contain newline", r.Stderr);
+    }
+
     [Fact]
     public void Help_GoesToStdoutNotStderr()
     {

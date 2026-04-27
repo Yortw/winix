@@ -129,12 +129,30 @@ public static class CrontabParser
 
     /// <summary>Appends a winix-tagged cron entry to the crontab content.</summary>
     /// <param name="crontabContent">The existing crontab text.</param>
-    /// <param name="name">The winix task name.</param>
-    /// <param name="cronExpression">The 5-field cron expression (e.g. <c>*/5 * * * *</c>).</param>
-    /// <param name="command">The shell command to run.</param>
+    /// <param name="name">The winix task name. Must not contain newlines, carriage returns, or the <c># winix:</c> tag prefix.</param>
+    /// <param name="cronExpression">The 5-field cron expression (e.g. <c>*/5 * * * *</c>). Must not contain newlines.</param>
+    /// <param name="command">The shell command to run. Must not contain newlines.</param>
     /// <returns>The updated crontab text with the new entry appended.</returns>
+    /// <exception cref="ArgumentException">
+    /// Thrown when <paramref name="name"/>, <paramref name="cronExpression"/>, or
+    /// <paramref name="command"/> contains a newline / carriage-return character, or when
+    /// <paramref name="name"/> would forge an additional <c># winix:</c> tag. Without this
+    /// check, a user-supplied newline in any of the three could inject a second cron entry
+    /// into the user's crontab — the literal task is registered, AND a hidden second task
+    /// runs alongside it.
+    /// </exception>
     public static string AddEntry(string crontabContent, string name, string cronExpression, string command)
     {
+        ValidateNoNewlines(name, nameof(name));
+        ValidateNoNewlines(cronExpression, nameof(cronExpression));
+        ValidateNoNewlines(command, nameof(command));
+        if (name.Contains(WinixTagPrefix, StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                $"Task name must not contain '{WinixTagPrefix}' — would forge an additional crontab tag.",
+                nameof(name));
+        }
+
         var sb = new StringBuilder();
         if (!string.IsNullOrEmpty(crontabContent))
         {
@@ -274,6 +292,30 @@ public static class CrontabParser
 
         return cronLine.Substring(start, endOfFields - start);
     }
+
+    /// <summary>
+    /// Throws <see cref="ArgumentException"/> when <paramref name="value"/> contains a newline
+    /// or carriage-return character. Crontab lines are newline-delimited, so any unfiltered
+    /// newline in name/cron/command would split a single entry into multiple lines —
+    /// silently registering an extra winix-or-not task in the user's crontab.
+    /// </summary>
+    private static void ValidateNoNewlines(string value, string paramName)
+    {
+        if (value is null)
+        {
+            throw new ArgumentNullException(paramName);
+        }
+
+        if (value.IndexOfAny(NewlineChars) >= 0)
+        {
+            throw new ArgumentException(
+                $"{paramName} must not contain newline or carriage-return characters " +
+                "(would inject additional crontab entries).",
+                paramName);
+        }
+    }
+
+    private static readonly char[] NewlineChars = { '\n', '\r' };
 
     /// <summary>Comments out or uncomments the cron line following a winix tag.</summary>
     private static string ToggleEntry(string crontabContent, string name, bool disable)

@@ -150,6 +150,28 @@ internal sealed class Program
             name = NameGenerator.FromCommand(fullCommand);
         }
 
+        // Reject newlines in user-supplied identifiers BEFORE handing them to the backend.
+        // crontab is newline-delimited; an unfiltered '\n' in name/command/argument injects
+        // additional entries into the user's crontab, registering hidden tasks alongside the
+        // legitimate one. schtasks rejects them too but with a less actionable error.
+        // Defence in depth: CrontabParser.AddEntry also validates, but the cleaner UX is to
+        // surface the usage error here rather than let an ArgumentException escape.
+        if (RejectIfMultiline("--name", name, out string? nameError))
+        {
+            return result.WriteError(nameError!, Console.Error);
+        }
+        if (RejectIfMultiline("command", command, out string? cmdError))
+        {
+            return result.WriteError(cmdError!, Console.Error);
+        }
+        for (int ai = 0; ai < arguments.Length; ai++)
+        {
+            if (RejectIfMultiline($"argument {ai + 1}", arguments[ai], out string? argError))
+            {
+                return result.WriteError(argError!, Console.Error);
+            }
+        }
+
         ISchedulerBackend backend = GetBackend();
         ScheduleResult scheduleResult = backend.Add(name, cron, command, arguments, folder);
 
@@ -385,6 +407,26 @@ internal sealed class Program
 
         return 0;
     }
+
+    /// <summary>
+    /// Returns <see langword="true"/> and emits an error message into <paramref name="error"/>
+    /// when <paramref name="value"/> contains a newline or carriage return — used as a
+    /// usage-error gate for user-supplied identifiers (task name, command, arguments) before
+    /// they reach the backend. Without this check, '\n' in any of those fields would inject
+    /// additional crontab entries.
+    /// </summary>
+    private static bool RejectIfMultiline(string label, string value, out string? error)
+    {
+        if (value.IndexOfAny(MultilineChars) >= 0)
+        {
+            error = $"{label} must not contain newline or carriage-return characters.";
+            return true;
+        }
+        error = null;
+        return false;
+    }
+
+    private static readonly char[] MultilineChars = { '\n', '\r' };
 
     /// <summary>
     /// Writes <paramref name="message"/> followed by a newline to stderr, swallowing any
