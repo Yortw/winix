@@ -187,6 +187,10 @@ public class FormatJsonErrorTests
 
 public class StripAnsiTests
 {
+    // Use  (fixed 4-digit Unicode escape) for BEL — \x07 is variable-length
+    // and greedily consumes following hex chars (e.g. "\x07B" parses as char 0x7B = '{').
+    private const string Bel = "";
+
     [Fact]
     public void StripAnsi_RemovesColourCodes()
     {
@@ -242,5 +246,71 @@ public class StripAnsiTests
         string result = Formatting.StripAnsi(input);
 
         Assert.Equal("ERROR: something went wrong", result);
+    }
+
+    // R3 CR I3: prior CSI-only regex left OSC sequences in output. Modern shells
+    // (fish, bash with title prompts, oh-my-posh), gcc, and ripgrep emit these.
+    // Two contracts depend on the strip: --exit-on-match (must match against
+    // OSC-prefixed lines) and --json-output last_output (must not leak escapes).
+
+    [Fact]
+    public void StripAnsi_RemovesOscWindowTitleWithBel()
+    {
+        // Common short form: ESC ] 0 ; title BEL — written by bash/zsh prompts.
+        string input = "\x1b]0;my window title" + Bel + "hello";
+
+        string result = Formatting.StripAnsi(input);
+
+        Assert.Equal("hello", result);
+    }
+
+    [Fact]
+    public void StripAnsi_RemovesOscWindowTitleWithStringTerminator()
+    {
+        // Spec form: ESC ] 0 ; title ESC \ — used when BEL is unavailable.
+        string input = "\x1b]0;my window title\x1b\\hello";
+
+        string result = Formatting.StripAnsi(input);
+
+        Assert.Equal("hello", result);
+    }
+
+    [Fact]
+    public void StripAnsi_RemovesOsc8Hyperlinks()
+    {
+        // OSC-8 hyperlinks: ESC ] 8 ; ; url ESC \ text ESC ] 8 ; ; ESC \
+        // Used by gcc, ripgrep, modern grep variants. Both anchors must be stripped.
+        string input = "\x1b]8;;https://example.com\x1b\\click here\x1b]8;;\x1b\\";
+
+        string result = Formatting.StripAnsi(input);
+
+        Assert.Equal("click here", result);
+    }
+
+    [Fact]
+    public void StripAnsi_MixedCsiAndOsc()
+    {
+        // Real-world line: title-set OSC followed by SGR colour.
+        string input = "\x1b]0;build" + Bel + "\x1b[32mOK\x1b[0m all green";
+
+        string result = Formatting.StripAnsi(input);
+
+        Assert.Equal("OK all green", result);
+    }
+
+    [Fact]
+    public void StripAnsi_OscThenMatchablePattern_StrippedTextMatches()
+    {
+        // The contract this CR I3 fix exists to repair: --exit-on-match runs against
+        // StripAnsi'd text. Pre-fix, an OSC-prefixed "BUILD SUCCEEDED" line would
+        // leave the OSC bytes in front of "BUILD" and the match would fail. Pin the
+        // round-trip so a future regex regression that drops the OSC alternative
+        // can't silently break --exit-on-match.
+        string input = "\x1b]0;dotnet build" + Bel + "BUILD SUCCEEDED";
+
+        string result = Formatting.StripAnsi(input);
+
+        Assert.Equal("BUILD SUCCEEDED", result);
+        Assert.StartsWith("BUILD", result);  // pin: no leading escape leakage
     }
 }
