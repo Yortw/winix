@@ -155,20 +155,9 @@ public sealed class CrontabBackend : ISchedulerBackend
             return ScheduleResult.Fail($"Task '{name}' not found.");
         }
 
-        // Detach the spawned task's stdio from our terminal AND background it via shell.
-        // The user command is wrapped in '{ ... ; }' so the redirects and trailing '&' bind
-        // to the whole compound. Without the braces:
-        //  - 'cmd1 | cmd2' leaks the redirect to cmd2 only; cmd1's stdout still inherits.
-        //  - 'cmd1 && cmd2' is mostly fine, but a target ending in '&' (already-backgrounded
-        //    by the user) produces 'cmd & </dev/null …' which the shell rejects as syntax.
-        //  - 'cmd ;' similarly produces a parse error before the redirects.
-        // The terminating ';' inside the braces handles the user-already-ended-the-statement
-        // case: '{ cmd & ; }' is well-formed; bare '{ cmd & }' is a parse error in some shells.
-        // Redirect components:
-        //  - </dev/null  detaches stdin so the child cannot consume keystrokes
-        //  - >/dev/null 2>&1  prevents output mixing into schedule's stderr
-        //  - &  backgrounds the compound so /bin/sh exits immediately
-        string detachedCommand = "{ " + target.Command + " ; } </dev/null >/dev/null 2>&1 &";
+        // Build the detached/backgrounded shell command. See BuildRunDetachedCommand for
+        // the full reasoning on terminator handling.
+        string detachedCommand = BuildRunDetachedCommand(target.Command);
         var psi = new ProcessStartInfo("/bin/sh")
         {
             UseShellExecute = false,
@@ -375,6 +364,42 @@ public sealed class CrontabBackend : ISchedulerBackend
 
             return stderr.Trim();
         }
+    }
+
+    /// <summary>
+    /// Wraps the user's stored command in a brace-group plus stdin/stdout/stderr redirection
+    /// and trailing background-operator, so <c>/bin/sh -c</c> launches it detached from the
+    /// parent terminal.
+    /// </summary>
+    /// <remarks>
+    /// The brace-group binds the redirects and trailing <c>&amp;</c> to the whole compound.
+    /// Without the braces:
+    /// <list type="bullet">
+    /// <item><c>cmd1 | cmd2</c> leaks the redirect to cmd2 only — cmd1's stdout still inherits.</item>
+    /// <item><c>cmd1 &amp;&amp; cmd2</c> is mostly fine, but multi-statement compounds need explicit grouping for the redirect to apply uniformly.</item>
+    /// </list>
+    /// Inside the braces, POSIX requires a list-terminator (<c>;</c>, newline, or <c>&amp;</c>)
+    /// before the closing brace. We append <c>;</c> by default. Two cases must skip our
+    /// terminator to avoid producing an empty-statement parse error
+    /// (<c>{ cmd &amp; ; }</c> is rejected by bash/dash):
+    /// <list type="bullet">
+    /// <item>The user's command already ends with a bare <c>&amp;</c> (backgrounded). Note this
+    /// is distinct from <c>&amp;&amp;</c> which is a logical-AND operator and DOES need a terminator.</item>
+    /// <item>The user's command already ends with <c>;</c>.</item>
+    /// </list>
+    /// Method is internal so tests can pin the wrap shape without spawning <c>/bin/sh</c>.
+    /// </remarks>
+    internal static string BuildRunDetachedCommand(string command)
+    {
+        string trimmed = command.TrimEnd();
+
+        // 'cmd &' (backgrounded) — '&' is itself a list terminator. Distinguish from '&&'.
+        bool endsBackgrounded = trimmed.EndsWith('&')
+            && !trimmed.EndsWith("&&", StringComparison.Ordinal);
+        bool endsTerminated = trimmed.EndsWith(';');
+
+        string terminator = (endsBackgrounded || endsTerminated) ? "" : "; ";
+        return "{ " + command + " " + terminator + "} </dev/null >/dev/null 2>&1 &";
     }
 
     /// <summary>
