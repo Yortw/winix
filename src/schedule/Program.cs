@@ -424,12 +424,17 @@ internal sealed class Program
     }
 
     /// <summary>
-    /// Returns the informational version from the Winix.Schedule library assembly.
+    /// Returns the informational version from the Winix.Schedule library assembly. The SDK
+    /// appends a SourceLink "+gitsha" suffix to <c>AssemblyInformationalVersion</c> by default
+    /// (e.g. "0.4.0+abc123…"); we strip it so users see "0.4.0" — matching the convention
+    /// adopted across clip / ids / digest / envvault / peep and the rest of the v0.3.x+ tools.
     /// </summary>
     private static string GetVersion()
     {
-        return typeof(ScheduledTask).Assembly
+        string raw = typeof(ScheduledTask).Assembly
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
             ?.InformationalVersion ?? "0.0.0";
+        int plus = raw.IndexOf('+');
+        return plus >= 0 ? raw[..plus] : raw;
     }
 }

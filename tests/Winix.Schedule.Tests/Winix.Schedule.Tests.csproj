@@ -10,5 +10,13 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Winix.Schedule\Winix.Schedule.csproj" />
+    <!--
+      ProgramMainTests spawns the compiled schedule binary; this reference forces
+      schedule.csproj to build whenever the tests build, so the dll is always present.
+    -->
+    <ProjectReference Include="..\..\src\schedule\schedule.csproj">
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <SkipGetTargetFrameworkProperties>true</SkipGetTargetFrameworkProperties>
+    </ProjectReference>
   </ItemGroup>
 </Project>
