@@ -4,7 +4,9 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.IO;
 using System.Text;
+using System.Threading.Tasks;
 
 namespace Winix.Schedule;
 
@@ -15,74 +17,137 @@ namespace Winix.Schedule;
 /// </summary>
 public sealed class CrontabBackend : ISchedulerBackend
 {
+    /// <summary>
+    /// Maximum time to wait for a crontab subprocess to exit. crontab against an unreachable
+    /// PAM/LDAP backend can hang; this ceiling keeps the tool responsive.
+    /// </summary>
+    private const int CrontabTimeoutMs = 30_000;
+
     /// <inheritdoc />
     public ScheduleResult Add(string name, CronExpression cron, string command, string[] arguments, string folder)
     {
         string fullCommand = BuildCommandString(command, arguments);
-
-        string currentCrontab = ReadCrontab();
-        string newCrontab = CrontabParser.AddEntry(currentCrontab, name, cron.Expression, fullCommand);
-        WriteCrontab(newCrontab);
-
-        return ScheduleResult.Ok($"Created task '{name}'.");
+        try
+        {
+            string currentCrontab = ReadCrontab();
+            string newCrontab = CrontabParser.AddEntry(currentCrontab, name, cron.Expression, fullCommand);
+            WriteCrontab(newCrontab);
+            return ScheduleResult.Ok($"Created task '{name}'.");
+        }
+        catch (CrontabUnavailableException ex)
+        {
+            return ScheduleResult.Fail(ex.Message);
+        }
     }
 
     /// <inheritdoc />
     public IReadOnlyList<ScheduledTask> List(string? folder, bool all)
     {
-        string crontab = ReadCrontab();
-        return CrontabParser.ParseEntries(crontab, winixOnly: !all);
+        // List returns an empty collection on read failure; the interface offers no
+        // way to signal "scheduler unavailable" to the caller. A future iteration may
+        // widen ISchedulerBackend.List to return a result type.
+        try
+        {
+            string crontab = ReadCrontab();
+            return CrontabParser.ParseEntries(crontab, winixOnly: !all);
+        }
+        catch (CrontabUnavailableException)
+        {
+            return Array.Empty<ScheduledTask>();
+        }
     }
 
     /// <inheritdoc />
     public ScheduleResult Remove(string name, string folder)
     {
-        string crontab = ReadCrontab();
-        string newCrontab = CrontabParser.RemoveEntry(crontab, name);
-
-        if (crontab == newCrontab)
+        try
         {
-            return ScheduleResult.Fail($"Task '{name}' not found.");
-        }
+            string crontab = ReadCrontab();
+            string newCrontab = CrontabParser.RemoveEntry(crontab, name);
 
-        WriteCrontab(newCrontab);
-        return ScheduleResult.Ok($"Removed task '{name}'.");
+            if (crontab == newCrontab)
+            {
+                return ScheduleResult.Fail($"Task '{name}' not found.");
+            }
+
+            WriteCrontab(newCrontab);
+            return ScheduleResult.Ok($"Removed task '{name}'.");
+        }
+        catch (CrontabUnavailableException ex)
+        {
+            return ScheduleResult.Fail(ex.Message);
+        }
     }
 
     /// <inheritdoc />
     public ScheduleResult Enable(string name, string folder)
     {
-        string crontab = ReadCrontab();
-        string newCrontab = CrontabParser.EnableEntry(crontab, name);
-        WriteCrontab(newCrontab);
+        try
+        {
+            string crontab = ReadCrontab();
+            string newCrontab = CrontabParser.EnableEntry(crontab, name);
 
-        return ScheduleResult.Ok($"Enabled task '{name}'.");
+            // Mirror Remove's symmetry: when nothing changed, the entry was either missing
+            // or already in the desired state. Reporting "Enabled X" for a non-existent
+            // task is silent success — the user acts on a typo with no warning.
+            if (crontab == newCrontab)
+            {
+                return ScheduleResult.Fail($"Task '{name}' not found or already enabled.");
+            }
+
+            WriteCrontab(newCrontab);
+            return ScheduleResult.Ok($"Enabled task '{name}'.");
+        }
+        catch (CrontabUnavailableException ex)
+        {
+            return ScheduleResult.Fail(ex.Message);
+        }
     }
 
     /// <inheritdoc />
     public ScheduleResult Disable(string name, string folder)
     {
-        string crontab = ReadCrontab();
-        string newCrontab = CrontabParser.DisableEntry(crontab, name);
-        WriteCrontab(newCrontab);
+        try
+        {
+            string crontab = ReadCrontab();
+            string newCrontab = CrontabParser.DisableEntry(crontab, name);
 
-        return ScheduleResult.Ok($"Disabled task '{name}'.");
+            if (crontab == newCrontab)
+            {
+                return ScheduleResult.Fail($"Task '{name}' not found or already disabled.");
+            }
+
+            WriteCrontab(newCrontab);
+            return ScheduleResult.Ok($"Disabled task '{name}'.");
+        }
+        catch (CrontabUnavailableException ex)
+        {
+            return ScheduleResult.Fail(ex.Message);
+        }
     }
 
     /// <inheritdoc />
     public ScheduleResult Run(string name, string folder)
     {
-        string crontab = ReadCrontab();
-        var tasks = CrontabParser.ParseEntries(crontab, winixOnly: true);
-
-        ScheduledTask? target = null;
-        foreach (var task in tasks)
+        ScheduledTask? target;
+        try
         {
-            if (string.Equals(task.Name, name, StringComparison.Ordinal))
+            string crontab = ReadCrontab();
+            var tasks = CrontabParser.ParseEntries(crontab, winixOnly: true);
+
+            target = null;
+            foreach (var task in tasks)
             {
-                target = task;
-                break;
+                if (string.Equals(task.Name, name, StringComparison.Ordinal))
+                {
+                    target = task;
+                    break;
+                }
             }
+        }
+        catch (CrontabUnavailableException ex)
+        {
+            return ScheduleResult.Fail(ex.Message);
         }
 
         if (target is null)
@@ -90,20 +155,43 @@ public sealed class CrontabBackend : ISchedulerBackend
             return ScheduleResult.Fail($"Task '{name}' not found.");
         }
 
-        // Run the command in a background subshell (fire and forget).
+        // Detach the spawned task's stdio from our terminal AND background it via shell:
+        //  - </dev/null  detaches stdin so the child cannot consume keystrokes
+        //  - >/dev/null 2>&1  prevents the task's output mixing into schedule's stderr
+        //  - &  backgrounds the job so /bin/sh exits immediately, leaving the task running
+        // Without redirection the child inherits stdio (UseShellExecute=false + no
+        // RedirectStandard*) and any output the task produces appears interleaved with
+        // schedule's own messages on the user's terminal.
+        string detachedCommand = target.Command + " </dev/null >/dev/null 2>&1 &";
+        var psi = new ProcessStartInfo("/bin/sh")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        psi.ArgumentList.Add("-c");
+        psi.ArgumentList.Add(detachedCommand);
+
         try
         {
-            var psi = new ProcessStartInfo("/bin/sh")
+            using var process = Process.Start(psi);
+            if (process is null)
             {
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-            psi.ArgumentList.Add("-c");
-            psi.ArgumentList.Add(target.Command);
+                return ScheduleResult.Fail($"Failed to run task '{name}': Process.Start returned null for /bin/sh.");
+            }
 
-            Process.Start(psi);
+            // Brief wait. If /bin/sh fails to spawn the backgrounded job (syntax error,
+            // missing executable in $PATH), it will exit non-zero within milliseconds.
+            // The actual task continues in the background regardless.
+            if (process.WaitForExit(500) && process.ExitCode != 0)
+            {
+                return ScheduleResult.Fail($"Failed to run task '{name}': /bin/sh exited with code {process.ExitCode}.");
+            }
         }
-        catch (Exception ex)
+        catch (Win32Exception ex)
+        {
+            return ScheduleResult.Fail($"Failed to run task '{name}': /bin/sh not available ({ex.Message}).");
+        }
+        catch (InvalidOperationException ex)
         {
             return ScheduleResult.Fail($"Failed to run task '{name}': {ex.Message}");
         }
@@ -120,8 +208,13 @@ public sealed class CrontabBackend : ISchedulerBackend
 
     /// <summary>
     /// Reads the current user crontab via <c>crontab -l</c>.
-    /// Returns an empty string when the crontab is empty or <c>crontab</c> is not found.
+    /// Returns an empty string when the user has no crontab (a normal state on most systems).
     /// </summary>
+    /// <exception cref="CrontabUnavailableException">
+    /// Thrown when the <c>crontab</c> binary is not on PATH. Distinguishing this from "no
+    /// crontab" lets callers surface a clear "scheduler not installed" diagnostic instead of
+    /// silently treating a missing binary as an empty crontab.
+    /// </exception>
     private static string ReadCrontab()
     {
         var psi = new ProcessStartInfo("crontab")
@@ -133,33 +226,66 @@ public sealed class CrontabBackend : ISchedulerBackend
         };
         psi.ArgumentList.Add("-l");
 
+        Process process;
         try
         {
-            using var process = Process.Start(psi);
-            if (process is null)
+            process = Process.Start(psi)
+                ?? throw new CrontabUnavailableException("Failed to start crontab process.");
+        }
+        catch (Win32Exception ex)
+        {
+            throw new CrontabUnavailableException("crontab command not found on PATH.", ex);
+        }
+
+        using (process)
+        {
+            // Drain stderr concurrently so a verbose-warning crontab can't fill its pipe and
+            // wedge the parent on stdout. crontab implementations on PAM-stacked systems
+            // routinely write deprecation/auth warnings to stderr.
+            Task<string> stderrTask = Task.Run(() =>
             {
-                return "";
+                try { return process.StandardError.ReadToEnd(); }
+                catch (IOException) { return ""; }
+            });
+
+            string output;
+            try { output = process.StandardOutput.ReadToEnd(); }
+            catch (IOException) { output = ""; }
+
+            if (!process.WaitForExit(CrontabTimeoutMs))
+            {
+                try { process.Kill(entireProcessTree: true); }
+                catch (InvalidOperationException) { /* already exited */ }
+                catch (Win32Exception) { /* race */ }
+                throw new CrontabUnavailableException($"crontab did not respond within {CrontabTimeoutMs / 1000}s.");
             }
 
-            string output = process.StandardOutput.ReadToEnd();
-            process.WaitForExit();
+            // Drain the stderr worker so it doesn't outlive this method.
+            try { stderrTask.Wait(5_000); }
+            catch (AggregateException) { /* swallow read errors after exit */ }
 
-            // Exit code 1 with "no crontab for ..." is normal on some systems — treat as empty.
+            // Exit code 1 with "no crontab for ..." is normal on most Unix systems; treat
+            // any non-zero exit as "no entries" rather than failing the operation. The
+            // CrontabUnavailableException path above already handles the binary-missing case.
             return process.ExitCode == 0 ? output : "";
-        }
-        catch (Win32Exception)
-        {
-            // crontab binary not found on this system.
-            return "";
         }
     }
 
     /// <summary>
     /// Writes new content to the user crontab by piping to <c>crontab -</c>.
+    /// stderr is drained concurrently to prevent buffer-fill deadlock if crontab emits
+    /// PAM/locale warnings while we're still writing stdin.
     /// </summary>
-    /// <exception cref="InvalidOperationException">
-    /// Thrown when the crontab process fails to start or exits with a non-zero code.
+    /// <exception cref="CrontabUnavailableException">
+    /// Thrown when the <c>crontab</c> binary is not on PATH, the process fails to start, or
+    /// the write returns a non-zero exit code. The exception message includes any stderr
+    /// captured from the failed crontab invocation so callers can surface a clear diagnostic.
     /// </exception>
+    /// <remarks>
+    /// This is a read-modify-write across two crontab invocations and is NOT atomic against
+    /// concurrent edits or signal-driven termination. A user receiving SIGTERM mid-write may
+    /// be left with a truncated crontab. Atomicity via a temp-file pattern is deferred.
+    /// </remarks>
     private static void WriteCrontab(string content)
     {
         var psi = new ProcessStartInfo("crontab")
@@ -171,18 +297,76 @@ public sealed class CrontabBackend : ISchedulerBackend
         };
         psi.ArgumentList.Add("-");
 
-        using var process = Process.Start(psi)
-            ?? throw new InvalidOperationException("Failed to start crontab process.");
-
-        process.StandardInput.Write(content);
-        process.StandardInput.Close();
-        process.WaitForExit();
-
-        if (process.ExitCode != 0)
+        Process process;
+        try
         {
-            string stderr = process.StandardError.ReadToEnd();
-            throw new InvalidOperationException($"crontab failed (exit {process.ExitCode}): {stderr}");
+            process = Process.Start(psi)
+                ?? throw new CrontabUnavailableException("Failed to start crontab process.");
         }
+        catch (Win32Exception ex)
+        {
+            throw new CrontabUnavailableException("crontab command not found on PATH.", ex);
+        }
+
+        using (process)
+        {
+            // Drain stderr on a worker BEFORE writing stdin — without this, a child that
+            // fills its stderr pipe buffer (~4KB on Linux default) blocks on write while the
+            // parent blocks on StandardInput.Write past the stdin buffer → deadlock.
+            Task<string> stderrTask = Task.Run(() =>
+            {
+                try { return process.StandardError.ReadToEnd(); }
+                catch (IOException) { return ""; }
+            });
+
+            try
+            {
+                process.StandardInput.Write(content);
+            }
+            catch (IOException ex)
+            {
+                // crontab rejected input early and closed stdin; the truncated content may have
+                // been committed depending on the implementation. Still try to read stderr.
+                try { process.Kill(entireProcessTree: true); }
+                catch (InvalidOperationException) { /* already exited */ }
+                catch (Win32Exception) { /* race */ }
+                throw new CrontabUnavailableException($"crontab rejected input: {ex.Message}", ex);
+            }
+            finally
+            {
+                try { process.StandardInput.Close(); } catch (IOException) { /* already closed */ }
+            }
+
+            if (!process.WaitForExit(CrontabTimeoutMs))
+            {
+                try { process.Kill(entireProcessTree: true); }
+                catch (InvalidOperationException) { /* already exited */ }
+                catch (Win32Exception) { /* race */ }
+                throw new CrontabUnavailableException($"crontab did not respond within {CrontabTimeoutMs / 1000}s.");
+            }
+
+            string stderr;
+            try { stderr = stderrTask.Wait(5_000) ? (stderrTask.Result ?? "") : ""; }
+            catch (AggregateException) { stderr = ""; }
+
+            if (process.ExitCode != 0)
+            {
+                throw new CrontabUnavailableException(
+                    $"crontab failed (exit {process.ExitCode}): {stderr.Trim()}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Signals that the user's crontab is unreachable — the binary is missing, the process
+    /// failed to start, the process exited non-zero, or it timed out. Carried as a typed
+    /// exception so callers can map it to a clean <see cref="ScheduleResult"/>.Fail rather
+    /// than letting <see cref="Win32Exception"/> escape uncaught and produce a stack trace.
+    /// </summary>
+    private sealed class CrontabUnavailableException : InvalidOperationException
+    {
+        public CrontabUnavailableException(string message) : base(message) { }
+        public CrontabUnavailableException(string message, Exception inner) : base(message, inner) { }
     }
 
     /// <summary>
