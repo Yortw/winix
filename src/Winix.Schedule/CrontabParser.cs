@@ -39,36 +39,18 @@ public static class CrontabParser
             {
                 string name = line.Substring(WinixTagPrefix.Length).Trim();
 
-                // Look forward for the cron line, skipping blank/whitespace-only lines —
-                // a user editing the crontab by hand can legitimately put a blank line
-                // between the tag and the cron entry for readability. The previous
-                // adjacency guard treated any whitespace-only "next line" as orphan,
-                // which silently misattributed the user's actual cron line on the line
-                // after the blank as a separate untagged entry.
-                int next = i + 1;
-                while (next < lines.Length && string.IsNullOrWhiteSpace(lines[next].TrimEnd('\r')))
+                int next = FindCronLineIndex(lines, i);
+                if (next < 0)
                 {
-                    next++;
-                }
-
-                // Orphan tag: ran off the end of the file with nothing but blanks after it.
-                if (next >= lines.Length)
-                {
+                    // Orphan tag — either ran off EOF with nothing but blanks, or the next
+                    // non-blank line is another winix tag. Either way: emit a placeholder
+                    // so the listing surfaces the corruption rather than silently dropping
+                    // the user's task name.
                     tasks.Add(new ScheduledTask(name, "", null, "Unknown (no cron line)", "", ""));
                     continue;
                 }
 
                 string cronLine = lines[next].TrimEnd('\r');
-
-                // Adjacent winix tag (possibly with blank lines between): the current tag
-                // has no cron line, and the next tag should be processed independently —
-                // do NOT advance i past it.
-                if (cronLine.StartsWith(WinixTagPrefix, StringComparison.Ordinal))
-                {
-                    tasks.Add(new ScheduledTask(name, "", null, "Unknown (no cron line)", "", ""));
-                    continue;
-                }
-
                 {
                     bool disabled = cronLine.StartsWith("# ", StringComparison.Ordinal);
                     string activeLine = disabled ? cronLine.Substring(2) : cronLine;
@@ -193,12 +175,13 @@ public static class CrontabParser
 
             if (line.Equals(tag, StringComparison.Ordinal))
             {
-                // Skip this tag line and the following cron line.
-                if (i + 1 < lines.Length)
-                {
-                    i++; // Skip cron line.
-                }
-
+                // Skip the tag line, any blank lines between tag and cron line (legitimate
+                // readability spacing), and the cron line itself. Without the blank-line
+                // skip, RemoveEntry would leave the user's actual cron line orphaned in
+                // the crontab — the user would see 'Removed task X.' but the task would
+                // continue to fire from the un-tagged cron line.
+                int next = FindCronLineIndex(lines, i);
+                i = next >= 0 ? next : i;
                 continue;
             }
 
@@ -334,34 +317,88 @@ public static class CrontabParser
                 sb.Append('\n');
             }
 
-            if (line.Equals(tag, StringComparison.Ordinal) && i + 1 < lines.Length)
+            if (!line.Equals(tag, StringComparison.Ordinal))
             {
-                i++;
-                string cronLine = lines[i].TrimEnd('\r');
-                sb.Append('\n');
-
-                if (disable && !cronLine.StartsWith("# ", StringComparison.Ordinal))
-                {
-                    sb.Append("# ");
-                    sb.Append(cronLine);
-                }
-                else if (!disable && cronLine.StartsWith("# ", StringComparison.Ordinal))
-                {
-                    sb.Append(cronLine.Substring(2));
-                }
-                else
-                {
-                    // Already in the desired state — leave unchanged.
-                    sb.Append(cronLine);
-                }
-
-                if (i < lines.Length - 1)
-                {
-                    sb.Append('\n');
-                }
+                continue;
             }
+
+            int cronIndex = FindCronLineIndex(lines, i);
+            if (cronIndex < 0)
+            {
+                // Orphan tag (no cron line, or next non-blank is another tag). Nothing to
+                // toggle — leave the surrounding content untouched and let the next loop
+                // iteration handle subsequent lines.
+                continue;
+            }
+
+            // Emit any intervening blank lines verbatim so they survive the round-trip.
+            for (int j = i + 1; j < cronIndex; j++)
+            {
+                sb.Append(lines[j].TrimEnd('\r'));
+                sb.Append('\n');
+            }
+
+            // Now toggle the actual cron line at cronIndex.
+            string cronLine = lines[cronIndex].TrimEnd('\r');
+            if (disable && !cronLine.StartsWith("# ", StringComparison.Ordinal))
+            {
+                sb.Append("# ");
+                sb.Append(cronLine);
+            }
+            else if (!disable && cronLine.StartsWith("# ", StringComparison.Ordinal))
+            {
+                sb.Append(cronLine.Substring(2));
+            }
+            else
+            {
+                // Already in the desired state — leave unchanged.
+                sb.Append(cronLine);
+            }
+
+            if (cronIndex < lines.Length - 1)
+            {
+                sb.Append('\n');
+            }
+
+            // Advance past the cron line so the for-loop's i++ moves to the line after.
+            i = cronIndex;
         }
 
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Given the index of a <see cref="WinixTagPrefix"/> line, returns the index of the cron
+    /// line that belongs to it — skipping any intervening blank/whitespace-only lines, which
+    /// users frequently insert as visual separators when hand-editing crontabs. Returns
+    /// <c>-1</c> for an orphan tag (next non-blank is another winix tag, or end of file).
+    /// </summary>
+    /// <remarks>
+    /// Centralising this logic ensures all four call sites (<see cref="ParseEntries"/>,
+    /// <see cref="RemoveEntry"/>, <see cref="DisableEntry"/>, <see cref="EnableEntry"/>)
+    /// agree on which line is "the cron line" for a given tag. Without this, R3's blank-
+    /// line tolerance in <see cref="ParseEntries"/> diverged from <c>RemoveEntry</c> and
+    /// <c>ToggleEntry</c> — which still hard-coded strict adjacency — producing visible
+    /// task lifecycle corruption (a 'list' that showed the task healthy paired with a
+    /// 'disable' that left it firing).
+    /// </remarks>
+    private static int FindCronLineIndex(string[] lines, int tagIndex)
+    {
+        for (int i = tagIndex + 1; i < lines.Length; i++)
+        {
+            string line = lines[i].TrimEnd('\r');
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                continue;
+            }
+            if (line.StartsWith(WinixTagPrefix, StringComparison.Ordinal))
+            {
+                // Adjacent winix tag — current tag is orphan, return so the caller can
+                // emit/skip-as-orphan and the for-loop can pick up the next tag fresh.
+                return -1;
+            }
+            return i;
+        }
+        return -1;
     }
 }

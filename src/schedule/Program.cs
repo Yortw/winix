@@ -177,7 +177,21 @@ internal sealed class Program
         }
 
         ISchedulerBackend backend = GetBackend();
-        ScheduleResult scheduleResult = backend.Add(name, cron, command, arguments, folder);
+        ScheduleResult scheduleResult;
+        try
+        {
+            scheduleResult = backend.Add(name, cron, command, arguments, folder);
+        }
+        catch (ArgumentException ex)
+        {
+            // CrontabParser.AddEntry throws ArgumentException for inputs that survived the
+            // RejectIfMultiline gate above but still violate the parser's tighter contract
+            // (notably a name containing the literal '# winix:' tag prefix). Catching here
+            // turns the validation failure into a clean usage-error exit (125) rather than
+            // letting the exception escape as an unhandled stack trace. See SafeWriteLine
+            // rationale — diagnostic must never crash the tool.
+            return result.WriteError(ex.Message, Console.Error);
+        }
 
         int exitCode = scheduleResult.Success ? 0 : ExitCode.NotExecutable;
         if (json)

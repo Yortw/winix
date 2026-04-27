@@ -280,6 +280,27 @@ public class ProgramMainTests
     }
 
     [Fact]
+    public void AddWithTagPrefixForgeName_ExitsCleanly_NoStackTrace()
+    {
+        // R4 C2: a name containing the literal '# winix:' substring would slip past the
+        // newline gate and reach CrontabParser.AddEntry, which throws ArgumentException —
+        // pre-fix, that escaped uncaught and produced a CLR stack trace. Now caught at
+        // the RunAdd boundary and surfaced as a clean error.
+        //
+        // Exit code differs by platform: on Linux the caught ArgumentException routes
+        // through ParseResult.WriteError → 125 (UsageError); on Windows the SchtasksBackend
+        // invokes schtasks.exe directly, which rejects the forged name with non-zero exit →
+        // 126 (NotExecutable). Both are clean exits — the contract this test pins is
+        // 'no CLR stack trace leaked', not the exact exit code.
+        var r = RunSchedule("add", "--cron", "0 2 * * *", "--name", "real# winix:fake", "--", "/bin/legit");
+        Assert.True(r.ExitCode == 125 || r.ExitCode == 126,
+            $"Expected exit 125 (Linux usage error) or 126 (Windows backend failure), got {r.ExitCode}.");
+        // No CLR-style stack trace should have leaked.
+        Assert.DoesNotContain("at Winix.Schedule", r.Stderr);
+        Assert.DoesNotContain("System.ArgumentException", r.Stderr);
+    }
+
+    [Fact]
     public void Help_GoesToStdoutNotStderr()
     {
         var r = RunSchedule("--help");
