@@ -437,10 +437,22 @@ public sealed class CrontabBackend : ISchedulerBackend
     }
 
     /// <summary>
-    /// Builds a shell command string from a command and its arguments.
-    /// Arguments containing spaces or shell-special characters are single-quote escaped.
+    /// Builds a shell command string from a command and its arguments. Arguments containing
+    /// any character the shell would tokenise specially are single-quote escaped using the
+    /// canonical bash <c>'\''</c> apostrophe-escape pattern. Internal so tests can pin the
+    /// quoting contract.
     /// </summary>
-    private static string BuildCommandString(string command, string[] arguments)
+    /// <remarks>
+    /// The character set <see cref="ShellSpecialChars"/> is conservative: any argument
+    /// containing one of those characters is quoted. This is the Linux/macOS analogue of
+    /// <c>SchtasksBackend.EscapeWindowsArg</c> — without it, an argument like
+    /// <c>cmd1;rm</c> (no whitespace) would land in the crontab as a literal injection of
+    /// a second command. The space, single-quote, double-quote, dollar, backslash set was
+    /// the original R1 cover; <c>;</c>, <c>&amp;</c>, <c>|</c>, <c>&lt;</c>, <c>&gt;</c>,
+    /// backtick, and parens were added in R3 because they're equally dangerous in cron's
+    /// shell context but didn't trigger the original quote check.
+    /// </remarks>
+    internal static string BuildCommandString(string command, string[] arguments)
     {
         if (arguments.Length == 0)
         {
@@ -452,8 +464,7 @@ public sealed class CrontabBackend : ISchedulerBackend
         foreach (string arg in arguments)
         {
             sb.Append(' ');
-            // Single-quote escape any argument that contains characters the shell would interpret.
-            if (arg.Contains(' ') || arg.Contains('\'') || arg.Contains('"') || arg.Contains('$') || arg.Contains('\\'))
+            if (arg.IndexOfAny(ShellSpecialChars) >= 0)
             {
                 sb.Append('\'');
                 sb.Append(arg.Replace("'", "'\\''")); // Terminate quote, escaped apostrophe, re-open quote.
@@ -467,4 +478,22 @@ public sealed class CrontabBackend : ISchedulerBackend
 
         return sb.ToString();
     }
+
+    /// <summary>
+    /// Characters whose presence in an argument forces single-quote escaping. Intentionally
+    /// conservative — any of these would change tokenisation, redirection, command
+    /// chaining, command substitution, glob expansion, or comment behaviour if left
+    /// unquoted in the resulting crontab line.
+    /// </summary>
+    private static readonly char[] ShellSpecialChars =
+    {
+        ' ', '\t',
+        '\'', '"',
+        '$', '\\', '`',
+        ';', '&', '|',
+        '<', '>',
+        '(', ')',
+        '*', '?', '[', ']',
+        '#', '~', '!',
+    };
 }
