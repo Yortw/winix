@@ -181,8 +181,8 @@ On **Linux/macOS**, Winix-managed crontab entries are tagged with a `# winix:<na
 | Code | Meaning |
 |------|---------|
 | 0 | Success. |
-| 1 | Error — task not found, scheduler failure, or invalid cron expression. |
-| 125 | Usage error (bad arguments). |
+| 125 | Usage error — bad arguments or invalid cron expression. |
+| 126 | Backend failure — task not found, schtasks/crontab returned non-zero, or scheduler unavailable. |
 
 ## Platform Notes
 

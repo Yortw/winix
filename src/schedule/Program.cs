@@ -50,8 +50,8 @@ internal sealed class Program
             .Example("schedule next \"*/5 * * * *\" --count 10", "Show next 10 fire times")
             .ExitCodes(
                 (0, "Success"),
-                (1, "Error (task not found, scheduler failure, invalid cron)"),
-                (ExitCode.UsageError, "Usage error (bad arguments)"));
+                (ExitCode.UsageError, "Usage error (bad arguments, invalid cron expression)"),
+                (ExitCode.NotExecutable, "Backend failure (task not found, scheduler error)"));
 
         var result = parser.Parse(args);
         if (result.IsHandled) { return result.ExitCode; }
@@ -120,8 +120,7 @@ internal sealed class Program
         }
         catch (FormatException ex)
         {
-            Console.Error.WriteLine($"schedule: invalid cron expression: {ex.Message}");
-            return 1;
+            return result.WriteError($"invalid cron expression: {ex.Message}", Console.Error);
         }
 
         // Positionals[0] is "add"; everything after is the command to schedule.
@@ -154,18 +153,19 @@ internal sealed class Program
         ISchedulerBackend backend = GetBackend();
         ScheduleResult scheduleResult = backend.Add(name, cron, command, arguments, folder);
 
+        int exitCode = scheduleResult.Success ? 0 : ExitCode.NotExecutable;
         if (json)
         {
             Console.Error.WriteLine(Formatting.FormatActionJson(
                 "add", name, cronStr, null,
-                scheduleResult.Success ? 0 : 1, scheduleResult.Success ? "success" : "error", version));
+                exitCode, scheduleResult.Success ? "success" : "error", version));
         }
         else
         {
             Console.Error.WriteLine(Formatting.FormatResult(scheduleResult, useColor));
         }
 
-        return scheduleResult.Success ? 0 : 1;
+        return exitCode;
     }
 
     /// <summary>
@@ -206,18 +206,7 @@ internal sealed class Program
         ISchedulerBackend backend = GetBackend();
         ScheduleResult scheduleResult = backend.Remove(name, folder);
 
-        if (json)
-        {
-            Console.Error.WriteLine(Formatting.FormatActionJson(
-                "remove", name, null, null,
-                scheduleResult.Success ? 0 : 1, scheduleResult.Success ? "success" : "error", version));
-        }
-        else
-        {
-            Console.Error.WriteLine(Formatting.FormatResult(scheduleResult, useColor));
-        }
-
-        return scheduleResult.Success ? 0 : 1;
+        return WriteActionResult(scheduleResult, "remove", name, null, version, json, useColor);
     }
 
     /// <summary>
@@ -235,18 +224,7 @@ internal sealed class Program
         ISchedulerBackend backend = GetBackend();
         ScheduleResult scheduleResult = backend.Enable(name, folder);
 
-        if (json)
-        {
-            Console.Error.WriteLine(Formatting.FormatActionJson(
-                "enable", name, null, null,
-                scheduleResult.Success ? 0 : 1, scheduleResult.Success ? "success" : "error", version));
-        }
-        else
-        {
-            Console.Error.WriteLine(Formatting.FormatResult(scheduleResult, useColor));
-        }
-
-        return scheduleResult.Success ? 0 : 1;
+        return WriteActionResult(scheduleResult, "enable", name, null, version, json, useColor);
     }
 
     /// <summary>
@@ -264,18 +242,7 @@ internal sealed class Program
         ISchedulerBackend backend = GetBackend();
         ScheduleResult scheduleResult = backend.Disable(name, folder);
 
-        if (json)
-        {
-            Console.Error.WriteLine(Formatting.FormatActionJson(
-                "disable", name, null, null,
-                scheduleResult.Success ? 0 : 1, scheduleResult.Success ? "success" : "error", version));
-        }
-        else
-        {
-            Console.Error.WriteLine(Formatting.FormatResult(scheduleResult, useColor));
-        }
-
-        return scheduleResult.Success ? 0 : 1;
+        return WriteActionResult(scheduleResult, "disable", name, null, version, json, useColor);
     }
 
     /// <summary>
@@ -293,18 +260,30 @@ internal sealed class Program
         ISchedulerBackend backend = GetBackend();
         ScheduleResult scheduleResult = backend.Run(name, folder);
 
+        return WriteActionResult(scheduleResult, "run", name, null, version, json, useColor);
+    }
+
+    /// <summary>
+    /// Common output path for action-style subcommands (add/remove/enable/disable/run).
+    /// Returns 0 on success, <see cref="ExitCode.NotExecutable"/> (126) on backend failure.
+    /// </summary>
+    private static int WriteActionResult(
+        ScheduleResult scheduleResult, string action, string name, string? cronStr,
+        string version, bool json, bool useColor)
+    {
+        int exitCode = scheduleResult.Success ? 0 : ExitCode.NotExecutable;
         if (json)
         {
             Console.Error.WriteLine(Formatting.FormatActionJson(
-                "run", name, null, null,
-                scheduleResult.Success ? 0 : 1, scheduleResult.Success ? "success" : "error", version));
+                action, name, cronStr, null,
+                exitCode, scheduleResult.Success ? "success" : "error", version));
         }
         else
         {
             Console.Error.WriteLine(Formatting.FormatResult(scheduleResult, useColor));
         }
 
-        return scheduleResult.Success ? 0 : 1;
+        return exitCode;
     }
 
     /// <summary>
@@ -363,8 +342,7 @@ internal sealed class Program
         }
         catch (FormatException ex)
         {
-            Console.Error.WriteLine($"schedule: invalid cron expression: {ex.Message}");
-            return 1;
+            return result.WriteError($"invalid cron expression: {ex.Message}", Console.Error);
         }
 
         int count = 5;

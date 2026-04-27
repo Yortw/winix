@@ -142,23 +142,34 @@ daily-build     0 2 * * *      2026-04-13 02:00     Enabled
 **`--json` for list:**
 ```json
 {
+  "tool": "schedule",
+  "version": "0.4.0",
+  "exit_code": 0,
+  "exit_reason": "success",
   "tasks": [
-    { "name": "health-check", "cron": "*/5 * * * *", "command": "curl http://localhost:8080/health", "enabled": true, "nextRun": "2026-04-12T14:25:00+12:00" }
-  ],
-  "exitCode": 0,
-  "status": "success",
-  "version": "0.1.0"
+    { "name": "health-check", "cron": "*/5 * * * *", "next_run": "2026-04-12T14:25:00.0000000+12:00", "status": "Enabled", "command": "curl http://localhost:8080/health", "folder": "\\Winix" }
+  ]
 }
 ```
 
-**`next` output:**
+**`next` output (plain text — JSON form uses `--json`):**
 ```
-2026-04-12 14:25:00 +12:00
-2026-04-12 14:30:00 +12:00
-2026-04-12 14:35:00 +12:00
-2026-04-12 14:40:00 +12:00
-2026-04-12 14:45:00 +12:00
+Next 5 occurrences of: */5 * * * *
+
+  2026-04-12 14:25:00  (Sun)
+  2026-04-12 14:30:00  (Sun)
+  2026-04-12 14:35:00  (Sun)
+  2026-04-12 14:40:00  (Sun)
+  2026-04-12 14:45:00  (Sun)
 ```
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success. |
+| 125 | Usage error — bad arguments or invalid cron expression. |
+| 126 | Backend failure — task not found, schtasks/crontab returned non-zero, or scheduler unavailable. |
 
 ## Gotchas
 
