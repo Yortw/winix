@@ -388,15 +388,17 @@ internal sealed class Program
 
     /// <summary>
     /// Writes <paramref name="message"/> followed by a newline to stderr, swallowing any
-    /// <see cref="System.IO.IOException"/>. A closed/broken stderr (redirected to a closed
-    /// pipe or full disk) would otherwise convert a clean exit-code path into a CLR
-    /// unhandled-exception crash with stack trace. Diagnostic output must be strictly
-    /// weaker than the production path it reports on.
+    /// stderr-write exception (<see cref="System.IO.IOException"/> from a broken pipe or
+    /// full disk; <see cref="ObjectDisposedException"/> from a host that has closed the
+    /// underlying stream during teardown). Either would otherwise convert a clean
+    /// exit-code path into a CLR unhandled-exception crash with stack trace. Diagnostic
+    /// output must be strictly weaker than the production path it reports on.
     /// </summary>
     private static void SafeWriteLine(string message)
     {
         try { Console.Error.WriteLine(message); }
         catch (System.IO.IOException) { /* stderr unwritable — accept loss; do not mask exit code */ }
+        catch (ObjectDisposedException) { /* host tore down stderr; same rationale as IOException */ }
     }
 
     /// <summary>Writes <paramref name="message"/> verbatim to stderr with the same swallow behaviour as <see cref="SafeWriteLine"/>.</summary>
@@ -404,6 +406,7 @@ internal sealed class Program
     {
         try { Console.Error.Write(message); }
         catch (System.IO.IOException) { /* see SafeWriteLine */ }
+        catch (ObjectDisposedException) { /* see SafeWriteLine */ }
     }
 
     /// <summary>

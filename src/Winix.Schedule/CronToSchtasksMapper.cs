@@ -118,15 +118,21 @@ public static class CronToSchtasksMapper
 
         // No clean mapping. Mark the result as degraded so the backend can reject the
         // operation with a clear error rather than silently registering a task that runs
-        // every minute, 24/7 — which is what the previous fallback (MINUTE /MO 1) did.
+        // every minute, 24/7 — which is what the previous MINUTE/MO=1 fallback did.
         // schtasks does not support arbitrary cron, so expressions with non-divisor steps
         // (e.g. */7), value lists with mixed offsets (5,17,42), step-on-range
         // (e.g. 9-17/2), or cross-axis restrictions (DOM AND DOW both narrow) cannot be
         // round-tripped without an XML trigger definition (deferred).
+        //
+        // ScheduleType deliberately left empty: a future caller that consumes this result
+        // without first checking Degraded must produce visibly-broken output (empty /SC
+        // value → schtasks rejects with a clear error) rather than plausible-looking
+        // mis-scheduling (MINUTE/1 → schtasks accepts and runs every minute, the exact
+        // silent defect this gate was created to prevent).
         return new SchtasksSchedule
         {
-            ScheduleType = "MINUTE",
-            Modifier = "1",
+            ScheduleType = "",
+            Modifier = null,
             Degraded = true,
             DegradedReason = $"cron expression '{cron.Expression}' has no clean schtasks mapping. "
                            + "Supported patterns: every-N-minutes, every-N-hours, daily at H:M, "
