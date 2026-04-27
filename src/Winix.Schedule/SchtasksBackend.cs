@@ -187,7 +187,8 @@ public sealed class SchtasksBackend : ISchedulerBackend
     }
 
     /// <summary>
-    /// Builds the /TR string for schtasks.exe.
+    /// Builds the /TR string for schtasks.exe. Internal only so tests can pin the
+    /// Windows argument-escape contract without spawning schtasks itself.
     /// </summary>
     /// <remarks>
     /// schtasks /TR is one of the few places in the suite where a single command-line
@@ -203,7 +204,7 @@ public sealed class SchtasksBackend : ISchedulerBackend
     /// (e.g. "C:\Program Files\\" before a closing quote), which is the canonical Windows
     /// quoting foot-gun.
     /// </remarks>
-    private static string BuildTaskRunString(string command, string[] arguments)
+    internal static string BuildTaskRunString(string command, string[] arguments)
     {
         if (arguments.Length == 0)
         {
@@ -236,7 +237,7 @@ public sealed class SchtasksBackend : ISchedulerBackend
     /// Arguments without whitespace, double-quote, or tab characters are returned unchanged
     /// since they don't need quoting.
     /// </remarks>
-    private static string EscapeWindowsArg(string arg)
+    internal static string EscapeWindowsArg(string arg)
     {
         if (arg.Length == 0)
         {

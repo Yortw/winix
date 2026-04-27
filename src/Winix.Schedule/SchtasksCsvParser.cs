@@ -298,7 +298,7 @@ public static class SchtasksCsvParser
     /// Returns null when no format matches — callers should treat that as an unparsed
     /// rather than missing value. Always assumes local time when no zone is specified.
     /// </summary>
-    private static DateTime? TryParseScheduleDate(string value)
+    internal static DateTime? TryParseScheduleDate(string value)
     {
         if (DateTime.TryParseExact(
                 value, ScheduleDateFormats, CultureInfo.InvariantCulture,
