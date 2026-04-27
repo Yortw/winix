@@ -4,7 +4,9 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
+using System.Threading.Tasks;
 
 namespace Winix.Schedule;
 
@@ -223,8 +225,17 @@ public sealed class SchtasksBackend : ISchedulerBackend
     }
 
     /// <summary>
+    /// Maximum time to wait for schtasks.exe to exit. A corrupted task store or hung
+    /// RPC service can wedge schtasks indefinitely; without this bound the tool would
+    /// appear frozen with no diagnostic.
+    /// </summary>
+    private const int SchtasksTimeoutMs = 30_000;
+
+    /// <summary>
     /// Runs schtasks.exe with the given arguments and returns captured output.
     /// Uses <see cref="ProcessStartInfo.ArgumentList"/> for safe argument passing.
+    /// stderr is drained on a separate task to prevent buffer-fill deadlock when
+    /// schtasks /Query /V emits hundreds of KB to stdout alongside stderr warnings.
     /// </summary>
     private static ProcessRunResult RunSchtasks(string[] arguments)
     {
@@ -250,16 +261,50 @@ public sealed class SchtasksBackend : ISchedulerBackend
         }
         catch (Win32Exception ex) when (ex.NativeErrorCode is 2 or 3)
         {
+            // ERROR_FILE_NOT_FOUND / ERROR_PATH_NOT_FOUND.
             return new ProcessRunResult(-1, "", "schtasks.exe not found");
+        }
+        catch (Win32Exception ex)
+        {
+            // Any other launch failure (ERROR_ACCESS_DENIED=5, ERROR_ELEVATION_REQUIRED=740, etc.).
+            // Surface the NativeErrorCode so the user can diagnose rather than collapsing to
+            // an opaque "not found" or letting the exception escape uncaught.
+            return new ProcessRunResult(
+                -1, "",
+                $"schtasks.exe could not be launched (Win32 error {ex.NativeErrorCode.ToString(CultureInfo.InvariantCulture)}): {ex.Message}");
         }
 
         using (process)
         {
             process.StandardInput.Close();
 
-            string stdout = process.StandardOutput.ReadToEnd();
-            string stderr = process.StandardError.ReadToEnd();
-            process.WaitForExit();
+            // Concurrent drain: read stderr on a worker task while the main thread reads stdout.
+            // Sequential ReadToEnd(stdout) -> ReadToEnd(stderr) deadlocks if either pipe buffer
+            // fills while the parent is blocked on the other stream.
+            Task<string> stderrTask = Task.Run(() =>
+            {
+                try { return process.StandardError.ReadToEnd(); }
+                catch (System.IO.IOException) { return ""; }
+            });
+
+            string stdout;
+            try { stdout = process.StandardOutput.ReadToEnd(); }
+            catch (System.IO.IOException) { stdout = ""; }
+
+            if (!process.WaitForExit(SchtasksTimeoutMs))
+            {
+                try { process.Kill(entireProcessTree: true); }
+                catch (InvalidOperationException) { /* already exited */ }
+                catch (Win32Exception) { /* kill races OS cleanup */ }
+
+                return new ProcessRunResult(
+                    -1, "",
+                    $"schtasks.exe did not respond within {SchtasksTimeoutMs / 1000}s");
+            }
+
+            string stderr;
+            try { stderr = stderrTask.Wait(5_000) ? stderrTask.Result : ""; }
+            catch (AggregateException) { stderr = ""; }
 
             return new ProcessRunResult(process.ExitCode, stdout.Trim(), stderr.Trim());
         }
