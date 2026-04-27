@@ -156,13 +156,13 @@ internal sealed class Program
         int exitCode = scheduleResult.Success ? 0 : ExitCode.NotExecutable;
         if (json)
         {
-            Console.Error.WriteLine(Formatting.FormatActionJson(
+            SafeWriteLine(Formatting.FormatActionJson(
                 "add", name, cronStr, null,
                 exitCode, scheduleResult.Success ? "success" : "error", version));
         }
         else
         {
-            Console.Error.WriteLine(Formatting.FormatResult(scheduleResult, useColor));
+            SafeWriteLine(Formatting.FormatResult(scheduleResult, useColor));
         }
 
         return exitCode;
@@ -181,11 +181,11 @@ internal sealed class Program
 
         if (json)
         {
-            Console.Error.WriteLine(Formatting.FormatTaskListJson(tasks, 0, "success", version));
+            SafeWriteLine(Formatting.FormatTaskListJson(tasks, 0, "success", version));
         }
         else
         {
-            Console.Error.Write(Formatting.FormatTable(tasks, showFolder: all, useColor: useColor));
+            SafeWrite(Formatting.FormatTable(tasks, showFolder: all, useColor: useColor));
         }
 
         return 0;
@@ -274,13 +274,13 @@ internal sealed class Program
         int exitCode = scheduleResult.Success ? 0 : ExitCode.NotExecutable;
         if (json)
         {
-            Console.Error.WriteLine(Formatting.FormatActionJson(
+            SafeWriteLine(Formatting.FormatActionJson(
                 action, name, cronStr, null,
                 exitCode, scheduleResult.Success ? "success" : "error", version));
         }
         else
         {
-            Console.Error.WriteLine(Formatting.FormatResult(scheduleResult, useColor));
+            SafeWriteLine(Formatting.FormatResult(scheduleResult, useColor));
         }
 
         return exitCode;
@@ -304,17 +304,17 @@ internal sealed class Program
 
         if (json)
         {
-            Console.Error.WriteLine(Formatting.FormatHistoryJson(name, records, 0, "success", version));
+            SafeWriteLine(Formatting.FormatHistoryJson(name, records, 0, "success", version));
         }
         else
         {
             if (records.Count == 0)
             {
-                Console.Error.WriteLine(Formatting.FormatHistoryNotAvailable());
+                SafeWriteLine(Formatting.FormatHistoryNotAvailable());
             }
             else
             {
-                Console.Error.Write(Formatting.FormatHistory(records, useColor));
+                SafeWrite(Formatting.FormatHistory(records, useColor));
             }
         }
 
@@ -361,14 +361,34 @@ internal sealed class Program
 
         if (json)
         {
-            Console.Error.WriteLine(Formatting.FormatNextJson(cron.Expression, occurrences, 0, "success", version));
+            SafeWriteLine(Formatting.FormatNextJson(cron.Expression, occurrences, 0, "success", version));
         }
         else
         {
-            Console.Error.Write(Formatting.FormatNextOccurrences(cron.Expression, occurrences));
+            SafeWrite(Formatting.FormatNextOccurrences(cron.Expression, occurrences));
         }
 
         return 0;
+    }
+
+    /// <summary>
+    /// Writes <paramref name="message"/> followed by a newline to stderr, swallowing any
+    /// <see cref="System.IO.IOException"/>. A closed/broken stderr (redirected to a closed
+    /// pipe or full disk) would otherwise convert a clean exit-code path into a CLR
+    /// unhandled-exception crash with stack trace. Diagnostic output must be strictly
+    /// weaker than the production path it reports on.
+    /// </summary>
+    private static void SafeWriteLine(string message)
+    {
+        try { Console.Error.WriteLine(message); }
+        catch (System.IO.IOException) { /* stderr unwritable — accept loss; do not mask exit code */ }
+    }
+
+    /// <summary>Writes <paramref name="message"/> verbatim to stderr with the same swallow behaviour as <see cref="SafeWriteLine"/>.</summary>
+    private static void SafeWrite(string message)
+    {
+        try { Console.Error.Write(message); }
+        catch (System.IO.IOException) { /* see SafeWriteLine */ }
     }
 
     /// <summary>
