@@ -76,10 +76,48 @@ public class FormatJsonTests
             toolName: "peep",
             version: "0.1.0");
 
-        Assert.Contains("\"last_output\":\"Build succeeded.\\n\"", json);
-        // ANSI sequences should be stripped
+        // ANSI stripped + trailing \n trimmed (matches bash $(cmd) semantics).
+        Assert.Contains("\"last_output\":\"Build succeeded.\"", json);
         Assert.DoesNotContain("\x1b[32m", json);
         Assert.DoesNotContain("\x1b[0m", json);
+    }
+
+    [Fact]
+    public void FormatJson_LastOutputWithMultipleTrailingNewlines_AllTrimmed()
+    {
+        // bash $(cmd) strips ALL trailing newlines, not just one. Match that semantics.
+        string json = Formatting.FormatJson(
+            exitCode: 0,
+            exitReason: "manual",
+            runs: 1,
+            lastChildExitCode: 0,
+            durationSeconds: 1.0,
+            command: "printf 'value\\n\\n\\n'",
+            lastOutput: "value\n\n\n",
+            toolName: "peep",
+            version: "0.1.0");
+
+        Assert.Contains("\"last_output\":\"value\"", json);
+        Assert.DoesNotContain("\\n", json[json.IndexOf("\"last_output\"")..]);
+    }
+
+    [Fact]
+    public void FormatJson_LastOutputInternalNewlines_Preserved()
+    {
+        // Only TRAILING newlines are trimmed. Internal newlines stay so multi-line
+        // child output is preserved verbatim in the envelope.
+        string json = Formatting.FormatJson(
+            exitCode: 0,
+            exitReason: "manual",
+            runs: 1,
+            lastChildExitCode: 0,
+            durationSeconds: 1.0,
+            command: "printf 'line1\\nline2\\n'",
+            lastOutput: "line1\nline2\n",
+            toolName: "peep",
+            version: "0.1.0");
+
+        Assert.Contains("\"last_output\":\"line1\\nline2\"", json);
     }
 
     [Fact]

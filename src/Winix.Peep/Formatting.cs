@@ -61,7 +61,11 @@ public static partial class Formatting
 
             if (lastOutput is not null)
             {
-                writer.WriteString("last_output", StripAnsi(lastOutput));
+                // Trim trailing newlines from last_output. Most CLI tools terminate
+                // output with a final '\n'; including it in the JSON envelope is
+                // noise for consumers (jq, automation). Matches bash $(cmd) semantics
+                // which strips all trailing newlines from captured output.
+                writer.WriteString("last_output", StripAnsi(lastOutput).TrimEnd('\n'));
             }
 
             if (historyRetained.HasValue)
