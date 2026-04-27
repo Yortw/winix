@@ -31,8 +31,8 @@ public sealed class CrontabBackend : ISchedulerBackend
         {
             string currentCrontab = ReadCrontab();
             string newCrontab = CrontabParser.AddEntry(currentCrontab, name, cron.Expression, fullCommand);
-            WriteCrontab(newCrontab);
-            return ScheduleResult.Ok($"Created task '{name}'.");
+            string warnings = WriteCrontab(newCrontab);
+            return ScheduleResult.OkWithWarning($"Created task '{name}'.", warnings);
         }
         catch (CrontabUnavailableException ex)
         {
@@ -70,8 +70,8 @@ public sealed class CrontabBackend : ISchedulerBackend
                 return ScheduleResult.Fail($"Task '{name}' not found.");
             }
 
-            WriteCrontab(newCrontab);
-            return ScheduleResult.Ok($"Removed task '{name}'.");
+            string warnings = WriteCrontab(newCrontab);
+            return ScheduleResult.OkWithWarning($"Removed task '{name}'.", warnings);
         }
         catch (CrontabUnavailableException ex)
         {
@@ -95,8 +95,8 @@ public sealed class CrontabBackend : ISchedulerBackend
                 return ScheduleResult.Fail($"Task '{name}' not found or already enabled.");
             }
 
-            WriteCrontab(newCrontab);
-            return ScheduleResult.Ok($"Enabled task '{name}'.");
+            string warnings = WriteCrontab(newCrontab);
+            return ScheduleResult.OkWithWarning($"Enabled task '{name}'.", warnings);
         }
         catch (CrontabUnavailableException ex)
         {
@@ -117,8 +117,8 @@ public sealed class CrontabBackend : ISchedulerBackend
                 return ScheduleResult.Fail($"Task '{name}' not found or already disabled.");
             }
 
-            WriteCrontab(newCrontab);
-            return ScheduleResult.Ok($"Disabled task '{name}'.");
+            string warnings = WriteCrontab(newCrontab);
+            return ScheduleResult.OkWithWarning($"Disabled task '{name}'.", warnings);
         }
         catch (CrontabUnavailableException ex)
         {
@@ -276,6 +276,14 @@ public sealed class CrontabBackend : ISchedulerBackend
     /// stderr is drained concurrently to prevent buffer-fill deadlock if crontab emits
     /// PAM/locale warnings while we're still writing stdin.
     /// </summary>
+    /// <returns>
+    /// stderr content captured during a successful write, or an empty string. Real
+    /// <c>crontab -</c> implementations frequently print non-fatal warnings to stderr
+    /// while still returning a zero exit code (e.g. "Skipping line N: bad day-of-month",
+    /// PAM/SELinux notices). Callers surface this back to the user via
+    /// <see cref="ScheduleResult.OkWithWarning"/> so silent partial-success can't hide
+    /// a dropped task line.
+    /// </returns>
     /// <exception cref="CrontabUnavailableException">
     /// Thrown when the <c>crontab</c> binary is not on PATH, the process fails to start, or
     /// the write returns a non-zero exit code. The exception message includes any stderr
@@ -286,7 +294,7 @@ public sealed class CrontabBackend : ISchedulerBackend
     /// concurrent edits or signal-driven termination. A user receiving SIGTERM mid-write may
     /// be left with a truncated crontab. Atomicity via a temp-file pattern is deferred.
     /// </remarks>
-    private static void WriteCrontab(string content)
+    private static string WriteCrontab(string content)
     {
         var psi = new ProcessStartInfo("crontab")
         {
@@ -354,6 +362,8 @@ public sealed class CrontabBackend : ISchedulerBackend
                 throw new CrontabUnavailableException(
                     $"crontab failed (exit {process.ExitCode}): {stderr.Trim()}");
             }
+
+            return stderr.Trim();
         }
     }
 

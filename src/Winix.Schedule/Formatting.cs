@@ -210,18 +210,29 @@ public static class Formatting
     /// <param name="useColor">When <see langword="true"/>, ANSI colour codes are included.</param>
     public static string FormatResult(ScheduleResult result, bool useColor)
     {
+        string reset = AnsiColor.Reset(useColor);
+        string body;
         if (result.Success)
         {
             string green = AnsiColor.Green(useColor);
-            string reset = AnsiColor.Reset(useColor);
-            return $"{green}\u2713{reset} {result.Message}";
+            body = $"{green}\u2713{reset} {result.Message}";
         }
         else
         {
-            string red   = AnsiColor.Red(useColor);
-            string reset = AnsiColor.Reset(useColor);
-            return $"{red}\u2717{reset} {result.Message}";
+            string red = AnsiColor.Red(useColor);
+            body = $"{red}\u2717{reset} {result.Message}";
         }
+
+        if (!string.IsNullOrEmpty(result.Warning))
+        {
+            // Indented continuation line so the warning visually attaches to the result rather
+            // than being mistaken for a separate event. Yellow because the operation succeeded
+            // but the user should still notice the underlying tool said something.
+            string yellow = AnsiColor.Yellow(useColor);
+            body += $"\n  {yellow}warning:{reset} {result.Warning}";
+        }
+
+        return body;
     }
 
     /// <summary>
@@ -309,7 +320,8 @@ public static class Formatting
         DateTimeOffset? nextRun,
         int exitCode,
         string exitReason,
-        string version)
+        string version,
+        string? warning = null)
     {
         var (writer, buffer) = JsonHelper.CreateWriter();
         using (writer)
@@ -328,6 +340,13 @@ public static class Formatting
             if (nextRun.HasValue)
             {
                 writer.WriteString("next_run", nextRun.Value.ToString("o", CultureInfo.InvariantCulture));
+            }
+            if (!string.IsNullOrEmpty(warning))
+            {
+                // Surfaces stderr-on-success captured from schtasks/crontab so JSON consumers
+                // can distinguish "succeeded cleanly" from "succeeded with a partial-success
+                // warning the underlying tool reported".
+                writer.WriteString("warning", warning);
             }
             writer.WriteEndObject();
         }

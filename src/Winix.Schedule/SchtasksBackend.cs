@@ -83,7 +83,7 @@ public sealed class SchtasksBackend : ISchedulerBackend
         // `list` command will display the cron from the schedule mapping.
         // TODO: Use schtasks /Create /XML to embed the cron expression in the task description.
 
-        return ScheduleResult.Ok($"Created task '{name}'.");
+        return ScheduleResult.OkWithWarning($"Created task '{name}'.", result.Stderr);
     }
 
     /// <inheritdoc />
@@ -121,7 +121,7 @@ public sealed class SchtasksBackend : ISchedulerBackend
             return ScheduleResult.Fail($"Failed to remove task '{name}': {result.Stderr}");
         }
 
-        return ScheduleResult.Ok($"Removed task '{name}'.");
+        return ScheduleResult.OkWithWarning($"Removed task '{name}'.", result.Stderr);
     }
 
     /// <inheritdoc />
@@ -136,7 +136,7 @@ public sealed class SchtasksBackend : ISchedulerBackend
             return ScheduleResult.Fail($"Failed to enable task '{name}': {result.Stderr}");
         }
 
-        return ScheduleResult.Ok($"Enabled task '{name}'.");
+        return ScheduleResult.OkWithWarning($"Enabled task '{name}'.", result.Stderr);
     }
 
     /// <inheritdoc />
@@ -151,7 +151,7 @@ public sealed class SchtasksBackend : ISchedulerBackend
             return ScheduleResult.Fail($"Failed to disable task '{name}': {result.Stderr}");
         }
 
-        return ScheduleResult.Ok($"Disabled task '{name}'.");
+        return ScheduleResult.OkWithWarning($"Disabled task '{name}'.", result.Stderr);
     }
 
     /// <inheritdoc />
@@ -166,7 +166,7 @@ public sealed class SchtasksBackend : ISchedulerBackend
             return ScheduleResult.Fail($"Failed to run task '{name}': {result.Stderr}");
         }
 
-        return ScheduleResult.Ok($"Triggered task '{name}'.");
+        return ScheduleResult.OkWithWarning($"Triggered task '{name}'.", result.Stderr);
     }
 
     /// <inheritdoc />

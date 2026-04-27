@@ -158,7 +158,8 @@ internal sealed class Program
         {
             SafeWriteLine(Formatting.FormatActionJson(
                 "add", name, cronStr, null,
-                exitCode, scheduleResult.Success ? "success" : "error", version));
+                exitCode, scheduleResult.Success ? "success" : "error", version,
+                scheduleResult.Warning));
         }
         else
         {
@@ -276,7 +277,8 @@ internal sealed class Program
         {
             SafeWriteLine(Formatting.FormatActionJson(
                 action, name, cronStr, null,
-                exitCode, scheduleResult.Success ? "success" : "error", version));
+                exitCode, scheduleResult.Success ? "success" : "error", version,
+                scheduleResult.Warning));
         }
         else
         {
