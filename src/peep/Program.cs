@@ -85,7 +85,27 @@ internal sealed class Program
 
         var result = parser.Parse(args);
         if (result.IsHandled) return result.ExitCode;
-        if (result.HasErrors) return result.WriteErrors(Console.Error);
+
+        // R5 SFH I1: peep treats --json-output as JSON-implying for envelope output
+        // (line below: jsonOutput = --json || --json-output), but ShellKit's
+        // WriteError / WriteErrors only honour --json. Without bridging here,
+        //   peep --json-output             (no command)            → plain-text error
+        //   peep --json-output --exit-on-match '['                 → plain-text error
+        // breaks JSON-aware automation that decides "envelope or not" by inspecting
+        // --json-output. When the user has --json-output without --json, emit our
+        // own JSON envelope on the early-return paths.
+        bool jsonOnlyViaJsonOutput = !result.Has("--json") && result.Has("--json-output");
+
+        if (result.HasErrors)
+        {
+            if (jsonOnlyViaJsonOutput)
+            {
+                Console.Error.WriteLine(Formatting.FormatJsonError(
+                    ExitCode.UsageError, "usage_error", "peep", version));
+                return ExitCode.UsageError;
+            }
+            return result.WriteErrors(Console.Error);
+        }
 
         double intervalSeconds = result.GetDouble("--interval", defaultValue: 2.0);
         bool intervalExplicit = result.Has("--interval");
@@ -95,6 +115,12 @@ internal sealed class Program
 
         if (result.Command.Length == 0)
         {
+            if (jsonOnlyViaJsonOutput)
+            {
+                Console.Error.WriteLine(Formatting.FormatJsonError(
+                    ExitCode.UsageError, "usage_error", "peep", version));
+                return ExitCode.UsageError;
+            }
             return result.WriteError("no command specified. Run 'peep --help' for usage.", Console.Error);
         }
 
@@ -111,6 +137,12 @@ internal sealed class Program
         }
         catch (RegexParseException ex)
         {
+            if (jsonOnlyViaJsonOutput)
+            {
+                Console.Error.WriteLine(Formatting.FormatJsonError(
+                    ExitCode.UsageError, "usage_error", "peep", version));
+                return ExitCode.UsageError;
+            }
             return result.WriteError($"invalid regex pattern: {ex.Message}", Console.Error);
         }
 
@@ -240,6 +272,29 @@ internal sealed class Program
             else
             {
                 Console.Error.WriteLine($"peep: {ex.Message}");
+            }
+            return ExitCode.NotExecutable;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            // R5 SFH I2: symmetry with InteractiveSession.TryRunCommandAsync's last-
+            // resort catch. Any exception escaping CommandExecutor.RunAsync that
+            // isn't one of the typed arms above (e.g. an InvalidOperationException
+            // from a process-handle race during teardown, or a CTS-Register failure
+            // at registration time) would otherwise propagate out of Main as an
+            // unhandled exception with no JSON envelope under --json — breaking
+            // automation that depends on every exit path emitting an envelope. The
+            // interactive path was given this safety net in round 2; once-mode
+            // lacked it until now. OOM/SO are deliberately not caught (they should
+            // crash the process per the project convention).
+            if (jsonOutput)
+            {
+                Console.Error.WriteLine(Formatting.FormatJsonError(
+                    ExitCode.NotExecutable, "command_unexpected_error", "peep", version));
+            }
+            else
+            {
+                Console.Error.WriteLine($"peep: unexpected error running command: {ex.GetType().Name}: {ex.Message}");
             }
             return ExitCode.NotExecutable;
         }
