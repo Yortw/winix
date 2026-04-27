@@ -120,10 +120,55 @@ public class ProgramMainTests
     [Fact]
     public void NoCommand_ExitsWithUsageError()
     {
-        // Program.cs:96-99 — Command length 0 → WriteError → ExitCode.UsageError (125).
+        // Program.cs — Command length 0 → WriteError → ExitCode.UsageError (125).
         var result = RunPeep();
         Assert.Equal(125, result.ExitCode);
         Assert.Contains("no command specified", result.Stderr);
+    }
+
+    [Fact]
+    public void NoCommand_WithJsonOutputOnly_EmitsJsonEnvelope()
+    {
+        // R5 SFH I1 pin: peep treats --json-output as JSON-implying for envelope output,
+        // but ShellKit's WriteError only honours --json. Pre-fix, this combination
+        // produced plain-text "no command specified" — breaking JSON-aware automation
+        // that uses --json-output to opt into envelope output. Post-fix, the early-
+        // return path detects --json-output without --json and emits the manual envelope.
+        var result = RunPeep("--json-output");
+        Assert.Equal(125, result.ExitCode);
+        // Stderr should contain a JSON envelope, not plain text.
+        string trimmed = result.Stderr.Trim();
+        using var doc = JsonDocument.Parse(trimmed);
+        Assert.Equal("usage_error", doc.RootElement.GetProperty("exit_reason").GetString());
+        Assert.Equal(125, doc.RootElement.GetProperty("exit_code").GetInt32());
+        Assert.Equal("peep", doc.RootElement.GetProperty("tool").GetString());
+    }
+
+    [Fact]
+    public void InvalidRegex_WithJsonOutputOnly_EmitsJsonEnvelope()
+    {
+        // R5 SFH I1 pin: same defect class as the no-command path, applied to the
+        // RegexParseException catch arm. Pre-fix --json-output alone produced plain-
+        // text "invalid regex pattern" — fixed in the same commit.
+        var result = RunPeep("--json-output", "--exit-on-match", "[unclosed", "--once", "--", "echo", "hi");
+        Assert.Equal(125, result.ExitCode);
+        string trimmed = result.Stderr.Trim();
+        using var doc = JsonDocument.Parse(trimmed);
+        Assert.Equal("usage_error", doc.RootElement.GetProperty("exit_reason").GetString());
+    }
+
+    [Fact]
+    public void ParserError_WithJsonOutputOnly_EmitsJsonEnvelope()
+    {
+        // R5 SFH I1 pin: third early-return path — ShellKit's parser-error path
+        // (result.HasErrors → WriteErrors). Pre-fix --json-output alone produced
+        // ShellKit's plain-text formatting; post-fix peep's manual envelope precedes
+        // the plain-text fallback when only --json-output is set.
+        var result = RunPeep("--json-output", "--definitely-not-a-real-flag");
+        Assert.Equal(125, result.ExitCode);
+        string trimmed = result.Stderr.Trim();
+        using var doc = JsonDocument.Parse(trimmed);
+        Assert.Equal("usage_error", doc.RootElement.GetProperty("exit_reason").GetString());
     }
 
     [Fact]
@@ -218,6 +263,36 @@ public class ProgramMainTests
         using var doc = JsonDocument.Parse(trimmed);
         Assert.Equal("command_not_found", doc.RootElement.GetProperty("exit_reason").GetString());
         Assert.Equal(127, doc.RootElement.GetProperty("exit_code").GetInt32());
+    }
+
+    // R5 TA I3: integration pin for --exit-on-change round-trip wiring. The unit-level
+    // helper test (SessionHelpersTests.TryGetAutoExitTests.ExitOnChange_*) pins the
+    // helper's contract — but a refactor that captures prevOutput AFTER the run instead
+    // of BEFORE (i.e. in RunAndProcessResultAsync line 543, swap with line 561's
+    // _lastResult = result) would silently break exit_on_change. The helper unit tests
+    // would still pass because the helper itself is correct; only the integration breaks.
+    //
+    // Skipped until CR I1 is resolved — peep's interactive event loop calls
+    // Console.KeyAvailable on every iteration, which throws InvalidOperationException
+    // when stdin is redirected (i.e. under any subprocess test that doesn't have a TTY
+    // attached). Once CR I1 is fixed (guard KeyAvailable behind Console.IsInputRedirected),
+    // unskip this test. The test body is in place so the future maintainer doesn't have
+    // to re-derive the wiring contract.
+    [Fact(Skip = "Pending CR I1 resolution — interactive mode requires Console.KeyAvailable to compose with subprocess testing on non-TTY stdin")]
+    public void ExitOnChange_InteractiveMode_FiresOnDifferingOutput()
+    {
+        // date +%N returns nanoseconds — guaranteed different on every call. With
+        // --interval 0.3 the second run happens 0.3s after the initial run; comparison
+        // sees different output and exit_on_change fires. Pinned via --json envelope.
+        var result = RunPeep("--interval", "0.3", "--exit-on-change", "--json", "--",
+            "date", "+%N");
+
+        Assert.Equal(0, result.ExitCode);  // success-class override per ResolveExitCode
+        string trimmed = result.Stderr.Trim();
+        using var doc = JsonDocument.Parse(trimmed);
+        Assert.Equal("exit_on_change", doc.RootElement.GetProperty("exit_reason").GetString());
+        Assert.True(doc.RootElement.GetProperty("runs").GetInt32() >= 2,
+            "exit_on_change requires ≥2 runs (initial + first different) before it can fire.");
     }
 
     [SkippableFact]

@@ -184,7 +184,6 @@ public class TryGetAutoExitTests
     {
         // R3 CR I3 contract: --exit-on-match runs against StripAnsi'd output. Pin the
         // round-trip — an OSC-prefixed line still matches "READY" because OSC is stripped.
-        const string Bel = "";
         var matches = new[] { new Regex("READY") };
         // OSC window-title escape followed by the matchable content.
         string output = "\x1b]0;build\x1b\\READY";
@@ -195,8 +194,6 @@ public class TryGetAutoExitTests
 
         Assert.True(exit);
         Assert.Equal("exit_on_match", reason);
-        // Bel reference avoids "unused" complaints if a future revision drops OSC tests.
-        Assert.NotEmpty(Bel);
     }
 
     [Fact]
