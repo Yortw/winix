@@ -278,6 +278,13 @@ public class ProgramMainTests
     // attached). Once CR I1 is fixed (guard KeyAvailable behind Console.IsInputRedirected),
     // unskip this test. The test body is in place so the future maintainer doesn't have
     // to re-derive the wiring contract.
+    //
+    // ON UNSKIP: also add `Skip.IfNot(OperatingSystem.IsLinux(), …)` and switch [Fact]
+    // to [SkippableFact]. `date +%N` is GNU-date-only — BSD `date` on macOS lacks
+    // +%N, and Windows has no `date` command of that shape. Linux-only is acceptable
+    // because the contract under test is platform-agnostic (it's about prevOutput
+    // capture order); a single platform exercising the path is sufficient. Or replace
+    // the child with a peep-test helper executable that's portable.
     [Fact(Skip = "Pending CR I1 resolution — interactive mode requires Console.KeyAvailable to compose with subprocess testing on non-TTY stdin")]
     public void ExitOnChange_InteractiveMode_FiresOnDifferingOutput()
     {
@@ -293,6 +300,34 @@ public class ProgramMainTests
         Assert.Equal("exit_on_change", doc.RootElement.GetProperty("exit_reason").GetString());
         Assert.True(doc.RootElement.GetProperty("runs").GetInt32() >= 2,
             "exit_on_change requires ≥2 runs (initial + first different) before it can fire.");
+    }
+
+    [Fact]
+    public void Once_JsonOutput_LastOutputContainsChildOutput()
+    {
+        // R6 TA N2 pin: cross-platform happy-path coverage that --json-output flows the
+        // captured child output into the envelope's last_output field. The existing OSC-
+        // strip integration test is POSIX-only (uses printf); Windows-side CI had no
+        // coverage that the JsonOutputIncludeOutput flag wires through to lastOutput. A
+        // regression that swapped the conditional polarity (`!Has("--json-output")`
+        // instead of `Has("--json-output")` at Program.cs lastOutput line) would not
+        // have been caught on Windows. dotnet --version is portable and emits no ANSI,
+        // so the assertion focuses purely on the wiring rather than the strip pipeline
+        // (the strip pipeline has its own unit + POSIX-integration coverage).
+        var result = RunPeep("--once", "--json-output", "--", "dotnet", "--version");
+        Assert.Equal(0, result.ExitCode);
+        string trimmed = result.Stderr.Trim();
+        using var doc = JsonDocument.Parse(trimmed);
+        Assert.True(doc.RootElement.TryGetProperty("last_output", out var lastOutput),
+            "Expected last_output field present under --json-output");
+        string lastOutputStr = lastOutput.GetString()!;
+        Assert.False(string.IsNullOrEmpty(lastOutputStr));
+        // dotnet --version output contains a dot (e.g. "10.0.100"), and last_output
+        // should contain the child's stdout verbatim (modulo ANSI strip).
+        Assert.Contains(".", lastOutputStr);
+        // Sanity: stdout (where the child output goes) and last_output should both
+        // contain the version string. Compare modulo trailing whitespace.
+        Assert.Equal(result.Stdout.TrimEnd(), lastOutputStr.TrimEnd());
     }
 
     [SkippableFact]

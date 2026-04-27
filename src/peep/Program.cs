@@ -196,9 +196,18 @@ internal sealed class Program
             => SessionHelpers.RequestCancellationSilently(e, cts);
         Console.CancelKeyPress += cancelHandler;
 
+        // R6 SFH N1: hoist peepResult to the outer scope so the last-resort catch
+        // arm can recover the child's exit code if FormatJson or a Console.Error
+        // .WriteLine throws after the child has successfully run. Without the hoist,
+        // an automation script invoking `peep --once --json -- somecmd` would see
+        // exit 126 (catch-all) instead of the child's actual exit code in that
+        // narrow window. Trigger has no deterministic reproducer on .NET 10 — flag
+        // is hypothesis-class — but the defensive hoist is one line and removes the
+        // exit-code-loss failure mode entirely.
+        PeepResult? peepResult = null;
         try
         {
-            PeepResult peepResult = await CommandExecutor.RunAsync(
+            peepResult = await CommandExecutor.RunAsync(
                 command, commandArgs, TriggerSource.Initial, cts.Token);
             sessionStopwatch.Stop();
 
@@ -287,16 +296,22 @@ internal sealed class Program
             // interactive path was given this safety net in round 2; once-mode
             // lacked it until now. OOM/SO are deliberately not caught (they should
             // crash the process per the project convention).
+            //
+            // R6 SFH N1: prefer the child's actual exit code if RunAsync succeeded
+            // (i.e. peepResult is non-null) and the exception fired downstream
+            // (FormatJson / Console.Error.WriteLine). Falls back to NotExecutable
+            // (126) only when RunAsync itself threw the unexpected exception.
+            int exitCode = peepResult?.ExitCode ?? ExitCode.NotExecutable;
             if (jsonOutput)
             {
                 Console.Error.WriteLine(Formatting.FormatJsonError(
-                    ExitCode.NotExecutable, "command_unexpected_error", "peep", version));
+                    exitCode, "command_unexpected_error", "peep", version));
             }
             else
             {
                 Console.Error.WriteLine($"peep: unexpected error running command: {ex.GetType().Name}: {ex.Message}");
             }
-            return ExitCode.NotExecutable;
+            return exitCode;
         }
         finally
         {
