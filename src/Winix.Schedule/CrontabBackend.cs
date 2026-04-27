@@ -257,12 +257,12 @@ public sealed class CrontabBackend : ISchedulerBackend
                 try { process.Kill(entireProcessTree: true); }
                 catch (InvalidOperationException) { /* already exited */ }
                 catch (Win32Exception) { /* race */ }
+                DrainStderrTask(stderrTask);
                 throw new CrontabUnavailableException($"crontab did not respond within {CrontabTimeoutMs / 1000}s.");
             }
 
             // Drain the stderr worker so it doesn't outlive this method.
-            try { stderrTask.Wait(5_000); }
-            catch (AggregateException) { /* swallow read errors after exit */ }
+            DrainStderrTask(stderrTask);
 
             // Exit code 1 with "no crontab for ..." is normal on most Unix systems; treat
             // any non-zero exit as "no entries" rather than failing the operation. The
@@ -338,7 +338,10 @@ public sealed class CrontabBackend : ISchedulerBackend
                 try { process.Kill(entireProcessTree: true); }
                 catch (InvalidOperationException) { /* already exited */ }
                 catch (Win32Exception) { /* race */ }
-                throw new CrontabUnavailableException($"crontab rejected input: {ex.Message}", ex);
+                DrainStderrTask(stderrTask);
+                throw new CrontabUnavailableException(
+                    $"crontab connection failed mid-write — your crontab may be partially modified; "
+                  + $"run 'crontab -l' to verify. Underlying error: {ex.Message}", ex);
             }
             finally
             {
@@ -350,6 +353,7 @@ public sealed class CrontabBackend : ISchedulerBackend
                 try { process.Kill(entireProcessTree: true); }
                 catch (InvalidOperationException) { /* already exited */ }
                 catch (Win32Exception) { /* race */ }
+                DrainStderrTask(stderrTask);
                 throw new CrontabUnavailableException($"crontab did not respond within {CrontabTimeoutMs / 1000}s.");
             }
 
@@ -365,6 +369,22 @@ public sealed class CrontabBackend : ISchedulerBackend
 
             return stderr.Trim();
         }
+    }
+
+    /// <summary>
+    /// Best-effort drain of the stderr-reader worker before exiting the
+    /// <see cref="System.Diagnostics.Process"/>'s <c>using</c> block. Without this, throw
+    /// paths in <see cref="ReadCrontab"/> and <see cref="WriteCrontab"/> would let the
+    /// stderr Task outlive the Process — when Dispose closes the underlying StandardError
+    /// stream, the in-flight ReadToEnd would race against handle disposal. The worker's
+    /// own <see cref="IOException"/> catch makes that race benign in practice, but the
+    /// success path explicitly waits 5s for the worker; the failure paths should observe
+    /// the same invariant. Bounded at 1s so a wedged Task can't extend the failure latency.
+    /// </summary>
+    private static void DrainStderrTask(Task<string> stderrTask)
+    {
+        try { stderrTask.Wait(1_000); }
+        catch (AggregateException) { /* swallow read errors — task was best-effort */ }
     }
 
     /// <summary>

@@ -43,6 +43,19 @@ public static class CrontabParser
                 if (i + 1 < lines.Length)
                 {
                     string cronLine = lines[i + 1].TrimEnd('\r');
+
+                    // Adjacency guard: a hand-edited crontab can leave two consecutive winix
+                    // tags with the cron line between them deleted. Without this check the
+                    // current tag would consume the next tag as its cron line — corrupting
+                    // both entries: the current task gets cronFields="winix:next" (which fails
+                    // to parse) and the next tag is silently skipped (the loop's i++ advances
+                    // past it). Treat orphaned tags as "no cron line, status Unknown".
+                    if (cronLine.StartsWith(WinixTagPrefix, StringComparison.Ordinal))
+                    {
+                        tasks.Add(new ScheduledTask(name, "", null, "Unknown (no cron line)", "", ""));
+                        continue;
+                    }
+
                     bool disabled = cronLine.StartsWith("# ", StringComparison.Ordinal);
                     string activeLine = disabled ? cronLine.Substring(2) : cronLine;
 
