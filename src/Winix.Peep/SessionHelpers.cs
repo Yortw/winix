@@ -151,13 +151,24 @@ internal static class SessionHelpers
     ///
     /// R4 TA I6 extraction. <c>Console.CancelKeyPress</c> is a static event that
     /// doesn't compose with xunit, but the body itself is a pure function of its
-    /// arguments and is now directly testable.
+    /// arguments and the cts-only overload below is now directly testable.
     /// </summary>
     /// <param name="e">The cancel event args (Cancel will be set to true).</param>
     /// <param name="cts">The CTS to cancel; may have already been disposed.</param>
     internal static void RequestCancellationSilently(ConsoleCancelEventArgs e, CancellationTokenSource cts)
     {
         e.Cancel = true;
+        RequestCancellationSilently(cts);
+    }
+
+    /// <summary>
+    /// Testable overload — the <see cref="ObjectDisposedException"/>-swallow contract
+    /// is the regression-prone part. <c>ConsoleCancelEventArgs</c> has only an internal
+    /// constructor (cannot be instantiated from tests without reflection), so the
+    /// args-version above delegates to this one for the assertable behaviour.
+    /// </summary>
+    internal static void RequestCancellationSilently(CancellationTokenSource cts)
+    {
         try { cts.Cancel(); } catch (ObjectDisposedException) { /* in-flight race with shutdown; safe to swallow */ }
     }
 

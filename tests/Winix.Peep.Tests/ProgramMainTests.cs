@@ -160,10 +160,14 @@ public class ProgramMainTests
         // POSIX exit-code passthrough: a child that exits non-zero must surface its exit
         // code to peep's caller. Pre-r1, certain fast-failure shapes would route through
         // last-resort catch arms instead.
+        //
+        // R4 TA I1: pre-fix this asserted only NotEqual(0/125/127), which would still
+        // pass under a regression that always returned 126 (catch-all command_not_
+        // executable). dotnet's documented exit code for unknown subcommands is 1 and
+        // is stable across .NET versions; pin the exact value so a misroute through
+        // the typed-exception arms fails this test.
         var result = RunPeep("--once", "--", "dotnet", "definitely-not-a-real-subcommand-xyz");
-        Assert.NotEqual(0, result.ExitCode);
-        Assert.NotEqual(125, result.ExitCode);  // not a usage error
-        Assert.NotEqual(127, result.ExitCode);  // dotnet itself ran fine
+        Assert.Equal(1, result.ExitCode);
     }
 
     [Fact]
@@ -216,29 +220,40 @@ public class ProgramMainTests
         Assert.Equal(127, doc.RootElement.GetProperty("exit_code").GetInt32());
     }
 
-    [Fact]
+    [SkippableFact]
     public void Once_JsonOutput_StripsAnsiInLastOutput()
     {
         // R3 CR I3 end-to-end: --json-output flows the captured child output through
-        // StripAnsi before serialising into last_output. An OSC sequence in the child's
-        // output (e.g. a shell prompt's title-set escape) must not leak raw escape bytes
-        // into the JSON envelope. We can't easily inject OSC bytes through every shell,
-        // so use a CSI sequence (which both pre-r3 and post-r3 strip handle); the OSC
-        // contract is pinned at unit level in StripAnsiTests. This test pins only that
-        // the strip pipeline is wired into --json-output at all.
+        // StripAnsi before serialising into last_output. An ANSI escape in the child's
+        // output (CSI colour, OSC title) must not leak raw escape bytes into the JSON
+        // envelope.
         //
-        // Run an inline dotnet program is overkill; instead we run a command whose
-        // output is plain text and verify last_output is present and matches.
-        var result = RunPeep("--once", "--json-output", "--", "dotnet", "--version");
+        // R4 TA I2 fix: the prior version of this test ran `dotnet --version` (no
+        // escapes in output), so the assertion `DoesNotContain("\x1b[")` passed
+        // vacuously. A regression that disconnected StripAnsi from the --json-output
+        // path would not have been caught. To meaningfully exercise the wiring we need
+        // the child to actually emit ANSI; the cross-platform-portable way is `printf`
+        // with a CSI sequence. Windows lacks printf as a builtin; SkippableFact +
+        // Skip.IfNot covers it. The unit-level OSC contract pin lives in
+        // FormattingTests.StripAnsiTests; this is the integration-level wiring pin.
+        Skip.IfNot(!OperatingSystem.IsWindows(), "Unix-only — uses printf to emit ANSI bytes");
+        if (OperatingSystem.IsWindows()) return;  // CA1416 satisfaction; redundant after Skip.IfNot
+
+        var result = RunPeep("--once", "--json-output", "--",
+            "printf", @"\033[31mhello\033[0m\n");
         Assert.Equal(0, result.ExitCode);
         string trimmed = result.Stderr.Trim();
         using var doc = JsonDocument.Parse(trimmed);
         Assert.True(doc.RootElement.TryGetProperty("last_output", out var lastOutput),
             "Expected last_output field present under --json-output");
-        Assert.False(string.IsNullOrEmpty(lastOutput.GetString()));
-        // No raw ANSI/OSC escape bytes in the JSON text.
-        string raw = result.Stderr;
-        Assert.DoesNotContain("\x1b[", raw);
-        Assert.DoesNotContain("\x1b]", raw);
+        string lastOutputStr = lastOutput.GetString()!;
+        // The visible content survives the strip.
+        Assert.Contains("hello", lastOutputStr);
+        // The ANSI bytes do NOT survive the strip — the only way this assertion passes
+        // is if StripAnsi was applied to last_output. If a refactor decoupled the
+        // strip from FormatJson's last_output path, the raw ESC bytes would surface
+        // as `[31m` in the JSON string and this assertion would fail.
+        Assert.DoesNotContain("", lastOutputStr);
+        Assert.DoesNotContain("[31m", lastOutputStr);
     }
 }

@@ -11,6 +11,9 @@ namespace Winix.Peep.Tests;
 /// than re-spawning git children. Without this, FileSystemWatcher would pile up
 /// orphan git processes one per file event under a hung-git environment.
 /// </summary>
+// R4 TA C1: shares process-global static state with GitIgnoreCheckerTests;
+// both classes must serialise via this collection — see that class for detail.
+[Collection("GitIgnoreCheckerStatic")]
 public class GitIgnoreCheckerDisableTests : IDisposable
 {
     private readonly TextWriter _originalWriter;
