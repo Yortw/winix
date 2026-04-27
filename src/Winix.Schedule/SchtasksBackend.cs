@@ -187,48 +187,102 @@ public sealed class SchtasksBackend : ISchedulerBackend
     }
 
     /// <summary>
-    /// Builds the /TR string for schtasks.exe. If there are arguments,
-    /// wraps the command in quotes and appends arguments.
+    /// Builds the /TR string for schtasks.exe.
     /// </summary>
+    /// <remarks>
+    /// schtasks /TR is one of the few places in the suite where a single command-line
+    /// string is genuinely required by the OS API — Task Scheduler stores the trigger
+    /// command as one string, not an argument vector. CLAUDE.md mandates ArgumentList
+    /// for child processes, but here the child IS schtasks.exe (which uses ArgumentList);
+    /// the /TR value is a downstream argument that schtasks itself passes through to
+    /// Task Scheduler verbatim. The actual command process is launched later by Task
+    /// Scheduler via CreateProcess, so each argument must be escaped per the
+    /// Windows CRT command-line tokenisation rules
+    /// (https://learn.microsoft.com/en-us/cpp/c-language/parsing-c-command-line-arguments)
+    /// — naive backslash-quote escaping breaks on trailing backslashes
+    /// (e.g. "C:\Program Files\\" before a closing quote), which is the canonical Windows
+    /// quoting foot-gun.
+    /// </remarks>
     private static string BuildTaskRunString(string command, string[] arguments)
     {
         if (arguments.Length == 0)
         {
-            return command;
+            return EscapeWindowsArg(command);
         }
 
-        // schtasks /TR expects a single string. We need to be careful with quoting.
         var sb = new StringBuilder();
-
-        // If the command contains spaces, quote it.
-        if (command.Contains(' '))
-        {
-            sb.Append('"');
-            sb.Append(command);
-            sb.Append('"');
-        }
-        else
-        {
-            sb.Append(command);
-        }
-
+        sb.Append(EscapeWindowsArg(command));
         foreach (string arg in arguments)
         {
             sb.Append(' ');
-            if (arg.Contains(' ') || arg.Contains('"'))
-            {
-                sb.Append('"');
-                sb.Append(arg.Replace("\"", "\\\""));
-                sb.Append('"');
-            }
-            else
-            {
-                sb.Append(arg);
-            }
+            sb.Append(EscapeWindowsArg(arg));
         }
 
         return sb.ToString();
     }
+
+    /// <summary>
+    /// Escapes a single argument per Microsoft CRT command-line tokenisation rules so it
+    /// round-trips through CommandLineToArgvW.
+    /// </summary>
+    /// <remarks>
+    /// Rules:
+    /// <list type="bullet">
+    /// <item>Backslashes are literal unless they immediately precede a double-quote.</item>
+    /// <item>2N backslashes followed by a double-quote → N backslashes + the quote terminates the quoted region.</item>
+    /// <item>2N+1 backslashes followed by a double-quote → N backslashes + a literal double-quote.</item>
+    /// <item>Trailing backslashes before a closing quote must be doubled to remain literal.</item>
+    /// </list>
+    /// Arguments without whitespace, double-quote, or tab characters are returned unchanged
+    /// since they don't need quoting.
+    /// </remarks>
+    private static string EscapeWindowsArg(string arg)
+    {
+        if (arg.Length == 0)
+        {
+            return "\"\"";
+        }
+
+        // No quoting needed if the value has no characters that would alter tokenisation.
+        if (arg.IndexOfAny(WindowsArgSpecial) < 0)
+        {
+            return arg;
+        }
+
+        var sb = new StringBuilder(arg.Length + 8);
+        sb.Append('"');
+
+        int backslashes = 0;
+        foreach (char c in arg)
+        {
+            if (c == '\\')
+            {
+                backslashes++;
+                continue;
+            }
+
+            if (c == '"')
+            {
+                // Escape every preceding backslash AND the quote itself: 2N+1 escapes.
+                sb.Append('\\', backslashes * 2 + 1);
+                sb.Append('"');
+                backslashes = 0;
+                continue;
+            }
+
+            // Ordinary character: emit accumulated backslashes literally.
+            sb.Append('\\', backslashes);
+            sb.Append(c);
+            backslashes = 0;
+        }
+
+        // Trailing backslashes precede the closing quote — double them to keep them literal.
+        sb.Append('\\', backslashes * 2);
+        sb.Append('"');
+        return sb.ToString();
+    }
+
+    private static readonly char[] WindowsArgSpecial = { ' ', '\t', '"' };
 
     /// <summary>
     /// Maximum time to wait for schtasks.exe to exit. A corrupted task store or hung
