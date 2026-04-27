@@ -53,16 +53,18 @@ public static class CrontabParser
                     DateTime? nextRun = null;
                     if (!disabled)
                     {
+                        // Catch only the exceptions CronExpression.Parse and GetNextOccurrence
+                        // can produce (FormatException for bad syntax, InvalidOperationException
+                        // when no occurrence is found within 8 years). A bare catch here would
+                        // also swallow OutOfMemoryException / StackOverflowException / runtime
+                        // errors elsewhere and leave the user with no diagnostic at all.
                         try
                         {
                             var expr = CronExpression.Parse(cronFields);
-                            // Convert to local DateTime for ScheduledTask.
                             nextRun = expr.GetNextOccurrence(DateTimeOffset.Now).LocalDateTime;
                         }
-                        catch
-                        {
-                            // Unparseable cron — leave nextRun as null.
-                        }
+                        catch (FormatException) { /* unparseable cron — leave nextRun null */ }
+                        catch (InvalidOperationException) { /* no occurrence within 8 years */ }
                     }
 
                     tasks.Add(new ScheduledTask(name, cronFields, nextRun, status, command, ""));
@@ -84,10 +86,8 @@ public static class CrontabParser
                     var expr = CronExpression.Parse(cronFields);
                     nextRun = expr.GetNextOccurrence(DateTimeOffset.Now).LocalDateTime;
                 }
-                catch
-                {
-                    // Unparseable cron — leave nextRun as null.
-                }
+                catch (FormatException) { /* unparseable cron — leave nextRun null */ }
+                catch (InvalidOperationException) { /* no occurrence within 8 years */ }
 
                 // Use the command as the display name since there is no winix name tag.
                 tasks.Add(new ScheduledTask(command, cronFields, nextRun, "Enabled", command, ""));

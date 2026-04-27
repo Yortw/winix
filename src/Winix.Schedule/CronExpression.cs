@@ -229,7 +229,10 @@ public sealed class CronExpression
     /// <param name="count">The number of occurrences to return.</param>
     /// <returns>A list of the next <paramref name="count"/> matching <see cref="DateTimeOffset"/> values.</returns>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="count"/> is negative.</exception>
-    /// <exception cref="NotImplementedException">Delegates to <see cref="GetNextOccurrence"/>, which is not yet implemented.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// Propagated from <see cref="GetNextOccurrence"/> when no matching occurrence is found
+    /// within the 8-year search horizon.
+    /// </exception>
     public IReadOnlyList<DateTimeOffset> GetNextOccurrences(DateTimeOffset after, int count)
     {
         if (count < 0)
