@@ -81,18 +81,19 @@ public static class SchtasksCsvParser
                 taskName = fullTaskName.TrimStart('\\');
             }
 
-            // Parse next run time. schtasks uses locale-dependent date formats, but typically
-            // "M/d/yyyy h:mm:ss tt" for en-US. "N/A" means no next run.
+            // Parse next run time. schtasks uses locale-dependent date formats. The
+            // schedule console app sets <InvariantGlobalization>true</InvariantGlobalization>
+            // for AOT size, which collapses CurrentCulture to InvariantCulture and prevents
+            // loading additional named cultures at runtime. We therefore attempt a fixed
+            // list of explicit format strings (en-US, dd/MM/yyyy locales like en-GB/AU/NZ,
+            // German, Japanese, ISO) using InvariantCulture for the parse — covering the
+            // schtasks output shapes most users will encounter without depending on
+            // CultureInfo lookups that aren't available under InvariantGlobalization.
             DateTime? nextRun = null;
             string nextRunStr = fields[ColNextRunTime];
             if (!string.IsNullOrEmpty(nextRunStr) && nextRunStr != "N/A")
             {
-                // schtasks uses the system locale for date formatting. Use CurrentCulture
-                // (not InvariantCulture) so that dd/MM/yyyy locales parse correctly.
-                if (DateTime.TryParse(nextRunStr, CultureInfo.CurrentCulture, DateTimeStyles.AssumeLocal, out DateTime parsed))
-                {
-                    nextRun = parsed;
-                }
+                nextRun = TryParseScheduleDate(nextRunStr);
             }
 
             // Determine the schedule description.
@@ -223,14 +224,10 @@ public static class SchtasksCsvParser
         // Clean up time: "02:00:00 AM" → "02:00"
         if (!string.IsNullOrEmpty(startTime) && startTime != "N/A")
         {
-            if (DateTime.TryParse(startTime, CultureInfo.CurrentCulture, DateTimeStyles.AssumeLocal, out DateTime parsed))
-            {
-                startTime = parsed.ToString("HH:mm");
-            }
-            else
-            {
-                startTime = "";
-            }
+            DateTime? parsed = TryParseScheduleDate(startTime);
+            startTime = parsed.HasValue
+                ? parsed.Value.ToString("HH:mm", CultureInfo.InvariantCulture)
+                : "";
         }
         else
         {
@@ -261,5 +258,64 @@ public static class SchtasksCsvParser
 
         char first = value[0];
         return first == '*' || first == '@' || (first >= '0' && first <= '9');
+    }
+
+    /// <summary>
+    /// Schtasks date formats encountered in the wild. Order matters — earlier matches win.
+    /// Note these are tried with <see cref="CultureInfo.InvariantCulture"/> only, because
+    /// the schedule console app sets &lt;InvariantGlobalization&gt;true&lt;/InvariantGlobalization&gt;
+    /// for AOT binary size. That switch strips the named-culture data needed to parse
+    /// dd/MM/yyyy or yyyy/MM/dd via <see cref="CultureInfo.CurrentCulture"/>, so we use
+    /// explicit format strings to recognise locale-formatted output instead.
+    /// </summary>
+    private static readonly string[] ScheduleDateFormats =
+    {
+        // en-US (also the InvariantCulture default).
+        "M/d/yyyy h:mm:ss tt",
+        "M/d/yyyy hh:mm:ss tt",
+        "MM/dd/yyyy h:mm:ss tt",
+        "MM/dd/yyyy hh:mm:ss tt",
+        // en-GB / en-AU / en-NZ / many EU locales (24-hour).
+        "d/M/yyyy H:mm:ss",
+        "dd/MM/yyyy HH:mm:ss",
+        "d/MM/yyyy HH:mm:ss",
+        // German / Italian / Russian / many EU.
+        "dd.MM.yyyy HH:mm:ss",
+        "d.M.yyyy H:mm:ss",
+        // Japanese / Chinese / Korean / Hungarian.
+        "yyyy/MM/dd HH:mm:ss",
+        "yyyy/M/d H:mm:ss",
+        "yyyy-MM-dd HH:mm:ss",
+        // Time-only (used for /ST start-time columns).
+        "HH:mm:ss",
+        "h:mm:ss tt",
+        "hh:mm:ss tt",
+        "HH:mm",
+    };
+
+    /// <summary>
+    /// Tries to parse a schtasks-emitted timestamp string against the known format set.
+    /// Returns null when no format matches — callers should treat that as an unparsed
+    /// rather than missing value. Always assumes local time when no zone is specified.
+    /// </summary>
+    private static DateTime? TryParseScheduleDate(string value)
+    {
+        if (DateTime.TryParseExact(
+                value, ScheduleDateFormats, CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeLocal, out DateTime parsed))
+        {
+            return parsed;
+        }
+
+        // Last-resort generic parse; covers ISO 8601 with offset and a few extras the
+        // exact-format list doesn't enumerate. Still InvariantCulture for AOT safety.
+        if (DateTime.TryParse(
+                value, CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeLocal, out parsed))
+        {
+            return parsed;
+        }
+
+        return null;
     }
 }
