@@ -256,14 +256,54 @@ public sealed class CrontabBackend : ISchedulerBackend
                 throw new CrontabUnavailableException($"crontab did not respond within {CrontabTimeoutMs / 1000}s.");
             }
 
-            // Drain the stderr worker so it doesn't outlive this method.
-            DrainStderrTask(stderrTask);
+            // Drain the stderr worker so it doesn't outlive this method, capturing its
+            // text so we can distinguish "no crontab yet" from a real read failure.
+            string stderr = DrainStderrTask(stderrTask);
 
-            // Exit code 1 with "no crontab for ..." is normal on most Unix systems; treat
-            // any non-zero exit as "no entries" rather than failing the operation. The
-            // CrontabUnavailableException path above already handles the binary-missing case.
-            return process.ExitCode == 0 ? output : "";
+            return InterpretReadResult(process.ExitCode, output, stderr);
         }
+    }
+
+    /// <summary>
+    /// Interprets the captured result of <c>crontab -l</c>. Internal so tests can pin the
+    /// branching contract without spawning a subprocess.
+    /// </summary>
+    /// <param name="exitCode">The exit code returned by the crontab process.</param>
+    /// <param name="stdout">Captured standard output (the user's crontab content on success).</param>
+    /// <param name="stderr">Captured standard error (used to disambiguate failure modes).</param>
+    /// <returns>
+    /// The crontab content on exit code 0, or an empty string when the user simply has no
+    /// crontab installed yet (vixie/cronie/BSD all emit "no crontab for $USER" on stderr
+    /// with a non-zero exit for this case).
+    /// </returns>
+    /// <exception cref="CrontabUnavailableException">
+    /// Thrown when the exit code is non-zero AND the stderr does not match the legitimate
+    /// "no crontab for ..." pattern. Pre-fix, every non-zero exit silently produced an
+    /// empty baseline, and the next <see cref="WriteCrontab"/> call destroyed any existing
+    /// crontab — silent data loss reported as a successful action. The exception message
+    /// embeds the trimmed stderr (or the exit code, when stderr is empty) so the user has
+    /// enough to diagnose cron.deny, PAM/LDAP, or spool-lock failure.
+    /// </exception>
+    internal static string InterpretReadResult(int exitCode, string stdout, string stderr)
+    {
+        if (exitCode == 0)
+        {
+            return stdout;
+        }
+
+        // "no crontab for $USER" is the canonical empty-state marker across vixie, cronie,
+        // BSD, busybox. Case-insensitive substring keeps us forward-compatible with prefix
+        // variations like "crontab: no crontab for ...".
+        if (stderr.Contains("no crontab for", StringComparison.OrdinalIgnoreCase))
+        {
+            return "";
+        }
+
+        string trimmed = stderr.Trim();
+        string detail = trimmed.Length == 0
+            ? $"crontab -l exited with code {exitCode} and no diagnostic output."
+            : $"crontab -l failed (exit {exitCode}): {trimmed}";
+        throw new CrontabUnavailableException(detail);
     }
 
     /// <summary>
@@ -418,10 +458,18 @@ public sealed class CrontabBackend : ISchedulerBackend
     /// success path explicitly waits 5s for the worker; the failure paths should observe
     /// the same invariant. Bounded at 1s so a wedged Task can't extend the failure latency.
     /// </summary>
-    private static void DrainStderrTask(Task<string> stderrTask)
+    private static string DrainStderrTask(Task<string> stderrTask)
     {
-        try { stderrTask.Wait(1_000); }
-        catch (AggregateException) { /* swallow read errors — task was best-effort */ }
+        try
+        {
+            return stderrTask.Wait(1_000) ? (stderrTask.Result ?? "") : "";
+        }
+        catch (AggregateException)
+        {
+            // Swallow read errors — task was best-effort. Caller treats empty stderr
+            // as "no diagnostic output," not as "everything was fine."
+            return "";
+        }
     }
 
     /// <summary>
@@ -430,7 +478,12 @@ public sealed class CrontabBackend : ISchedulerBackend
     /// exception so callers can map it to a clean <see cref="ScheduleResult"/>.Fail rather
     /// than letting <see cref="Win32Exception"/> escape uncaught and produce a stack trace.
     /// </summary>
-    private sealed class CrontabUnavailableException : InvalidOperationException
+    /// <summary>
+    /// Signals that the <c>crontab</c> binary is unreachable, denied, or returned a non-zero
+    /// exit with output that does not match the legitimate "no crontab for $USER" pattern.
+    /// Internal so tests can pin the read-failure contract.
+    /// </summary>
+    internal sealed class CrontabUnavailableException : InvalidOperationException
     {
         public CrontabUnavailableException(string message) : base(message) { }
         public CrontabUnavailableException(string message, Exception inner) : base(message, inner) { }
