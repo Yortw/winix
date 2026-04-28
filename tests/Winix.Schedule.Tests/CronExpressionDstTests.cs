@@ -72,16 +72,16 @@ public sealed class CronExpressionDstTests
         // (+12) for ambiguous times, so the impl picks the second occurrence by default.
         // Either +12 or +13 is a defensible cron semantic here — we pin wall-clock,
         // not offset, on the ambiguous day.
-        Assert.Equal(new DateTime(2026, 4, 5, 2, 30, 0), occ1.LocalDateTime);
+        Assert.Equal(new DateTime(2026, 4, 5, 2, 30, 0), occ1.DateTime);
         Assert.Contains(occ1.Offset, new[] { TimeSpan.FromHours(12), TimeSpan.FromHours(13) });
 
         // The day AFTER fall-back: 02:30 NZST. Pre-fix this was reported as 01:30
         // because the original input offset (+13) was reapplied to a wall-clock that
         // had already moved to +12 — the regression this whole task was about.
-        Assert.Equal(new DateTime(2026, 4, 6, 2, 30, 0), occ2.LocalDateTime);
+        Assert.Equal(new DateTime(2026, 4, 6, 2, 30, 0), occ2.DateTime);
         Assert.Equal(TimeSpan.FromHours(12), occ2.Offset);
 
-        Assert.Equal(new DateTime(2026, 4, 7, 2, 30, 0), occ3.LocalDateTime);
+        Assert.Equal(new DateTime(2026, 4, 7, 2, 30, 0), occ3.DateTime);
         Assert.Equal(TimeSpan.FromHours(12), occ3.Offset);
     }
 
@@ -100,10 +100,10 @@ public sealed class CronExpressionDstTests
 
         // The 02:30 on 09-27 is invalid (in the spring-forward gap), so the search
         // moves on. First valid 02:30 wall-clock is on 09-28, now NZDT (+13).
-        Assert.Equal(new DateTime(2026, 9, 28, 2, 30, 0), occ1.LocalDateTime);
+        Assert.Equal(new DateTime(2026, 9, 28, 2, 30, 0), occ1.DateTime);
         Assert.Equal(TimeSpan.FromHours(13), occ1.Offset);
 
-        Assert.Equal(new DateTime(2026, 9, 29, 2, 30, 0), occ2.LocalDateTime);
+        Assert.Equal(new DateTime(2026, 9, 29, 2, 30, 0), occ2.DateTime);
         Assert.Equal(TimeSpan.FromHours(13), occ2.Offset);
     }
 
@@ -119,7 +119,7 @@ public sealed class CronExpressionDstTests
         // 01:59 NZST → next minute is 02:00 which doesn't exist → 03:00 NZDT.
         var occ = expr.GetNextOccurrence(atGapStart, NzLikeZone);
 
-        Assert.Equal(new DateTime(2026, 9, 27, 3, 0, 0), occ.LocalDateTime);
+        Assert.Equal(new DateTime(2026, 9, 27, 3, 0, 0), occ.DateTime);
         Assert.Equal(TimeSpan.FromHours(13), occ.Offset);
     }
 
@@ -138,7 +138,7 @@ public sealed class CronExpressionDstTests
         var occ1 = expr.GetNextOccurrence(atFallBackEdge, NzLikeZone);
         var occ2 = expr.GetNextOccurrence(occ1, NzLikeZone);
 
-        Assert.Equal(new DateTime(2026, 4, 5, 2, 0, 0), occ1.LocalDateTime);
+        Assert.Equal(new DateTime(2026, 4, 5, 2, 0, 0), occ1.DateTime);
         Assert.Contains(occ1.Offset, new[] { TimeSpan.FromHours(12), TimeSpan.FromHours(13) });
 
         // Whatever the impl picked for the ambiguous 02:00, the next occurrence must
@@ -152,7 +152,7 @@ public sealed class CronExpressionDstTests
         var current = occ2;
         for (int i = 0; i < 4; i++)
         {
-            if (current.LocalDateTime == new DateTime(2026, 4, 5, 3, 0, 0))
+            if (current.DateTime == new DateTime(2026, 4, 5, 3, 0, 0))
             {
                 Assert.Equal(TimeSpan.FromHours(12), current.Offset);
                 return;
