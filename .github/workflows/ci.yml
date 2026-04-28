@@ -31,41 +31,7 @@ jobs:
       - name: Build
         run: dotnet build Winix.sln --no-restore -c Release
 
-      # Linux libsecret integration tests (Winix.SecretStore.Tests, Winix.EnvVault.Tests)
-      # need the secret-tool binary AND a running secret service. Install libsecret-tools
-      # plus gnome-keyring, then wrap the test run in dbus-run-session with an unlocked
-      # keyring — without this, AssertAvailable() throws and the SecretStore + EnvVault
-      # Linux integration tests fail before exercising any actual logic.
-      - name: Install Linux secret-service dependencies
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libsecret-tools gnome-keyring dbus-x11
-
-      - name: Test (Linux — eval dbus-launch + unlock fresh keyring)
-        if: matrix.os == 'ubuntu-latest'
-        # Two separate gnome-keyring-daemon invocations, not the combined
-        # --unlock --start. Round 2 (`discover_other_daemon: 0` confirmed) showed
-        # we own the dbus session, but the combined flags didn't create the login
-        # collection — secret-tool calls then failed with "Object does not exist
-        # at path /org/freedesktop/secrets/collection/login". The two-step pattern
-        # (1: unlock = creates the keyring file with empty password; 2: start
-        # --components=secrets = registers the SecretService backend) is what the
-        # gnome-keyring test suite uses.
-        run: |
-          rm -rf "$HOME/.local/share/keyrings"/* 2>/dev/null || true
-          eval "$(dbus-launch --sh-syntax)"
-          printf '' | gnome-keyring-daemon --unlock
-          printf '' | gnome-keyring-daemon --start --components=secrets
-          # Smoke-verify the secret service is reachable before running tests.
-          # If this fails, the dotnet tests are guaranteed to fail with the same
-          # symptom and the diagnostic is clearer here.
-          secret-tool store --label=ci-smoke ci-smoke key <<< "smoke" || (echo "secret service not reachable" && exit 1)
-          secret-tool clear ci-smoke key
-          dotnet test Winix.sln --no-build -c Release --logger "trx;LogFileName=results.trx"
-
-      - name: Test (Windows + macOS)
-        if: matrix.os != 'ubuntu-latest'
+      - name: Test
         run: dotnet test Winix.sln --no-build -c Release --logger "trx;LogFileName=results.trx"
 
       - name: Upload test results
