@@ -109,12 +109,14 @@ public static class CrontabParser
         return tasks;
     }
 
-    /// <summary>Appends a winix-tagged cron entry to the crontab content.</summary>
+    /// <summary>Adds a winix-tagged cron entry to the crontab content, overwriting any
+    /// existing entry with the same name. Match the schtasks <c>/F</c> semantic: schedule
+    /// add is idempotent — running it twice with the same name results in one entry, not two.</summary>
     /// <param name="crontabContent">The existing crontab text.</param>
     /// <param name="name">The winix task name. Must not contain newlines, carriage returns, or the <c># winix:</c> tag prefix.</param>
     /// <param name="cronExpression">The 5-field cron expression (e.g. <c>*/5 * * * *</c>). Must not contain newlines.</param>
     /// <param name="command">The shell command to run. Must not contain newlines.</param>
-    /// <returns>The updated crontab text with the new entry appended.</returns>
+    /// <returns>The updated crontab text with the entry added or updated.</returns>
     /// <exception cref="ArgumentException">
     /// Thrown when <paramref name="name"/>, <paramref name="cronExpression"/>, or
     /// <paramref name="command"/> contains a newline / carriage-return character, or when
@@ -123,6 +125,13 @@ public static class CrontabParser
     /// into the user's crontab — the literal task is registered, AND a hidden second task
     /// runs alongside it.
     /// </exception>
+    /// <remarks>
+    /// Pre-R4, AddEntry unconditionally appended. On Linux/macOS two identically-named
+    /// entries could co-exist; <c>remove</c>/<c>disable</c>/<c>enable</c>/<c>run</c> would
+    /// only act on the first match, so a duplicate <c>add</c> followed by <c>remove</c>
+    /// silently left the second entry firing forever. The schtasks side already used
+    /// <c>/F</c> to overwrite — this brings crontab semantics in line.
+    /// </remarks>
     public static string AddEntry(string crontabContent, string name, string cronExpression, string command)
     {
         ValidateNoNewlines(name, nameof(name));
@@ -135,11 +144,16 @@ public static class CrontabParser
                 nameof(name));
         }
 
+        // Idempotent overwrite: if a winix entry with this name already exists, drop it
+        // before appending the new one. RemoveEntry is a no-op when no match is found,
+        // so the fresh-add path pays only one extra string scan.
+        string baseline = RemoveEntry(crontabContent, name);
+
         var sb = new StringBuilder();
-        if (!string.IsNullOrEmpty(crontabContent))
+        if (!string.IsNullOrEmpty(baseline))
         {
-            sb.Append(crontabContent);
-            if (!crontabContent.EndsWith('\n'))
+            sb.Append(baseline);
+            if (!baseline.EndsWith('\n'))
             {
                 sb.Append('\n');
             }
