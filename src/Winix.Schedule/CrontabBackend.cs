@@ -156,6 +156,15 @@ public sealed class CrontabBackend : ISchedulerBackend
             return ScheduleResult.Fail($"Task '{name}' not found.");
         }
 
+        // schtasks /Run rejects disabled tasks with a clear error; pre-R4 the crontab side
+        // silently launched the underlying command anyway. Cross-platform divergence + a
+        // violation of the user's explicit disable. Match schtasks semantics.
+        ScheduleResult? gateFailure = CheckRunnable(target);
+        if (gateFailure != null)
+        {
+            return gateFailure;
+        }
+
         // Build the detached/backgrounded shell command. See BuildRunDetachedCommand for
         // the full reasoning on terminator handling.
         string detachedCommand = BuildRunDetachedCommand(target.Command);
@@ -488,6 +497,24 @@ public sealed class CrontabBackend : ISchedulerBackend
     {
         public CrontabUnavailableException(string message) : base(message) { }
         public CrontabUnavailableException(string message, Exception inner) : base(message, inner) { }
+    }
+
+    /// <summary>
+    /// Decides whether a parsed task is eligible for an on-demand run. Returns
+    /// <c>null</c> when the task can run, or a <see cref="ScheduleResult"/> describing why
+    /// it cannot. Internal so tests can pin the gate contract without spawning <c>/bin/sh</c>.
+    /// </summary>
+    /// <remarks>
+    /// Currently only blocks disabled tasks; future gate conditions (missing-command guard,
+    /// recently-failed throttle, etc.) plug in here without touching the spawn pipeline.
+    /// </remarks>
+    internal static ScheduleResult? CheckRunnable(ScheduledTask target)
+    {
+        if (string.Equals(target.Status, "Disabled", StringComparison.Ordinal))
+        {
+            return ScheduleResult.Fail($"Task '{target.Name}' is disabled; enable it before running.");
+        }
+        return null;
     }
 
     /// <summary>
