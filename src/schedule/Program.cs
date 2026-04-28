@@ -218,15 +218,37 @@ internal sealed class Program
         bool all = result.Has("--all");
 
         ISchedulerBackend backend = GetBackend();
-        IReadOnlyList<ScheduledTask> tasks = backend.List(all ? null : folder, all);
+        ScheduleListResult listResult = backend.List(all ? null : folder, all);
+
+        if (!listResult.Available)
+        {
+            // Backend reported a real failure (Task Scheduler service stopped, crontab
+            // denied, etc.). Surface diagnostic via stderr and exit non-zero rather than
+            // silently presenting an empty table that the user mistakes for "no tasks."
+            int failExit = (int)ExitCode.NotExecutable;
+            string reason = listResult.FailureReason ?? "unknown";
+            if (json)
+            {
+                SafeWriteLine(Formatting.FormatTaskListJson(listResult.Tasks, failExit, "error", version, reason));
+            }
+            else
+            {
+                SafeWriteLine($"schedule: {reason}");
+            }
+            return failExit;
+        }
 
         if (json)
         {
-            SafeWriteLine(Formatting.FormatTaskListJson(tasks, 0, "success", version));
+            SafeWriteLine(Formatting.FormatTaskListJson(listResult.Tasks, 0, "success", version, listResult.Warning));
         }
         else
         {
-            SafeWrite(Formatting.FormatTable(tasks, showFolder: all, useColor: useColor));
+            SafeWrite(Formatting.FormatTable(listResult.Tasks, showFolder: all, useColor: useColor));
+            if (!string.IsNullOrEmpty(listResult.Warning))
+            {
+                SafeWriteLine($"warning: {listResult.Warning}");
+            }
         }
 
         return 0;

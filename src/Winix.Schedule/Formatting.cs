@@ -261,11 +261,19 @@ public static class Formatting
     /// <param name="exitCode">Process exit code written into the envelope.</param>
     /// <param name="exitReason">Machine-readable exit reason string.</param>
     /// <param name="version">Value for the <c>version</c> envelope field.</param>
+    /// <param name="diagnostic">
+    /// Optional diagnostic string. When the result is a partial success, this is the
+    /// stderr warning surfaced by the backend (e.g. PAM/locale notice). When the result
+    /// is a failure (<c>exitReason == "error"</c>), this is the failure reason. Emitted
+    /// as a top-level <c>warning</c> field on success or <c>error</c> field on failure.
+    /// Whitespace-only values are treated as absent.
+    /// </param>
     public static string FormatTaskListJson(
         IReadOnlyList<ScheduledTask> tasks,
         int exitCode,
         string exitReason,
-        string version)
+        string version,
+        string? diagnostic = null)
     {
         var (writer, buffer) = JsonHelper.CreateWriter();
         using (writer)
@@ -275,6 +283,11 @@ public static class Formatting
             writer.WriteString("version", version);
             writer.WriteNumber("exit_code", exitCode);
             writer.WriteString("exit_reason", exitReason);
+            if (!string.IsNullOrWhiteSpace(diagnostic))
+            {
+                string fieldName = exitReason == "error" ? "error" : "warning";
+                writer.WriteString(fieldName, diagnostic.Trim());
+            }
             writer.WriteStartArray("tasks");
             foreach (ScheduledTask t in tasks)
             {

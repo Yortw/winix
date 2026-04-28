@@ -45,8 +45,14 @@ public interface ISchedulerBackend
     /// user may not have permission to modify. When <c>false</c>, returns only the current
     /// user's tasks.
     /// </param>
-    /// <returns>A read-only list of <see cref="ScheduledTask"/> objects; may be empty but never null.</returns>
-    IReadOnlyList<ScheduledTask> List(string? folder, bool all);
+    /// <returns>
+    /// A <see cref="ScheduleListResult"/> carrying the enumerated tasks plus an explicit
+    /// availability flag. When the backend is unreachable (Task Scheduler service stopped,
+    /// crontab denied/unavailable), <see cref="ScheduleListResult.Available"/> is <c>false</c>
+    /// and the diagnostic surfaces in <see cref="ScheduleListResult.FailureReason"/> rather
+    /// than collapsing to an empty list.
+    /// </returns>
+    ScheduleListResult List(string? folder, bool all);
 
     /// <summary>
     /// Removes a scheduled task from the backend.

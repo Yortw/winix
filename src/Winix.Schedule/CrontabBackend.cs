@@ -41,19 +41,20 @@ public sealed class CrontabBackend : ISchedulerBackend
     }
 
     /// <inheritdoc />
-    public IReadOnlyList<ScheduledTask> List(string? folder, bool all)
+    public ScheduleListResult List(string? folder, bool all)
     {
-        // List returns an empty collection on read failure; the interface offers no
-        // way to signal "scheduler unavailable" to the caller. A future iteration may
-        // widen ISchedulerBackend.List to return a result type.
+        // CrontabUnavailableException carries diagnostic detail post-R4 C1 fix — surface
+        // it via Unavailable so 'no tasks' (legitimate empty crontab) is distinguishable
+        // from 'crontab denied' or 'crontab missing'. Pre-R4 both collapsed to empty.
         try
         {
             string crontab = ReadCrontab();
-            return CrontabParser.ParseEntries(crontab, winixOnly: !all);
+            var tasks = CrontabParser.ParseEntries(crontab, winixOnly: !all);
+            return ScheduleListResult.Ok(tasks);
         }
-        catch (CrontabUnavailableException)
+        catch (CrontabUnavailableException ex)
         {
-            return Array.Empty<ScheduledTask>();
+            return ScheduleListResult.Unavailable(ex.Message);
         }
     }
 

@@ -87,7 +87,7 @@ public sealed class SchtasksBackend : ISchedulerBackend
     }
 
     /// <inheritdoc />
-    public IReadOnlyList<ScheduledTask> List(string? folder, bool all)
+    public ScheduleListResult List(string? folder, bool all)
     {
         string queryFolder = folder ?? @"\Winix";
 
@@ -101,12 +101,45 @@ public sealed class SchtasksBackend : ISchedulerBackend
 
         if (result.ExitCode != 0)
         {
-            // "ERROR: The system cannot find the file specified." means the folder doesn't exist.
-            // Return empty list rather than failing.
-            return Array.Empty<ScheduledTask>();
+            // The "folder doesn't exist / no matching tasks" case is a normal empty: schtasks
+            // returns a non-zero exit with stderr matching "cannot find the file specified" or
+            // "no tasks". Anything else (service stopped, RPC unavailable, access denied,
+            // corrupted task store) MUST surface — pre-R4 every non-zero exit collapsed to an
+            // empty list and the user thought they had no tasks while the service was wedged.
+            if (IsBenignSchtasksEmpty(result.Stderr))
+            {
+                return ScheduleListResult.Ok(Array.Empty<ScheduledTask>());
+            }
+
+            string detail = string.IsNullOrWhiteSpace(result.Stderr)
+                ? $"schtasks query failed with exit code {result.ExitCode}."
+                : $"schtasks query failed (exit {result.ExitCode}): {result.Stderr.Trim()}";
+            return ScheduleListResult.Unavailable(detail);
         }
 
-        return SchtasksCsvParser.Parse(result.Stdout, queryFolder);
+        var tasks = SchtasksCsvParser.Parse(result.Stdout, queryFolder);
+        return ScheduleListResult.OkWithWarning(tasks, result.Stderr);
+    }
+
+    /// <summary>
+    /// Recognises the "no tasks / folder doesn't exist" stderr signatures that schtasks
+    /// emits with a non-zero exit, distinguishing them from real backend failures (service
+    /// stopped, RPC unavailable, access denied). Internal so tests can pin the pattern set.
+    /// </summary>
+    internal static bool IsBenignSchtasksEmpty(string stderr)
+    {
+        if (string.IsNullOrWhiteSpace(stderr))
+        {
+            // Pre-R4 behaviour treated empty stderr + non-zero exit as benign empty. We
+            // keep that for backwards compat with environments where schtasks emits no
+            // stderr for "folder not found" (some Server SKUs), but only when stderr is
+            // genuinely silent — any present text is treated as a real failure signal.
+            return true;
+        }
+
+        return stderr.Contains("cannot find the file specified", StringComparison.OrdinalIgnoreCase)
+            || stderr.Contains("no tasks", StringComparison.OrdinalIgnoreCase)
+            || stderr.Contains("no scheduled tasks", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <inheritdoc />
