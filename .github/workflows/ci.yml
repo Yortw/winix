@@ -42,14 +42,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libsecret-tools gnome-keyring dbus-x11
 
-      - name: Test (Linux — wrapped with dbus-run-session + unlocked keyring)
+      - name: Test (Linux — eval dbus-launch + unlock fresh keyring)
         if: matrix.os == 'ubuntu-latest'
+        # The runner image has a pre-existing gnome-keyring-daemon (the previous
+        # attempt's `discover_other_daemon: 1` log line). Clearing
+        # ~/.local/share/keyrings + using `dbus-launch` (not dbus-run-session, which
+        # forks a sub-shell whose env vars don't reach later steps) lets us own the
+        # session. `printf "" | gnome-keyring-daemon --unlock --start --components=secrets`
+        # creates the default login collection with an empty password and starts the
+        # daemon — matching the python-keyring / openSUSE-tumbleweed CI pattern.
         run: |
-          dbus-run-session -- bash -c '
-            printf "" | gnome-keyring-daemon --unlock
-            gnome-keyring-daemon --start --components=secrets
-            dotnet test Winix.sln --no-build -c Release --logger "trx;LogFileName=results.trx"
-          '
+          rm -rf "$HOME/.local/share/keyrings"/* 2>/dev/null || true
+          eval "$(dbus-launch --sh-syntax)"
+          printf '' | gnome-keyring-daemon --unlock --start --components=secrets
+          dotnet test Winix.sln --no-build -c Release --logger "trx;LogFileName=results.trx"
 
       - name: Test (Windows + macOS)
         if: matrix.os != 'ubuntu-latest'
