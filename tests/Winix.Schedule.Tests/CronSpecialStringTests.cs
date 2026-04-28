@@ -8,8 +8,12 @@ namespace Winix.Schedule.Tests;
 
 public sealed class CronSpecialStringTests
 {
-    // Frozen reference time: 2026-04-12 14:30:00 +12:00 (Sunday in NZST).
+    // Frozen reference time: 2026-04-12 14:30:00 +12:00 (Sunday).
     private static readonly DateTimeOffset Reference = new DateTimeOffset(2026, 4, 12, 14, 30, 0, TimeSpan.FromHours(12));
+
+    // Fixed-offset +12 timezone with no DST. See CronExpressionNextTests for rationale.
+    private static readonly TimeZoneInfo Tz12 = TimeZoneInfo.CreateCustomTimeZone(
+        "Test+12", TimeSpan.FromHours(12), "Test+12", "Test+12");
 
     [Fact]
     public void Hourly_ReturnsNextHour()
@@ -17,7 +21,7 @@ public sealed class CronSpecialStringTests
         // @hourly = "0 * * * *" — next occurrence is the top of the next hour.
         var expr = CronExpression.Parse("@hourly");
 
-        DateTimeOffset next = expr.GetNextOccurrence(Reference);
+        DateTimeOffset next = expr.GetNextOccurrence(Reference, Tz12);
 
         Assert.Equal(new DateTimeOffset(2026, 4, 12, 15, 0, 0, TimeSpan.FromHours(12)), next);
     }
@@ -28,7 +32,7 @@ public sealed class CronSpecialStringTests
         // @daily = "0 0 * * *" — 14:30 has passed midnight, so next is tomorrow 00:00.
         var expr = CronExpression.Parse("@daily");
 
-        DateTimeOffset next = expr.GetNextOccurrence(Reference);
+        DateTimeOffset next = expr.GetNextOccurrence(Reference, Tz12);
 
         Assert.Equal(new DateTimeOffset(2026, 4, 13, 0, 0, 0, TimeSpan.FromHours(12)), next);
     }
@@ -40,8 +44,8 @@ public sealed class CronSpecialStringTests
         var daily = CronExpression.Parse("@daily");
         var midnight = CronExpression.Parse("@midnight");
 
-        DateTimeOffset dailyNext = daily.GetNextOccurrence(Reference);
-        DateTimeOffset midnightNext = midnight.GetNextOccurrence(Reference);
+        DateTimeOffset dailyNext = daily.GetNextOccurrence(Reference, Tz12);
+        DateTimeOffset midnightNext = midnight.GetNextOccurrence(Reference, Tz12);
 
         Assert.Equal(dailyNext, midnightNext);
     }
@@ -53,7 +57,7 @@ public sealed class CronSpecialStringTests
         // Reference is Sunday 14:30, so 00:00 has passed; next is the following Sunday (7 days later).
         var expr = CronExpression.Parse("@weekly");
 
-        DateTimeOffset next = expr.GetNextOccurrence(Reference);
+        DateTimeOffset next = expr.GetNextOccurrence(Reference, Tz12);
 
         Assert.Equal(new DateTimeOffset(2026, 4, 19, 0, 0, 0, TimeSpan.FromHours(12)), next);
     }
@@ -65,7 +69,7 @@ public sealed class CronSpecialStringTests
         // Reference is April 12, so day 1 has passed; next is May 1.
         var expr = CronExpression.Parse("@monthly");
 
-        DateTimeOffset next = expr.GetNextOccurrence(Reference);
+        DateTimeOffset next = expr.GetNextOccurrence(Reference, Tz12);
 
         Assert.Equal(new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.FromHours(12)), next);
     }
@@ -77,7 +81,7 @@ public sealed class CronSpecialStringTests
         // Reference is April 2026, so Jan 1 2026 has passed; next is Jan 1 2027.
         var expr = CronExpression.Parse("@yearly");
 
-        DateTimeOffset next = expr.GetNextOccurrence(Reference);
+        DateTimeOffset next = expr.GetNextOccurrence(Reference, Tz12);
 
         Assert.Equal(new DateTimeOffset(2027, 1, 1, 0, 0, 0, TimeSpan.FromHours(12)), next);
     }
@@ -89,8 +93,8 @@ public sealed class CronSpecialStringTests
         var yearly = CronExpression.Parse("@yearly");
         var annually = CronExpression.Parse("@annually");
 
-        DateTimeOffset yearlyNext = yearly.GetNextOccurrence(Reference);
-        DateTimeOffset annuallyNext = annually.GetNextOccurrence(Reference);
+        DateTimeOffset yearlyNext = yearly.GetNextOccurrence(Reference, Tz12);
+        DateTimeOffset annuallyNext = annually.GetNextOccurrence(Reference, Tz12);
 
         Assert.Equal(yearlyNext, annuallyNext);
     }
@@ -108,8 +112,8 @@ public sealed class CronSpecialStringTests
         var lower = CronExpression.Parse("@daily");
         var upper = CronExpression.Parse("@DAILY");
 
-        DateTimeOffset lowerNext = lower.GetNextOccurrence(Reference);
-        DateTimeOffset upperNext = upper.GetNextOccurrence(Reference);
+        DateTimeOffset lowerNext = lower.GetNextOccurrence(Reference, Tz12);
+        DateTimeOffset upperNext = upper.GetNextOccurrence(Reference, Tz12);
 
         Assert.Equal(lowerNext, upperNext);
     }

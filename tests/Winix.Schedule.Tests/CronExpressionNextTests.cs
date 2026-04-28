@@ -9,15 +9,22 @@ namespace Winix.Schedule.Tests;
 
 public sealed class CronExpressionNextTests
 {
-    // Frozen reference time: 2026-04-12 14:30:00 +12:00 (Sunday in NZST).
+    // Frozen reference time: 2026-04-12 14:30:00 +12:00 (Sunday).
     private static readonly DateTimeOffset Reference = new DateTimeOffset(2026, 4, 12, 14, 30, 0, TimeSpan.FromHours(12));
+
+    // Fixed-offset +12 timezone with no DST. Tests use this via the internal overload so
+    // the cron arithmetic is deterministic regardless of the host machine's TZ. The
+    // public GetNextOccurrence(after) overload uses TimeZoneInfo.Local — covered by the
+    // separate CronExpressionDstTests against a synthesised DST-aware TZ.
+    private static readonly TimeZoneInfo Tz12 = TimeZoneInfo.CreateCustomTimeZone(
+        "Test+12", TimeSpan.FromHours(12), "Test+12", "Test+12");
 
     [Fact]
     public void EveryMinute_ReturnsNextMinute()
     {
         var expr = CronExpression.Parse("* * * * *");
 
-        DateTimeOffset next = expr.GetNextOccurrence(Reference);
+        DateTimeOffset next = expr.GetNextOccurrence(Reference, Tz12);
 
         Assert.Equal(new DateTimeOffset(2026, 4, 12, 14, 31, 0, TimeSpan.FromHours(12)), next);
     }
@@ -28,7 +35,7 @@ public sealed class CronExpressionNextTests
         // At 14:30 the 02:00 window has passed, so next is tomorrow.
         var expr = CronExpression.Parse("0 2 * * *");
 
-        DateTimeOffset next = expr.GetNextOccurrence(Reference);
+        DateTimeOffset next = expr.GetNextOccurrence(Reference, Tz12);
 
         Assert.Equal(new DateTimeOffset(2026, 4, 13, 2, 0, 0, TimeSpan.FromHours(12)), next);
     }
@@ -39,7 +46,7 @@ public sealed class CronExpressionNextTests
         var at0100 = new DateTimeOffset(2026, 4, 12, 1, 0, 0, TimeSpan.FromHours(12));
         var expr = CronExpression.Parse("0 2 * * *");
 
-        DateTimeOffset next = expr.GetNextOccurrence(at0100);
+        DateTimeOffset next = expr.GetNextOccurrence(at0100, Tz12);
 
         Assert.Equal(new DateTimeOffset(2026, 4, 12, 2, 0, 0, TimeSpan.FromHours(12)), next);
     }
@@ -49,7 +56,7 @@ public sealed class CronExpressionNextTests
     {
         var expr = CronExpression.Parse("*/5 * * * *");
 
-        DateTimeOffset next = expr.GetNextOccurrence(Reference);
+        DateTimeOffset next = expr.GetNextOccurrence(Reference, Tz12);
 
         // 14:30 is a match for */5 but "strictly after" semantics means next is 14:35.
         Assert.Equal(new DateTimeOffset(2026, 4, 12, 14, 35, 0, TimeSpan.FromHours(12)), next);
@@ -60,7 +67,7 @@ public sealed class CronExpressionNextTests
     {
         var expr = CronExpression.Parse("0 9 * * 1-5");
 
-        DateTimeOffset next = expr.GetNextOccurrence(Reference);
+        DateTimeOffset next = expr.GetNextOccurrence(Reference, Tz12);
 
         // Sunday 14:30 → Monday 09:00.
         Assert.Equal(new DateTimeOffset(2026, 4, 13, 9, 0, 0, TimeSpan.FromHours(12)), next);
@@ -73,7 +80,7 @@ public sealed class CronExpressionNextTests
         var friday0800 = new DateTimeOffset(2026, 4, 10, 8, 0, 0, TimeSpan.FromHours(12));
         var expr = CronExpression.Parse("0 9 * * 1-5");
 
-        DateTimeOffset next = expr.GetNextOccurrence(friday0800);
+        DateTimeOffset next = expr.GetNextOccurrence(friday0800, Tz12);
 
         Assert.Equal(new DateTimeOffset(2026, 4, 10, 9, 0, 0, TimeSpan.FromHours(12)), next);
     }
@@ -85,7 +92,7 @@ public sealed class CronExpressionNextTests
         var friday1000 = new DateTimeOffset(2026, 4, 10, 10, 0, 0, TimeSpan.FromHours(12));
         var expr = CronExpression.Parse("0 9 * * 1-5");
 
-        DateTimeOffset next = expr.GetNextOccurrence(friday1000);
+        DateTimeOffset next = expr.GetNextOccurrence(friday1000, Tz12);
 
         // Next Monday is April 13.
         Assert.Equal(new DateTimeOffset(2026, 4, 13, 9, 0, 0, TimeSpan.FromHours(12)), next);
@@ -97,7 +104,7 @@ public sealed class CronExpressionNextTests
         var april1_0100 = new DateTimeOffset(2026, 4, 1, 1, 0, 0, TimeSpan.FromHours(12));
         var expr = CronExpression.Parse("0 2 1 * *");
 
-        DateTimeOffset next = expr.GetNextOccurrence(april1_0100);
+        DateTimeOffset next = expr.GetNextOccurrence(april1_0100, Tz12);
 
         Assert.Equal(new DateTimeOffset(2026, 4, 1, 2, 0, 0, TimeSpan.FromHours(12)), next);
     }
@@ -108,7 +115,7 @@ public sealed class CronExpressionNextTests
         // April 12 is past day 1, so next is May 1.
         var expr = CronExpression.Parse("0 2 1 * *");
 
-        DateTimeOffset next = expr.GetNextOccurrence(Reference);
+        DateTimeOffset next = expr.GetNextOccurrence(Reference, Tz12);
 
         Assert.Equal(new DateTimeOffset(2026, 5, 1, 2, 0, 0, TimeSpan.FromHours(12)), next);
     }
@@ -119,7 +126,7 @@ public sealed class CronExpressionNextTests
         var dec31 = new DateTimeOffset(2026, 12, 31, 23, 59, 0, TimeSpan.FromHours(12));
         var expr = CronExpression.Parse("* * * * *");
 
-        DateTimeOffset next = expr.GetNextOccurrence(dec31);
+        DateTimeOffset next = expr.GetNextOccurrence(dec31, Tz12);
 
         Assert.Equal(new DateTimeOffset(2027, 1, 1, 0, 0, 0, TimeSpan.FromHours(12)), next);
     }
@@ -131,7 +138,7 @@ public sealed class CronExpressionNextTests
         var feb28_2028 = new DateTimeOffset(2028, 2, 28, 0, 0, 0, TimeSpan.FromHours(12));
         var expr = CronExpression.Parse("0 0 29 2 *");
 
-        DateTimeOffset next = expr.GetNextOccurrence(feb28_2028);
+        DateTimeOffset next = expr.GetNextOccurrence(feb28_2028, Tz12);
 
         Assert.Equal(new DateTimeOffset(2028, 2, 29, 0, 0, 0, TimeSpan.FromHours(12)), next);
     }
@@ -143,7 +150,7 @@ public sealed class CronExpressionNextTests
         var jan1_2026 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.FromHours(12));
         var expr = CronExpression.Parse("0 0 29 2 *");
 
-        DateTimeOffset next = expr.GetNextOccurrence(jan1_2026);
+        DateTimeOffset next = expr.GetNextOccurrence(jan1_2026, Tz12);
 
         Assert.Equal(new DateTimeOffset(2028, 2, 29, 0, 0, 0, TimeSpan.FromHours(12)), next);
     }
@@ -155,7 +162,7 @@ public sealed class CronExpressionNextTests
         var april1 = new DateTimeOffset(2026, 4, 1, 0, 0, 0, TimeSpan.FromHours(12));
         var expr = CronExpression.Parse("0 0 31 * *");
 
-        DateTimeOffset next = expr.GetNextOccurrence(april1);
+        DateTimeOffset next = expr.GetNextOccurrence(april1, Tz12);
 
         Assert.Equal(new DateTimeOffset(2026, 5, 31, 0, 0, 0, TimeSpan.FromHours(12)), next);
     }
@@ -169,7 +176,7 @@ public sealed class CronExpressionNextTests
         var at1430_30s = new DateTimeOffset(2026, 4, 12, 14, 30, 30, TimeSpan.FromHours(12));
         var expr = CronExpression.Parse("30 14 * * *");
 
-        DateTimeOffset next = expr.GetNextOccurrence(at1430_30s);
+        DateTimeOffset next = expr.GetNextOccurrence(at1430_30s, Tz12);
 
         Assert.Equal(new DateTimeOffset(2026, 4, 13, 14, 30, 0, TimeSpan.FromHours(12)), next);
     }
@@ -182,7 +189,7 @@ public sealed class CronExpressionNextTests
         var at1430 = new DateTimeOffset(2026, 4, 12, 14, 30, 0, TimeSpan.FromHours(12));
         var expr = CronExpression.Parse("30 14 * * *");
 
-        DateTimeOffset next = expr.GetNextOccurrence(at1430);
+        DateTimeOffset next = expr.GetNextOccurrence(at1430, Tz12);
 
         Assert.Equal(new DateTimeOffset(2026, 4, 13, 14, 30, 0, TimeSpan.FromHours(12)), next);
     }
@@ -192,7 +199,7 @@ public sealed class CronExpressionNextTests
     {
         var expr = CronExpression.Parse("0 2 * * *");
 
-        IReadOnlyList<DateTimeOffset> results = expr.GetNextOccurrences(Reference, 5);
+        IReadOnlyList<DateTimeOffset> results = expr.GetNextOccurrences(Reference, 5, Tz12);
 
         Assert.Equal(5, results.Count);
         // Should be 5 consecutive days at 02:00.
@@ -209,7 +216,7 @@ public sealed class CronExpressionNextTests
         var saturday = new DateTimeOffset(2026, 4, 11, 10, 0, 0, TimeSpan.FromHours(12));
         var expr = CronExpression.Parse("0 9 * * 0");
 
-        DateTimeOffset next = expr.GetNextOccurrence(saturday);
+        DateTimeOffset next = expr.GetNextOccurrence(saturday, Tz12);
 
         Assert.Equal(new DateTimeOffset(2026, 4, 12, 9, 0, 0, TimeSpan.FromHours(12)), next);
     }
@@ -221,20 +228,25 @@ public sealed class CronExpressionNextTests
         var saturday = new DateTimeOffset(2026, 4, 11, 10, 0, 0, TimeSpan.FromHours(12));
         var expr = CronExpression.Parse("0 9 * * 7");
 
-        DateTimeOffset next = expr.GetNextOccurrence(saturday);
+        DateTimeOffset next = expr.GetNextOccurrence(saturday, Tz12);
 
         Assert.Equal(new DateTimeOffset(2026, 4, 12, 9, 0, 0, TimeSpan.FromHours(12)), next);
     }
 
     [Fact]
-    public void PreservesOffset_FromInput()
+    public void OutputOffsetReflectsTargetTimezone_NotInputOffset()
     {
+        // R4 contract change: pre-fix the result carried 'after.Offset' verbatim, which
+        // was the source of the DST drift bug. The new contract is "the returned offset
+        // is whatever the target TZ specifies for the resulting wall-clock instant." A
+        // UTC-offset input feeding into a +12 timezone returns a +12-offset result.
         var utcRef = new DateTimeOffset(2026, 4, 12, 2, 30, 0, TimeSpan.Zero);
         var expr = CronExpression.Parse("* * * * *");
 
-        DateTimeOffset next = expr.GetNextOccurrence(utcRef);
+        DateTimeOffset next = expr.GetNextOccurrence(utcRef, Tz12);
 
-        Assert.Equal(TimeSpan.Zero, next.Offset);
-        Assert.Equal(new DateTimeOffset(2026, 4, 12, 2, 31, 0, TimeSpan.Zero), next);
+        Assert.Equal(TimeSpan.FromHours(12), next.Offset);
+        // 02:30 UTC == 14:30 in +12 → next minute is 14:31 +12.
+        Assert.Equal(new DateTimeOffset(2026, 4, 12, 14, 31, 0, TimeSpan.FromHours(12)), next);
     }
 }

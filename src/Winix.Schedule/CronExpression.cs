@@ -108,28 +108,66 @@ public sealed class CronExpression
     }
 
     /// <summary>
-    /// Returns the next occurrence of this cron schedule strictly after <paramref name="after"/>.
-    /// Searches up to 8 years ahead; throws <see cref="InvalidOperationException"/> if no match is found
-    /// within that horizon (e.g. Feb 29 with no leap year in range).
+    /// Returns the next occurrence of this cron schedule strictly after <paramref name="after"/>,
+    /// interpreted in the local timezone. Searches up to 8 years ahead; throws
+    /// <see cref="InvalidOperationException"/> if no match is found within that horizon
+    /// (e.g. Feb 29 with no leap year in range).
     /// </summary>
     /// <param name="after">The reference point; the returned time will be strictly after this value.</param>
-    /// <returns>The next matching <see cref="DateTimeOffset"/>, with the same UTC offset as <paramref name="after"/>.</returns>
+    /// <returns>
+    /// The next matching <see cref="DateTimeOffset"/>, carrying the UTC offset that applies
+    /// to its own local wall-clock date — i.e. correctly reflecting DST transitions between
+    /// <paramref name="after"/> and the returned occurrence.
+    /// </returns>
     /// <exception cref="InvalidOperationException">No matching occurrence found within 8 years.</exception>
-    public DateTimeOffset GetNextOccurrence(DateTimeOffset after)
-    {
-        // Start from the next whole minute after 'after' (strictly after semantics).
-        DateTimeOffset candidate = new DateTimeOffset(
-            after.Year, after.Month, after.Day,
-            after.Hour, after.Minute, 0, after.Offset).AddMinutes(1);
+    public DateTimeOffset GetNextOccurrence(DateTimeOffset after) =>
+        GetNextOccurrence(after, TimeZoneInfo.Local);
 
-        // Safety limit: don't search more than 8 years ahead.
-        DateTimeOffset limit = after.AddYears(8);
+    /// <summary>
+    /// Returns the next occurrence in a specified timezone. Internal so tests can pin
+    /// behaviour deterministically without depending on the host machine's timezone.
+    /// </summary>
+    /// <param name="after">The reference point; the returned time will be strictly after this value.</param>
+    /// <param name="timeZone">The timezone whose wall-clock the cron expression is interpreted in.</param>
+    /// <returns>The next matching <see cref="DateTimeOffset"/>.</returns>
+    /// <exception cref="InvalidOperationException">No matching occurrence found within 8 years.</exception>
+    /// <remarks>
+    /// Arithmetic is performed on a wall-clock <see cref="DateTime"/> (Kind = Unspecified)
+    /// in <paramref name="timeZone"/>. Each candidate's UTC offset is recomputed via
+    /// <see cref="TimeZoneInfo.GetUtcOffset(DateTime)"/> so that occurrences crossing a
+    /// DST boundary correctly carry the post-transition offset. Local times that fall
+    /// inside a spring-forward gap are skipped (advanced minute-by-minute) until the
+    /// next valid wall-clock time.
+    /// </remarks>
+    internal DateTimeOffset GetNextOccurrence(DateTimeOffset after, TimeZoneInfo timeZone)
+    {
+        // Convert 'after' to wall-clock in the chosen timezone, drop sub-minute precision,
+        // and advance one minute (strictly-after semantics).
+        DateTime afterLocal = TimeZoneInfo.ConvertTime(after, timeZone).DateTime;
+        DateTime candidate = new DateTime(
+            afterLocal.Year, afterLocal.Month, afterLocal.Day,
+            afterLocal.Hour, afterLocal.Minute, 0, DateTimeKind.Unspecified)
+            .AddMinutes(1);
+
+        // Safety limit: 8 years' worth of wall-clock minutes.
+        DateTime limit = afterLocal.AddYears(8);
 
         bool domRestricted = DayOfMonth.Values.Count < 31;
         bool dowRestricted = DayOfWeek.Values.Count < 7;
 
         while (candidate <= limit)
         {
+            // Skip wall-clock times that don't exist (DST spring-forward gap). Advance
+            // minute-by-minute so the search resumes at the next valid local time —
+            // this matches the conservative "skip the gap" semantic; vixie cron fires
+            // once at the start or end of the gap depending on impl, but for display
+            // purposes consistency-with-wall-clock is what matters.
+            if (timeZone.IsInvalidTime(candidate))
+            {
+                candidate = candidate.AddMinutes(1);
+                continue;
+            }
+
             // Check month first (coarsest).
             if (!Month.Contains(candidate.Month))
             {
@@ -138,9 +176,6 @@ public sealed class CronExpression
             }
 
             // Check day: standard cron OR logic for DOM/DOW.
-            // If both DOM and DOW are restricted, either matching satisfies.
-            // If only one is restricted, that one must match.
-            // If neither is restricted (both wildcard), any day matches.
             bool domMatch = DayOfMonth.Contains(candidate.Day);
             bool dowMatch = DayOfWeek.Contains((int)candidate.DayOfWeek);
 
@@ -168,21 +203,24 @@ public sealed class CronExpression
                 continue;
             }
 
-            // Check hour.
             if (!Hour.Contains(candidate.Hour))
             {
                 candidate = NextHour(candidate);
                 continue;
             }
 
-            // Check minute.
             if (!Minute.Contains(candidate.Minute))
             {
                 candidate = candidate.AddMinutes(1);
                 continue;
             }
 
-            return candidate;
+            // Found a match. Carry the UTC offset that applies to this candidate's
+            // own local date; for ambiguous times (fall-back overlap) .NET returns
+            // the standard offset by default — fire-once semantic, acceptable for
+            // a display tool.
+            TimeSpan offset = timeZone.GetUtcOffset(candidate);
+            return new DateTimeOffset(candidate, offset);
         }
 
         throw new InvalidOperationException(
@@ -190,9 +228,9 @@ public sealed class CronExpression
     }
 
     /// <summary>
-    /// Advances to midnight on the 1st of the next month, preserving the UTC offset.
+    /// Advances to midnight on the 1st of the next month (wall-clock).
     /// </summary>
-    private static DateTimeOffset NextMonth(DateTimeOffset dt)
+    private static DateTime NextMonth(DateTime dt)
     {
         int year = dt.Year;
         int month = dt.Month + 1;
@@ -202,24 +240,23 @@ public sealed class CronExpression
             year++;
         }
 
-        return new DateTimeOffset(year, month, 1, 0, 0, 0, dt.Offset);
+        return new DateTime(year, month, 1, 0, 0, 0, DateTimeKind.Unspecified);
     }
 
     /// <summary>
-    /// Advances to midnight of the next day, preserving the UTC offset.
-    /// Uses <see cref="DateTimeOffset.AddDays"/> so month/year rollover is handled automatically.
+    /// Advances to midnight of the next day (wall-clock).
     /// </summary>
-    private static DateTimeOffset NextDay(DateTimeOffset dt)
+    private static DateTime NextDay(DateTime dt)
     {
-        return new DateTimeOffset(dt.Year, dt.Month, dt.Day, 0, 0, 0, dt.Offset).AddDays(1);
+        return new DateTime(dt.Year, dt.Month, dt.Day, 0, 0, 0, DateTimeKind.Unspecified).AddDays(1);
     }
 
     /// <summary>
-    /// Advances to the start of the next hour, preserving the UTC offset.
+    /// Advances to the start of the next hour (wall-clock).
     /// </summary>
-    private static DateTimeOffset NextHour(DateTimeOffset dt)
+    private static DateTime NextHour(DateTime dt)
     {
-        return new DateTimeOffset(dt.Year, dt.Month, dt.Day, dt.Hour, 0, 0, dt.Offset).AddHours(1);
+        return new DateTime(dt.Year, dt.Month, dt.Day, dt.Hour, 0, 0, DateTimeKind.Unspecified).AddHours(1);
     }
 
     /// <summary>
@@ -233,7 +270,18 @@ public sealed class CronExpression
     /// Propagated from <see cref="GetNextOccurrence"/> when no matching occurrence is found
     /// within the 8-year search horizon.
     /// </exception>
-    public IReadOnlyList<DateTimeOffset> GetNextOccurrences(DateTimeOffset after, int count)
+    public IReadOnlyList<DateTimeOffset> GetNextOccurrences(DateTimeOffset after, int count) =>
+        GetNextOccurrences(after, count, TimeZoneInfo.Local);
+
+    /// <summary>
+    /// Returns the next <paramref name="count"/> occurrences in a specified timezone.
+    /// Internal so tests can pin behaviour deterministically without depending on the host
+    /// machine's timezone.
+    /// </summary>
+    /// <param name="after">The reference point; returned times are strictly after this value.</param>
+    /// <param name="count">The number of occurrences to return.</param>
+    /// <param name="timeZone">The timezone whose wall-clock the cron expression is interpreted in.</param>
+    internal IReadOnlyList<DateTimeOffset> GetNextOccurrences(DateTimeOffset after, int count, TimeZoneInfo timeZone)
     {
         if (count < 0)
         {
@@ -245,7 +293,7 @@ public sealed class CronExpression
 
         for (int i = 0; i < count; i++)
         {
-            current = GetNextOccurrence(current);
+            current = GetNextOccurrence(current, timeZone);
             results.Add(current);
         }
 
