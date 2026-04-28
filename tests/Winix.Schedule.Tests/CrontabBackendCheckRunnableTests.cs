@@ -34,17 +34,38 @@ public sealed class CrontabBackendCheckRunnableTests
         Assert.Contains("enable", result.Message);
     }
 
-    [Fact]
-    public void StatusComparisonIsCaseSensitive()
+    [Theory]
+    [InlineData("disabled")]
+    [InlineData("DISABLED")]
+    [InlineData("Disabled")]
+    [InlineData("DiSaBlEd")]
+    public void StatusComparisonIsCaseInsensitive_FailClosed(string statusValue)
     {
-        // ParseEntries assigns "Enabled" / "Disabled" verbatim; a case mismatch shouldn't
-        // accidentally pass through as runnable. Lowercase 'disabled' would only happen
-        // from a manual-edit corruption, but in that case treating it as runnable would
-        // mask the corruption — fail closed by treating only canonical "Disabled" as gated.
-        var lowercase = new ScheduledTask("myjob", "*/5 * * * *", null, "disabled", "echo hi", "");
+        // R5 contract: any casing of "disabled" gates the run. Pre-R5 the compare was
+        // Ordinal — fail-OPEN to non-canonical casings, which would silently launch a
+        // task that some future ScheduledTask source (different parser, JSON deserialise,
+        // localised Windows SKU yielding upper-case state) had marked disabled. The
+        // cost of fail-closed is zero; the benefit is no foot-gun for future code paths.
+        var task = new ScheduledTask("myjob", "*/5 * * * *", null, statusValue, "echo hi", "");
 
-        // The current contract: only the exact "Disabled" string gates. Documented for
-        // visibility in case future status values come from non-Winix entries.
-        Assert.Null(CrontabBackend.CheckRunnable(lowercase));
+        var result = CrontabBackend.CheckRunnable(task);
+        Assert.NotNull(result);
+        Assert.False(result!.Success);
+        Assert.Contains("disabled", result.Message);
+    }
+
+    [Theory]
+    [InlineData("Enabled")]
+    [InlineData("enabled")]
+    [InlineData("Pending")]
+    [InlineData("Unknown (no cron line)")]
+    [InlineData("")]
+    public void NonDisabledStatuses_AllPassThrough(string statusValue)
+    {
+        // Anything that isn't a casing of "disabled" runs. The orphan-tag and other
+        // non-standard status values pass through (they're surfaced by parser-level tests,
+        // not by the runtime gate).
+        var task = new ScheduledTask("myjob", "*/5 * * * *", null, statusValue, "echo hi", "");
+        Assert.Null(CrontabBackend.CheckRunnable(task));
     }
 }

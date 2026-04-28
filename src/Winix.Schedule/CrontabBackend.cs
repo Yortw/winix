@@ -548,7 +548,13 @@ public sealed class CrontabBackend : ISchedulerBackend
     /// </remarks>
     internal static ScheduleResult? CheckRunnable(ScheduledTask target)
     {
-        if (string.Equals(target.Status, "Disabled", StringComparison.Ordinal))
+        // Case-insensitive: ParseEntries always emits canonical "Disabled", but a future
+        // ScheduledTask source (different parser, JSON deserialise, schtasks-status mapping
+        // on a localised Windows SKU emitting upper-case state) could yield a non-canonical
+        // casing. Fail-closed — if the status word matches "disabled" by any casing, treat
+        // it as a gate. There is no path where an enabled task should accidentally trip
+        // this; the cost of the safer compare is zero.
+        if (string.Equals(target.Status, "Disabled", StringComparison.OrdinalIgnoreCase))
         {
             return ScheduleResult.Fail($"Task '{target.Name}' is disabled; enable it before running.");
         }

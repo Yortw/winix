@@ -89,10 +89,8 @@ public sealed class SchtasksBackend : ISchedulerBackend
     /// <inheritdoc />
     public ScheduleListResult List(string? folder, bool all)
     {
-        string queryFolder = folder ?? @"\Winix";
+        string queryFolder = NormaliseFolderForQuery(folder);
 
-        // schtasks /Query /TN requires the folder path without trailing backslash
-        // to list all tasks in that folder. A trailing backslash causes "not found".
         var args = all
             ? new[] { "/Query", "/FO", "CSV", "/V", "/NH" }
             : new[] { "/Query", "/TN", queryFolder, "/FO", "CSV", "/V", "/NH" };
@@ -119,6 +117,20 @@ public sealed class SchtasksBackend : ISchedulerBackend
 
         var tasks = SchtasksCsvParser.Parse(result.Stdout, queryFolder);
         return ScheduleListResult.OkWithWarning(tasks, result.Stderr);
+    }
+
+    /// <summary>
+    /// Normalises a folder argument for use with <c>schtasks /Query /TN</c>. Empty/null
+    /// becomes the default <c>\Winix</c>. Trailing backslashes are stripped because schtasks
+    /// distinguishes them: <c>\Winix</c> fails with "cannot find the file specified" (matched
+    /// by <see cref="IsBenignSchtasksEmpty"/> as a clean empty), while <c>\Winix\</c> fails
+    /// with "filename, directory name, or volume label syntax is incorrect" (NOT matched —
+    /// would surface as an unhelpful Unavailable error after the R4 I3+I4 widening).
+    /// Symmetrical with <see cref="BuildTaskPath"/>'s <c>TrimEnd('\\')</c>.
+    /// </summary>
+    internal static string NormaliseFolderForQuery(string? folder)
+    {
+        return (folder ?? @"\Winix").TrimEnd('\\');
     }
 
     /// <summary>
