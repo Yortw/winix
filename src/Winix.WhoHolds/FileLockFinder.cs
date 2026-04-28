@@ -19,6 +19,13 @@ public static class FileLockFinder
     // returned needed count. This is the documented two-step pattern for RmGetList.
     private const int ErrorMoreData = 234;
 
+    // RM enumerates handles via the kernel object table and is eventually-consistent — a
+    // file opened microseconds before RmStartSession can be missed on the first probe.
+    // A short bounded retry handles same-process-recently-opened cases without affecting
+    // the truly-unlocked path (which still returns empty after the retries exhaust).
+    private const int MaxFindAttempts = 5;
+    private const int FindRetryDelayMs = 50;
+
     /// <summary>
     /// Returns a list of processes currently holding a lock on <paramref name="filePath"/>.
     /// Returns an empty list if the file is not locked, does not exist, or if this method
@@ -33,6 +40,25 @@ public static class FileLockFinder
             return new List<LockInfo>();
         }
 
+        // Bounded retry around the RM probe: under high concurrent load (or for a file
+        // opened immediately before this call), RmGetList can return success-with-zero
+        // entries even when a handle does exist in the kernel table. Each attempt opens
+        // a fresh RM session — there is no API for "wait for consistency."
+        for (int attempt = 0; attempt < MaxFindAttempts; attempt++)
+        {
+            var results = TryFind(filePath);
+            if (results.Count > 0 || attempt == MaxFindAttempts - 1)
+            {
+                return results;
+            }
+            System.Threading.Thread.Sleep(FindRetryDelayMs);
+        }
+
+        return new List<LockInfo>();
+    }
+
+    private static List<LockInfo> TryFind(string filePath)
+    {
         var results = new List<LockInfo>();
         uint sessionHandle = 0;
 
