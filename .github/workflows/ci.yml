@@ -31,7 +31,28 @@ jobs:
       - name: Build
         run: dotnet build Winix.sln --no-restore -c Release
 
-      - name: Test
+      # Linux libsecret integration tests (Winix.SecretStore.Tests, Winix.EnvVault.Tests)
+      # need the secret-tool binary AND a running secret service. Install libsecret-tools
+      # plus gnome-keyring, then wrap the test run in dbus-run-session with an unlocked
+      # keyring — without this, AssertAvailable() throws and the SecretStore + EnvVault
+      # Linux integration tests fail before exercising any actual logic.
+      - name: Install Linux secret-service dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsecret-tools gnome-keyring dbus-x11
+
+      - name: Test (Linux — wrapped with dbus-run-session + unlocked keyring)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          dbus-run-session -- bash -c '
+            printf "" | gnome-keyring-daemon --unlock
+            gnome-keyring-daemon --start --components=secrets
+            dotnet test Winix.sln --no-build -c Release --logger "trx;LogFileName=results.trx"
+          '
+
+      - name: Test (Windows + macOS)
+        if: matrix.os != 'ubuntu-latest'
         run: dotnet test Winix.sln --no-build -c Release --logger "trx;LogFileName=results.trx"
 
       - name: Upload test results
