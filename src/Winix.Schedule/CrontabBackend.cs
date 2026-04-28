@@ -507,29 +507,41 @@ public sealed class CrontabBackend : ISchedulerBackend
     /// </remarks>
     internal static string BuildCommandString(string command, string[] arguments)
     {
-        if (arguments.Length == 0)
-        {
-            return command;
-        }
-
         var sb = new StringBuilder();
-        sb.Append(command);
+        AppendShellToken(sb, command);
         foreach (string arg in arguments)
         {
             sb.Append(' ');
-            if (arg.IndexOfAny(ShellSpecialChars) >= 0)
-            {
-                sb.Append('\'');
-                sb.Append(arg.Replace("'", "'\\''")); // Terminate quote, escaped apostrophe, re-open quote.
-                sb.Append('\'');
-            }
-            else
-            {
-                sb.Append(arg);
-            }
+            AppendShellToken(sb, arg);
         }
 
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Appends a shell token to <paramref name="sb"/>, single-quoting it via the canonical
+    /// bash <c>'\''</c> apostrophe-escape pattern when it contains any character that would
+    /// change tokenisation, redirection, command chaining, command substitution, glob
+    /// expansion, or comment behaviour.
+    /// </summary>
+    /// <remarks>
+    /// Applied uniformly to the command token AND every argument. Pre-R4 the command was
+    /// concatenated raw — a path like <c>/opt/my app/bin/run</c> wrote a crontab line that
+    /// cron tokenised as <c>/opt/my</c> with args <c>app/bin/run</c>, silently launching
+    /// the wrong (or non-existent) executable.
+    /// </remarks>
+    private static void AppendShellToken(StringBuilder sb, string token)
+    {
+        if (token.IndexOfAny(ShellSpecialChars) >= 0)
+        {
+            sb.Append('\'');
+            sb.Append(token.Replace("'", "'\\''")); // Terminate quote, escaped apostrophe, re-open quote.
+            sb.Append('\'');
+        }
+        else
+        {
+            sb.Append(token);
+        }
     }
 
     /// <summary>

@@ -103,4 +103,66 @@ public sealed class CrontabBuildCommandStringTests
         Assert.Equal("rsync -av '/path with space/' user@host:dest",
             CrontabBackend.BuildCommandString("rsync", new[] { "-av", "/path with space/", "user@host:dest" }));
     }
+
+    // R4 finding: pre-fix the *command* token was concatenated raw — only the args got
+    // shell-quoting. A path like '/opt/my app/bin/run' would write a crontab line that
+    // cron tokenises as '/opt/my' with args 'app/bin/run', silently launching the wrong
+    // (or missing) executable. Asymmetric with the schtasks side which already quotes
+    // both — these pins close the asymmetry.
+
+    [Fact]
+    public void NoArgs_CommandWithSpace_SingleQuoted()
+    {
+        Assert.Equal("'/opt/my app/bin/run'",
+            CrontabBackend.BuildCommandString("/opt/my app/bin/run", System.Array.Empty<string>()));
+    }
+
+    [Fact]
+    public void NoArgs_CommandWithSemicolon_SingleQuoted()
+    {
+        // ;rm here would be a real injection: cron tokenises 'cmd1;rm' as 'cmd1' then '; rm'.
+        Assert.Equal("'cmd1;rm'",
+            CrontabBackend.BuildCommandString("cmd1;rm", System.Array.Empty<string>()));
+    }
+
+    [Fact]
+    public void CommandWithSpace_AndArgs_BothQuotedIndependently()
+    {
+        Assert.Equal("'/opt/my app/bin/run' --once",
+            CrontabBackend.BuildCommandString("/opt/my app/bin/run", new[] { "--once" }));
+    }
+
+    [Fact]
+    public void CommandWithSingleQuote_UsesBashEscapePattern()
+    {
+        Assert.Equal(@"'bob'\''s-tool'",
+            CrontabBackend.BuildCommandString("bob's-tool", System.Array.Empty<string>()));
+    }
+
+    [Fact]
+    public void CommandWithDollar_SingleQuoted()
+    {
+        // Without quoting, $PATH would expand at cron-fire time on the user's shell.
+        Assert.Equal("'$PATH/run'",
+            CrontabBackend.BuildCommandString("$PATH/run", System.Array.Empty<string>()));
+    }
+
+    [Theory]
+    [InlineData("cmd&", "'cmd&'")]
+    [InlineData("cmd|other", "'cmd|other'")]
+    [InlineData("cmd>out", "'cmd>out'")]
+    [InlineData("`cmd`", "'`cmd`'")]
+    public void CommandWithMetachar_SingleQuoted(string input, string expected)
+    {
+        Assert.Equal(expected,
+            CrontabBackend.BuildCommandString(input, System.Array.Empty<string>()));
+    }
+
+    [Fact]
+    public void PlainCommand_PlainArgs_NoQuotingApplied()
+    {
+        // Regression pin: the no-special-char path still produces the unquoted shape.
+        Assert.Equal("/usr/bin/curl --silent --fail",
+            CrontabBackend.BuildCommandString("/usr/bin/curl", new[] { "--silent", "--fail" }));
+    }
 }
