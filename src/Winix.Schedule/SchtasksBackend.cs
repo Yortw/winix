@@ -360,20 +360,7 @@ public sealed class SchtasksBackend : ISchedulerBackend
         }
         catch (Win32Exception ex)
         {
-            // Any other launch failure (ERROR_ACCESS_DENIED=5, ERROR_ELEVATION_REQUIRED=740, etc.).
-            // Surface the NativeErrorCode so the user can diagnose rather than collapsing to
-            // an opaque "not found" or letting the exception escape uncaught. For 740 specifically
-            // append the actionable recovery hint — the only thing the user can do is re-run
-            // from an elevated command prompt.
-            string hint = ex.NativeErrorCode switch
-            {
-                740 => " (try running from an elevated command prompt)",
-                5   => " (access denied — try running from an elevated command prompt)",
-                _   => "",
-            };
-            return new ProcessRunResult(
-                -1, "",
-                $"could not launch schtasks.exe (Win32 error {ex.NativeErrorCode.ToString(CultureInfo.InvariantCulture)}): {ex.Message}{hint}");
+            return new ProcessRunResult(-1, "", FormatLaunchFailure(ex.NativeErrorCode, ex.Message));
         }
 
         using (process)
@@ -399,9 +386,7 @@ public sealed class SchtasksBackend : ISchedulerBackend
                 catch (InvalidOperationException) { /* already exited */ }
                 catch (Win32Exception) { /* kill races OS cleanup */ }
 
-                return new ProcessRunResult(
-                    -1, "",
-                    $"schtasks.exe did not respond within {SchtasksTimeoutMs / 1000}s");
+                return new ProcessRunResult(-1, "", FormatTimeoutFailure(SchtasksTimeoutMs));
             }
 
             string stderr;
@@ -411,6 +396,29 @@ public sealed class SchtasksBackend : ISchedulerBackend
             return new ProcessRunResult(process.ExitCode, stdout.Trim(), stderr.Trim());
         }
     }
+
+    /// <summary>
+    /// Formats the diagnostic for a Win32Exception thrown by <c>Process.Start</c>. Native
+    /// error codes 740 (ERROR_ELEVATION_REQUIRED) and 5 (ERROR_ACCESS_DENIED) get an
+    /// actionable hint; everything else just surfaces the code + message. Internal so
+    /// tests can pin every branch — pre-R4 these messages had zero coverage and a
+    /// regression that dropped the elevation hint would have shipped.
+    /// </summary>
+    internal static string FormatLaunchFailure(int nativeErrorCode, string exceptionMessage)
+    {
+        string hint = nativeErrorCode switch
+        {
+            740 => " (try running from an elevated command prompt)",
+            5   => " (access denied — try running from an elevated command prompt)",
+            _   => "",
+        };
+        return $"could not launch schtasks.exe (Win32 error {nativeErrorCode.ToString(CultureInfo.InvariantCulture)}): {exceptionMessage}{hint}";
+    }
+
+    /// <summary>"schtasks.exe did not respond within Ns" — timeout converted to seconds
+    /// for user-readable output. Internal so tests can pin the wording.</summary>
+    internal static string FormatTimeoutFailure(int timeoutMs) =>
+        $"schtasks.exe did not respond within {timeoutMs / 1000}s";
 }
 
 /// <summary>Captured output from a child process.</summary>

@@ -181,7 +181,7 @@ public sealed class CrontabBackend : ISchedulerBackend
             using var process = Process.Start(psi);
             if (process is null)
             {
-                return ScheduleResult.Fail($"Failed to run task '{name}': Process.Start returned null for /bin/sh.");
+                return ScheduleResult.Fail(FormatRunFailureNullProcess(name));
             }
 
             // Brief wait. If /bin/sh fails to spawn the backgrounded job (syntax error,
@@ -189,20 +189,46 @@ public sealed class CrontabBackend : ISchedulerBackend
             // The actual task continues in the background regardless.
             if (process.WaitForExit(500) && process.ExitCode != 0)
             {
-                return ScheduleResult.Fail($"Failed to run task '{name}': /bin/sh exited with code {process.ExitCode}.");
+                return ScheduleResult.Fail(FormatRunFailureShExit(name, process.ExitCode));
             }
         }
         catch (Win32Exception ex)
         {
-            return ScheduleResult.Fail($"Failed to run task '{name}': /bin/sh not available ({ex.Message}).");
+            return ScheduleResult.Fail(FormatRunFailureShUnavailable(name, ex.Message));
         }
         catch (InvalidOperationException ex)
         {
-            return ScheduleResult.Fail($"Failed to run task '{name}': {ex.Message}");
+            return ScheduleResult.Fail(FormatRunFailureGeneric(name, ex.Message));
         }
 
         return ScheduleResult.Ok($"Triggered task '{name}'.");
     }
+
+    // -- Run failure formatters ----------------------------------------------------------
+    // Pure helpers so the messages produced by Run can be unit-tested without spawning
+    // /bin/sh. Pre-R4 these were inline interpolations; a regression that flattened
+    // "exited with code N" into a trailing colon (R3 found this in WriteCrontab) could
+    // ship without any test seeing it.
+
+    /// <summary>"Process.Start returned null" — the rare case where Start succeeds but
+    /// returns null for an attached process.</summary>
+    internal static string FormatRunFailureNullProcess(string name) =>
+        $"Failed to run task '{name}': Process.Start returned null for /bin/sh.";
+
+    /// <summary>"/bin/sh exited with code N" — short-window detection of the spawn
+    /// failure (syntax error, missing executable in $PATH).</summary>
+    internal static string FormatRunFailureShExit(string name, int exitCode) =>
+        $"Failed to run task '{name}': /bin/sh exited with code {exitCode}.";
+
+    /// <summary>"/bin/sh not available (msg)" — Win32Exception path; usually means no
+    /// /bin/sh on PATH (e.g. a locked-down container image).</summary>
+    internal static string FormatRunFailureShUnavailable(string name, string exceptionMessage) =>
+        $"Failed to run task '{name}': /bin/sh not available ({exceptionMessage}).";
+
+    /// <summary>Fallback message for InvalidOperationException during Process.Start —
+    /// covers dispose-during-start races and other CLR-level start failures.</summary>
+    internal static string FormatRunFailureGeneric(string name, string reason) =>
+        $"Failed to run task '{name}': {reason}";
 
     /// <inheritdoc />
     public IReadOnlyList<TaskRunRecord> GetHistory(string name, string folder)
@@ -399,7 +425,7 @@ public sealed class CrontabBackend : ISchedulerBackend
                 catch (InvalidOperationException) { /* already exited */ }
                 catch (Win32Exception) { /* race */ }
                 DrainStderrTask(stderrTask);
-                throw new CrontabUnavailableException($"crontab did not respond within {CrontabTimeoutMs / 1000}s.");
+                throw new CrontabUnavailableException(FormatWriteTimeout(CrontabTimeoutMs));
             }
 
             string stderr;
@@ -408,18 +434,30 @@ public sealed class CrontabBackend : ISchedulerBackend
 
             if (process.ExitCode != 0)
             {
-                // Some crontab implementations emit nothing on stderr even when failing
-                // (e.g. permission-denied returns 1 with empty stderr on macOS). A bare
-                // "crontab failed (exit 1):" message with a trailing colon is confusing —
-                // surface "no stderr output" so the user knows there's no further detail
-                // to dig into rather than wondering what got truncated.
-                string detail = string.IsNullOrWhiteSpace(stderr) ? "no stderr output" : stderr.Trim();
-                throw new CrontabUnavailableException(
-                    $"crontab failed (exit {process.ExitCode}): {detail}");
+                throw new CrontabUnavailableException(FormatWriteFailure(process.ExitCode, stderr));
             }
 
             return stderr.Trim();
         }
+    }
+
+    /// <summary>"crontab did not respond within Ns." — CrontabTimeoutMs converted to
+    /// seconds for user-readable output. Internal so tests can pin the wording.</summary>
+    internal static string FormatWriteTimeout(int timeoutMs) =>
+        $"crontab did not respond within {timeoutMs / 1000}s.";
+
+    /// <summary>
+    /// Formats the diagnostic for a non-zero crontab-write exit. Some crontab
+    /// implementations emit nothing on stderr even when failing (e.g. permission-denied
+    /// returns 1 with empty stderr on macOS); the helper substitutes "no stderr output"
+    /// in that case so the user doesn't see a confusing trailing-colon message and
+    /// wonder what was truncated. Internal so tests can pin both branches without
+    /// spawning crontab.
+    /// </summary>
+    internal static string FormatWriteFailure(int exitCode, string? stderr)
+    {
+        string detail = string.IsNullOrWhiteSpace(stderr) ? "no stderr output" : stderr!.Trim();
+        return $"crontab failed (exit {exitCode}): {detail}";
     }
 
     /// <summary>
