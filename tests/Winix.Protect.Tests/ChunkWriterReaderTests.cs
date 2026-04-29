@@ -19,14 +19,14 @@ public class ChunkWriterReaderTests
     {
         NullSecretStore store = new();
         TestAeadBackend backend = new(store);
-        byte[] header = [(byte)'W', (byte)'P', (byte)'R', (byte)'T', 0x01, (byte)PlatformMarker.MacKeychainUser];
+        byte[] header = Header.SerializeForAad(PlatformMarker.MacKeychainUser, new byte[16]);
 
         using MemoryStream cipherStream = new();
         using MemoryStream sourceStream = new(plaintext);
         ChunkWriter.Write(sourceStream, cipherStream, backend, header, chunkSize);
 
         byte[] encrypted = cipherStream.ToArray();
-        using MemoryStream readStream = new(encrypted, 6, encrypted.Length - 6);
+        using MemoryStream readStream = new(encrypted, Header.Length, encrypted.Length - Header.Length);
         using MemoryStream outStream = new();
         ChunkReader.Read(readStream, outStream, backend, header);
         return (encrypted, outStream.ToArray());
@@ -70,7 +70,7 @@ public class ChunkWriterReaderTests
     {
         NullSecretStore store = new();
         TestAeadBackend backend = new(store);
-        byte[] header = [(byte)'W', (byte)'P', (byte)'R', (byte)'T', 0x01, (byte)PlatformMarker.MacKeychainUser];
+        byte[] header = Header.SerializeForAad(PlatformMarker.MacKeychainUser, new byte[16]);
 
         byte[] input = new byte[100_000];
         Random.Shared.NextBytes(input);
@@ -83,7 +83,7 @@ public class ChunkWriterReaderTests
         byte[] truncated = new byte[encrypted.Length - 30_000];
         Array.Copy(encrypted, truncated, truncated.Length);
 
-        using MemoryStream readStream = new(truncated, 6, truncated.Length - 6);
+        using MemoryStream readStream = new(truncated, Header.Length, truncated.Length - Header.Length);
         using MemoryStream outStream = new();
         Assert.Throws<FormatException>(() => ChunkReader.Read(readStream, outStream, backend, header));
     }
@@ -97,7 +97,7 @@ public class ChunkWriterReaderTests
 #pragma warning disable CA1416
         DpapiBackend backend = new(Scope.User);
 #pragma warning restore CA1416
-        byte[] header = [(byte)'W', (byte)'P', (byte)'R', (byte)'T', 0x01, (byte)PlatformMarker.WindowsDpapiUser];
+        byte[] header = Header.SerializeForAad(PlatformMarker.WindowsDpapiUser, new byte[16]);
 
         byte[] input = System.Text.Encoding.UTF8.GetBytes("hello from dpapi chunk round-trip");
 
@@ -106,7 +106,7 @@ public class ChunkWriterReaderTests
         ChunkWriter.Write(sourceStream, cipherStream, backend, header);
 
         byte[] encrypted = cipherStream.ToArray();
-        using MemoryStream readStream = new(encrypted, 6, encrypted.Length - 6);
+        using MemoryStream readStream = new(encrypted, Header.Length, encrypted.Length - Header.Length);
         using MemoryStream outStream = new();
         ChunkReader.Read(readStream, outStream, backend, header);
 
@@ -123,7 +123,7 @@ public class ChunkWriterReaderTests
 #pragma warning disable CA1416
         DpapiBackend backend = new(Scope.User);
 #pragma warning restore CA1416
-        byte[] header = [(byte)'W', (byte)'P', (byte)'R', (byte)'T', 0x01, (byte)PlatformMarker.WindowsDpapiUser];
+        byte[] header = Header.SerializeForAad(PlatformMarker.WindowsDpapiUser, new byte[16]);
 
         byte[] input = new byte[200_000];
         Random.Shared.NextBytes(input);
@@ -133,7 +133,7 @@ public class ChunkWriterReaderTests
         ChunkWriter.Write(sourceStream, cipherStream, backend, header, chunkSize: 64_000);
 
         byte[] encrypted = cipherStream.ToArray();
-        using MemoryStream readStream = new(encrypted, 6, encrypted.Length - 6);
+        using MemoryStream readStream = new(encrypted, Header.Length, encrypted.Length - Header.Length);
         using MemoryStream outStream = new();
         ChunkReader.Read(readStream, outStream, backend, header);
 
@@ -147,14 +147,14 @@ public class ChunkWriterReaderTests
 #pragma warning disable CA1416
         DpapiBackend backend = new(Scope.User);
 #pragma warning restore CA1416
-        byte[] header = [(byte)'W', (byte)'P', (byte)'R', (byte)'T', 0x01, (byte)PlatformMarker.WindowsDpapiUser];
+        byte[] header = Header.SerializeForAad(PlatformMarker.WindowsDpapiUser, new byte[16]);
 
         using MemoryStream cipherStream = new();
         using MemoryStream sourceStream = new(Array.Empty<byte>());
         ChunkWriter.Write(sourceStream, cipherStream, backend, header);
 
         byte[] encrypted = cipherStream.ToArray();
-        using MemoryStream readStream = new(encrypted, 6, encrypted.Length - 6);
+        using MemoryStream readStream = new(encrypted, Header.Length, encrypted.Length - Header.Length);
         using MemoryStream outStream = new();
         ChunkReader.Read(readStream, outStream, backend, header);
 

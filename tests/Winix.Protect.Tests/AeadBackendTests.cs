@@ -18,7 +18,7 @@ public class AeadBackendTests
     {
         TestAeadBackend backend = new(new NullSecretStore());
         byte[] plaintext = System.Text.Encoding.UTF8.GetBytes("hello");
-        AadContext aad = new([0x57, 0x50, 0x52, 0x54, 0x01, 0x10], 0, true);
+        AadContext aad = new(Header.SerializeForAad(PlatformMarker.MacKeychainUser, new byte[16]), 0, true);
         byte[] chunk = backend.EncryptChunk(plaintext, aad, isFinal: true);
         (byte[] decrypted, bool isFinal) = backend.DecryptChunk(chunk, aad);
         Assert.Equal(plaintext, decrypted);
@@ -30,7 +30,7 @@ public class AeadBackendTests
     {
         TestAeadBackend backend = new(new NullSecretStore());
         byte[] plaintext = new byte[] { 0xAA, 0xBB, 0xCC, 0xDD };
-        AadContext aad = new([0x57, 0x50, 0x52, 0x54, 0x01, 0x10], 0, true);
+        AadContext aad = new(Header.SerializeForAad(PlatformMarker.MacKeychainUser, new byte[16]), 0, true);
         byte[] chunk = backend.EncryptChunk(plaintext, aad, isFinal: true);
 
         Assert.Equal(1, chunk[0]);
@@ -43,7 +43,7 @@ public class AeadBackendTests
     public void Decrypt_TamperedCiphertext_Throws()
     {
         TestAeadBackend backend = new(new NullSecretStore());
-        AadContext aad = new([0x57, 0x50, 0x52, 0x54, 0x01, 0x10], 0, true);
+        AadContext aad = new(Header.SerializeForAad(PlatformMarker.MacKeychainUser, new byte[16]), 0, true);
         byte[] chunk = backend.EncryptChunk([1, 2, 3], aad, isFinal: true);
         chunk[17] ^= 0x01;
         Assert.Throws<System.Security.Cryptography.AuthenticationTagMismatchException>(
@@ -54,8 +54,9 @@ public class AeadBackendTests
     public void Decrypt_WrongAad_Throws()
     {
         TestAeadBackend backend = new(new NullSecretStore());
-        AadContext encryptAad = new([0x57, 0x50, 0x52, 0x54, 0x01, 0x10], 0, true);
-        AadContext decryptAad = new([0x57, 0x50, 0x52, 0x54, 0x01, 0x10], 1, true);
+        byte[] hdr = Header.SerializeForAad(PlatformMarker.MacKeychainUser, new byte[16]);
+        AadContext encryptAad = new(hdr, 0, true);
+        AadContext decryptAad = new(hdr, 1, true);
         byte[] chunk = backend.EncryptChunk([1, 2, 3], encryptAad, isFinal: true);
         Assert.Throws<System.Security.Cryptography.AuthenticationTagMismatchException>(
             () => backend.DecryptChunk(chunk, decryptAad));
@@ -68,7 +69,7 @@ public class AeadBackendTests
         TestAeadBackend one = new(shared);
         TestAeadBackend two = new(shared);
         byte[] plaintext = [1, 2, 3, 4];
-        AadContext aad = new([0x57, 0x50, 0x52, 0x54, 0x01, 0x10], 0, true);
+        AadContext aad = new(Header.SerializeForAad(PlatformMarker.MacKeychainUser, new byte[16]), 0, true);
         byte[] chunk = one.EncryptChunk(plaintext, aad, isFinal: true);
         (byte[] decrypted, _) = two.DecryptChunk(chunk, aad);
         Assert.Equal(plaintext, decrypted);

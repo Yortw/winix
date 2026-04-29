@@ -18,7 +18,7 @@ public class DpapiBackendTests
         if (!OnWindows) return;
         DpapiBackend backend = new(Scope.User);
         byte[] plaintext = System.Text.Encoding.UTF8.GetBytes("hello world");
-        AadContext aad = new([0x57, 0x50, 0x52, 0x54, 0x01, 0x01], 0, true);
+        AadContext aad = new(Header.SerializeForAad(PlatformMarker.WindowsDpapiUser, new byte[16]), 0, true);
         byte[] chunk = backend.EncryptChunk(plaintext, aad, isFinal: true);
         (byte[] decrypted, bool isFinal) = backend.DecryptChunk(chunk, aad);
         Assert.Equal(plaintext, decrypted);
@@ -44,7 +44,7 @@ public class DpapiBackendTests
     {
         if (!OnWindows) return;
         DpapiBackend backend = new(Scope.User);
-        AadContext aad = new([0x57, 0x50, 0x52, 0x54, 0x01, 0x01], 5, false);
+        AadContext aad = new(Header.SerializeForAad(PlatformMarker.WindowsDpapiUser, new byte[16]), 5, false);
         byte[] chunk = backend.EncryptChunk([1, 2, 3], aad, isFinal: false);
         (_, bool isFinal) = backend.DecryptChunk(chunk, aad);
         Assert.False(isFinal);
@@ -55,7 +55,7 @@ public class DpapiBackendTests
     {
         if (!OnWindows) return;
         DpapiBackend backend = new(Scope.User);
-        AadContext aad = new([0x57, 0x50, 0x52, 0x54, 0x01, 0x01], 0, true);
+        AadContext aad = new(Header.SerializeForAad(PlatformMarker.WindowsDpapiUser, new byte[16]), 0, true);
         byte[] chunk = backend.EncryptChunk([1, 2, 3, 4], aad, isFinal: true);
         chunk[chunk.Length - 1] ^= 0x01;
         Assert.Throws<System.Security.Cryptography.CryptographicException>(

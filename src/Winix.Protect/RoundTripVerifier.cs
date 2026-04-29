@@ -27,7 +27,7 @@ public static class RoundTripVerifier
             throw new InvalidOperationException("Round-trip verification: header platform-marker mismatch.");
         }
 
-        byte[] headerBytes = Header.SerializeForAad(hdr.Marker);
+        byte[] headerBytes = Header.SerializeForAad(hdr.Marker, hdr.FileId);
         using IncrementalHash hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         using HashingStream sink = new(hasher);
         ChunkReader.Read(encryptedStream, sink, backend, headerBytes);

@@ -20,6 +20,12 @@ public static class ChunkReader
     /// </summary>
     public static void Read(Stream source, Stream destination, IProtectBackend backend, byte[] headerBytes)
     {
+        if (headerBytes is null) { throw new ArgumentNullException(nameof(headerBytes)); }
+        if (headerBytes.Length != Header.Length)
+        {
+            throw new ArgumentException($"headerBytes must be {Header.Length} bytes (got {headerBytes.Length}).", nameof(headerBytes));
+        }
+
         long chunkIndex = 0;
         while (true)
         {
