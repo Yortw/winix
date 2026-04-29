@@ -45,10 +45,11 @@ public class PartialOutputCleanupTests
 
             string outputPath = Path.Combine(dir, "x.prot");
             using ThrowingBackend backend = new();
+            using MemoryStream input = new(payload);
 
             Assert.Throws<InvalidOperationException>(
                 () => Winix.Protect.Cli.RunProtectFile(
-                    new MemoryStream(payload),
+                    input,
                     outputPath,
                     backend,
                     noVerify: true,
@@ -73,10 +74,11 @@ public class PartialOutputCleanupTests
 
             string outputPath = Path.Combine(dir, "x.prot");
             using ThrowingBackend backend = new();
+            using FileStream inputStream = File.OpenRead(input);
 
             Assert.Throws<InvalidOperationException>(
                 () => Winix.Protect.Cli.RunProtectFile(
-                    File.OpenRead(input),
+                    inputStream,
                     outputPath,
                     backend,
                     noVerify: true,
@@ -84,6 +86,39 @@ public class PartialOutputCleanupTests
 
             Assert.True(File.Exists(input), "input file must still exist after encrypt failure");
             Assert.False(File.Exists(outputPath), "partial output should have been deleted");
+        }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { } }
+    }
+
+    [Fact]
+    public void RunProtectFile_DestExistsAndForceFalse_DoesNotDeletePreExistingFile()
+    {
+        // Pins the createdDest latch contract: when CreateNew throws EEXIST against a
+        // pre-existing file, our cleanup must NOT delete it. This is the safety floor
+        // for the default refuse-to-overwrite behaviour (--force off).
+        string dir = Path.Combine(Path.GetTempPath(), $"winix-eexist-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            string outputPath = Path.Combine(dir, "x.prot");
+            byte[] preExisting = [0xDE, 0xAD, 0xBE, 0xEF];
+            File.WriteAllBytes(outputPath, preExisting);
+
+            using ThrowingBackend backend = new();
+            using MemoryStream input = new(new byte[1024]);
+
+            // CreateNew will throw IOException (EEXIST). RunProtectFile rethrows.
+            Assert.Throws<IOException>(
+                () => Winix.Protect.Cli.RunProtectFile(
+                    input,
+                    outputPath,
+                    backend,
+                    noVerify: true,
+                    force: false));
+
+            // Critical: the pre-existing file must NOT have been deleted by our cleanup.
+            Assert.True(File.Exists(outputPath));
+            Assert.Equal(preExisting, File.ReadAllBytes(outputPath));
         }
         finally { try { Directory.Delete(dir, recursive: true); } catch { } }
     }
