@@ -61,6 +61,12 @@ public static class Cli
             Console.Error.WriteLine(Formatting.UsageError(invocationName, ex.Message));
             return ExitCode.UsageError;
         }
+        catch (AuthenticationTagMismatchException ex)
+        {
+            Console.Error.WriteLine(Formatting.RuntimeError(invocationName,
+                $"authentication failed — file is corrupted or tampered with ({ex.GetType().Name})."));
+            return RuntimeErrorExit;
+        }
         catch (CryptographicException ex)
         {
             Console.Error.WriteLine(Formatting.RuntimeError(invocationName,
@@ -95,6 +101,15 @@ public static class Cli
         catch (UnauthorizedAccessException ex)
         {
             Console.Error.WriteLine(Formatting.RuntimeError(invocationName, $"access denied: {ex.Message}"));
+            return RuntimeErrorExit;
+        }
+        catch (EndOfStreamException ex)
+        {
+            // EndOfStreamException : IOException, so this catch must precede the IOException handlers
+            // below — otherwise it'd be unreachable. Surfaces truncated headers / chunks as a clear
+            // "not a protect file or truncated" error instead of bleeding through the generic IO path.
+            Console.Error.WriteLine(Formatting.RuntimeError(invocationName,
+                $"ciphertext is truncated or not a protect file: {ex.Message}"));
             return RuntimeErrorExit;
         }
         catch (IOException) when (ResolveEffectiveOutputPath(opts) is string effPath && File.Exists(effPath))
