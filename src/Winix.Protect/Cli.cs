@@ -206,7 +206,7 @@ public static class Cli
             byte[] headerBytes = Header.SerializeForAad(hdr.Marker, hdr.FileId);
 
             string? outputPath = opts.OutputPath;
-            if (outputPath is null && opts.InputPath is not null && opts.InputPath.EndsWith(".prot"))
+            if (outputPath is null && opts.InputPath is not null && opts.InputPath.EndsWith(".prot", StringComparison.Ordinal))
             {
                 outputPath = opts.InputPath.Substring(0, opts.InputPath.Length - ".prot".Length);
             }

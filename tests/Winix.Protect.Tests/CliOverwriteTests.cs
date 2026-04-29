@@ -72,10 +72,36 @@ public class CliOverwriteTests
 
             int exit = Winix.Protect.Cli.Run([input, "-o", outputPath, "--force"], "protect");
 
-            // Either the operation succeeds (replacing the symlink with a real .prot file)
-            // OR it fails — but in NEITHER case should the sensitive target's contents change.
+            // The sensitive target must NEVER change, regardless of whether the operation succeeded.
             string sensitiveAfter = File.ReadAllText(sensitiveTarget);
             Assert.Equal("DO NOT TOUCH", sensitiveAfter);
+
+            if (exit == 0)
+            {
+                // On success the symlink at outputPath must have been REPLACED with a real file —
+                // not written through. LinkTarget is non-null only for symlinks (.NET 6+).
+                FileInfo info = new(outputPath);
+                Assert.True(info.Exists, "outputPath should exist after successful protect");
+                Assert.Null(info.LinkTarget);
+            }
+            else
+            {
+                // On failure (e.g. libsecret unavailable in CI), the symlink should still be intact
+                // and the sensitive target untouched (already asserted above).
+                FileInfo info = new(outputPath);
+                // Either the symlink is still there (Delete-then-CreateNew never reached, or both
+                // failed cleanly), OR it was deleted and not recreated. Either is acceptable —
+                // the security property is "sensitive target unchanged", which we've already asserted.
+                // Just confirm we didn't end up with something WORSE — outputPath is not a regular
+                // file with the sensitive target's contents written through it.
+                if (info.Exists && info.LinkTarget is null)
+                {
+                    // It's a regular file. It must NOT contain the sensitive target's bytes.
+                    byte[] bytes = File.ReadAllBytes(outputPath);
+                    byte[] sensitiveBytes = System.Text.Encoding.UTF8.GetBytes("DO NOT TOUCH");
+                    Assert.NotEqual(sensitiveBytes, bytes);
+                }
+            }
         }
         finally { try { Directory.Delete(dir, recursive: true); } catch { } }
     }
