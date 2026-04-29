@@ -49,6 +49,7 @@ cat api.key | protect -o api.key.prot       # stdin streaming
 | `--rm` / `--remove-source` | off | Delete source after successful round-trip verification. |
 | `--scope {user,machine}` | `user` | Key-derivation scope. Windows: DPAPI CurrentUser/LocalMachine. macOS: login/System Keychain. Linux: user only (machine unsupported). |
 | `--no-verify` | off | Skip round-trip verification (faster, less safe). |
+| `-f` / `--force` | off | Overwrite an existing destination file. By default the tool refuses to clobber existing data and exits 125. The overwrite is symlink-safe — if the destination is a symlink, the symlink itself is removed (the target file is untouched) before an exclusive create. |
 | `--color`, `--no-color` | — | Respect `NO_COLOR`. |
 | `--describe` | — | Emit tool metadata as JSON. |
 | `--help`, `--version` | — | Standard introspection. |

@@ -81,6 +81,16 @@ public static class Cli
             Console.Error.WriteLine(Formatting.RuntimeError(invocationName, $"access denied: {ex.Message}"));
             return RuntimeErrorExit;
         }
+        catch (IOException) when (ResolveEffectiveOutputPath(opts) is string effPath && File.Exists(effPath))
+        {
+            // CreateNew threw because the destination exists. Report cleanly as a usage error.
+            // Covers both explicit -o paths and the implicit default (FILE.prot for protect,
+            // FILE-with-.prot-stripped for unprotect).
+            string effectiveOutput = ResolveEffectiveOutputPath(opts)!;
+            Console.Error.WriteLine(Formatting.UsageError(invocationName,
+                $"destination already exists: {effectiveOutput}. Use --force to overwrite, or specify a different -o path."));
+            return ExitCode.UsageError;
+        }
         catch (IOException ex)
         {
             Console.Error.WriteLine(Formatting.RuntimeError(invocationName, ex.Message));
@@ -118,8 +128,17 @@ public static class Cli
         {
             if (outputPath is not null)
             {
+                // On --force, remove any existing file or symlink at the destination, THEN exclusively-create.
+                // File.Delete on a symlink unlinks the symlink itself, not its target, so this is safe.
+                // The window between Delete and CreateNew is small and CreateNew is O_EXCL on POSIX —
+                // if an attacker plants a symlink in that window, CreateNew throws EEXIST and we report it.
+                if (opts.Force && File.Exists(outputPath))
+                {
+                    File.Delete(outputPath);
+                }
+
                 byte[] sourceHash;
-                using (FileStream dest = new(outputPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                using (FileStream dest = new(outputPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                 using (IncrementalHash hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256))
                 {
                     byte[] fileId = Header.NewFileId();
@@ -194,7 +213,16 @@ public static class Cli
 
             if (outputPath is not null)
             {
-                using FileStream dest = new(outputPath, FileMode.Create, FileAccess.Write, FileShare.None);
+                // On --force, remove any existing file or symlink at the destination, THEN exclusively-create.
+                // File.Delete on a symlink unlinks the symlink itself, not its target, so this is safe.
+                // The window between Delete and CreateNew is small and CreateNew is O_EXCL on POSIX —
+                // if an attacker plants a symlink in that window, CreateNew throws EEXIST and we report it.
+                if (opts.Force && File.Exists(outputPath))
+                {
+                    File.Delete(outputPath);
+                }
+
+                using FileStream dest = new(outputPath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
                 ChunkReader.Read(input, dest, backend, headerBytes);
             }
             else
@@ -210,6 +238,32 @@ public static class Cli
         }
 
         return ExitCode.Success;
+    }
+
+    // Compute the destination path that RunProtect/RunUnprotect would actually write to,
+    // so the IOException-on-destination-exists handler can detect the implicit FILE.prot /
+    // FILE-with-.prot-stripped cases as well as explicit -o paths. Mirrors the logic at the
+    // write sites — keep these in sync.
+    private static string? ResolveEffectiveOutputPath(ProtectOptions opts)
+    {
+        if (opts.OutputPath is not null)
+        {
+            return opts.OutputPath;
+        }
+        if (opts.InputPath is null)
+        {
+            return null; // streaming to stdout — no destination file
+        }
+        if (opts.SubCommand == SubCommand.Protect)
+        {
+            return opts.InputPath + ".prot";
+        }
+        // Unprotect: strip .prot suffix if present; otherwise no implicit output.
+        if (opts.InputPath.EndsWith(".prot", StringComparison.Ordinal))
+        {
+            return opts.InputPath.Substring(0, opts.InputPath.Length - ".prot".Length);
+        }
+        return null;
     }
 
     private sealed class TeeStream : Stream

@@ -11,4 +11,5 @@ public sealed record ProtectOptions(
     bool InPlace,
     bool RemoveSource,
     Scope Scope,
-    bool NoVerify);
+    bool NoVerify,
+    bool Force);

@@ -44,6 +44,7 @@ unprotect file.prot --rm                    # delete encrypted file after succes
 | `--rm` / `--remove-source` | off | Delete source after successful decryption. |
 | `--scope {user,machine}` | `user` | Key-derivation scope (must match the scope used to encrypt). |
 | `--no-verify` | off | Skip round-trip verification (faster, less safe). |
+| `-f` / `--force` | off | Overwrite an existing destination file. By default the tool refuses to clobber existing data and exits 125. The overwrite is symlink-safe — if the destination is a symlink, the symlink itself is removed (the target file is untouched) before an exclusive create. |
 | `--color`, `--no-color` | — | Respect `NO_COLOR`. |
 | `--describe` | — | Emit tool metadata as JSON. |
 | `--help`, `--version` | — | Standard introspection. |

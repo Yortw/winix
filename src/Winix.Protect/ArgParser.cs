@@ -51,6 +51,7 @@ public static class ArgParser
         // --rm / --remove-source are aliases; either flag being set means "delete source after success".
         bool removeSource = parsed.Has("--rm") || parsed.Has("--remove-source");
         bool noVerify = parsed.Has("--no-verify");
+        bool force = parsed.Has("--force");
 
         Scope scope = Scope.User;
         if (parsed.Has("--scope"))
@@ -86,7 +87,7 @@ public static class ArgParser
             }
         }
 
-        ProtectOptions options = new(subCommand, inputPath, outputPath, inPlace, removeSource, scope, noVerify);
+        ProtectOptions options = new(subCommand, inputPath, outputPath, inPlace, removeSource, scope, noVerify, force);
         return new Result(options, null, false, 0, useColor);
     }
 
@@ -135,7 +136,8 @@ public static class ArgParser
             .Flag("--keep", "-k", "Retain source FILE (explicit default; accepted for symmetry with --rm).")
             .Option("--scope", null, "user|machine",
                 "Key-derivation scope. 'user' (default) — key bound to current OS user, decryptable only by that user on that machine. 'machine' — key bound to machine credential, decryptable by any user on that machine (Windows needs DPAPI LocalMachine access; macOS needs sudo for System Keychain; Linux: unsupported — tool exits with usage error).")
-            .Flag("--no-verify", "Skip the post-encrypt round-trip integrity check (encrypt path only). Faster, less safe.");
+            .Flag("--no-verify", "Skip the post-encrypt round-trip integrity check (encrypt path only). Faster, less safe.")
+            .Flag("--force", "-f", "Overwrite an existing destination file. Without this flag, the tool refuses to clobber existing data. Symlink-safe: the destination is unlinked before exclusive create, so an attacker-planted symlink cannot redirect the write.");
 
         if (isProtect)
         {

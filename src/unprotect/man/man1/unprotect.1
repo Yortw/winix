@@ -71,6 +71,14 @@ Normally, after decryption the tool computes a hash and compares it to the hash 
 \fB--no-verify\fR is faster but provides less assurance.
 
 .TP
+.BR \-f ", " \-\-force
+Overwrite an existing destination file.
+By default \fBunprotect\fR refuses to clobber an existing destination and exits 125.
+With \fB--force\fR the existing destination is removed and re-created exclusively (POSIX \fBO_EXCL\fR).
+This is symlink-safe: a symlink at the destination is unlinked itself rather than written through to its target,
+so an attacker cannot redirect the write by planting a symlink (e.g. to \fI/etc/passwd\fR) at the output path.
+
+.TP
 .B \-\-color \fBwhen\fR
 Emit ANSI colour codes: \fBalways\fR, \fBnever\fR, or \fBauto\fR (default: respect \fBNO_COLOR\fR).
 
