@@ -181,10 +181,17 @@ or
 .BR sops (1).
 
 .SH FILE FORMAT
-Encrypted files start with a 6-byte header: magic (\fBWPRT\fR), version (1), and platform marker.
-The platform marker identifies which backend encrypted the file (Windows DPAPI user/machine, macOS Keychain user/machine, Linux libsecret).
+Encrypted files start with a 22-byte header: magic (\fBWPRT\fR), version (1), backend marker, and a 16-byte random FileId.
+The backend-marker byte identifies which key store encrypted the file
+(\fB0x01\fR DPAPI-user, \fB0x02\fR DPAPI-machine, \fB0x10\fR Keychain-user, \fB0x11\fR Keychain-machine, \fB0x20\fR libsecret-user).
 Files are then chunked (64 KB per chunk), each encrypted with either DPAPI or AES-256-GCM.
-The final chunk is marked; truncation is detected during decryption.
+Every chunk is bound to its specific file and position via the FileId, chunk index, and final-chunk flag (in AEAD AAD on Keychain/libsecret;
+inside the protected blob on DPAPI). This detects truncation, chunk reorder, and cross-file substitution at decryption.
+
+.SH INTEGRITY MODEL
+The per-chunk binding defends against an attacker with write access to the \fB.prot\fR file but no key access
+(untrusted backup software, cloud sync, shared NAS). It does not defend against an attacker who already has
+key access — the OS keystore, not the file format, is the trust boundary in that case.
 
 .SH SEE ALSO
 .BR protect (1) \- encrypt files

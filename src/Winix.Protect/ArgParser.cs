@@ -150,8 +150,10 @@ public static class ArgParser
              .ComposesWith("digest", "digest config.json; protect config.json --rm", "Hash a file for audit, then encrypt and remove plaintext")
              .ComposesWith("clip", "clip --paste | protect -o clip.prot", "Encrypt clipboard contents to a file")
              .Section("WPRT Format",
-                "Header: magic 'WPRT' + version 0x01 + backend-marker byte (0x01 DPAPI-user, 0x02 DPAPI-machine, 0x03 Keychain, 0x04 libsecret).\n" +
-                "Body: 64 KB chunks, each length-prefixed and AEAD-sealed (AES-256-GCM on Keychain/libsecret; DPAPI envelope on Windows). Final chunk carries a truncation-detection flag.");
+                "Header (22 bytes): magic 'WPRT' + version 0x01 + backend-marker byte (0x01 DPAPI-user, 0x02 DPAPI-machine, 0x10 Keychain-user, 0x11 Keychain-machine, 0x20 libsecret-user) + 16-byte random FileId.\n" +
+                "Body: 64 KB chunks. AEAD path (Keychain/libsecret): AES-256-GCM with AAD = header || chunkIndex || isFinal — every chunk is bound to this specific file at this specific position.\n" +
+                "DPAPI path (Windows): the same FileId+chunkIndex binding lives inside the protected blob, so chunk reorder and cross-file substitution are detected even though DPAPI itself has no AAD slot.\n" +
+                "Final chunk carries a truncation-detection flag.");
         }
         else
         {
