@@ -121,7 +121,7 @@ public static class Cli
 
     private static int RunProtect(ProtectOptions opts, string invocationName)
     {
-        IProtectBackend backend = BackendFactory.Create(opts.Scope);
+        using IProtectBackend backend = BackendFactory.Create(opts.Scope);
 
         if (opts.InPlace)
         {
@@ -182,7 +182,7 @@ public static class Cli
             {
                 marker = Header.Read(peek).Marker;
             }
-            IProtectBackend backend = BackendFactory.CreateForMarker(marker);
+            using IProtectBackend backend = BackendFactory.CreateForMarker(marker);
             InPlaceExecutor.ExecuteDecrypt(opts.InputPath, backend);
             return ExitCode.Success;
         }
@@ -206,7 +206,7 @@ public static class Cli
             else
             {
                 Header.ReadResult hdr = Header.Read(input);
-                IProtectBackend backend = BackendFactory.CreateForMarker(hdr.Marker);
+                using IProtectBackend backend = BackendFactory.CreateForMarker(hdr.Marker);
                 byte[] headerBytes = Header.SerializeForAad(hdr.Marker, hdr.FileId);
                 using Stream stdout = Console.OpenStandardOutput();
                 ChunkReader.Read(input, stdout, backend, headerBytes);
@@ -291,7 +291,7 @@ public static class Cli
     internal static void RunUnprotectFile(Stream input, string outputPath, bool force)
     {
         Header.ReadResult hdr = Header.Read(input);
-        IProtectBackend backend = BackendFactory.CreateForMarker(hdr.Marker);
+        using IProtectBackend backend = BackendFactory.CreateForMarker(hdr.Marker);
         byte[] headerBytes = Header.SerializeForAad(hdr.Marker, hdr.FileId);
 
         if (force && File.Exists(outputPath))

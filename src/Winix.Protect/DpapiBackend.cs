@@ -108,4 +108,10 @@ public sealed class DpapiBackend : IProtectBackend
         Array.Copy(framed, EnvelopePrefixLength, plaintext, 0, plaintext.Length);
         return (plaintext, isFinal);
     }
+
+    /// <summary>No-op. DPAPI is keyless from our perspective; the <see cref="DataProtectionScope"/> field is a value type.</summary>
+    public void Dispose()
+    {
+        // Intentionally empty — present only to satisfy IProtectBackend : IDisposable.
+    }
 }

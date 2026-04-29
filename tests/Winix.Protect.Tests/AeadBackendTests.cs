@@ -112,4 +112,31 @@ public class AeadBackendTests
         Assert.NotNull(existing);
         Assert.Equal(16, existing!.Length);
     }
+
+    [Fact]
+    public void Dispose_ZeroesCachedKey()
+    {
+        NullSecretStore store = new();
+        TestAeadBackend backend = new(store);
+
+        // Force key materialisation by encrypting one chunk.
+        AadContext aad = new(Header.SerializeForAad(PlatformMarker.MacKeychainUser, new byte[16]), 0, true);
+        backend.EncryptChunk([1, 2, 3], aad, isFinal: true);
+
+        byte[]? before = backend.PeekCachedKeyForTests();
+        Assert.NotNull(before);
+        Assert.Equal(32, before!.Length);
+        bool allZeroBefore = true;
+        foreach (byte b in before) { if (b != 0) { allZeroBefore = false; break; } }
+        Assert.False(allZeroBefore, "key should be random pre-Dispose");
+
+        // Capture the buffer reference so we can inspect it after Dispose nulls _cachedKey.
+        byte[] capturedRef = before!;
+        backend.Dispose();
+
+        foreach (byte b in capturedRef)
+        {
+            Assert.Equal(0, b);
+        }
+    }
 }

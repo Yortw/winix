@@ -110,6 +110,25 @@ public abstract class AeadBackend : IProtectBackend
         return fresh;
     }
 
+    /// <summary>
+    /// Zero the cached AES-256 key bytes. Safe to call multiple times.
+    /// Callers should <c>using</c> the backend; relying on GC leaves key material
+    /// resident in the managed heap until collection (and indefinitely if the array
+    /// has been promoted to gen2).
+    /// </summary>
+    public void Dispose()
+    {
+        if (_cachedKey is not null)
+        {
+            CryptographicOperations.ZeroMemory(_cachedKey);
+            _cachedKey = null;
+        }
+        GC.SuppressFinalize(this);
+    }
+
+    /// <summary>Test-only accessor; preserves the invariant that production code never reads <c>_cachedKey</c> directly.</summary>
+    internal byte[]? PeekCachedKeyForTests() => _cachedKey;
+
     private static byte[] BuildAadBytes(AadContext aad, bool isFinal)
     {
         byte[] buffer = new byte[aad.HeaderBytes.Length + 8 + 1];
