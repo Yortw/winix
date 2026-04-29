@@ -715,30 +715,15 @@ Expected: PASS.
 
 The new `InvalidOperationException` is already caught by the existing `catch (InvalidOperationException ex)` at `Cli.cs:59-63`, returning `RuntimeErrorExit (126)` and printing the message. No change needed — verify by reading the catch tree.
 
-- [ ] **Step 6: Add a Cli-level test asserting exit 126 + stderr identifies the key (closes adversarial F8)**
+- [ ] **Step 6: F8 part 1 — explicitly deferred (no Cli-level test added)**
 
-Append to `tests/Winix.Protect.Tests/CliErrorHandlingTests.cs` (created in Task 13 — if Task 5 runs first, create the file with this test as the first entry):
-
-```csharp
-[Fact]
-public void Cli_ProtectWithCorruptKey_ReturnsRuntimeErrorAndIdentifiesKey()
-{
-    // This requires a Cli-level injection seam for ISecretStore. If the project
-    // doesn't expose one, the verification falls back to running the AeadBackend
-    // test and asserting the message shape — that's Step 1's existing test.
-    // Concrete implementation TBD by the executor; acceptable fallback is the
-    // unit-level assertion already in place.
-    Assert.True(true);
-}
-```
-
-If injection is mechanically available (e.g. via `internal Func<Scope, IProtectBackend>`), wire a fake `ISecretStore` that returns a 16-byte value, run `Cli.Run`, capture stderr (via `Console.SetError`), and assert exit 126 plus stderr containing "winix-protect" and "default-user-v1".
+Round-2 review accepted that adding a `_backendFactoryOverride` injection seam to `Cli.Run` purely for one test is over-engineering. Instead: rely on Step 1's unit-level test, which already asserts the `InvalidOperationException` message contains the namespace and key name. The Cli catch tree at `Cli.cs:59-63` calls `ex.Message` directly into `Formatting.RuntimeError`, so the message reaches stderr unchanged — verified by code inspection. No placeholder Cli-level test is added; the contract is locked at the library boundary. (Closes adversarial F8 part 1.)
 
 - [ ] **Step 7: Commit**
 
 ```bash
 git add src/Winix.Protect/AeadBackend.cs tests/Winix.Protect.Tests/AeadBackendTests.cs
-git commit -m "fix(protect): refuse to overwrite wrong-size stored key (closes C4, F8 partial)"
+git commit -m "fix(protect): refuse to overwrite wrong-size stored key (closes C4, F8 part 1)"
 ```
 
 ---
@@ -1143,42 +1128,47 @@ Expected: PASS.
 
 Refactor `Cli.RunUnprotect`'s outputPath branch into `internal static void RunUnprotectFile(...)`. Add a parallel `RunUnprotectFile_BackendThrowsMidStream_DeletesPartialOutput` test using a `ThrowingDecryptBackend`.
 
-- [ ] **Step 6: Add a `--rm` ordering test (closes adversarial F5)**
+- [ ] **Step 6: Add a helper-level `--rm` ordering test (closes adversarial F5)**
 
-Append to `PartialOutputCleanupTests.cs`:
+The `--rm` decision happens in `Cli.RunProtect` *after* `RunProtectFile` returns successfully. If `RunProtectFile` throws, the catch tree returns the runtime-error exit code without reaching the `--rm` `File.Delete` — so the source-preservation property is enforced at the *control flow* level, not by an extra check.
+
+Lock that contract at the helper level. Append to `PartialOutputCleanupTests.cs`:
 
 ```csharp
 [Fact]
-public void Cli_ProtectWithRm_BackendThrowsMidStream_LeavesSourceIntact()
+public void RunProtectFile_BackendThrowsMidStream_DoesNotTouchInputPath()
 {
-    string dir = Path.Combine(Path.GetTempPath(), $"winix-rm-test-{Guid.NewGuid():N}");
+    // Closes F5: source preservation is a *control-flow* property — RunProtectFile
+    // never has the InputPath, so it cannot delete it. This test pins the contract:
+    // the helper signature must remain "no input-path knowledge → no delete possible."
+    string dir = Path.Combine(Path.GetTempPath(), $"winix-rm-{Guid.NewGuid():N}");
     Directory.CreateDirectory(dir);
     try
     {
         string input = Path.Combine(dir, "secrets.json");
-        // 200 KB to force multi-chunk so the throwing backend can fail mid-stream.
         byte[] payload = new byte[200_000];
         Random.Shared.NextBytes(payload);
         File.WriteAllBytes(input, payload);
 
-        // Drive Cli.Run end-to-end via a test-injection seam. If the project doesn't expose
-        // a backend-injection seam at Cli.Run level, this test asserts the property at the
-        // RunProtectFile helper boundary AND adds a separate assertion that Cli.RunProtect
-        // calls File.Delete on the source AFTER (not before) RunProtectFile completes.
-        // Implementation detail: confirmed during execution. Acceptable fallback: code-inspection
-        // assertion documented in commit message.
+        string outputPath = Path.Combine(dir, "x.prot");
+        using ThrowingBackend backend = new();
 
-        // For now: assert via Cli.Run with the real backend producing a key-store error
-        // (using a test-only ISecretStore that throws). Concrete implementation TBD by the executor.
-        // Property under test: after a non-zero Cli.Run exit, the source MUST still exist.
+        Assert.Throws<InvalidOperationException>(
+            () => Winix.Protect.Cli.RunProtectFile(
+                File.OpenRead(input),
+                outputPath,
+                backend,
+                noVerify: true,
+                force: false));
 
-        Assert.True(File.Exists(input), "placeholder; replace with concrete failure-injection during execution");
+        Assert.True(File.Exists(input), "input file must still exist after encrypt failure");
+        Assert.False(File.Exists(outputPath), "partial output should have been deleted (Task 8 Step 4 contract)");
     }
     finally { try { Directory.Delete(dir, recursive: true); } catch { } }
 }
 ```
 
-If a clean Cli-level injection path is not available, document under "Known Limitations" in the README that interrupting `protect --rm` mid-encrypt may leave the source intact AND a partial `.prot` (the latter cleaned by Task 8 Step 5; the former is a property already enforced by `--rm` running only on the success path of `Cli.Run`'s catch tree).
+This is a real assertion (control-flow property + post-exception state inspection), not a Cli-level injection. Combined with code inspection of `Cli.RunProtect` (the only place `--rm`'s `File.Delete(opts.InputPath)` is called, gated to run after the helper returns), the F5 contract is locked.
 
 - [ ] **Step 7: Run the full suite — verify nothing regresses**
 
@@ -1296,7 +1286,7 @@ Place this *before* `ConsoleEnv.EnableAnsiIfNeeded()` so the validation is the v
 
 - [ ] **Step 3: Run test — verify pass**
 
-Run: `dotnet test tests/Winix.Protect.Tests/Winix.Protect.Tests.csproj --filter "FullyQualifiedName~Run_UnknownInvocationName_ThrowsOrErrors" --nologo`
+Run: `dotnet test tests/Winix.Protect.Tests/Winix.Protect.Tests.csproj --filter "FullyQualifiedName~Run_UnknownInvocationName_Returns126AndNamesTheBadInvocation" --nologo`
 Expected: PASS.
 
 - [ ] **Step 4: Commit**
@@ -1754,7 +1744,7 @@ Before handing off to execution, run through:
    - **Adversarial F9** (Dispose zeroes key) → Task 12 Step 5
    - **Adversarial F3, F10, F11, F12, F13** → ADR "Decisions Explicitly Deferred" table
 
-2. **Placeholder scan** — three remaining placeholders, all on Cli-level injection seams (Task 5 Step 6, Task 8 Step 6 `--rm` ordering test). Each is gated by an explicit fallback ("if a clean injection path is mechanically available, wire the fake; otherwise document under Known Limitations"). The executor must commit to one or the other — not leave it as "skip if hard."
+2. **Placeholder scan** — clean. Round-2 review flagged two `Assert.True(true)` placeholders in Tasks 5 and 8; both are now resolved. Task 5 Step 6 explicitly defers Cli-level testing to the unit-level message-content assertion in Step 1. Task 8 Step 6 replaces the placeholder with a real control-flow contract test (`RunProtectFile_BackendThrowsMidStream_DoesNotTouchInputPath`). No remaining "TBD by executor" gates.
 
 3. **Type consistency** — `Header.SerializeForAad(PlatformMarker)` from Task 1 is *replaced* (not augmented) by `Header.SerializeForAad(PlatformMarker, byte[])` in Task 2. Task 1's commit lands the single-arg helper that callers depend on; Task 2's commit changes the signature, updates all callers, and updates all tests. Tests in Task 1 stay green by virtue of the single-arg helper existing; tests in Task 2 stay green because the callers and test helpers update simultaneously, AND the test header-bytes literals get the zero-FileId form so existing round-trip tests keep working. This intermediate state ("AEAD AAD now binds FileId via headerBytes") is itself green and bisectable per adversarial F13.
 
