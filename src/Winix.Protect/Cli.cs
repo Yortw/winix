@@ -98,8 +98,8 @@ public static class Cli
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine(Formatting.RuntimeError(invocationName, $"error: {ex.Message}"));
-            return 1;
+            Console.Error.WriteLine(Formatting.RuntimeError(invocationName, $"unexpected error: {ex.Message}"));
+            return RuntimeErrorExit;
         }
     }
 
