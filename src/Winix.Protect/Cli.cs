@@ -122,7 +122,7 @@ public static class Cli
                 using (FileStream dest = new(outputPath, FileMode.Create, FileAccess.Write, FileShare.None))
                 using (IncrementalHash hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256))
                 {
-                    byte[] header = [(byte)'W', (byte)'P', (byte)'R', (byte)'T', 0x01, (byte)backend.Marker];
+                    byte[] header = Header.SerializeForAad(backend.Marker);
                     using TeeStream tee = new(input, hasher);
                     ChunkWriter.Write(tee, dest, backend, header);
                     sourceHash = hasher.GetCurrentHash();
@@ -136,7 +136,7 @@ public static class Cli
             }
             else
             {
-                byte[] header = [(byte)'W', (byte)'P', (byte)'R', (byte)'T', 0x01, (byte)backend.Marker];
+                byte[] header = Header.SerializeForAad(backend.Marker);
                 using Stream stdout = Console.OpenStandardOutput();
                 ChunkWriter.Write(input, stdout, backend, header);
             }
@@ -182,7 +182,7 @@ public static class Cli
         {
             Header.ReadResult hdr = Header.Read(input);
             IProtectBackend backend = BackendFactory.CreateForMarker(hdr.Marker);
-            byte[] headerBytes = [(byte)'W', (byte)'P', (byte)'R', (byte)'T', hdr.Version, (byte)hdr.Marker];
+            byte[] headerBytes = Header.SerializeForAad(hdr.Marker);
 
             string? outputPath = opts.OutputPath;
             if (outputPath is null && opts.InputPath is not null && opts.InputPath.EndsWith(".prot"))

@@ -31,7 +31,7 @@ public static class InPlaceExecutor
             using (FileStream dest = new(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             using (IncrementalHash hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256))
             {
-                byte[] header = [(byte)'W', (byte)'P', (byte)'R', (byte)'T', 0x01, (byte)backend.Marker];
+                byte[] header = Header.SerializeForAad(backend.Marker);
                 using TeeReadStream teeSource = new(source, hasher);
                 ChunkWriter.Write(teeSource, dest, backend, header);
                 sourceHash = hasher.GetCurrentHash();
@@ -68,7 +68,7 @@ public static class InPlaceExecutor
             using (FileStream dest = new(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             {
                 Header.ReadResult hdr = Header.Read(source);
-                byte[] headerBytes = [(byte)'W', (byte)'P', (byte)'R', (byte)'T', hdr.Version, (byte)hdr.Marker];
+                byte[] headerBytes = Header.SerializeForAad(hdr.Marker);
                 ChunkReader.Read(source, dest, backend, headerBytes);
             }
             File.Move(tempPath, targetAbs, overwrite: true);

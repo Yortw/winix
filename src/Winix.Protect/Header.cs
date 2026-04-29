@@ -24,6 +24,15 @@ public static class Header
         stream.WriteByte((byte)marker);
     }
 
+    /// <summary>
+    /// Build the canonical "header bytes" used as AAD input on the AEAD path. Wraps the literal
+    /// byte composition so callers cannot drift from the on-wire format.
+    /// </summary>
+    public static byte[] SerializeForAad(PlatformMarker marker)
+    {
+        return [(byte)'W', (byte)'P', (byte)'R', (byte)'T', CurrentVersion, (byte)marker];
+    }
+
     /// <summary>Read and validate the header.</summary>
     /// <exception cref="FormatException">Magic, version, or marker is invalid.</exception>
     /// <exception cref="EndOfStreamException">Stream is shorter than <see cref="Length"/> bytes.</exception>
