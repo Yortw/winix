@@ -91,4 +91,25 @@ public class AeadBackendTests
         (byte[] decrypted, _) = two.DecryptChunk(chunk, aad);
         Assert.Equal(plaintext, decrypted);
     }
+
+    [Fact]
+    public void Key_WrongSizeExisting_ThrowsInsteadOfOverwriting()
+    {
+        NullSecretStore store = new();
+        // Plant a wrong-size value at the slot the backend will look at.
+        store.Set("test-namespace", "test-key", new byte[16]);
+
+        TestAeadBackend backend = new(store);
+
+        AadContext aad = new(Header.SerializeForAad(PlatformMarker.MacKeychainUser, new byte[16]), 0, true);
+        InvalidOperationException ex = Assert.Throws<InvalidOperationException>(
+            () => backend.EncryptChunk([1, 2, 3], aad, isFinal: true));
+        Assert.Contains("test-namespace", ex.Message);
+        Assert.Contains("test-key", ex.Message);
+
+        // Ensure the planted key was NOT overwritten.
+        byte[]? existing = store.Get("test-namespace", "test-key");
+        Assert.NotNull(existing);
+        Assert.Equal(16, existing!.Length);
+    }
 }

@@ -91,8 +91,15 @@ public abstract class AeadBackend : IProtectBackend
     {
         if (_cachedKey is not null) return _cachedKey;
         byte[]? existing = _store.Get(_namespace, _keyName);
-        if (existing is not null && existing.Length == KeySize)
+        if (existing is not null)
         {
+            if (existing.Length != KeySize)
+            {
+                throw new InvalidOperationException(
+                    $"Existing key in '{_namespace}/{_keyName}' has wrong size ({existing.Length} bytes; expected {KeySize}). " +
+                    $"Refusing to overwrite — encrypted files using this key would become permanently undecryptable. " +
+                    $"Manually delete the keychain/libsecret entry to regenerate.");
+            }
             _cachedKey = existing;
             return existing;
         }
