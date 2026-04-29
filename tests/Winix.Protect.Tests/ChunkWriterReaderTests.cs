@@ -1,7 +1,6 @@
 #nullable enable
 using System;
 using System.IO;
-using System.Runtime.InteropServices;
 using Xunit;
 using Winix.Protect;
 using Winix.SecretStore;
@@ -88,12 +87,11 @@ public class ChunkWriterReaderTests
         Assert.Throws<FormatException>(() => ChunkReader.Read(readStream, outStream, backend, header));
     }
 
-    private static bool OnWindows => RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
-
-    [Fact]
+    [SkippableFact]
     public void Dpapi_RoundTrip_SinglePayload_Works()
     {
-        if (!OnWindows) return;
+        Skip.IfNot(OperatingSystem.IsWindows(), "DPAPI is Windows-only");
+        if (!OperatingSystem.IsWindows()) return; // CA1416 analyzer requires this; deliberate redundancy
 #pragma warning disable CA1416
         DpapiBackend backend = new(Scope.User);
 #pragma warning restore CA1416
@@ -113,13 +111,14 @@ public class ChunkWriterReaderTests
         Assert.Equal(input, outStream.ToArray());
     }
 
-    [Fact]
+    [SkippableFact]
     public void Dpapi_RoundTrip_MultiChunkPayload_Works()
     {
         // Critical regression test: if ChunkWriter drops the 4-byte length prefix
         // for DPAPI chunks, this test fails with "Truncated DPAPI chunk blob" because
         // ChunkReader can't frame the next chunk without knowing how many bytes to consume.
-        if (!OnWindows) return;
+        Skip.IfNot(OperatingSystem.IsWindows(), "DPAPI is Windows-only");
+        if (!OperatingSystem.IsWindows()) return; // CA1416 analyzer requires this; deliberate redundancy
 #pragma warning disable CA1416
         DpapiBackend backend = new(Scope.User);
 #pragma warning restore CA1416
@@ -140,10 +139,11 @@ public class ChunkWriterReaderTests
         Assert.Equal(input, outStream.ToArray());
     }
 
-    [Fact]
+    [SkippableFact]
     public void Dpapi_RoundTrip_OneByte_Works()
     {
-        if (!OnWindows) return;
+        Skip.IfNot(OperatingSystem.IsWindows(), "DPAPI is Windows-only");
+        if (!OperatingSystem.IsWindows()) return; // CA1416 analyzer requires this; deliberate redundancy
 #pragma warning disable CA1416
         DpapiBackend backend = new(Scope.User);
 #pragma warning restore CA1416
@@ -163,10 +163,11 @@ public class ChunkWriterReaderTests
         Assert.Equal(input, outStream.ToArray());
     }
 
-    [Fact]
+    [SkippableFact]
     public void Dpapi_RoundTrip_EmptyPayload_Works()
     {
-        if (!OnWindows) return;
+        Skip.IfNot(OperatingSystem.IsWindows(), "DPAPI is Windows-only");
+        if (!OperatingSystem.IsWindows()) return; // CA1416 analyzer requires this; deliberate redundancy
 #pragma warning disable CA1416
         DpapiBackend backend = new(Scope.User);
 #pragma warning restore CA1416

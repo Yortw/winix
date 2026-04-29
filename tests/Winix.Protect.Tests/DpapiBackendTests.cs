@@ -1,6 +1,5 @@
 #nullable enable
 using System;
-using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using Xunit;
 using Winix.Protect;
@@ -10,12 +9,11 @@ namespace Winix.Protect.Tests;
 [SupportedOSPlatform("windows")]
 public class DpapiBackendTests
 {
-    private static bool OnWindows => RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
-
-    [Fact]
+    [SkippableFact]
     public void EncryptDecrypt_RoundTrips()
     {
-        if (!OnWindows) return;
+        Skip.IfNot(OperatingSystem.IsWindows(), "DPAPI is Windows-only");
+        if (!OperatingSystem.IsWindows()) return; // CA1416 analyzer requires this; deliberate redundancy
         DpapiBackend backend = new(Scope.User);
         byte[] plaintext = System.Text.Encoding.UTF8.GetBytes("hello world");
         AadContext aad = new(Header.SerializeForAad(PlatformMarker.WindowsDpapiUser, new byte[16]), 0, true);
@@ -25,24 +23,27 @@ public class DpapiBackendTests
         Assert.True(isFinal);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Marker_UserScope_IsDpapiUser()
     {
-        if (!OnWindows) return;
+        Skip.IfNot(OperatingSystem.IsWindows(), "DPAPI is Windows-only");
+        if (!OperatingSystem.IsWindows()) return; // CA1416 analyzer requires this; deliberate redundancy
         Assert.Equal(PlatformMarker.WindowsDpapiUser, new DpapiBackend(Scope.User).Marker);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Marker_MachineScope_IsDpapiMachine()
     {
-        if (!OnWindows) return;
+        Skip.IfNot(OperatingSystem.IsWindows(), "DPAPI is Windows-only");
+        if (!OperatingSystem.IsWindows()) return; // CA1416 analyzer requires this; deliberate redundancy
         Assert.Equal(PlatformMarker.WindowsDpapiMachine, new DpapiBackend(Scope.Machine).Marker);
     }
 
-    [Fact]
+    [SkippableFact]
     public void IsFinal_FlagRoundTrips()
     {
-        if (!OnWindows) return;
+        Skip.IfNot(OperatingSystem.IsWindows(), "DPAPI is Windows-only");
+        if (!OperatingSystem.IsWindows()) return; // CA1416 analyzer requires this; deliberate redundancy
         DpapiBackend backend = new(Scope.User);
         AadContext aad = new(Header.SerializeForAad(PlatformMarker.WindowsDpapiUser, new byte[16]), 5, false);
         byte[] chunk = backend.EncryptChunk([1, 2, 3], aad, isFinal: false);
@@ -50,10 +51,11 @@ public class DpapiBackendTests
         Assert.False(isFinal);
     }
 
-    [Fact]
+    [SkippableFact]
     public void TamperedChunk_ThrowsOnDecrypt()
     {
-        if (!OnWindows) return;
+        Skip.IfNot(OperatingSystem.IsWindows(), "DPAPI is Windows-only");
+        if (!OperatingSystem.IsWindows()) return; // CA1416 analyzer requires this; deliberate redundancy
         DpapiBackend backend = new(Scope.User);
         AadContext aad = new(Header.SerializeForAad(PlatformMarker.WindowsDpapiUser, new byte[16]), 0, true);
         byte[] chunk = backend.EncryptChunk([1, 2, 3, 4], aad, isFinal: true);
@@ -62,10 +64,11 @@ public class DpapiBackendTests
             () => backend.DecryptChunk(chunk, aad));
     }
 
-    [Fact]
+    [SkippableFact]
     public void IntraFileChunkReorder_ThrowsOnDecrypt()
     {
-        if (!OnWindows) return;
+        Skip.IfNot(OperatingSystem.IsWindows(), "DPAPI is Windows-only");
+        if (!OperatingSystem.IsWindows()) return; // CA1416 analyzer requires this; deliberate redundancy
         DpapiBackend backend = new(Scope.User);
 
         byte[] fileId = Header.NewFileId();
@@ -82,10 +85,11 @@ public class DpapiBackendTests
             () => backend.DecryptChunk(chunk1, aad0));
     }
 
-    [Fact]
+    [SkippableFact]
     public void CrossFileChunkSubstitution_ThrowsOnDecrypt()
     {
-        if (!OnWindows) return;
+        Skip.IfNot(OperatingSystem.IsWindows(), "DPAPI is Windows-only");
+        if (!OperatingSystem.IsWindows()) return; // CA1416 analyzer requires this; deliberate redundancy
         DpapiBackend backend = new(Scope.User);
 
         byte[] fileIdA = Header.NewFileId();

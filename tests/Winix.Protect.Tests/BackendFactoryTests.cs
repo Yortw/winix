@@ -21,19 +21,21 @@ public class BackendFactoryTests
         else if (OnLinux) Assert.Equal(PlatformMarker.LinuxLibsecretUser, backend.Marker);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Create_MachineScope_Linux_Throws()
     {
-        if (!OnLinux) return;
+        Skip.IfNot(OperatingSystem.IsLinux(), "Linux-only");
+        if (!OperatingSystem.IsLinux()) return; // CA1416 analyzer requires this; deliberate redundancy
         PlatformNotSupportedException ex = Assert.Throws<PlatformNotSupportedException>(
             () => BackendFactory.Create(Scope.Machine));
         Assert.Contains("Linux", ex.Message);
     }
 
-    [Fact]
+    [SkippableFact]
     public void CreateForMarker_WrongPlatform_Throws()
     {
-        if (!OnWindows) return;
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only");
+        if (!OperatingSystem.IsWindows()) return; // CA1416 analyzer requires this; deliberate redundancy
         PlatformNotSupportedException ex = Assert.Throws<PlatformNotSupportedException>(
             () => BackendFactory.CreateForMarker(PlatformMarker.MacKeychainUser));
         Assert.Contains("macOS", ex.Message, StringComparison.OrdinalIgnoreCase);
