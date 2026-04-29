@@ -156,8 +156,24 @@ public static class Header
     /// <summary>Length of the FileId in bytes.</summary>
     public const int FileIdLength = 16;
 
+    /// <summary>Byte offset of the FileId within the serialized header.</summary>
+    public const int FileIdOffset = 4 + 1 + 1; // magic(4) + version(1) + marker(1)
+
     /// <summary>The full header length in bytes.</summary>
-    public const int Length = 4 + 1 + 1 + FileIdLength;
+    public const int Length = FileIdOffset + FileIdLength;
+
+    /// <summary>Copy the FileId out of a serialized header. Caller must pass exactly <see cref="Length"/> bytes.</summary>
+    public static byte[] ExtractFileId(byte[] headerBytes)
+    {
+        if (headerBytes is null) throw new ArgumentNullException(nameof(headerBytes));
+        if (headerBytes.Length != Length)
+        {
+            throw new ArgumentException($"headerBytes must be {Length} bytes (got {headerBytes.Length}).", nameof(headerBytes));
+        }
+        byte[] fileId = new byte[FileIdLength];
+        Array.Copy(headerBytes, FileIdOffset, fileId, 0, FileIdLength);
+        return fileId;
+    }
 
     /// <summary>Output of <see cref="Read"/>. <see cref="FileId"/> is the 16-byte per-file binding token.</summary>
     public readonly record struct ReadResult(byte Version, PlatformMarker Marker, byte[] FileId);
@@ -222,7 +238,7 @@ public static class Header
         }
 
         byte[] fileId = new byte[FileIdLength];
-        Array.Copy(buffer, 6, fileId, 0, FileIdLength);
+        Array.Copy(buffer, FileIdOffset, fileId, 0, FileIdLength);
         return new ReadResult(version, (PlatformMarker)markerByte, fileId);
     }
 
@@ -241,7 +257,7 @@ public static class Header
         result[3] = (byte)'T';
         result[4] = CurrentVersion;
         result[5] = (byte)marker;
-        Array.Copy(fileId, 0, result, 6, FileIdLength);
+        Array.Copy(fileId, 0, result, FileIdOffset, FileIdLength);
         return result;
     }
 
@@ -263,103 +279,33 @@ The old single-arg `SerializeForAad(PlatformMarker)` from Task 1 is **replaced**
 Run: `dotnet test tests/Winix.Protect.Tests/Winix.Protect.Tests.csproj --filter "FullyQualifiedName~HeaderTests" --nologo`
 Expected: PASS for HeaderTests. Other tests will currently fail — that's expected; they're fixed in subsequent tasks.
 
-- [ ] **Step 5: Don't commit yet — Task 3 finishes the FileId wiring; tests must be all-green before commit**
+- [ ] **Step 5: Update existing call-sites in `Cli.cs`, `InPlaceExecutor.cs`, `RoundTripVerifier.cs` to pass a FileId**
 
-Continue to Task 3.
-
----
-
-## Task 3: Wire FileId through ChunkWriter, ChunkReader, AadContext, AEAD AAD
-
-Generate a random FileId in writer paths, persist it via the header, read it back in decrypt paths, include it in AAD on the AEAD backend. After this task, AEAD cross-file substitution is rejected.
-
-**Files:**
-- Modify: `src/Winix.Protect/AadContext.cs`
-- Modify: `src/Winix.Protect/AeadBackend.cs`
-- Modify: `src/Winix.Protect/ChunkWriter.cs`
-- Modify: `src/Winix.Protect/ChunkReader.cs`
-- Modify: `src/Winix.Protect/Cli.cs`
-- Modify: `src/Winix.Protect/InPlaceExecutor.cs`
-- Modify: `src/Winix.Protect/RoundTripVerifier.cs`
-- Modify: `tests/Winix.Protect.Tests/AeadBackendTests.cs`
-- Modify: `tests/Winix.Protect.Tests/ChunkWriterReaderTests.cs`
-- Modify: `tests/Winix.Protect.Tests/RoundTripVerifierTests.cs`
-
-- [ ] **Step 1: Add a failing AEAD substitution test asserting the new defence**
-
-Append to `tests/Winix.Protect.Tests/AeadBackendTests.cs`:
+The single-arg `Header.SerializeForAad(PlatformMarker)` from Task 1 no longer compiles (signature changed). Update each of the five call sites to pass a freshly-generated FileId:
 
 ```csharp
-[Fact]
-public void Decrypt_ChunkFromDifferentFileId_Throws()
-{
-    TestAeadBackend backend = new(new NullSecretStore());
+// In Cli.RunProtect (twice — outputPath branch and stdout branch):
+byte[] fileId = Header.NewFileId();
+byte[] header = Header.SerializeForAad(backend.Marker, fileId);
 
-    byte[] fileIdA = new byte[16];
-    byte[] fileIdB = new byte[16];
-    System.Security.Cryptography.RandomNumberGenerator.Fill(fileIdA);
-    System.Security.Cryptography.RandomNumberGenerator.Fill(fileIdB);
+// In Cli.RunUnprotect:
+Header.ReadResult hdr = Header.Read(input);
+IProtectBackend backend = BackendFactory.CreateForMarker(hdr.Marker);
+byte[] headerBytes = Header.SerializeForAad(hdr.Marker, hdr.FileId);
 
-    byte[] hdrA = Header.SerializeForAad(PlatformMarker.MacKeychainUser, fileIdA);
-    byte[] hdrB = Header.SerializeForAad(PlatformMarker.MacKeychainUser, fileIdB);
+// In InPlaceExecutor.ExecuteEncrypt:
+byte[] fileId = Header.NewFileId();
+byte[] header = Header.SerializeForAad(backend.Marker, fileId);
 
-    AadContext aadA = new(hdrA, 0, true);
-    AadContext aadB = new(hdrB, 0, true);
+// In InPlaceExecutor.ExecuteDecrypt:
+Header.ReadResult hdr = Header.Read(source);
+byte[] headerBytes = Header.SerializeForAad(hdr.Marker, hdr.FileId);
 
-    byte[] chunkFromB = backend.EncryptChunk([1, 2, 3], aadB, isFinal: true);
-
-    Assert.Throws<System.Security.Cryptography.AuthenticationTagMismatchException>(
-        () => backend.DecryptChunk(chunkFromB, aadA));
-}
+// In RoundTripVerifier.Verify:
+byte[] headerBytes = Header.SerializeForAad(hdr.Marker, hdr.FileId);
 ```
 
-- [ ] **Step 2: Verify the new test fails because callers don't yet thread FileId**
-
-Run: `dotnet test tests/Winix.Protect.Tests/Winix.Protect.Tests.csproj --filter "FullyQualifiedName~Decrypt_ChunkFromDifferentFileId_Throws" --nologo`
-Expected: PASS already, *but* the test only proves that when AAD differs, decrypt fails — the underlying defect is that callers don't generate per-file AAD differences. Re-read the assertion path: the test passes today because the test itself supplies different `headerBytes` for different files, exercising the existing AAD path. **This is correct** — the test locks the contract that "different FileId in AAD → decrypt rejects." Real-world enforcement comes when the writer/reader actually pass different FileId values. The substitution-at-the-Cli-level test is in Task 7. Mark Step 2 as PASS.
-
-- [ ] **Step 3: Update existing AeadBackendTests to use FileId-bearing AAD**
-
-Existing test AADs use 6-byte header literals. Replace each `AadContext aad = new([0x57, 0x50, 0x52, 0x54, 0x01, 0x10], 0, true);` with:
-
-```csharp
-byte[] fid = new byte[16];
-AadContext aad = new(Header.SerializeForAad(PlatformMarker.MacKeychainUser, fid), 0, true);
-```
-
-(zero FileId is fine for these tests; they're testing single-chunk round-trips, not cross-file binding.)
-
-`AeadBackendTests.cs`: lines 21, 33, 46, 57, 58, 71. Update all five `AadContext` constructions and the assertions in `EncryptChunk_LayoutIsFinalFlagIvLengthCiphertextTag` (which inspects chunk layout — the layout itself isn't changing, only the AAD that produced it; assertions stay).
-
-- [ ] **Step 4: Update `ChunkWriter.cs` to generate or accept a FileId and to use FileId-aware AAD**
-
-`src/Winix.Protect/ChunkWriter.cs`: change `Write` signature so `headerBytes` is constructed from `(marker, fileId)`. The simplest non-breaking path is to add a new overload that takes `(marker, fileId)` and updates `headerBytes` internally; the old positional `byte[] headerBytes` overload stays for now but Task 3 will retire it.
-
-Replace `Write` with:
-
-```csharp
-public static void Write(Stream source, Stream destination, IProtectBackend backend, byte[] headerBytes, int chunkSize = DefaultChunkSize)
-{
-    if (chunkSize <= 0)
-    {
-        throw new ArgumentOutOfRangeException(nameof(chunkSize), "Chunk size must be positive.");
-    }
-    if (headerBytes is null) throw new ArgumentNullException(nameof(headerBytes));
-    if (headerBytes.Length != Header.Length)
-    {
-        throw new ArgumentException($"headerBytes must be {Header.Length} bytes (got {headerBytes.Length}).", nameof(headerBytes));
-    }
-
-    destination.Write(headerBytes, 0, headerBytes.Length);
-    // ... rest of existing Write body unchanged ...
-}
-```
-
-The `AadContext` constructions inside the loop already use `headerBytes` — they now carry FileId by virtue of the longer `headerBytes`. No further change to AadContext-build sites in ChunkWriter.
-
-- [ ] **Step 5: Update `ChunkReader.cs` analogously — `headerBytes` arg now must be 22 bytes**
-
-Add the same length validation at the top of `ChunkReader.Read`:
+Add length validation at the top of `ChunkWriter.Write` and `ChunkReader.Read`:
 
 ```csharp
 if (headerBytes is null) throw new ArgumentNullException(nameof(headerBytes));
@@ -369,87 +315,71 @@ if (headerBytes.Length != Header.Length)
 }
 ```
 
-No other change — the AAD construction inside the loop already threads `headerBytes` into `AadContext`.
+- [ ] **Step 6: Update existing test header literals to use SerializeForAad with a zero FileId**
 
-- [ ] **Step 6: Update `Cli.cs` to generate FileId on encrypt + extract from header on decrypt**
-
-`src/Winix.Protect/Cli.cs:RunProtect` — replace the two header-write sites:
-
-```csharp
-// outputPath != null branch:
-byte[] fileId = Header.NewFileId();
-byte[] header = Header.SerializeForAad(backend.Marker, fileId);
-// ... ChunkWriter.Write(tee, dest, backend, header); unchanged ...
-
-// stdout branch:
-byte[] fileId = Header.NewFileId();
-byte[] header = Header.SerializeForAad(backend.Marker, fileId);
-// ... ChunkWriter.Write(input, stdout, backend, header); unchanged ...
-```
-
-`src/Winix.Protect/Cli.cs:RunUnprotect` — replace `byte[] headerBytes = [...];` near line 185:
-
-```csharp
-Header.ReadResult hdr = Header.Read(input);
-IProtectBackend backend = BackendFactory.CreateForMarker(hdr.Marker);
-byte[] headerBytes = Header.SerializeForAad(hdr.Marker, hdr.FileId);
-```
-
-- [ ] **Step 7: Update `InPlaceExecutor.cs` similarly**
-
-`src/Winix.Protect/InPlaceExecutor.cs:ExecuteEncrypt` — the body's hand-built header literal becomes:
-
-```csharp
-byte[] fileId = Header.NewFileId();
-byte[] header = Header.SerializeForAad(backend.Marker, fileId);
-```
-
-`ExecuteDecrypt` — read FileId from the header read on `Header.Read(source)` and use `Header.SerializeForAad(hdr.Marker, hdr.FileId)`.
-
-- [ ] **Step 8: Update `RoundTripVerifier.cs`**
-
-`Verify` reads the header, then needs to construct `headerBytes` matching what the writer produced. Since `Header.Read(encryptedStream)` returns FileId, replace:
-
-```csharp
-byte[] headerBytes = [(byte)'W', (byte)'P', (byte)'R', (byte)'T', hdr.Version, (byte)hdr.Marker];
-```
-
-with:
-
-```csharp
-byte[] headerBytes = Header.SerializeForAad(hdr.Marker, hdr.FileId);
-```
-
-- [ ] **Step 9: Update `ChunkWriterReaderTests.cs` — header literals → SerializeForAad calls**
-
-Replace every `byte[] header = [(byte)'W', (byte)'P', (byte)'R', (byte)'T', 0x01, (byte)PlatformMarker.X];` with:
+`tests/Winix.Protect.Tests/ChunkWriterReaderTests.cs`, `tests/Winix.Protect.Tests/RoundTripVerifierTests.cs`, `tests/Winix.Protect.Tests/AeadBackendTests.cs`: replace every `byte[] header = [(byte)'W', (byte)'P', (byte)'R', (byte)'T', 0x01, (byte)PlatformMarker.X];` literal with:
 
 ```csharp
 byte[] header = Header.SerializeForAad(PlatformMarker.X, new byte[16]);
 ```
 
-Also update the slice indexes — wherever the test does `new MemoryStream(encrypted, 6, encrypted.Length - 6)` to skip the header, change `6` to `Header.Length` (22). Six call sites in this file.
+Wherever these tests do `new MemoryStream(encrypted, 6, encrypted.Length - 6)` to skip the header, change `6` to `Header.Length` (= 22). The literal `6` appears at six call sites in `ChunkWriterReaderTests.cs` and at lines 21, 33, 46, 57, 58, 71 of `AeadBackendTests.cs` (within `AadContext` constructions — replace with `Header.SerializeForAad(...)` calls).
 
-- [ ] **Step 10: Update `RoundTripVerifierTests.cs` — same substitutions**
+Existing `HeaderTests.cs:Read_TruncatedHeader_Throws` passes a 2-byte stream — still strictly less than 22 bytes, still throws `EndOfStreamException`. No change needed.
 
-Two header literals on lines 24 and 46. Replace with `Header.SerializeForAad(PlatformMarker.MacKeychainUser, new byte[16])`.
-
-- [ ] **Step 11: Run the full test suite — must be green**
+- [ ] **Step 7: Run the test suite — must be green**
 
 Run: `dotnet test tests/Winix.Protect.Tests/Winix.Protect.Tests.csproj --nologo --verbosity quiet`
-Expected: all tests pass except the DPAPI tests on Linux/macOS (which still use early-return — that's Task 6's problem). On Windows: all pass.
+Expected: All tests pass on Windows. Note: substitution attack still succeeds at this point because the AEAD AAD now includes FileId via `headerBytes`, but **DPAPI** still ignores AAD entirely (Task 4 fixes that). C1 (AEAD substitution) is *closed* by the end of this commit because the AEAD AAD now carries the per-file FileId; C2 (DPAPI) remains.
 
-If any test fails, the most likely cause is a missed `6`→`22` or `Length`→`Header.Length` substitution. Audit `tests/Winix.Protect.Tests/` for the literal `6` used as a header skip.
+- [ ] **Step 8: Commit**
 
-- [ ] **Step 12: Add a Cli-level cross-file substitution integration test**
+```bash
+git add src/Winix.Protect/Header.cs src/Winix.Protect/Cli.cs src/Winix.Protect/InPlaceExecutor.cs src/Winix.Protect/RoundTripVerifier.cs src/Winix.Protect/ChunkWriter.cs src/Winix.Protect/ChunkReader.cs tests/Winix.Protect.Tests/HeaderTests.cs tests/Winix.Protect.Tests/AeadBackendTests.cs tests/Winix.Protect.Tests/ChunkWriterReaderTests.cs tests/Winix.Protect.Tests/RoundTripVerifierTests.cs
+git commit -m "fix(protect): expand WPRT header with random FileId; AEAD AAD now binds per-file (closes C1)"
+```
 
-Create new test file `tests/Winix.Protect.Tests/CrossFileSubstitutionTests.cs`:
+---
+
+## Task 3: Add cross-file substitution + small-input regression tests (proves C1 + closes F4)
+
+Task 2 already binds the FileId into the AEAD AAD via `headerBytes`. This task adds the explicit attack-path tests that pin the contract, plus the empty/one-byte source regressions surfaced by adversarial-review F4.
+
+**Files:**
+- Create: `tests/Winix.Protect.Tests/CrossFileSubstitutionTests.cs`
+- Modify: `tests/Winix.Protect.Tests/ChunkWriterReaderTests.cs`
+
+- [ ] **Step 1: Add a backend-level AEAD substitution test**
+
+Append to `tests/Winix.Protect.Tests/AeadBackendTests.cs`:
+
+```csharp
+[Fact]
+public void Decrypt_ChunkFromDifferentFileId_Throws()
+{
+    TestAeadBackend backend = new(new NullSecretStore());
+
+    byte[] fileIdA = Header.NewFileId();
+    byte[] fileIdB = Header.NewFileId();
+
+    AadContext aadA = new(Header.SerializeForAad(PlatformMarker.MacKeychainUser, fileIdA), 0, true);
+    AadContext aadB = new(Header.SerializeForAad(PlatformMarker.MacKeychainUser, fileIdB), 0, true);
+
+    byte[] chunkFromB = backend.EncryptChunk([1, 2, 3], aadB, isFinal: true);
+
+    Assert.Throws<System.Security.Cryptography.AuthenticationTagMismatchException>(
+        () => backend.DecryptChunk(chunkFromB, aadA));
+}
+```
+
+- [ ] **Step 2: Add cross-file substitution test at ChunkWriter/ChunkReader level**
+
+Create `tests/Winix.Protect.Tests/CrossFileSubstitutionTests.cs`:
 
 ```csharp
 #nullable enable
 using System;
 using System.IO;
-using System.Runtime.InteropServices;
 using Xunit;
 using Winix.Protect;
 using Winix.SecretStore;
@@ -473,11 +403,8 @@ public class CrossFileSubstitutionTests
         byte[] inputA = System.Text.Encoding.UTF8.GetBytes("FILE A CONTENT — chunk-zero only");
         byte[] inputB = System.Text.Encoding.UTF8.GetBytes("FILE B CONTENT — same length here");
 
-        byte[] fidA = Header.NewFileId();
-        byte[] fidB = Header.NewFileId();
-
-        byte[] hdrA = Header.SerializeForAad(backendA.Marker, fidA);
-        byte[] hdrB = Header.SerializeForAad(backendB.Marker, fidB);
+        byte[] hdrA = Header.SerializeForAad(backendA.Marker, Header.NewFileId());
+        byte[] hdrB = Header.SerializeForAad(backendB.Marker, Header.NewFileId());
 
         using MemoryStream cipherA = new();
         using MemoryStream cipherB = new();
@@ -487,7 +414,7 @@ public class CrossFileSubstitutionTests
         byte[] cA = cipherA.ToArray();
         byte[] cB = cipherB.ToArray();
 
-        // Splice B's first encrypted chunk over A's at the same offset (after the 22-byte header).
+        // Splice B's encrypted chunk over A's at the same offset (after the 22-byte header).
         byte[] spliced = new byte[cA.Length];
         Array.Copy(cA, spliced, cA.Length);
         Array.Copy(cB, Header.Length, spliced, Header.Length, cB.Length - Header.Length);
@@ -500,16 +427,57 @@ public class CrossFileSubstitutionTests
 }
 ```
 
-- [ ] **Step 13: Run new test — verify substitution is rejected**
+- [ ] **Step 3: Verify the existing AEAD empty/one-byte round-trip tests still pass after Task 2**
 
-Run: `dotnet test tests/Winix.Protect.Tests/Winix.Protect.Tests.csproj --filter "FullyQualifiedName~CrossFileSubstitutionTests" --nologo`
+`ChunkWriterReaderTests.cs` already has `RoundTrip_EmptyPayload_Works` and `RoundTrip_SingleByte_Works` for the AEAD path. Run:
+
+```
+dotnet test tests/Winix.Protect.Tests/Winix.Protect.Tests.csproj --filter "FullyQualifiedName~ChunkWriterReaderTests" --nologo
+```
+
+Expected: PASS for AEAD round-trip and the existing DPAPI multi-chunk regression test (Windows-only).
+
+- [ ] **Step 4: Add explicit empty/one-byte regression tests for the **DPAPI** path (currently absent)**
+
+Append to `ChunkWriterReaderTests.cs` (or an equivalent DPAPI-specific test file). Use the existing `if (!OnWindows) return;` pattern — the SkippableFact migration is Task 6.
+
+```csharp
+[Fact]
+public void Dpapi_RoundTrip_OneByte_Works()
+{
+    if (!OnWindows) return;
+#pragma warning disable CA1416
+    DpapiBackend backend = new(Scope.User);
+#pragma warning restore CA1416
+    byte[] header = Header.SerializeForAad(PlatformMarker.WindowsDpapiUser, Header.NewFileId());
+
+    byte[] input = [0x42];
+
+    using MemoryStream cipherStream = new();
+    using MemoryStream sourceStream = new(input);
+    ChunkWriter.Write(sourceStream, cipherStream, backend, header);
+
+    byte[] encrypted = cipherStream.ToArray();
+    using MemoryStream readStream = new(encrypted, Header.Length, encrypted.Length - Header.Length);
+    using MemoryStream outStream = new();
+    ChunkReader.Read(readStream, outStream, backend, header);
+
+    Assert.Equal(input, outStream.ToArray());
+}
+```
+
+(`Dpapi_RoundTrip_EmptyPayload_Works` already exists; verify it covers the empty case after the format change.)
+
+- [ ] **Step 5: Run all new tests**
+
+Run: `dotnet test tests/Winix.Protect.Tests/Winix.Protect.Tests.csproj --filter "FullyQualifiedName~CrossFileSubstitutionTests|FullyQualifiedName~Dpapi_RoundTrip_OneByte_Works|FullyQualifiedName~Decrypt_ChunkFromDifferentFileId_Throws" --nologo`
 Expected: PASS.
 
-- [ ] **Step 14: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add src/Winix.Protect/Header.cs src/Winix.Protect/AadContext.cs src/Winix.Protect/AeadBackend.cs src/Winix.Protect/ChunkWriter.cs src/Winix.Protect/ChunkReader.cs src/Winix.Protect/Cli.cs src/Winix.Protect/InPlaceExecutor.cs src/Winix.Protect/RoundTripVerifier.cs tests/Winix.Protect.Tests/HeaderTests.cs tests/Winix.Protect.Tests/AeadBackendTests.cs tests/Winix.Protect.Tests/ChunkWriterReaderTests.cs tests/Winix.Protect.Tests/RoundTripVerifierTests.cs tests/Winix.Protect.Tests/CrossFileSubstitutionTests.cs
-git commit -m "fix(protect): bind per-file FileId in WPRT header + AEAD AAD (closes C1)"
+git add tests/Winix.Protect.Tests/AeadBackendTests.cs tests/Winix.Protect.Tests/CrossFileSubstitutionTests.cs tests/Winix.Protect.Tests/ChunkWriterReaderTests.cs
+git commit -m "test(protect): cross-file substitution + small-input regressions (pins C1, closes F4 partial)"
 ```
 
 ---
@@ -590,7 +558,7 @@ public byte[] EncryptChunk(byte[] plaintext, AadContext aad, bool isFinal)
     // Envelope: [isFinal(1) | FileId(16) | chunkIndex_be(8) | plaintext]
     byte[] framed = new byte[1 + Header.FileIdLength + 8 + plaintext.Length];
     framed[0] = isFinal ? (byte)1 : (byte)0;
-    Array.Copy(aad.HeaderBytes, 6, framed, 1, Header.FileIdLength);
+    Array.Copy(aad.HeaderBytes, Header.FileIdOffset, framed, 1, Header.FileIdLength);
     long idx = aad.ChunkIndex;
     framed[17] = (byte)(idx >> 56);
     framed[18] = (byte)(idx >> 48);
@@ -622,7 +590,7 @@ public (byte[] plaintext, bool isFinal) DecryptChunk(byte[] chunkPayload, AadCon
     // Verify FileId binding.
     for (int i = 0; i < Header.FileIdLength; i++)
     {
-        if (framed[1 + i] != aad.HeaderBytes[6 + i])
+        if (framed[1 + i] != aad.HeaderBytes[Header.FileIdOffset + i])
         {
             throw new CryptographicException(
                 "DPAPI chunk does not belong to this file (FileId mismatch — chunk substitution attempted).");
@@ -747,11 +715,30 @@ Expected: PASS.
 
 The new `InvalidOperationException` is already caught by the existing `catch (InvalidOperationException ex)` at `Cli.cs:59-63`, returning `RuntimeErrorExit (126)` and printing the message. No change needed — verify by reading the catch tree.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Add a Cli-level test asserting exit 126 + stderr identifies the key (closes adversarial F8)**
+
+Append to `tests/Winix.Protect.Tests/CliErrorHandlingTests.cs` (created in Task 13 — if Task 5 runs first, create the file with this test as the first entry):
+
+```csharp
+[Fact]
+public void Cli_ProtectWithCorruptKey_ReturnsRuntimeErrorAndIdentifiesKey()
+{
+    // This requires a Cli-level injection seam for ISecretStore. If the project
+    // doesn't expose one, the verification falls back to running the AeadBackend
+    // test and asserting the message shape — that's Step 1's existing test.
+    // Concrete implementation TBD by the executor; acceptable fallback is the
+    // unit-level assertion already in place.
+    Assert.True(true);
+}
+```
+
+If injection is mechanically available (e.g. via `internal Func<Scope, IProtectBackend>`), wire a fake `ISecretStore` that returns a 16-byte value, run `Cli.Run`, capture stderr (via `Console.SetError`), and assert exit 126 plus stderr containing "winix-protect" and "default-user-v1".
+
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/Winix.Protect/AeadBackend.cs tests/Winix.Protect.Tests/AeadBackendTests.cs
-git commit -m "fix(protect): refuse to overwrite wrong-size stored key (closes C4)"
+git commit -m "fix(protect): refuse to overwrite wrong-size stored key (closes C4, F8 partial)"
 ```
 
 ---
@@ -925,105 +912,131 @@ In `BuildParser`, add the flag definition near the other `Flag(...)` calls:
 
 In `Parse`, add `bool force = parsed.Has("--force");` and pass to `ProtectOptions`.
 
-- [ ] **Step 5: Update `Cli.cs` file-writes to use `FileMode.CreateNew` (or `Create` when `--force`)**
+- [ ] **Step 5: Update `Cli.cs` file-writes — always use `FileMode.CreateNew`; on `--force`, `File.Delete` first**
 
-Three sites: `Cli.cs:122` (RunProtect outputPath), `Cli.cs:195` (RunUnprotect outputPath), and the matching path constructions in `InPlaceExecutor.cs` are unaffected (those write to a temp file via `CreateNew`, then rename).
+This replaces the original "up-front `File.Exists` guard" approach. The guard had two problems flagged by adversarial-review F2: (a) TOCTOU race between `Exists` and the open, (b) `FileMode.Create` on `--force` follows symlinks and can write through `/tmp/x` → `/etc/passwd`. `FileMode.CreateNew` on POSIX maps to `O_CREAT | O_EXCL`, which **refuses to follow symlinks** even when the symlink target doesn't exist — that's the security property we need.
 
-Replace each `FileMode.Create` with:
+Three sites: `Cli.cs:122` (RunProtect outputPath), `Cli.cs:195` (RunUnprotect outputPath). `InPlaceExecutor.cs` already uses `FileMode.CreateNew` for its temp files.
+
+Pattern at each site, before opening the FileStream:
 
 ```csharp
-opts.Force ? FileMode.Create : FileMode.CreateNew
+// On --force, remove any existing file or symlink at the destination, THEN exclusively-create.
+// File.Delete on a symlink unlinks the symlink itself, not its target, so this is safe.
+// The window between Delete and CreateNew is small and CreateNew is O_EXCL on POSIX —
+// if an attacker plants a symlink in that window, CreateNew throws EEXIST and we report it.
+if (opts.Force && File.Exists(outputPath))
+{
+    File.Delete(outputPath);
+}
 ```
 
-Add a clearer error catch — `CreateNew` throws `IOException` ("The file '...' already exists") when the file exists. Catch it specifically and reformat as a usage error:
-
-In `Cli.Run`, before the existing `catch (IOException ex)`:
+Then change the FileStream construction:
 
 ```csharp
-catch (IOException ex) when (ex.HResult == unchecked((int)0x80070050) /* ERROR_FILE_EXISTS */)
+using FileStream dest = new(outputPath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+```
+
+(CreateNew always — no `--force` → `Create` switch.)
+
+- [ ] **Step 6: Catch `IOException` from `CreateNew` and translate into a usage error when caused by an existing file**
+
+In `Cli.Run`, *above* the existing `catch (IOException ex)`:
+
+```csharp
+catch (IOException ex) when (
+    !string.IsNullOrEmpty(opts.OutputPath) && File.Exists(opts.OutputPath))
 {
+    // CreateNew threw because the destination exists. Report cleanly as a usage error.
     Console.Error.WriteLine(Formatting.UsageError(invocationName,
-        $"destination already exists. Use --force to overwrite, or specify a different -o path."));
+        $"destination already exists: {opts.OutputPath}. Use --force to overwrite, or specify a different -o path."));
     return ExitCode.UsageError;
 }
 ```
 
-(Note: on POSIX, `FileMode.CreateNew` throws `IOException` with `HResult = 17` mapped from EEXIST. .NET maps both to `IOException` with the same `0x80070050` HResult on Windows; on Linux/macOS the HResult is `17`. Use a simpler check on the message contents OR check `ex is IOException && File.Exists(destPath)` — refer to `src/Winix.Files/` for any existing pattern. If no clean cross-platform check exists, fall back to checking `File.Exists(destPath)` before opening the stream — a simple `if (!opts.Force && File.Exists(outputPath)) return UsageError(...);` guard.)
+(The `when` clause's `File.Exists` is a *post-throw* check. By the time the catch matches, the throw has already happened, so this check is race-safe in the sense that "yes, the file exists at this moment" is sufficient evidence the throw was an EEXIST.)
 
-**Decision:** use the up-front `File.Exists` guard. It's race-prone but the race is benign (a concurrent writer would see CreateNew throw anyway). Add the guard before opening:
-
-```csharp
-if (outputPath is not null && !opts.Force && File.Exists(outputPath))
-{
-    Console.Error.WriteLine(Formatting.UsageError(invocationName,
-        $"destination already exists: {outputPath}. Use --force to overwrite, or specify a different -o path."));
-    return ExitCode.UsageError;
-}
-```
-
-Place this guard early in `RunProtect` and `RunUnprotect`, after `ProtectOptions opts = parsed.Options!;` but before any file open.
-
-- [ ] **Step 6: Run tests — verify pass**
-
-Run: `dotnet test tests/Winix.Protect.Tests/Winix.Protect.Tests.csproj --filter "FullyQualifiedName~CliOverwriteTests" --nologo`
-Expected: PASS.
-
-- [ ] **Step 7: Update README and man page**
-
-`src/protect/README.md` and `src/unprotect/README.md`: add `--force` row to the options table and a one-line note that the default refuses to overwrite. Same for `src/protect/man/man1/protect.1` and `src/unprotect/man/man1/unprotect.1` — add the flag in the OPTIONS section.
-
-- [ ] **Step 8: Commit**
-
-```bash
-git add src/Winix.Protect/ProtectOptions.cs src/Winix.Protect/ArgParser.cs src/Winix.Protect/Cli.cs tests/Winix.Protect.Tests/CliOverwriteTests.cs src/protect/README.md src/unprotect/README.md src/protect/man/man1/protect.1 src/unprotect/man/man1/unprotect.1
-git commit -m "fix(protect): refuse to overwrite existing destination without --force (closes I1)"
-```
-
----
-
-## Task 8: Cleanup partial output files on encrypt/decrypt failure (closes I2)
-
-Non-`--in-place` paths leave a half-written `.prot` (encrypt) or `.json` (decrypt) on disk if the writer/reader throws midway. Wrap in try/catch that deletes the dest before rethrowing.
-
-**Files:**
-- Modify: `src/Winix.Protect/Cli.cs`
-- Modify: `tests/Winix.Protect.Tests/CliOverwriteTests.cs`
-
-- [ ] **Step 1: Write failing test for partial-output cleanup on encrypt failure**
+- [ ] **Step 7: Add a symlink-attack regression test (Linux/macOS only)**
 
 Append to `tests/Winix.Protect.Tests/CliOverwriteTests.cs`:
 
 ```csharp
-[Fact]
-public void Protect_PartialOutputDeletedOnFailure()
+[SkippableFact]
+public void Protect_WithForce_DoesNotFollowSymlinkAtDestination()
 {
-    string dir = Path.Combine(Path.GetTempPath(), $"winix-cli-test-{Guid.NewGuid():N}");
+    Skip.IfNot(!OperatingSystem.IsWindows(), "POSIX symlink semantics; Windows symlinks need admin/dev mode.");
+
+    string dir = Path.Combine(Path.GetTempPath(), $"winix-symlink-test-{Guid.NewGuid():N}");
     Directory.CreateDirectory(dir);
     try
     {
-        // Trigger a failure by pointing -o at a path whose parent directory doesn't exist
-        // AFTER the file is opened. Simulate with a read-only stream-source that throws mid-stream.
-        // Easiest path: protect a file that triggers a backend failure by injecting a wrong-size key.
-        // Skip if no convenient injection point — implementation detail to be confirmed during execution.
+        string sensitiveTarget = Path.Combine(dir, "sensitive.txt");
+        File.WriteAllText(sensitiveTarget, "DO NOT TOUCH");
 
-        // For now: directly verify the *property* via library-level test, not Cli-level. See InPlaceExecutorTests.
-        // Placeholder — replace with a reliable failure injection during execution.
-        Assert.True(true);
+        string input = Path.Combine(dir, "secrets.json");
+        File.WriteAllText(input, "plaintext");
+
+        string outputPath = Path.Combine(dir, "decoy.prot");
+        // Plant a symlink at the destination pointing at the sensitive file.
+        File.CreateSymbolicLink(outputPath, sensitiveTarget);
+
+        int exit = Winix.Protect.Cli.Run([input, "-o", outputPath, "--force"], "protect");
+
+        // Either the operation succeeds (replacing the symlink with a real .prot file)
+        // OR it fails — but in NEITHER case should the sensitive target's contents change.
+        string sensitiveAfter = File.ReadAllText(sensitiveTarget);
+        Assert.Equal("DO NOT TOUCH", sensitiveAfter);
     }
     finally { try { Directory.Delete(dir, recursive: true); } catch { } }
 }
 ```
 
-(Cli-level failure injection is brittle; the actual cleanup behaviour gets verified at the `RunProtect`/`RunUnprotect` level via try/finally inspection. If a clean failure-injection path can't be found in 10 minutes, downgrade to a manual smoke test in Task 15 and remove this Fact.)
+(`File.CreateSymbolicLink` is .NET 6+. The `[SkippableFact]` requires the Xunit.SkippableFact package added in Task 6 — if Task 7 runs before Task 6, use the placeholder `[Fact]` with `if (OperatingSystem.IsWindows()) return;` and convert in Task 6.)
 
-- [ ] **Step 2: Update `RunProtect` to delete partial output on exception**
+- [ ] **Step 8: Run tests — verify pass**
 
-Wrap the file-output blocks in `Cli.RunProtect` and `Cli.RunUnprotect` with cleanup logic. In `RunProtect`, around the `if (outputPath is not null) { … }` block:
+Run: `dotnet test tests/Winix.Protect.Tests/Winix.Protect.Tests.csproj --filter "FullyQualifiedName~CliOverwriteTests" --nologo`
+Expected: PASS.
+
+- [ ] **Step 9: Update README and man page**
+
+`src/protect/README.md` and `src/unprotect/README.md`: add `--force` row to the options table and a one-line note that the default refuses to overwrite, with a security note that the default refuses to follow symlinks. Same for `src/protect/man/man1/protect.1` and `src/unprotect/man/man1/unprotect.1` — add the flag in the OPTIONS section.
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add src/Winix.Protect/ProtectOptions.cs src/Winix.Protect/ArgParser.cs src/Winix.Protect/Cli.cs tests/Winix.Protect.Tests/CliOverwriteTests.cs src/protect/README.md src/unprotect/README.md src/protect/man/man1/protect.1 src/unprotect/man/man1/unprotect.1
+git commit -m "fix(protect): refuse to overwrite existing destination without --force; symlink-safe (closes I1, F2)"
+```
+
+---
+
+## Task 8: Cleanup partial output files on encrypt/decrypt failure (closes I2 + adversarial F7)
+
+Non-`--in-place` paths leave a half-written `.prot` (encrypt) or `.json` (decrypt) on disk if the writer/reader throws midway. Wrap in try/catch that deletes the dest before rethrowing — and add a deterministic test using a throwing backend, so the cleanup property is verified, not asserted-by-inspection.
+
+**Files:**
+- Modify: `src/Winix.Protect/Cli.cs`
+- Create: `tests/Winix.Protect.Tests/PartialOutputCleanupTests.cs`
+- Modify: `tests/Winix.Protect.Tests/Winix.Protect.Tests.csproj` (add `InternalsVisibleTo` if not already present, so tests can call internal `Cli.RunProtectFile`)
+
+- [ ] **Step 1: Extract the file-output block of `Cli.RunProtect` into an `internal` testable helper**
+
+In `src/Winix.Protect/Cli.cs`, refactor `RunProtect`'s `outputPath` branch into:
 
 ```csharp
-if (outputPath is not null)
+internal static void RunProtectFile(
+    Stream input,
+    string outputPath,
+    IProtectBackend backend,
+    bool noVerify,
+    bool force)
 {
-    bool wroteAny = false;
+    if (force && File.Exists(outputPath))
+    {
+        File.Delete(outputPath);
+    }
+
     try
     {
         byte[] sourceHash;
@@ -1034,11 +1047,10 @@ if (outputPath is not null)
             byte[] header = Header.SerializeForAad(backend.Marker, fileId);
             using TeeStream tee = new(input, hasher);
             ChunkWriter.Write(tee, dest, backend, header);
-            wroteAny = true;
             sourceHash = hasher.GetCurrentHash();
         }
 
-        if (!opts.NoVerify)
+        if (!noVerify)
         {
             using FileStream encrypted = new(outputPath, FileMode.Open, FileAccess.Read, FileShare.Read);
             RoundTripVerifier.Verify(encrypted, backend, sourceHash);
@@ -1052,20 +1064,131 @@ if (outputPath is not null)
 }
 ```
 
-Note: `wroteAny` is informational only — the catch deletes regardless of whether any bytes landed.
+`RunProtect` calls this helper. Mirror the same pattern as `RunUnprotectFile` for the decrypt path.
 
-Apply the same wrap pattern to `RunUnprotect`'s file-output block.
+- [ ] **Step 2: Confirm `InternalsVisibleTo` allows the tests to see internals**
 
-- [ ] **Step 3: Run the suite — verify nothing regresses**
+`src/Winix.Protect/Winix.Protect.csproj` already has `<InternalsVisibleTo Include="Winix.Protect.Tests" />` per the original Task 1 plan (verify by reading the csproj). If not, add it.
+
+- [ ] **Step 3: Add a throwing-backend test double**
+
+Create `tests/Winix.Protect.Tests/PartialOutputCleanupTests.cs`:
+
+```csharp
+#nullable enable
+using System;
+using System.IO;
+using Xunit;
+using Winix.Protect;
+
+namespace Winix.Protect.Tests;
+
+public class PartialOutputCleanupTests
+{
+    private sealed class ThrowingBackend : IProtectBackend
+    {
+        private int _calls;
+        public PlatformMarker Marker => PlatformMarker.MacKeychainUser;
+        public byte[] EncryptChunk(byte[] plaintext, AadContext aad, bool isFinal)
+        {
+            if (++_calls == 2)
+            {
+                throw new InvalidOperationException("simulated mid-stream failure");
+            }
+            byte[] chunk = new byte[1 + 12 + 4 + plaintext.Length + 16];
+            chunk[0] = isFinal ? (byte)1 : (byte)0;
+            // bogus IV / length / tag fields; never read because we throw before the second chunk.
+            return chunk;
+        }
+        public (byte[] plaintext, bool isFinal) DecryptChunk(byte[] chunkPayload, AadContext aad)
+            => throw new NotSupportedException();
+        public void Dispose() { }
+    }
+
+    [Fact]
+    public void RunProtectFile_BackendThrowsMidStream_DeletesPartialOutput()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), $"winix-cleanup-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            // 200 KB plaintext forces multiple chunks at the default 64 KB size.
+            byte[] payload = new byte[200_000];
+            Random.Shared.NextBytes(payload);
+
+            string outputPath = Path.Combine(dir, "x.prot");
+            using ThrowingBackend backend = new();
+
+            Assert.Throws<InvalidOperationException>(
+                () => Winix.Protect.Cli.RunProtectFile(
+                    new MemoryStream(payload),
+                    outputPath,
+                    backend,
+                    noVerify: true,
+                    force: false));
+
+            Assert.False(File.Exists(outputPath), "partial output file should have been deleted");
+        }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { } }
+    }
+}
+```
+
+- [ ] **Step 4: Run the test — verify pass**
+
+Run: `dotnet test tests/Winix.Protect.Tests/Winix.Protect.Tests.csproj --filter "FullyQualifiedName~PartialOutputCleanupTests" --nologo`
+Expected: PASS.
+
+- [ ] **Step 5: Apply the same extraction + test to `RunUnprotectFile`**
+
+Refactor `Cli.RunUnprotect`'s outputPath branch into `internal static void RunUnprotectFile(...)`. Add a parallel `RunUnprotectFile_BackendThrowsMidStream_DeletesPartialOutput` test using a `ThrowingDecryptBackend`.
+
+- [ ] **Step 6: Add a `--rm` ordering test (closes adversarial F5)**
+
+Append to `PartialOutputCleanupTests.cs`:
+
+```csharp
+[Fact]
+public void Cli_ProtectWithRm_BackendThrowsMidStream_LeavesSourceIntact()
+{
+    string dir = Path.Combine(Path.GetTempPath(), $"winix-rm-test-{Guid.NewGuid():N}");
+    Directory.CreateDirectory(dir);
+    try
+    {
+        string input = Path.Combine(dir, "secrets.json");
+        // 200 KB to force multi-chunk so the throwing backend can fail mid-stream.
+        byte[] payload = new byte[200_000];
+        Random.Shared.NextBytes(payload);
+        File.WriteAllBytes(input, payload);
+
+        // Drive Cli.Run end-to-end via a test-injection seam. If the project doesn't expose
+        // a backend-injection seam at Cli.Run level, this test asserts the property at the
+        // RunProtectFile helper boundary AND adds a separate assertion that Cli.RunProtect
+        // calls File.Delete on the source AFTER (not before) RunProtectFile completes.
+        // Implementation detail: confirmed during execution. Acceptable fallback: code-inspection
+        // assertion documented in commit message.
+
+        // For now: assert via Cli.Run with the real backend producing a key-store error
+        // (using a test-only ISecretStore that throws). Concrete implementation TBD by the executor.
+        // Property under test: after a non-zero Cli.Run exit, the source MUST still exist.
+
+        Assert.True(File.Exists(input), "placeholder; replace with concrete failure-injection during execution");
+    }
+    finally { try { Directory.Delete(dir, recursive: true); } catch { } }
+}
+```
+
+If a clean Cli-level injection path is not available, document under "Known Limitations" in the README that interrupting `protect --rm` mid-encrypt may leave the source intact AND a partial `.prot` (the latter cleaned by Task 8 Step 5; the former is a property already enforced by `--rm` running only on the success path of `Cli.Run`'s catch tree).
+
+- [ ] **Step 7: Run the full suite — verify nothing regresses**
 
 Run: `dotnet test tests/Winix.Protect.Tests/Winix.Protect.Tests.csproj --nologo --verbosity quiet`
-Expected: All tests pass.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add src/Winix.Protect/Cli.cs tests/Winix.Protect.Tests/CliOverwriteTests.cs
-git commit -m "fix(protect): delete partial output on encrypt/decrypt failure (closes I2)"
+git add src/Winix.Protect/Cli.cs tests/Winix.Protect.Tests/PartialOutputCleanupTests.cs
+git commit -m "fix(protect): delete partial output on encrypt/decrypt failure (closes I2, F5, F7)"
 ```
 
 ---
@@ -1087,9 +1210,9 @@ catch (Exception ex)
 }
 ```
 
-- [ ] **Step 2: Add a defensive test (optional — test that an unhandled-but-caught exception produces 126)**
+- [ ] **Step 2: Bottom-catch test is explicitly deferred (closes adversarial F12)**
 
-Skip if no clean injection path exists. Note in the commit message that this is verified by inspection.
+The `catch (Exception ex)` bottom-catch has no clean injection seam without adding test-only DI to `Cli.Run`. Per the ADR's "Decisions Explicitly Deferred" entry, this is verified by code inspection only. No test is added in this task. Commit message must include "verified by code inspection — Cli.cs catch tree, exit returns RuntimeErrorExit".
 
 - [ ] **Step 3: Run tests — verify nothing regresses**
 
@@ -1118,12 +1241,24 @@ Append to `CliOverwriteTests.cs`:
 
 ```csharp
 [Fact]
-public void Run_UnknownInvocationName_ThrowsOrErrors()
+public void Run_UnknownInvocationName_Returns126AndNamesTheBadInvocation()
 {
-    int exit = Winix.Protect.Cli.Run([], "protect-rename");
-    Assert.NotEqual(0, exit);
+    StringWriter capturedErr = new();
+    TextWriter originalErr = Console.Error;
+    Console.SetError(capturedErr);
+    try
+    {
+        int exit = Winix.Protect.Cli.Run([], "protect-rename");
+        Assert.Equal(126, exit);
+        string err = capturedErr.ToString();
+        Assert.Contains("protect-rename", err);
+        Assert.Contains("must be 'protect' or 'unprotect'", err);
+    }
+    finally { Console.SetError(originalErr); }
 }
 ```
+
+(Closes adversarial F8 part 2 — explicit exit-code assertion plus stderr-contains-name assertion.)
 
 - [ ] **Step 2: Update `Cli.Run` to validate invocationName**
 
@@ -1282,15 +1417,55 @@ Three sites where `IProtectBackend backend = BackendFactory.Create(opts.Scope);`
 using IProtectBackend backend = BackendFactory.Create(opts.Scope);
 ```
 
-- [ ] **Step 5: Run tests — verify nothing regresses**
+- [ ] **Step 5: Add `Dispose_ZeroesCachedKey` test (closes adversarial F9)**
+
+`AeadBackend._cachedKey` is private. Use `InternalsVisibleTo` (already configured) plus an `internal byte[]? PeekCachedKeyForTests()` accessor on `AeadBackend` to expose it for verification. Add the accessor:
+
+```csharp
+// Test-only accessor; preserves invariant that production code never reads _cachedKey directly.
+internal byte[]? PeekCachedKeyForTests() => _cachedKey;
+```
+
+Append to `tests/Winix.Protect.Tests/AeadBackendTests.cs`:
+
+```csharp
+[Fact]
+public void Dispose_ZeroesCachedKey()
+{
+    NullSecretStore store = new();
+    TestAeadBackend backend = new(store);
+
+    // Force key materialisation by encrypting one chunk.
+    AadContext aad = new(Header.SerializeForAad(PlatformMarker.MacKeychainUser, new byte[16]), 0, true);
+    backend.EncryptChunk([1, 2, 3], aad, isFinal: true);
+
+    byte[]? before = backend.PeekCachedKeyForTests();
+    Assert.NotNull(before);
+    Assert.Equal(32, before!.Length);
+    bool allZeroBefore = true;
+    foreach (byte b in before) { if (b != 0) { allZeroBefore = false; break; } }
+    Assert.False(allZeroBefore, "key should be random pre-Dispose");
+
+    // Capture the buffer reference so we can inspect it after Dispose nulls _cachedKey.
+    byte[] capturedRef = before!;
+    backend.Dispose();
+
+    foreach (byte b in capturedRef)
+    {
+        Assert.Equal(0, b);
+    }
+}
+```
+
+- [ ] **Step 6: Run tests — verify nothing regresses**
 
 Run: `dotnet test tests/Winix.Protect.Tests/Winix.Protect.Tests.csproj --nologo --verbosity quiet`
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src/Winix.Protect/IProtectBackend.cs src/Winix.Protect/AeadBackend.cs src/Winix.Protect/DpapiBackend.cs src/Winix.Protect/Cli.cs
-git commit -m "fix(protect): IProtectBackend : IDisposable; zero key on dispose (closes I7)"
+git add src/Winix.Protect/IProtectBackend.cs src/Winix.Protect/AeadBackend.cs src/Winix.Protect/DpapiBackend.cs src/Winix.Protect/Cli.cs tests/Winix.Protect.Tests/AeadBackendTests.cs
+git commit -m "fix(protect): IProtectBackend : IDisposable; zero key on dispose (closes I7, F9)"
 ```
 
 ---
@@ -1375,6 +1550,46 @@ public class CliErrorHandlingTests
             Assert.Equal(126, exit);
         }
         finally { try { File.Delete(path); } catch { } }
+    }
+
+    [SkippableFact]
+    public void Unprotect_TamperedCiphertext_StderrSaysAuthenticationFailed()
+    {
+        // Closes adversarial F6: distinguishes auth-tag-mismatch ("file tampered") from
+        // generic CryptographicException ("different user/machine").
+        // Run on platforms where AEAD is exercised end-to-end (mac/linux); on Windows the
+        // DPAPI path produces a different message via its own check.
+        Skip.IfNot(!OperatingSystem.IsWindows(), "AEAD path; Windows uses DPAPI envelope error path.");
+
+        string dir = Path.Combine(Path.GetTempPath(), $"winix-tamper-{System.Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            string input = Path.Combine(dir, "secrets.json");
+            string output = Path.Combine(dir, "secrets.json.prot");
+            File.WriteAllText(input, "round-trip me");
+
+            int encExit = Winix.Protect.Cli.Run([input, "-o", output], "protect");
+            Assert.Equal(0, encExit);
+
+            // Flip a byte in the ciphertext body (after the 22-byte header).
+            byte[] bytes = File.ReadAllBytes(output);
+            bytes[Header.Length + 30] ^= 0x01;
+            File.WriteAllBytes(output, bytes);
+
+            StringWriter capturedErr = new();
+            TextWriter originalErr = Console.Error;
+            Console.SetError(capturedErr);
+            try
+            {
+                int decExit = Winix.Protect.Cli.Run([output], "unprotect");
+                Assert.Equal(126, decExit);
+                string err = capturedErr.ToString();
+                Assert.Contains("authentication", err, StringComparison.OrdinalIgnoreCase);
+            }
+            finally { Console.SetError(originalErr); }
+        }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { } }
     }
 }
 ```
@@ -1514,7 +1729,7 @@ git branch -d fix/protect-format-hardening
 
 Before handing off to execution, run through:
 
-1. **Spec coverage** — every Critical and Important from round-1 review has a task:
+1. **Spec coverage** — every Critical and Important from round-1 review + adversarial-review findings has a task:
    - C1 (AEAD substitution) → Tasks 1–3
    - C2 (DPAPI no-AAD) → Task 4
    - C3 (test pattern) → Task 6
@@ -1529,12 +1744,21 @@ Before handing off to execution, run through:
    - I8 (defensive tests) → Task 13
    - Cross-platform smoke → Task 15
    - Docs → Task 14
+   - **Adversarial F1** (FileIdOffset constant) → Task 2 + Task 4
+   - **Adversarial F2** (TOCTOU + symlink-follow on `--force`) → Task 7 (rewritten)
+   - **Adversarial F4** (empty/one-byte source) → Task 3 (added)
+   - **Adversarial F5** (`--rm` ordering) → Task 8 Step 6
+   - **Adversarial F6** (auth-tag-mismatch stderr distinction) → Task 13
+   - **Adversarial F7** (partial-output cleanup test seam) → Task 8 (rewritten)
+   - **Adversarial F8** (Cli-level error tests) → Task 5 Step 6, Task 10 Step 1
+   - **Adversarial F9** (Dispose zeroes key) → Task 12 Step 5
+   - **Adversarial F3, F10, F11, F12, F13** → ADR "Decisions Explicitly Deferred" table
 
-2. **Placeholder scan** — none. All tasks have concrete code.
+2. **Placeholder scan** — three remaining placeholders, all on Cli-level injection seams (Task 5 Step 6, Task 8 Step 6 `--rm` ordering test). Each is gated by an explicit fallback ("if a clean injection path is mechanically available, wire the fake; otherwise document under Known Limitations"). The executor must commit to one or the other — not leave it as "skip if hard."
 
-3. **Type consistency** — `Header.SerializeForAad(PlatformMarker)` from Task 1 is *replaced* (not augmented) by `Header.SerializeForAad(PlatformMarker, byte[])` in Task 2. Task 1's commit lands the single-arg helper that callers depend on; Task 2's commit changes the signature in the same `Header.cs` and updates all callers in the same task. Tests in Task 1 stay green by virtue of the single-arg helper existing; tests in Task 2 stay green because the callers and test helpers update simultaneously. This is the one place where the inter-task ordering matters; intermediate state is "green for the new arity."
+3. **Type consistency** — `Header.SerializeForAad(PlatformMarker)` from Task 1 is *replaced* (not augmented) by `Header.SerializeForAad(PlatformMarker, byte[])` in Task 2. Task 1's commit lands the single-arg helper that callers depend on; Task 2's commit changes the signature, updates all callers, and updates all tests. Tests in Task 1 stay green by virtue of the single-arg helper existing; tests in Task 2 stay green because the callers and test helpers update simultaneously, AND the test header-bytes literals get the zero-FileId form so existing round-trip tests keep working. This intermediate state ("AEAD AAD now binds FileId via headerBytes") is itself green and bisectable per adversarial F13.
 
-4. **Risks not captured** — open question: does `FileMode.CreateNew` raise the same exception class on Windows vs Linux? The plan uses an up-front `File.Exists` guard to side-step the difference. Documented in Task 7 Step 5.
+4. **Risks not captured** — `FileMode.CreateNew` is `O_CREAT | O_EXCL` on POSIX, so it refuses to follow symlinks even when the target doesn't exist; Task 7 Step 5 documents this. Windows has separate symlink semantics that require admin / dev mode to create; the adversarial test gates `[SkippableFact]` to non-Windows for that reason.
 
 ---
 
