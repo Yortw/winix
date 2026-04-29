@@ -128,31 +128,7 @@ public static class Cli
         {
             if (outputPath is not null)
             {
-                // On --force, remove any existing file or symlink at the destination, THEN exclusively-create.
-                // File.Delete on a symlink unlinks the symlink itself, not its target, so this is safe.
-                // The window between Delete and CreateNew is small and CreateNew is O_EXCL on POSIX —
-                // if an attacker plants a symlink in that window, CreateNew throws EEXIST and we report it.
-                if (opts.Force && File.Exists(outputPath))
-                {
-                    File.Delete(outputPath);
-                }
-
-                byte[] sourceHash;
-                using (FileStream dest = new(outputPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-                using (IncrementalHash hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256))
-                {
-                    byte[] fileId = Header.NewFileId();
-                    byte[] header = Header.SerializeForAad(backend.Marker, fileId);
-                    using TeeStream tee = new(input, hasher);
-                    ChunkWriter.Write(tee, dest, backend, header);
-                    sourceHash = hasher.GetCurrentHash();
-                }
-
-                if (!opts.NoVerify)
-                {
-                    using FileStream encrypted = new(outputPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                    RoundTripVerifier.Verify(encrypted, backend, sourceHash);
-                }
+                RunProtectFile(input, outputPath, backend, opts.NoVerify, opts.Force);
             }
             else
             {
@@ -201,10 +177,6 @@ public static class Cli
 
         using (input)
         {
-            Header.ReadResult hdr = Header.Read(input);
-            IProtectBackend backend = BackendFactory.CreateForMarker(hdr.Marker);
-            byte[] headerBytes = Header.SerializeForAad(hdr.Marker, hdr.FileId);
-
             string? outputPath = opts.OutputPath;
             if (outputPath is null && opts.InputPath is not null && opts.InputPath.EndsWith(".prot", StringComparison.Ordinal))
             {
@@ -213,20 +185,13 @@ public static class Cli
 
             if (outputPath is not null)
             {
-                // On --force, remove any existing file or symlink at the destination, THEN exclusively-create.
-                // File.Delete on a symlink unlinks the symlink itself, not its target, so this is safe.
-                // The window between Delete and CreateNew is small and CreateNew is O_EXCL on POSIX —
-                // if an attacker plants a symlink in that window, CreateNew throws EEXIST and we report it.
-                if (opts.Force && File.Exists(outputPath))
-                {
-                    File.Delete(outputPath);
-                }
-
-                using FileStream dest = new(outputPath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
-                ChunkReader.Read(input, dest, backend, headerBytes);
+                RunUnprotectFile(input, outputPath, opts.Force);
             }
             else
             {
+                Header.ReadResult hdr = Header.Read(input);
+                IProtectBackend backend = BackendFactory.CreateForMarker(hdr.Marker);
+                byte[] headerBytes = Header.SerializeForAad(hdr.Marker, hdr.FileId);
                 using Stream stdout = Console.OpenStandardOutput();
                 ChunkReader.Read(input, stdout, backend, headerBytes);
             }
@@ -238,6 +203,101 @@ public static class Cli
         }
 
         return ExitCode.Success;
+    }
+
+    /// <summary>
+    /// Encrypt <paramref name="input"/> to <paramref name="outputPath"/> via <paramref name="backend"/>.
+    /// On any throw mid-stream, deletes the partial output file before rethrowing — but only if
+    /// the file was created by THIS call (not pre-existing user data we refused to overwrite).
+    /// </summary>
+    /// <remarks>
+    /// Internal so tests can drive the cleanup path with a throwing backend without going through
+    /// real DPAPI / SecretStore. The <c>createdDest</c> latch is the safety property: an
+    /// IOException from <c>CreateNew</c> against a pre-existing file must not trigger our delete —
+    /// that would silently destroy user data the default-overwrite-refusal contract is meant to
+    /// preserve.
+    /// </remarks>
+    internal static void RunProtectFile(
+        Stream input,
+        string outputPath,
+        IProtectBackend backend,
+        bool noVerify,
+        bool force)
+    {
+        // On --force, remove any existing file or symlink at the destination, THEN exclusively-create.
+        // File.Delete on a symlink unlinks the symlink itself, not its target, so this is safe.
+        // The window between Delete and CreateNew is small and CreateNew is O_EXCL on POSIX —
+        // if an attacker plants a symlink in that window, CreateNew throws EEXIST and we report it.
+        if (force && File.Exists(outputPath))
+        {
+            File.Delete(outputPath);
+        }
+
+        bool createdDest = false;
+        try
+        {
+            byte[] sourceHash;
+            using (FileStream dest = new(outputPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            using (IncrementalHash hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256))
+            {
+                // Latch as soon as CreateNew succeeds — only THEN do we own the destination file.
+                // If CreateNew throws (EEXIST against pre-existing data), createdDest stays false
+                // and the catch block leaves the user's file alone.
+                createdDest = true;
+                byte[] fileId = Header.NewFileId();
+                byte[] header = Header.SerializeForAad(backend.Marker, fileId);
+                using TeeStream tee = new(input, hasher);
+                ChunkWriter.Write(tee, dest, backend, header);
+                sourceHash = hasher.GetCurrentHash();
+            }
+
+            if (!noVerify)
+            {
+                using FileStream encrypted = new(outputPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                RoundTripVerifier.Verify(encrypted, backend, sourceHash);
+            }
+        }
+        catch
+        {
+            if (createdDest)
+            {
+                try { if (File.Exists(outputPath)) File.Delete(outputPath); } catch { }
+            }
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Decrypt <paramref name="input"/> (whose header is read here) to <paramref name="outputPath"/>.
+    /// On any throw mid-stream, deletes the partial output file before rethrowing — but only if
+    /// the file was created by THIS call (not pre-existing user data we refused to overwrite).
+    /// </summary>
+    internal static void RunUnprotectFile(Stream input, string outputPath, bool force)
+    {
+        Header.ReadResult hdr = Header.Read(input);
+        IProtectBackend backend = BackendFactory.CreateForMarker(hdr.Marker);
+        byte[] headerBytes = Header.SerializeForAad(hdr.Marker, hdr.FileId);
+
+        if (force && File.Exists(outputPath))
+        {
+            File.Delete(outputPath);
+        }
+
+        bool createdDest = false;
+        try
+        {
+            using FileStream dest = new(outputPath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+            createdDest = true;
+            ChunkReader.Read(input, dest, backend, headerBytes);
+        }
+        catch
+        {
+            if (createdDest)
+            {
+                try { if (File.Exists(outputPath)) File.Delete(outputPath); } catch { }
+            }
+            throw;
+        }
     }
 
     // Compute the destination path that RunProtect/RunUnprotect would actually write to,
