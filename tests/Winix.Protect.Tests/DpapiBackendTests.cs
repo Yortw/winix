@@ -61,4 +61,44 @@ public class DpapiBackendTests
         Assert.Throws<System.Security.Cryptography.CryptographicException>(
             () => backend.DecryptChunk(chunk, aad));
     }
+
+    [Fact]
+    public void IntraFileChunkReorder_ThrowsOnDecrypt()
+    {
+        if (!OnWindows) return;
+        DpapiBackend backend = new(Scope.User);
+
+        byte[] fileId = Header.NewFileId();
+        byte[] header = Header.SerializeForAad(backend.Marker, fileId);
+
+        AadContext aad0 = new(header, 0, false);
+        AadContext aad1 = new(header, 1, true);
+
+        byte[] chunk0 = backend.EncryptChunk([0xAA, 0xBB], aad0, isFinal: false);
+        byte[] chunk1 = backend.EncryptChunk([0xCC, 0xDD], aad1, isFinal: true);
+
+        // Try to decrypt chunk1 in the position of chunk0 (chunkIndex=0, isFinal=false).
+        Assert.Throws<System.Security.Cryptography.CryptographicException>(
+            () => backend.DecryptChunk(chunk1, aad0));
+    }
+
+    [Fact]
+    public void CrossFileChunkSubstitution_ThrowsOnDecrypt()
+    {
+        if (!OnWindows) return;
+        DpapiBackend backend = new(Scope.User);
+
+        byte[] fileIdA = Header.NewFileId();
+        byte[] fileIdB = Header.NewFileId();
+        byte[] hdrA = Header.SerializeForAad(backend.Marker, fileIdA);
+        byte[] hdrB = Header.SerializeForAad(backend.Marker, fileIdB);
+
+        AadContext aadA = new(hdrA, 0, true);
+        AadContext aadB = new(hdrB, 0, true);
+
+        byte[] chunkFromB = backend.EncryptChunk([0xAA, 0xBB], aadB, isFinal: true);
+
+        Assert.Throws<System.Security.Cryptography.CryptographicException>(
+            () => backend.DecryptChunk(chunkFromB, aadA));
+    }
 }
