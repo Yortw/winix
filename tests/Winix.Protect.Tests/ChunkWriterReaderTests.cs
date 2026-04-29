@@ -141,6 +141,29 @@ public class ChunkWriterReaderTests
     }
 
     [Fact]
+    public void Dpapi_RoundTrip_OneByte_Works()
+    {
+        if (!OnWindows) return;
+#pragma warning disable CA1416
+        DpapiBackend backend = new(Scope.User);
+#pragma warning restore CA1416
+        byte[] header = Header.SerializeForAad(PlatformMarker.WindowsDpapiUser, Header.NewFileId());
+
+        byte[] input = [0x42];
+
+        using MemoryStream cipherStream = new();
+        using MemoryStream sourceStream = new(input);
+        ChunkWriter.Write(sourceStream, cipherStream, backend, header);
+
+        byte[] encrypted = cipherStream.ToArray();
+        using MemoryStream readStream = new(encrypted, Header.Length, encrypted.Length - Header.Length);
+        using MemoryStream outStream = new();
+        ChunkReader.Read(readStream, outStream, backend, header);
+
+        Assert.Equal(input, outStream.ToArray());
+    }
+
+    [Fact]
     public void Dpapi_RoundTrip_EmptyPayload_Works()
     {
         if (!OnWindows) return;

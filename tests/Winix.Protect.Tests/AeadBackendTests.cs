@@ -63,6 +63,23 @@ public class AeadBackendTests
     }
 
     [Fact]
+    public void Decrypt_ChunkFromDifferentFileId_Throws()
+    {
+        TestAeadBackend backend = new(new NullSecretStore());
+
+        byte[] fileIdA = Header.NewFileId();
+        byte[] fileIdB = Header.NewFileId();
+
+        AadContext aadA = new(Header.SerializeForAad(PlatformMarker.MacKeychainUser, fileIdA), 0, true);
+        AadContext aadB = new(Header.SerializeForAad(PlatformMarker.MacKeychainUser, fileIdB), 0, true);
+
+        byte[] chunkFromB = backend.EncryptChunk([1, 2, 3], aadB, isFinal: true);
+
+        Assert.Throws<System.Security.Cryptography.AuthenticationTagMismatchException>(
+            () => backend.DecryptChunk(chunkFromB, aadA));
+    }
+
+    [Fact]
     public void Key_IsGeneratedOnFirstUseAndReusedAfter()
     {
         NullSecretStore shared = new();
