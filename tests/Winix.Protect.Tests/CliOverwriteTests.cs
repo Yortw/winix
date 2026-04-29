@@ -105,4 +105,21 @@ public class CliOverwriteTests
         }
         finally { try { Directory.Delete(dir, recursive: true); } catch { } }
     }
+
+    [Fact]
+    public void Run_UnknownInvocationName_Returns126AndNamesTheBadInvocation()
+    {
+        StringWriter capturedErr = new();
+        TextWriter originalErr = Console.Error;
+        Console.SetError(capturedErr);
+        try
+        {
+            int exit = Winix.Protect.Cli.Run([], "protect-rename");
+            Assert.Equal(126, exit);
+            string err = capturedErr.ToString();
+            Assert.Contains("protect-rename", err);
+            Assert.Contains("must be 'protect' or 'unprotect'", err);
+        }
+        finally { Console.SetError(originalErr); }
+    }
 }

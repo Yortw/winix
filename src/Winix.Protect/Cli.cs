@@ -12,10 +12,26 @@ public static class Cli
 
     public static int Run(string[] args, string invocationName)
     {
+        // Validate invocation name BEFORE any other state changes — a renamed binary or typo
+        // must not silently default to encrypt (would expose plaintext on the wrong code path).
+        SubCommand subCommand;
+        if (invocationName == "protect")
+        {
+            subCommand = SubCommand.Protect;
+        }
+        else if (invocationName == "unprotect")
+        {
+            subCommand = SubCommand.Unprotect;
+        }
+        else
+        {
+            Console.Error.WriteLine($"{invocationName}: invocation name must be 'protect' or 'unprotect' (got '{invocationName}'). Refusing to default to encrypt.");
+            return RuntimeErrorExit;
+        }
+
         ConsoleEnv.EnableAnsiIfNeeded();
         ConsoleEnv.UseUtf8Streams();
 
-        SubCommand subCommand = invocationName == "unprotect" ? SubCommand.Unprotect : SubCommand.Protect;
         ArgParser.Result parsed = ArgParser.Parse(args, subCommand);
 
         // ShellKit auto-writes --help / --version / --describe output during Parse and sets IsHandled=true.
