@@ -83,56 +83,115 @@ public class AeadLibsecretBackendIntegrationTests
 }
 
 /// <summary>
-/// Capability probe for the libsecret D-Bus service. Distinguishes "service unreachable"
-/// (skip the test) from "service reachable but no entry yet" (run the test). The probe
-/// shells out to <c>secret-tool lookup</c> with a non-existent label and inspects stderr
-/// for sentinel strings emitted when the bus or daemon is missing.
-///
-/// Per <c>feedback_probe_must_observe.md</c>: we treat <em>observed</em> sentinel error
-/// text as evidence of unreachability, not the absence of stdout output.
+/// Capability probe for the libsecret D-Bus service. Per <c>feedback_probe_must_observe.md</c>,
+/// the probe actually exercises the path it gates rather than inferring reachability from
+/// stderr heuristics: it does a one-shot store → lookup → clear round-trip with a
+/// uniquely-named throwaway attribute set. If all three steps succeed, the service is
+/// reachable for our purposes; any failure (timeout, non-zero exit, mismatched value)
+/// returns false. This replaces an earlier heuristic probe that returned false negatives
+/// on the GitHub Actions ubuntu-latest runner.
 /// </summary>
 internal static class LibsecretProbe
 {
     public const string SkipReason =
         "libsecret service not reachable (run inside dbus-run-session with gnome-keyring-daemon — see CI ubuntu-latest steps)";
 
+    /// <summary>Last failure detail captured during the most recent <see cref="IsServiceReachable"/> call. Surfaced via <see cref="Console.Error"/> so a CI log shows why the integration tests skipped.</summary>
+    private static string? _lastFailureDetail;
+
     public static bool IsServiceReachable()
     {
         if (!OperatingSystem.IsLinux()) { return false; }
 
+        // Use a guaranteed-unique attribute pair so we don't collide with anything else
+        // in the keyring and so a stale entry from a previous failed probe doesn't poison
+        // the current call.
+        string probeService = $"winix-probe-{Guid.NewGuid():N}";
+        const string probeKey = "v";
+        const string probeValue = "DEADBEEF";
+
         try
         {
-            ProcessStartInfo psi = new("secret-tool")
+            // Step 1: store a sentinel value via stdin.
+            (int storeExit, string _, string storeErr) = RunSecretTool(
+                ["store", "--label=winix-probe", "service", probeService, "key", probeKey],
+                stdin: probeValue);
+            if (storeExit != 0)
             {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-            };
-            psi.ArgumentList.Add("lookup");
-            psi.ArgumentList.Add("winix-protect-probe");
-            psi.ArgumentList.Add("nonexistent");
-
-            using Process? p = Process.Start(psi);
-            if (p is null) { return false; }
-            if (!p.WaitForExit(3000))
-            {
-                try { p.Kill(); } catch { /* best effort */ }
+                Report($"store exit={storeExit} stderr='{Truncate(storeErr)}'");
                 return false;
             }
-            string stderr = p.StandardError.ReadToEnd();
-            // Empty stderr + exit 1 = "no entry found" (service reachable, no match).
-            // Sentinel strings indicate the bus or daemon couldn't be contacted.
-            string[] unreachableSentinels = ["machine-id", "Cannot spawn", "Cannot autolaunch", "No such interface"];
-            return !unreachableSentinels.Any(stderr.Contains);
+
+            // Step 2: read it back. Any deviation from the sentinel = service is reachable
+            // but not behaving correctly; treat as unreachable for test gating purposes.
+            (int lookupExit, string lookupOut, string lookupErr) = RunSecretTool(
+                ["lookup", "service", probeService, "key", probeKey], stdin: null);
+            try
+            {
+                if (lookupExit != 0 || lookupOut.Trim() != probeValue)
+                {
+                    Report($"lookup exit={lookupExit} stdout='{Truncate(lookupOut)}' stderr='{Truncate(lookupErr)}'");
+                    return false;
+                }
+                return true;
+            }
+            finally
+            {
+                // Step 3: best-effort cleanup — never let a leftover entry confuse the next probe.
+                RunSecretTool(["clear", "service", probeService, "key", probeKey], stdin: null);
+            }
         }
-        catch (System.ComponentModel.Win32Exception)
+        catch (System.ComponentModel.Win32Exception ex)
         {
             // secret-tool not on PATH — service definitely unreachable.
+            Report($"secret-tool not found: {ex.Message}");
             return false;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            Report($"unexpected: {ex.GetType().Name}: {ex.Message}");
             return false;
         }
+    }
+
+    private static (int exitCode, string stdout, string stderr) RunSecretTool(string[] args, string? stdin)
+    {
+        ProcessStartInfo psi = new("secret-tool")
+        {
+            RedirectStandardInput = stdin is not null,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        foreach (string a in args)
+        {
+            psi.ArgumentList.Add(a);
+        }
+        using Process? p = Process.Start(psi)
+            ?? throw new InvalidOperationException("Process.Start returned null for secret-tool.");
+        if (stdin is not null)
+        {
+            p.StandardInput.Write(stdin);
+            p.StandardInput.Close();
+        }
+        if (!p.WaitForExit(5000))
+        {
+            try { p.Kill(); } catch { /* best effort */ }
+            return (-1, string.Empty, "probe timed out after 5s");
+        }
+        string stdout = p.StandardOutput.ReadToEnd();
+        string stderr = p.StandardError.ReadToEnd();
+        return (p.ExitCode, stdout, stderr);
+    }
+
+    private static string Truncate(string s) => s.Length <= 200 ? s : s.Substring(0, 200) + "...";
+
+    private static void Report(string detail)
+    {
+        if (_lastFailureDetail == detail) { return; }
+        _lastFailureDetail = detail;
+        // xUnit captures stderr per-test process and surfaces it in CI logs when tests skip
+        // unexpectedly. This is the only diagnostic signal the integration tests have.
+        Console.Error.WriteLine($"LibsecretProbe: service unreachable — {detail}");
     }
 }
