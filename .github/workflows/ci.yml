@@ -58,12 +58,23 @@ jobs:
       - name: Test (Linux with libsecret service)
         if: matrix.os == 'ubuntu-latest'
         shell: bash
+        # Warmup before dotnet test: the first secret-tool call right after
+        # gnome-keyring-daemon --start sometimes hits "Connection refused" because
+        # the daemon hasn't finished registering its bus name. A blocking store call
+        # absorbs that race so the first integration test doesn't flake. We
+        # deliberately skip a `secret-tool clear` cleanup of the warmup entry —
+        # that command produces a SIGPIPE-style signal that kills dbus-daemon
+        # (observed empirically: `dbus-daemon terminated by signal 13` followed by
+        # `secret-tool: Could not connect: Connection refused` on every subsequent
+        # call). A stale `winix-warmup` entry in an ephemeral session keyring is
+        # harmless; the session and its keyring evaporate when dbus-run-session exits.
         run: |
           dbus-run-session -- bash -c '
             set -e
             printf "\n" | gnome-keyring-daemon --unlock --components=secrets >/dev/null
             eval $(printf "\n" | gnome-keyring-daemon --start --components=secrets)
             export DBUS_SESSION_BUS_ADDRESS GNOME_KEYRING_CONTROL SSH_AUTH_SOCK
+            printf warmup | secret-tool store --label winix-warmup service winix-warmup key v
             dotnet test Winix.sln --no-build -c Release --logger "trx;LogFileName=results.trx"
           '
 
