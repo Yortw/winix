@@ -134,10 +134,11 @@ public class KeyResolverTests
         Assert.Null(key);
     }
 
-    [Fact]
+    [SkippableFact]
     public void ResolveFromFile_GroupReadable_Unix_EmitsWarning()
     {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return;
+        Skip.If(RuntimeInformation.IsOSPlatform(OSPlatform.Windows), "Unix-only — uses File.SetUnixFileMode and asserts on the group/other-readable warning that doesn't apply on Windows.");
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return; // redundant, satisfies analyzer
 
         string path = Path.GetTempFileName();
         try

@@ -26,10 +26,11 @@ public class WindowsClipboardBackendTests
         }
     }
 
-    [Fact]
+    [SkippableFact]
     public void CopyThenPaste_RoundTripsText()
     {
-        if (!IsWindows) { return; }
+        Skip.IfNot(IsWindows, "Windows-only — exercises Windows clipboard backend.");
+        if (!IsWindows) { return; } // redundant, satisfies CA1416 analyzer
 
         RunOrSkipIfBusy(() =>
         {
@@ -41,10 +42,11 @@ public class WindowsClipboardBackendTests
         });
     }
 
-    [Fact]
+    [SkippableFact]
     public void CopyThenPaste_PreservesUnicode()
     {
-        if (!IsWindows) { return; }
+        Skip.IfNot(IsWindows, "Windows-only — exercises Windows clipboard backend.");
+        if (!IsWindows) { return; } // redundant, satisfies CA1416 analyzer
 
         RunOrSkipIfBusy(() =>
         {
@@ -56,10 +58,11 @@ public class WindowsClipboardBackendTests
         });
     }
 
-    [Fact]
+    [SkippableFact]
     public void Clear_ThenPaste_ReturnsEmpty()
     {
-        if (!IsWindows) { return; }
+        Skip.IfNot(IsWindows, "Windows-only — exercises Windows clipboard backend.");
+        if (!IsWindows) { return; } // redundant, satisfies CA1416 analyzer
 
         RunOrSkipIfBusy(() =>
         {
@@ -72,10 +75,11 @@ public class WindowsClipboardBackendTests
         });
     }
 
-    [Fact]
+    [SkippableFact]
     public void CopyEmpty_ThenPaste_ReturnsEmpty()
     {
-        if (!IsWindows) { return; }
+        Skip.IfNot(IsWindows, "Windows-only — exercises Windows clipboard backend.");
+        if (!IsWindows) { return; } // redundant, satisfies CA1416 analyzer
 
         RunOrSkipIfBusy(() =>
         {

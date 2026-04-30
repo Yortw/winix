@@ -80,14 +80,15 @@ public class CommandRunnerTests
         Assert.Equal(0, result.ExitCode);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Run_PermissionDenied_ThrowsCommandNotExecutableException()
     {
         // Create a file with no execute permission. On Windows the EACCES error code
         // is harder to trigger reliably without ACL manipulation, so skip on Windows.
+        Skip.If(OperatingSystem.IsWindows(), "Unix-only — EACCES on chmod-cleared file is hard to trigger reliably on Windows without ACL plumbing.");
         if (OperatingSystem.IsWindows())
         {
-            return;
+            return; // redundant, satisfies CA1416 analyzer
         }
 
         string tempFile = Path.Combine(Path.GetTempPath(), $"timeit-test-noexec-{Guid.NewGuid()}");
