@@ -60,6 +60,13 @@ public class CliErrorHandlingTests
             int encExit = Winix.Protect.Cli.Run([input, "-o", output], "protect");
             Assert.Equal(0, encExit);
 
+            // Remove the plaintext source so unprotect's default output path (`output` minus
+            // the `.prot` suffix == `input`) doesn't collide with an existing file. Without
+            // this, Task 7's overwrite-refusal causes unprotect to return 125 (usage error)
+            // before the AEAD path ever runs, and we never observe the auth-tag-mismatch
+            // message this test exists to assert.
+            File.Delete(input);
+
             // Flip a byte in the ciphertext body (after the 22-byte header).
             byte[] bytes = File.ReadAllBytes(output);
             bytes[Header.Length + 30] ^= 0x01;
