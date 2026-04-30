@@ -1680,24 +1680,45 @@ Confirm `protect FILE --rm` followed by `unprotect FILE.prot` round-trips succes
 - [ ] **Step 7: Commit**
 
 ```bash
-git commit -m "fix(protect): align AEAD backend namespace with libsecret <tool>/<sub> contract
+git commit -m "fix(protect): align AEAD backend namespace with libsecret <tool>/<sub> contract"
+```
 
-Linux smoke (Task 15 Step 3) revealed AeadLibsecretBackend was passing
-'winix-protect' as the secret-store namespace, which has failed
-LinuxNamespace.ExtractTool's <tool>/<sub...> contract since 6340999.
-Bug shipped because no end-to-end Linux test existed and the helper-level
-unit tests didn't assert that backend constants satisfy the contract.
+---
 
-- New SecretLayout.KeyNamespace = 'winix-protect/keys' (single source).
-- Both AeadKeychainBackend and AeadLibsecretBackend now use it.
-- New AeadBackendNamespaceContractTests locks the contract.
-- No migration: protect is unreleased on macOS, and Linux has been
-  broken since the contract tightened, so no users have stored keys
-  under the old namespace.
+## Task 14c: Add real-libsecret CI coverage so this regression class is caught next time
 
-Plan-to-code divergence recorded as Task 14b in
-docs/plans/2026-04-29-protect-format-hardening-plan.md and as a new
-decision in the companion ADR."
+**Continued from Task 14b on 2026-04-30. Recorded as plan-to-code divergence.**
+
+The Tier 1 unit test (`AeadBackendNamespaceContractTests`) locks the namespace constant, but a deeper question remains: the bug in 14b shipped because no test exercised the AEAD libsecret call chain end-to-end. The reverted commit `2bf9ed7` documents that prior CI attempts to enable libsecret on `ubuntu-latest` failed three times on `discover_other_daemon` collisions. Resolving this here so the existing skipped-on-Linux libsecret tests (in `Winix.SecretStore.Tests`, `Winix.EnvVault.Tests`, and the new ones added below) actually run in CI.
+
+**Files:**
+- Create: `tests/Winix.Protect.Tests/AeadLibsecretBackendIntegrationTests.cs` (real-libsecret integration test, SkippableFact + capability probe)
+- Modify: `.github/workflows/ci.yml` (provision libsecret + gnome-keyring + dbus on `ubuntu-latest`, wrap test step in `dbus-run-session`)
+
+- [ ] **Step 1: Add a Linux integration test that round-trips through the real `AeadLibsecretBackend`**
+
+Two `[SkippableFact]` cases — small payload (single chunk) and 5 MiB payload (~80 chunks, exercises `chunkIndex` 0..79 in the per-chunk AAD). Use a `LibsecretProbe.IsServiceReachable()` capability probe that shells out to `secret-tool lookup` and inspects stderr for sentinel strings (`machine-id`, `Cannot spawn`, `Cannot autolaunch`) per `feedback_probe_must_observe.md`.
+
+- [ ] **Step 2: Verify locally**
+
+Run on Windows: tests SKIP (`LibsecretProbe.IsServiceReachable()` returns false on non-Linux). Run in WSL inside `dbus-run-session -- bash -c '...'` after `gnome-keyring-daemon --unlock --components=secrets`: tests PASS.
+
+- [ ] **Step 3: Wire libsecret service provisioning into `ubuntu-latest` CI**
+
+In `.github/workflows/ci.yml`:
+- Add an "Install Linux secret service dependencies" step that `apt-get install`s `gnome-keyring`, `dbus-x11`, `libsecret-tools` on `ubuntu-latest` only.
+- Split the "Test" step into two: the existing one for non-Linux runners, and a new "Test (Linux with libsecret service)" step that wraps `dotnet test` in `dbus-run-session -- bash -c '...'` with the same gnome-keyring init recipe verified locally.
+
+The `dbus-run-session` wrapper sidesteps the `discover_other_daemon` issue from the prior reverts by spawning an isolated session bus per test invocation rather than reusing the runner's pre-existing dbus.
+
+- [ ] **Step 4: Push branch + verify the new CI step turns green**
+
+The local WSL run is the strongest predictor we have, but CI runners differ from WSL. Watch the first run; if it fails, iterate.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git commit -m "test(protect): add libsecret CI integration tests + ubuntu-latest gnome-keyring setup"
 ```
 
 ---

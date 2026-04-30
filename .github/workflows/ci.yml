@@ -31,8 +31,35 @@ jobs:
       - name: Build
         run: dotnet build Winix.sln --no-restore -c Release
 
+      # libsecret-tools + gnome-keyring + dbus-x11 give the Linux runner a
+      # working secret service so AeadLibsecretBackendIntegrationTests and the
+      # other libsecret-backed tests can run for real (otherwise they SkippableFact-skip).
+      # Prior CI attempts (commits bf83675 / 4d48587 / 2bf9ed7) tried gnome-keyring
+      # against the runner's pre-existing dbus and hit "discover_other_daemon: 1".
+      # The dbus-run-session wrapper below sidesteps that by spawning an isolated
+      # session bus per test invocation; verified locally in WSL Ubuntu 24.04 against
+      # the same gnome-keyring + dbus-x11 packages.
+      - name: Install Linux secret service dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y gnome-keyring dbus-x11 libsecret-tools
+
       - name: Test
+        if: matrix.os != 'ubuntu-latest'
         run: dotnet test Winix.sln --no-build -c Release --logger "trx;LogFileName=results.trx"
+
+      - name: Test (Linux with libsecret service)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          dbus-run-session -- bash -c '
+            set -e
+            printf "\n" | gnome-keyring-daemon --unlock --components=secrets >/dev/null
+            eval $(printf "\n" | gnome-keyring-daemon --start --components=secrets)
+            export DBUS_SESSION_BUS_ADDRESS GNOME_KEYRING_CONTROL SSH_AUTH_SOCK
+            dotnet test Winix.sln --no-build -c Release --logger "trx;LogFileName=results.trx"
+          '
 
       - name: Upload test results
         if: always()
