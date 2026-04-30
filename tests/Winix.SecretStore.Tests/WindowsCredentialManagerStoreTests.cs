@@ -9,10 +9,11 @@ namespace Winix.SecretStore.Tests;
 
 public class WindowsCredentialManagerStoreTests
 {
-    [Fact]
+    [SkippableFact]
     public void ListKeys_ReturnsAllKeysSetUnderNamespace()
     {
-        if (!OperatingSystem.IsWindows()) return;
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only integration test");
+        if (!OperatingSystem.IsWindows()) return; // redundant, satisfies CA1416 analyzer
         WindowsCredentialManagerStore store = new();
         string ns = $"envvault-test-{Guid.NewGuid():N}/github";
         try
@@ -31,10 +32,11 @@ public class WindowsCredentialManagerStoreTests
         }
     }
 
-    [Fact]
+    [SkippableFact]
     public void ListNamespaces_ReturnsDistinctNamespacesUnderPrefix()
     {
-        if (!OperatingSystem.IsWindows()) return;
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only integration test");
+        if (!OperatingSystem.IsWindows()) return; // redundant, satisfies CA1416 analyzer
         WindowsCredentialManagerStore store = new();
         string prefix = $"envvault-test-{Guid.NewGuid():N}";
         try

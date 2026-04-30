@@ -11,10 +11,11 @@ namespace Winix.WhoHolds.Tests;
 
 public sealed class FileLockFinderTests
 {
-    [Fact]
+    [SkippableFact]
     public void Find_LockedFile_ReturnsCurrentProcess()
     {
-        if (!OperatingSystem.IsWindows()) { return; }
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only integration test");
+        if (!OperatingSystem.IsWindows()) { return; } // redundant, satisfies CA1416 analyzer
 
         string filePath = Path.GetTempFileName();
         try
@@ -32,10 +33,11 @@ public sealed class FileLockFinderTests
         }
     }
 
-    [Fact]
+    [SkippableFact]
     public void Find_UnlockedFile_ReturnsEmpty()
     {
-        if (!OperatingSystem.IsWindows()) { return; }
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only integration test");
+        if (!OperatingSystem.IsWindows()) { return; } // redundant, satisfies CA1416 analyzer
 
         string filePath = Path.GetTempFileName();
         try
@@ -49,20 +51,22 @@ public sealed class FileLockFinderTests
         }
     }
 
-    [Fact]
+    [SkippableFact]
     public void Find_NonExistentFile_ReturnsEmpty()
     {
-        if (!OperatingSystem.IsWindows()) { return; }
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only integration test");
+        if (!OperatingSystem.IsWindows()) { return; } // redundant, satisfies CA1416 analyzer
 
         string filePath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".tmp");
         var results = FileLockFinder.Find(filePath);
         Assert.Empty(results);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Find_LockedFile_ResourceContainsFilePath()
     {
-        if (!OperatingSystem.IsWindows()) { return; }
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only integration test");
+        if (!OperatingSystem.IsWindows()) { return; } // redundant, satisfies CA1416 analyzer
 
         string filePath = Path.GetTempFileName();
         try

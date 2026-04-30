@@ -102,7 +102,7 @@ public class CommandExecutorTests
         Assert.Contains("could not be found on the PATH.", result.Output);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task RunAsync_CapturedOutput_HasLfLineEndings()
     {
         // R6 smoke-test fix: CRLF → LF normalisation at the API boundary. Windows
@@ -110,7 +110,8 @@ public class CommandExecutorTests
         // buffer, JSON envelope last_output, --exit-on-match regex) expect LF.
         // Pin: captured Output must not contain CR characters when running a
         // Windows child that writes CRLF (cmd.exe echo always writes \r\n).
-        if (!OperatingSystem.IsWindows()) return;  // CRLF is only emitted by Windows children
+        Skip.IfNot(OperatingSystem.IsWindows(), "CRLF is only emitted by Windows children");
+        if (!OperatingSystem.IsWindows()) return; // redundant, satisfies CA1416 analyzer
 
         PeepResult result = await CommandExecutor.RunAsync(
             "cmd.exe", new[] { "/c", "echo line1 & echo line2" }, TriggerSource.Initial);
