@@ -51,6 +51,24 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y gnome-keyring dbus-x11 libsecret-tools
 
+      # macos-latest runners ship with an asymmetric keychain config: the default
+      # keychain and the search list don't agree, so `add-generic-password` writes
+      # to one keychain while `find/delete-generic-password` searches a different
+      # one — `find` reports "not found" for entries that `add` can see, and a
+      # subsequent `add` collides with the (still-present) entry as "already exists".
+      # We saw this exact failure mode in AeadKeychainBackendIntegrationTests.
+      # Configuring a single fresh build keychain as both default + search list
+      # makes all three security CLI commands target the same place, matching a
+      # normal macOS user's environment.
+      - name: Configure macOS keychain
+        if: matrix.os == 'macos-latest'
+        run: |
+          security create-keychain -p winix-ci build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p winix-ci build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security list-keychains -d user -s build.keychain login.keychain
+
       - name: Test
         if: matrix.os != 'ubuntu-latest'
         run: dotnet test Winix.sln --no-build -c Release --logger "trx;LogFileName=results.trx"

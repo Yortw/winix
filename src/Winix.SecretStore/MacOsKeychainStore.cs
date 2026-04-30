@@ -120,19 +120,26 @@ public sealed class MacOsKeychainStore : ISecretStore
 
     private void SetCore(string namespace_, string key, byte[] value)
     {
-        // -U is macOS's documented upsert form: "Update item if it already exists" (man security).
-        // The previous approach was DeleteCore-then-add, which is fragile on hosts where
-        // delete-generic-password and add-generic-password don't agree on the target keychain
-        // (search-list vs default-keychain): the delete reports "not found", the add then
-        // collides with an entry that the delete couldn't see, and Set throws "already exists".
-        // Observed on the GitHub Actions macos-latest runner with our AeadKeychainBackend
-        // integration test repeatedly setting the same (namespace, key). -U sidesteps the
-        // search/target inconsistency by letting `security` itself decide.
+        // Delete first so we don't hit "already exists" on update; ignore failure.
+        // Must call DeleteCore (not public Delete) to avoid cascading into UpdateIndexForDelete,
+        // which would write the meta entry redundantly before UpdateIndexForSet re-adds it.
+        //
+        // SAFETY (do NOT replace this with `add-generic-password -U`): `-U` would let an
+        // existing entry be silently overwritten, which is correct for envvault (upsert) but
+        // catastrophic for AeadBackend's master key — replacing the AES-256 master key
+        // permanently un-decrypts every file already protected with the previous key. The
+        // delete-then-add pattern preserves the load-bearing safety property: if
+        // `AeadBackend.GetOrCreateKey()` ever sees the key as missing when it actually exists
+        // (e.g. transient keychain read inconsistency), `add-generic-password` here will
+        // raise "already exists" loudly rather than silently destroying the key. Both Set
+        // operations target the same keychain because the caller's CI environment is
+        // configured (in ci.yml) so default-keychain == search list.
+        DeleteCore(namespace_, key);
+
         string hex = Convert.ToHexString(value);
         string[] args =
         [
             "add-generic-password",
-            "-U",
             "-s", namespace_,
             "-a", key,
             "-w", hex,
