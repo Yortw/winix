@@ -134,11 +134,11 @@ public class HmacFactoryTests
         Assert.Equal(bytesHash, streamHash);
     }
 
-    // SHA-3 platform guard — see HashFactoryTests.cs Sha3_256_KnownVector for rationale.
-    [Fact]
+    // SHA-3 capability gate — see HashFactoryTests.cs Sha3_256_KnownVector for rationale.
+    [SkippableFact]
     public void HmacSha3_256_Available()
     {
-        if (!System.Security.Cryptography.HMACSHA3_256.IsSupported) return;
+        Skip.IfNot(System.Security.Cryptography.HMACSHA3_256.IsSupported, "HMAC-SHA3 not supported on this OS/runtime");
 
         byte[] key = Encoding.UTF8.GetBytes("key");
         byte[] data = Encoding.UTF8.GetBytes("data");
@@ -149,10 +149,10 @@ public class HmacFactoryTests
         Assert.NotEqual(new byte[32], hash);
     }
 
-    [Fact]
+    [SkippableFact]
     public void HmacSha3_512_Available()
     {
-        if (!System.Security.Cryptography.HMACSHA3_512.IsSupported) return;
+        Skip.IfNot(System.Security.Cryptography.HMACSHA3_512.IsSupported, "HMAC-SHA3 not supported on this OS/runtime");
 
         byte[] key = Encoding.UTF8.GetBytes("key");
         byte[] data = Encoding.UTF8.GetBytes("data");

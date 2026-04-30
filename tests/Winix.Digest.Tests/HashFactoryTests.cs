@@ -60,32 +60,33 @@ public class HashFactoryTests
             Hex.Encode(hash));
     }
 
-    [Fact]
+    [SkippableFact]
     public void Sha3_256_KnownVector()
     {
-        // Platform guard: SHA-3 requires Windows 11 22H2+ / recent Linux / recent macOS.
-        // Older dev machines (e.g. Win10) won't have it. xUnit 2.x has no clean skip
-        // mechanism, so we return early — this is a "silent no-op" rather than silent pass,
-        // documented here explicitly. All CI platforms (ubuntu-latest, windows-latest,
-        // macos-latest) support SHA-3 and will exercise this test normally.
-        if (!System.Security.Cryptography.SHA3_256.IsSupported) return;
+        // Capability gate: SHA-3 requires Windows 11 22H2+ / Server 2022+ (SymCrypt CNG)
+        // or recent Linux/macOS OpenSSL. Earlier OSes (e.g. Windows 10) do not support it
+        // and this test must SKIP, not silently pass. The previous `if (!IsSupported) return;`
+        // pattern reported a typo'd SHA3-512 vector in this same file as Passed on Windows 10
+        // until the first CI run on Windows Server 2022 caught it.
+        Skip.IfNot(System.Security.Cryptography.SHA3_256.IsSupported, "SHA-3 not supported on this OS/runtime");
 
         var hasher = HashFactory.Create(HashAlgorithm.Sha3_256);
         byte[] hash = hasher.Hash(Encoding.UTF8.GetBytes("abc"));
         Assert.Equal("3a985da74fe225b2045c172d6bd390bd855f086e3e9d525b46bfe24511431532", Hex.Encode(hash));
     }
 
-    [Fact]
+    [SkippableFact]
     public void Sha3_512_KnownVector()
     {
-        // Platform guard — see Sha3_256_KnownVector above for rationale.
-        if (!System.Security.Cryptography.SHA3_512.IsSupported) return;
+        Skip.IfNot(System.Security.Cryptography.SHA3_512.IsSupported, "SHA-3 not supported on this OS/runtime");
 
-        // NIST FIPS 202 test vector for SHA3-512 of "abc".
+        // NIST FIPS 202 test vector for SHA3-512 of "abc". Earlier revisions of this
+        // file had the second half wrong (a typo from "...12e10e..." to "...12da10..."),
+        // which the silent-early-return guard masked on Windows 10 dev boxes.
         var hasher = HashFactory.Create(HashAlgorithm.Sha3_512);
         byte[] hash = hasher.Hash(Encoding.UTF8.GetBytes("abc"));
         Assert.Equal(
-            "b751850b1a57168a5693cd924b6b096e08f621827444f70d884f5d0240d2712da10117bfd8e1e294ee7a06e42cc3c4bab8b5e756c5e2a53a73e1bb1d0fd2fa8b",
+            "b751850b1a57168a5693cd924b6b096e08f621827444f70d884f5d0240d2712e10e116e9192af3c91a7ec57647e3934057340b4cf408d5a56592f8274eec53f0",
             Hex.Encode(hash));
     }
 
