@@ -120,15 +120,19 @@ public sealed class MacOsKeychainStore : ISecretStore
 
     private void SetCore(string namespace_, string key, byte[] value)
     {
-        // Delete first so we don't hit "already exists"; ignore failure.
-        // Must call DeleteCore (not public Delete) to avoid cascading into UpdateIndexForDelete,
-        // which would write the meta entry redundantly before UpdateIndexForSet re-adds it.
-        DeleteCore(namespace_, key);
-
+        // -U is macOS's documented upsert form: "Update item if it already exists" (man security).
+        // The previous approach was DeleteCore-then-add, which is fragile on hosts where
+        // delete-generic-password and add-generic-password don't agree on the target keychain
+        // (search-list vs default-keychain): the delete reports "not found", the add then
+        // collides with an entry that the delete couldn't see, and Set throws "already exists".
+        // Observed on the GitHub Actions macos-latest runner with our AeadKeychainBackend
+        // integration test repeatedly setting the same (namespace, key). -U sidesteps the
+        // search/target inconsistency by letting `security` itself decide.
         string hex = Convert.ToHexString(value);
         string[] args =
         [
             "add-generic-password",
+            "-U",
             "-s", namespace_,
             "-a", key,
             "-w", hex,
