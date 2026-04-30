@@ -11,7 +11,7 @@ public sealed class AeadKeychainBackend : AeadBackend
         : base(
             new MacOsKeychainStore(useSystemKeychain: scope == Scope.Machine),
             scope == Scope.Machine ? PlatformMarker.MacKeychainMachine : PlatformMarker.MacKeychainUser,
-            "winix-protect",
+            SecretLayout.KeyNamespace,
             scope == Scope.Machine ? "default-machine-v1" : "default-user-v1")
     {
     }

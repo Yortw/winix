@@ -1638,6 +1638,70 @@ git commit -m "docs(protect): update README, man page, --describe for FileId-bou
 
 ---
 
+## Task 14b: Fix AEAD-backend secret-store namespace contract violation (Linux smoke regression)
+
+**Discovered during Task 15 Step 3 (WSL smoke) on 2026-04-30. Plan-to-code divergence — recorded here per `feedback_plan_to_code_divergence_must_be_recorded.md`.**
+
+`AeadKeychainBackend` and `AeadLibsecretBackend` both pass `"winix-protect"` as the secret-store namespace. On 2026-04-22 (commit `6340999`, post-envvault), `LinuxLibsecretStore` was tightened to require namespaces of form `<tool>/<sub...>` (validated by `LinuxNamespace.ExtractTool`). `"winix-protect"` lacks a slash, so on first encrypt/decrypt the libsecret backend throws `ArgumentException("Namespace must be of form '<tool>/<sub...>' (got 'winix-protect')")` and `protect` exits with code 126 ("unexpected error").
+
+**Why the existing tests didn't catch it:**
+- `LinuxNamespaceTests` cover the helper's edge cases (empty, no-slash, leading-slash) but the production-side contract — that *every backend's namespace constant* satisfies the helper — wasn't asserted.
+- macOS `MacOsKeychainStore` and Windows `DpapiBackend` don't validate namespaces, so the bug is Linux-specific.
+- No end-to-end Linux integration test of `protect`/`unprotect` exists (libsecret needs a running secret service, hard to provide in CI).
+
+**Why no migration shim is needed:**
+- Linux protect has been broken since 2026-04-22 (first encrypt fails before any key is stored), so no Linux user has a key under the old namespace.
+- macOS/protect is unreleased (release/v0.4.0 still untagged), so no macOS user has a key under the old namespace either.
+
+**Files:**
+- Create: `src/Winix.Protect/SecretLayout.cs` (single-source-of-truth for the AEAD namespace constant)
+- Modify: `src/Winix.Protect/AeadKeychainBackend.cs`
+- Modify: `src/Winix.Protect/AeadLibsecretBackend.cs`
+- Create: `tests/Winix.Protect.Tests/AeadBackendNamespaceContractTests.cs`
+
+- [ ] **Step 1: Add a failing regression test that locks the contract**
+
+Create `tests/Winix.Protect.Tests/AeadBackendNamespaceContractTests.cs` that asserts the AEAD backends' namespace constant satisfies `LinuxNamespace.ExtractTool` (i.e. has a non-empty tool prefix followed by a slash). Test must reference `SecretLayout.KeyNamespace` directly so a future drift in the constant trips the test.
+
+- [ ] **Step 2: Run the test — verify it fails (the namespace constant doesn't exist yet, so the test file doesn't compile)**
+
+- [ ] **Step 3: Add `SecretLayout.cs` with `internal const string KeyNamespace = "winix-protect/keys"`**
+
+Single-source-of-truth so both AEAD backends stay aligned.
+
+- [ ] **Step 4: Update `AeadKeychainBackend.cs` and `AeadLibsecretBackend.cs` to pass `SecretLayout.KeyNamespace` instead of the literal `"winix-protect"`**
+
+- [ ] **Step 5: Run the test — verify it passes; run the full Winix.Protect.Tests suite to confirm no regressions**
+
+- [ ] **Step 6: Re-publish the linux-x64 binary and re-run the WSL smoke from Task 15 Step 3**
+
+Confirm `protect FILE --rm` followed by `unprotect FILE.prot` round-trips successfully end-to-end on Linux.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git commit -m "fix(protect): align AEAD backend namespace with libsecret <tool>/<sub> contract
+
+Linux smoke (Task 15 Step 3) revealed AeadLibsecretBackend was passing
+'winix-protect' as the secret-store namespace, which has failed
+LinuxNamespace.ExtractTool's <tool>/<sub...> contract since 6340999.
+Bug shipped because no end-to-end Linux test existed and the helper-level
+unit tests didn't assert that backend constants satisfy the contract.
+
+- New SecretLayout.KeyNamespace = 'winix-protect/keys' (single source).
+- Both AeadKeychainBackend and AeadLibsecretBackend now use it.
+- New AeadBackendNamespaceContractTests locks the contract.
+- No migration: protect is unreleased on macOS, and Linux has been
+  broken since the contract tightened, so no users have stored keys
+  under the old namespace.
+
+Plan-to-code divergence recorded as Task 14b in
+docs/plans/2026-04-29-protect-format-hardening-plan.md and as a new
+decision in the companion ADR."
+```
+
+---
+
 ## Task 15: Cross-platform smoke + retire the protect-format-hardening branch via merge
 
 Verify the changes work end-to-end on WSL and macOS via manual smoke tests using the playbook from `schedule`. Then merge back to `release/v0.4.0`.

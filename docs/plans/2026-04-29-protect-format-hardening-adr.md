@@ -97,6 +97,29 @@
 
 ---
 
+## Decision 6: Adopt `winix-protect/keys` as the AEAD secret-store namespace (post-divergence)
+
+**Discovered during Task 15 Step 3 (WSL smoke) on 2026-04-30. Recorded here per `feedback_plan_to_code_divergence_must_be_recorded.md` as plan-to-code divergence.**
+
+**Context.** `AeadKeychainBackend` and `AeadLibsecretBackend` both use the literal `"winix-protect"` as the secret-store namespace. On 2026-04-22 (commit `6340999`), `LinuxLibsecretStore` was tightened to require `<tool>/<sub...>` format via `LinuxNamespace.ExtractTool`. `"winix-protect"` lacks a slash, so the libsecret backend has been unconditionally broken on first key access since that date. End-to-end Linux smoke caught it; helper-level unit tests didn't, because they covered the helper's edge cases without asserting that backend constants satisfy the contract.
+
+**Decision.** Both AEAD backends now share `SecretLayout.KeyNamespace = "winix-protect/keys"` — the `winix-protect` tool prefix, with `keys` as the sub-namespace. A new `AeadBackendNamespaceContractTests` asserts the constant satisfies `LinuxNamespace.ExtractTool` so any future rename trips a test.
+
+**Rationale.**
+- `<tool>/<sub>` is the existing convention (e.g. envvault uses `envvault/<user-namespace>`); adopting it for protect aligns the suite.
+- A single shared constant in `SecretLayout.cs` prevents the two backends drifting apart on the namespace — drift on key location would silently lose access to existing data.
+
+**Trade-offs accepted.**
+- Both backends now share a layout file (small added indirection). Worth it — the previous duplicated literal is exactly the kind of thing that drifts.
+- Constant-validation test is unit-level, not integration-level. A stronger guard would require running gnome-keyring-daemon in CI, which is non-trivial; deferred to the existing F10 CI follow-up.
+
+**Options considered.**
+1. **Loosen the `LinuxLibsecretStore` namespace contract to accept bare tool names** — rejected: deliberately tightened on 2026-04-22 to make sub-namespacing mandatory; reverting would weaken envvault's invariants.
+2. **Migration shim that reads from old `"winix-protect"` namespace and re-stores under new** — rejected: nobody has a key under the old name (Linux has been broken since the contract change; macOS protect is unreleased). Migration logic would be dead code from day one.
+3. **Per-backend namespace constants (Keychain uses `"winix-protect"`, Libsecret uses `"winix-protect/keys"`)** — rejected: makes the backends behaviourally divergent on a non-platform-specific concern. Single shared constant is clearer.
+
+---
+
 ## Decisions Explicitly Deferred
 
 | Topic | Why deferred |
