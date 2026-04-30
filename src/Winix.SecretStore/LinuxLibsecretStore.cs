@@ -36,6 +36,25 @@ public sealed class LinuxLibsecretStore : ISecretStore
     }
 
     /// <inheritdoc />
+    public bool TryAdd(string namespace_, string key, byte[] value)
+    {
+        // libsecret's CLI (secret-tool store) has no non-overwriting form, so we
+        // implement TryAdd as Get-then-Set. Race window: between Get returning null
+        // and Set writing, another process could write to the same (namespace_, key).
+        // Acceptable for the documented use case (single-process per-tool master-key
+        // initialisation) where AeadBackend is the only writer to its namespace.
+        // The Get itself goes through the same retry-on-transient-connect-failure path
+        // as everywhere else, so a flaky read won't false-negative.
+        AssertAvailable();
+        if (Get(namespace_, key) is not null)
+        {
+            return false;
+        }
+        Set(namespace_, key, value);
+        return true;
+    }
+
+    /// <inheritdoc />
     public byte[]? Get(string namespace_, string key)
     {
         AssertAvailable();

@@ -14,6 +14,14 @@ public sealed class NullSecretStore : ISecretStore
         _entries[Compose(namespace_, key)] = (byte[])value.Clone();
     }
 
+    public bool TryAdd(string namespace_, string key, byte[] value)
+    {
+        string composed = Compose(namespace_, key);
+        if (_entries.ContainsKey(composed)) { return false; }
+        _entries[composed] = (byte[])value.Clone();
+        return true;
+    }
+
     public byte[]? Get(string namespace_, string key)
     {
         return _entries.TryGetValue(Compose(namespace_, key), out byte[]? value)

@@ -93,21 +93,48 @@ public abstract class AeadBackend : IProtectBackend
         byte[]? existing = _store.Get(_namespace, _keyName);
         if (existing is not null)
         {
-            if (existing.Length != KeySize)
-            {
-                throw new InvalidOperationException(
-                    $"Existing key in '{_namespace}/{_keyName}' has wrong size ({existing.Length} bytes; expected {KeySize}). " +
-                    $"Refusing to overwrite — encrypted files using this key would become permanently undecryptable. " +
-                    $"Manually delete the keychain/libsecret entry to regenerate.");
-            }
-            _cachedKey = existing;
-            return existing;
+            return AcceptExistingKey(existing);
         }
+
+        // Use TryAdd, NOT Set: if Get reads `null` while the keystore still holds an
+        // entry (e.g. transient read inconsistency on macOS Keychain or libsecret),
+        // Set would silently overwrite the AES-256 master key — every file already
+        // protected with the previous key would become permanently undecryptable.
+        // TryAdd refuses to overwrite, returns false, and we re-read the existing
+        // key. If even the second Get can't see it, raise loudly so the caller can
+        // investigate before further damage.
         byte[] fresh = new byte[KeySize];
         RandomNumberGenerator.Fill(fresh);
-        _store.Set(_namespace, _keyName, fresh);
-        _cachedKey = fresh;
-        return fresh;
+        if (_store.TryAdd(_namespace, _keyName, fresh))
+        {
+            _cachedKey = fresh;
+            return fresh;
+        }
+
+        CryptographicOperations.ZeroMemory(fresh);
+        existing = _store.Get(_namespace, _keyName);
+        if (existing is null)
+        {
+            throw new InvalidOperationException(
+                $"Secret store consistency error in '{_namespace}/{_keyName}': TryAdd " +
+                $"reported the entry already exists, but Get returns null. Refusing to " +
+                $"proceed — silently overwriting would destroy any prior key. Inspect " +
+                $"the keychain/libsecret/Credential Manager entry manually.");
+        }
+        return AcceptExistingKey(existing);
+    }
+
+    private byte[] AcceptExistingKey(byte[] existing)
+    {
+        if (existing.Length != KeySize)
+        {
+            throw new InvalidOperationException(
+                $"Existing key in '{_namespace}/{_keyName}' has wrong size ({existing.Length} bytes; expected {KeySize}). " +
+                $"Refusing to overwrite — encrypted files using this key would become permanently undecryptable. " +
+                $"Manually delete the keychain/libsecret entry to regenerate.");
+        }
+        _cachedKey = existing;
+        return existing;
     }
 
     /// <summary>

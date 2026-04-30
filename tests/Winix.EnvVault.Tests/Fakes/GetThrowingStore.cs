@@ -39,6 +39,9 @@ public sealed class GetThrowingStore : ISecretStore
     public void Set(string namespace_, string key, byte[] value) =>
         throw new NotSupportedException("GetThrowingStore is read-only");
 
+    public bool TryAdd(string namespace_, string key, byte[] value) =>
+        throw new NotSupportedException("GetThrowingStore is read-only");
+
     public byte[]? Get(string namespace_, string key)
     {
         if (key == _throwOnKey)

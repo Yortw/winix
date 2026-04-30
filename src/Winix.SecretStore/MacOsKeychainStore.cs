@@ -55,6 +55,15 @@ public sealed class MacOsKeychainStore : ISecretStore
     }
 
     /// <inheritdoc/>
+    public bool TryAdd(string namespace_, string key, byte[] value)
+    {
+        // Atomic create-only via add-generic-password without -U: if the entry already
+        // exists, security exits 45 and we return false without touching the value.
+        UpdateIndexForSet(namespace_, key);
+        return TryAddCore(namespace_, key, value);
+    }
+
+    /// <inheritdoc/>
     public byte[]? Get(string namespace_, string key) => GetCore(namespace_, key);
 
     /// <inheritdoc/>
@@ -120,20 +129,12 @@ public sealed class MacOsKeychainStore : ISecretStore
 
     private void SetCore(string namespace_, string key, byte[] value)
     {
-        // Delete first so we don't hit "already exists" on update; ignore failure.
+        // Set is upsert (envvault semantics). Delete first so the subsequent add doesn't
+        // hit "already exists" on update; ignore delete failure.
         // Must call DeleteCore (not public Delete) to avoid cascading into UpdateIndexForDelete,
         // which would write the meta entry redundantly before UpdateIndexForSet re-adds it.
-        //
-        // SAFETY (do NOT replace this with `add-generic-password -U`): `-U` would let an
-        // existing entry be silently overwritten, which is correct for envvault (upsert) but
-        // catastrophic for AeadBackend's master key — replacing the AES-256 master key
-        // permanently un-decrypts every file already protected with the previous key. The
-        // delete-then-add pattern preserves the load-bearing safety property: if
-        // `AeadBackend.GetOrCreateKey()` ever sees the key as missing when it actually exists
-        // (e.g. transient keychain read inconsistency), `add-generic-password` here will
-        // raise "already exists" loudly rather than silently destroying the key. Both Set
-        // operations target the same keychain because the caller's CI environment is
-        // configured (in ci.yml) so default-keychain == search list.
+        // For create-only semantics (e.g. AEAD master key), use TryAdd instead, which will
+        // refuse to overwrite and return false rather than destroy the existing value.
         DeleteCore(namespace_, key);
 
         string hex = Convert.ToHexString(value);
@@ -150,6 +151,32 @@ public sealed class MacOsKeychainStore : ISecretStore
         }
 
         RunSecurity(args, allowError: false);
+    }
+
+    private bool TryAddCore(string namespace_, string key, byte[] value)
+    {
+        // Atomic create-only: NO DeleteCore beforehand, NO -U flag. add-generic-password
+        // exits 45 if the entry already exists; we treat that as "already present" and
+        // return false rather than throwing, so callers (AeadBackend.GetOrCreateKey) can
+        // re-fetch the existing key without ever destroying it.
+        string hex = Convert.ToHexString(value);
+        string[] args =
+        [
+            "add-generic-password",
+            "-s", namespace_,
+            "-a", key,
+            "-w", hex,
+        ];
+        if (_useSystemKeychain)
+        {
+            args = [.. args, "/Library/Keychains/System.keychain"];
+        }
+
+        (int exit, string _, string stderr) = RunSecurity(args, allowError: true);
+        if (exit == 0) { return true; }
+        if (exit == 45) { return false; } // "The specified item already exists in the keychain."
+        throw new InvalidOperationException(
+            $"security add-generic-password failed (exit {exit}): {stderr.Trim()}");
     }
 
     private byte[]? GetCore(string namespace_, string key)

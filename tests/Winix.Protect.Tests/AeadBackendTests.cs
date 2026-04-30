@@ -114,6 +114,42 @@ public class AeadBackendTests
     }
 
     [Fact]
+    public void Key_GenerationRefusesToSilentlyOverwriteWhenStoreReportsTryAddFalse()
+    {
+        // Pin the load-bearing safety property: if the secret store reports Get == null
+        // but TryAdd refuses (entry already exists from the store's perspective), the
+        // AEAD backend must NOT generate a fresh master key and overwrite — that would
+        // permanently destroy decryptability of every previously-protected file.
+        // Instead it must throw with a clear "consistency error" message, leaving the
+        // existing entry untouched so the user can recover. Mirrors the macOS Keychain
+        // search-list-vs-default-keychain inconsistency uncovered in CI.
+        InconsistentReadStore store = new();
+        TestAeadBackend backend = new(store);
+
+        AadContext aad = new(Header.SerializeForAad(PlatformMarker.MacKeychainUser, new byte[16]), 0, true);
+        InvalidOperationException ex = Assert.Throws<InvalidOperationException>(
+            () => backend.EncryptChunk([1, 2, 3], aad, isFinal: true));
+        Assert.Contains("consistency error", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Test fake that emulates the macOS Keychain search-list-vs-default-keychain split:
+    /// <see cref="Get"/> always returns null (search list misses the entry), while
+    /// <see cref="TryAdd"/> always returns false (default keychain rejects "already exists").
+    /// Without these dual semantics, <see cref="AeadBackend.GetOrCreateKey"/> would have
+    /// no way to detect the inconsistency before silently overwriting.
+    /// </summary>
+    private sealed class InconsistentReadStore : ISecretStore
+    {
+        public void Set(string namespace_, string key, byte[] value) { /* no-op */ }
+        public bool TryAdd(string namespace_, string key, byte[] value) => false;
+        public byte[]? Get(string namespace_, string key) => null;
+        public bool Delete(string namespace_, string key) => false;
+        public System.Collections.Generic.IReadOnlyList<string> ListKeys(string namespace_) => System.Array.Empty<string>();
+        public System.Collections.Generic.IReadOnlyList<string> ListNamespaces(string toolPrefix) => System.Array.Empty<string>();
+    }
+
+    [Fact]
     public void Dispose_ZeroesCachedKey()
     {
         NullSecretStore store = new();

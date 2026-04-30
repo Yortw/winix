@@ -51,6 +51,19 @@ public sealed class WindowsCredentialManagerStore : ISecretStore
         }
     }
 
+    public bool TryAdd(string namespace_, string key, byte[] value)
+    {
+        // CredWriteW is upsert; there's no atomic create-only flag in advapi32. Implement
+        // TryAdd as Get-then-Set with a narrow race window. Acceptable for the documented
+        // use case (single-process per-tool master-key initialisation). Note this backend
+        // is currently used only by envvault — protect on Windows uses DpapiBackend, which
+        // is keyless — so the safety property here matters only if a future tool uses
+        // TryAdd against Credential Manager.
+        if (Get(namespace_, key) is not null) { return false; }
+        Set(namespace_, key, value);
+        return true;
+    }
+
     public byte[]? Get(string namespace_, string key)
     {
         string target = Compose(namespace_, key);
