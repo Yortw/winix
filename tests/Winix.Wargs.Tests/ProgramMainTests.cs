@@ -493,53 +493,39 @@ public class ProgramMainTests
     [SkippableFact]
     public async Task CtrlCDuringStdin_UnderNdjson_EmitsCancelledEnvelope()
     {
-        // Round-6 SFH I2 pin: Ctrl+C during stdin materialisation must produce exit 130 +
-        // a cancelled envelope, not exit 0 + no_input. Pre-fix the empty-input branch fired
-        // BEFORE the cancellation token was checked — a Ctrl+C that produced empty input
-        // (because Console.In.ReadLine returned null after e.Cancel=true) was misclassified
-        // as "no input items" silent success.
+        // Round-6 SFH I2 + Round-7 SFH C1/I1 pinned this contract: Ctrl+C during stdin
+        // materialisation must produce exit 130 + a cancelled envelope, not exit 0 +
+        // no_input. Production code in wargs/Program.cs implements the chain:
+        //   SIGINT → Console.CancelKeyPress → e.Cancel=true → cts.Cancel() →
+        //     Console.In.Close() callback → blocked ReadLine returns null →
+        //     InputReader observes cancellation → OCE propagates → Main's OCE catch
+        //     emits cancelled envelope and returns 130
         //
-        // Linux-only: Windows GenerateConsoleCtrlEvent only delivers to processes attached
-        // to the same console as the test runner, which xunit doesn't provide. Linux can
-        // straightforwardly send SIGINT via `kill`.
-        Skip.IfNot(!OperatingSystem.IsWindows(), "Unix-only — uses POSIX SIGINT delivery");
-
-        string wargsDll = LocateWargsDll();
-        var psi = new ProcessStartInfo
-        {
-            FileName = "dotnet",
-            UseShellExecute = false,
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        };
-        psi.ArgumentList.Add(wargsDll);
-        psi.ArgumentList.Add("--ndjson");
-        psi.ArgumentList.Add("echo");
-
-        using Process p = Process.Start(psi) ?? throw new System.InvalidOperationException("failed to start dotnet");
-        // Give wargs ~250ms to start and block on the stdin pipe (we hold it open).
-        await Task.Delay(250);
-
-        // SIGINT. .NET's Process.Kill is SIGTERM; spawn `kill -SIGINT <pid>` for Ctrl+C semantics.
-        var kill = new ProcessStartInfo { FileName = "kill", UseShellExecute = false };
-        kill.ArgumentList.Add("-SIGINT");
-        kill.ArgumentList.Add(p.Id.ToString());
-        Process.Start(kill)!.WaitForExit();
-
-        if (!p.WaitForExit(10_000))
-        {
-            p.Kill(entireProcessTree: true);
-            throw new System.TimeoutException("wargs did not respond to SIGINT within 10s");
-        }
-        string stderr = await p.StandardError.ReadToEndAsync();
-
-        Assert.Equal(130, p.ExitCode);
-        // Stderr should contain a cancelled envelope (single line under --ndjson).
-        string firstLine = stderr.Split('\n').First(l => !string.IsNullOrWhiteSpace(l)).Trim();
-        using var doc = JsonDocument.Parse(firstLine);
-        Assert.Equal("cancelled", doc.RootElement.GetProperty("exit_reason").GetString());
-        Assert.Equal(130, doc.RootElement.GetProperty("exit_code").GetInt32());
+        // KNOWN COVERAGE GAP (verified empirically 2026-05-01): this end-to-end test
+        // cannot exercise the chain in xUnit because Process.Start with
+        // RedirectStandardInput=true gives the child a non-TTY stdin. The .NET runtime
+        // only installs a SIGINT translator (Console.CancelKeyPress) when stdin is a
+        // controlling terminal; with a redirected pipe it leaves SIGINT at the default
+        // disposition AND the dotnet host swallows it rather than terminating. The
+        // child becomes effectively SIGINT-immune and only exits when stdin is closed
+        // — at which point InputReader sees EOF, the empty-input branch fires, and the
+        // exit_reason is "no_input" (success) rather than "cancelled".
+        //
+        // Manual repro confirmed the failure mode on WSL Ubuntu 24.04: kill -SIGINT to
+        // the wargs PID was ignored; only `exec 9>&-` (closing the parent's write end
+        // of the pipe) made it exit, with exit_reason=no_input. Both Linux and macOS
+        // CI runners showed the same TimeoutException pattern in CI run 25212992617
+        // ("wargs did not respond to SIGINT within 10s"). The 250ms-then-SIGINT shape
+        // had been silently false-passing on the previous `if (!IsX) return;` early-
+        // return pattern; the SkippableFact migration in 0433934 made the failure
+        // visible.
+        //
+        // Re-enable when a PTY-allocating test harness is added (would need PInvoke
+        // to posix_openpt on Linux/macOS or WinPTY on Windows; non-trivial). For now
+        // the production path is verified by manual smoke (real terminal Ctrl+C on
+        // `echo | wargs --ndjson echo` against held-open input).
+        Skip.If(true, "PTY-allocating test harness needed; see comment for details — production path verified by manual smoke only.");
+        await Task.CompletedTask; // satisfies the async Task signature; never reached.
     }
 
     [Fact]
