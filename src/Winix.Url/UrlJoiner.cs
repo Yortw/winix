@@ -15,18 +15,28 @@ public static class UrlJoiner
 
     /// <summary>Resolve <paramref name="relative"/> against <paramref name="baseUrl"/>.</summary>
     /// <remarks>
+    /// <para>
     /// Handles dot-segments, absolute relatives, query-only refs, fragment-only refs,
     /// and protocol-relative URLs per RFC 3986 §5. <paramref name="baseUrl"/> must be absolute
-    /// AND must carry an explicit scheme prefix (RFC 3986 §3.1) — the explicit-scheme check is
-    /// load-bearing for cross-platform consistency. <see cref="Uri.TryCreate(string, UriKind, out Uri)"/>
-    /// with <see cref="UriKind.Absolute"/> silently treats Unix-style absolute paths like
-    /// <c>/relative/base</c> as <c>file://</c> URIs on Linux/macOS hosts but rejects the same
-    /// input on Windows. Without the scheme-prefix guard, "base URL must be absolute" would be
-    /// platform-dependent.
+    /// AND its scheme must appear explicitly in the input string itself.
+    /// </para>
+    /// <para>
+    /// The "scheme appeared explicitly in the input" check is load-bearing for
+    /// cross-platform consistency: <see cref="Uri.TryCreate(string, UriKind, out Uri)"/>
+    /// silently auto-converts Unix-style absolute paths (<c>/foo</c> on Linux/macOS) and
+    /// Windows drive paths (<c>C:\foo</c> on Windows) into <c>file://</c> URIs. Without
+    /// this guard, "base URL must be absolute" would be platform-dependent and the CLI
+    /// would silently accept local file paths as web bases.
+    /// </para>
     /// </remarks>
     public static Result Join(string baseUrl, string relative)
     {
-        if (!HasExplicitScheme(baseUrl) || !Uri.TryCreate(baseUrl, UriKind.Absolute, out Uri? baseUri))
+        // Both conditions must hold: TryCreate parses an absolute URI AND the parsed scheme
+        // appeared verbatim in the input. The latter rejects Unix-path / Windows-drive auto-
+        // conversions to file:// — the parsed Scheme would be "file" but the input wouldn't
+        // start with "file:".
+        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out Uri? baseUri)
+            || !baseUrl.StartsWith(baseUri.Scheme + ":", StringComparison.OrdinalIgnoreCase))
         {
             return new Result(null, "base URL must be absolute");
         }
@@ -41,27 +51,5 @@ public static class UrlJoiner
         {
             return new Result(null, $"invalid URL: {ex.Message}");
         }
-    }
-
-    /// <summary>
-    /// True if <paramref name="s"/> begins with a syntactically-valid URI scheme followed by ':'.
-    /// RFC 3986 §3.1: <c>scheme = ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )</c>.
-    /// AOT/trim-friendly character scan; no regex.
-    /// </summary>
-    private static bool HasExplicitScheme(string s)
-    {
-        if (string.IsNullOrEmpty(s)) { return false; }
-        int colonIndex = s.IndexOf(':');
-        if (colonIndex < 1) { return false; } // must have at least one scheme char before the colon
-        if (!char.IsAsciiLetter(s[0])) { return false; }
-        for (int i = 1; i < colonIndex; i++)
-        {
-            char c = s[i];
-            if (!char.IsAsciiLetterOrDigit(c) && c != '+' && c != '-' && c != '.')
-            {
-                return false;
-            }
-        }
-        return true;
     }
 }

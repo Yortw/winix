@@ -51,4 +51,28 @@ public class UrlJoinerTests
         var r = UrlJoiner.Join("not a url", "also not a url");
         Assert.False(r.Success);
     }
+
+    [Fact]
+    public void Join_WindowsDrivePath_Errors()
+    {
+        // Pin: a Windows drive-letter path must not be silently accepted as a base URL.
+        // Without the "scheme appeared explicitly in input" guard, .NET's Uri.TryCreate
+        // would parse "C:\Windows" as file:///C:/Windows on Windows hosts (drive letters
+        // look like 1-character schemes), and the join would silently produce a file://
+        // URL. Cross-platform consistency requires rejecting this regardless of host OS.
+        var r = UrlJoiner.Join(@"C:\Windows", "foo");
+        Assert.False(r.Success);
+        Assert.Contains("base URL must be absolute", r.Error);
+    }
+
+    [Fact]
+    public void Join_ExplicitFileUri_StillAccepted()
+    {
+        // Counterpart to the path-rejection cases: an EXPLICIT file:// scheme is still
+        // a valid absolute URI per RFC 3986 and must continue to work. The guard rejects
+        // Unix-path / drive-path auto-conversions; it does not reject file:// schemes.
+        var r = UrlJoiner.Join("file:///tmp/base/", "child.txt");
+        Assert.True(r.Success, $"expected success, got error: {r.Error}");
+        Assert.Equal("file:///tmp/base/child.txt", r.Url);
+    }
 }
