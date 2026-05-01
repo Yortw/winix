@@ -40,8 +40,22 @@ public class ProgramMainTests
         using Process p = Process.Start(psi) ?? throw new System.InvalidOperationException("failed to start dotnet");
         if (stdin != null)
         {
-            p.StandardInput.Write(stdin);
-            p.StandardInput.Close();
+            // For tests that exercise usage-error paths (bad flags, invalid delimiter, etc.)
+            // wargs prints to stderr and exits with code 125 *before* it has finished
+            // consuming its stdin pipe. On fast platforms (macOS CI in particular) the
+            // child can be fully exited by the time we get here, so the Write fails with
+            // IOException("Broken pipe"). The test's contract is exit-code + stderr
+            // contents, NOT "wargs read all of stdin" — so swallowing the broken-pipe
+            // exception keeps the helper usable for both the usage-error tests and the
+            // happy-path tests that DO need stdin to flow through. If the process is still
+            // alive but stdin write fails for some other reason, WaitForExit will still
+            // catch it via the timeout below.
+            try
+            {
+                p.StandardInput.Write(stdin);
+                p.StandardInput.Close();
+            }
+            catch (System.IO.IOException) { /* child already exited (typically usage-error path); see comment */ }
         }
         string stdout = p.StandardOutput.ReadToEnd();
         string stderr = p.StandardError.ReadToEnd();
