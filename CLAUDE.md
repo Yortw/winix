@@ -2,6 +2,8 @@
 
 Cross-platform CLI tool suite (Windows + *nix). .NET / C# / AOT.
 
+> **Are you an AI agent?** This file is for agents working *on* Winix (modifying source, adding tools, running tests). If you are an agent *using* Winix tools on a user's machine for some other task, read [`AGENTS.md`](AGENTS.md) instead — it sets out when a Winix tool is actually the right choice versus a POSIX or Windows default. See also [`llms.txt`](llms.txt) for the structured tool catalogue and [`docs/ai/`](docs/ai/) for per-tool agent guides.
+
 ## Build
 
 ```

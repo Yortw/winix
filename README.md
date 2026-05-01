@@ -157,7 +157,8 @@ Winix tools are designed to be invoked by scripts and agents, not just humans:
 - **`--describe`** on every tool returns structured JSON metadata — flags, types, defaults, examples, composability hints, exit codes, and the `--json` output schema.
 - **`--json`** on every tool produces machine-parseable output with standard, documented fields.
 - **Consistent exit codes** across the suite (0 = success, 125 = usage error).
-- **[llms.txt](llms.txt)** at the repo root plus per-tool agent guides in [`docs/ai/`](docs/ai/) give agents a single entry point to discover and use the suite.
+- **[AGENTS.md](AGENTS.md)** at the repo root sets out when reaching for a Winix tool is actually the right call versus the POSIX or Windows default — Winix isn't a blanket replacement, and the file is explicit about that.
+- **[llms.txt](llms.txt)** plus per-tool agent guides in [`docs/ai/`](docs/ai/) give agents a single entry point to discover the suite, with a one-line summary per tool and full agent-targeted documentation per tool.
 
 ## Building from source
 
