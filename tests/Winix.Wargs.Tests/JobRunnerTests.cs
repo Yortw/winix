@@ -673,19 +673,29 @@ public class JobRunnerTests
     {
         // With many invocations (50) and Parallelism=4 + FailFast, the early-failing job
         // must trigger the skip path at the dispatch loop's `Volatile.Read(ref aborted)`
-        // check (line 242) — not just the in-flight cancellation path. Pre-round-1 this was
+        // check (line 278) — not just the in-flight cancellation path. Pre-round-1 this was
         // covered only with 4 jobs + Parallelism=4, where the dispatch-loop short-circuit
         // never had a chance to fire. This test pins the bulk-skip behaviour.
+        //
+        // The would-skip jobs use sleeps, NOT echos. Fail-fast sets `aborted = true` only
+        // AFTER the failing job's body completes and the result is buffered (JobRunner.cs
+        // line 407), which on a fast platform (Linux echo: ~10ms) or even a slow one
+        // (Windows cmd echo: ~150ms) is faster than the dispatch loop's iteration cost.
+        // With echo would-skip jobs, the dispatch loop on Windows CI ran 46 of 47 to
+        // completion before fail-fast's flag became visible — only 3 skipped. Sleeps long
+        // enough to outlive fail-fast propagation make the bulk-skip path observable.
         var invocations = new List<CommandInvocation>();
         // First two jobs: success
         invocations.Add(MakeEchoInvocation("ok-1", 1));
         invocations.Add(MakeEchoInvocation("ok-2", 2));
         // Third job: failure (triggers fail-fast)
         invocations.Add(MakeExitInvocation(7, "fail-3"));
-        // Remaining 47 jobs: should be skipped, NOT executed
+        // Remaining 47 jobs: must be skipped via dispatch-loop short-circuit, not allowed
+        // to run to completion. 1-second sleeps are long enough that fail-fast lands
+        // before any of them naturally finish, regardless of process-spawn variance.
         for (int i = 4; i <= 50; i++)
         {
-            invocations.Add(MakeEchoInvocation($"would-skip-{i}", i));
+            invocations.Add(MakeSleepInvocation(1, $"would-skip-{i}"));
         }
 
         var runner = new JobRunner(new JobRunnerOptions(
@@ -698,7 +708,8 @@ public class JobRunnerTests
         Assert.True(result.Failed >= 1, $"Expected at least 1 failure, got {result.Failed}");
         // The bulk-skip should leave a high skipped count — at least half of the remaining
         // jobs must be skipped before they can dispatch. Allow scheduling slack but require
-        // observably more than just the "in-flight at moment of failure" handful.
+        // observably more than just the "in-flight at moment of failure" handful (which
+        // with Parallelism=4 caps at 4).
         Assert.True(result.Skipped >= 25,
             $"Expected bulk skip (>=25), got {result.Skipped} skipped, {result.Succeeded} succeeded — fail-fast may not be hitting the dispatch-loop short-circuit.");
     }
@@ -779,7 +790,16 @@ public class JobRunnerTests
         Task<WargsResult> runTask = runner.RunAsync(
             invocations, TextWriter.Null, TextWriter.Null, cts.Token);
 
-        await Task.Delay(300);
+        // Cancel after 2s, not 300ms. The 300ms delay was racing the dispatch loop on
+        // slow macOS CI runners: if cancellation arrived before the loop got past
+        // iteration 0, JobRunner.RunParallelAsync's `cancellationToken.ThrowIfCancellationRequested()`
+        // (line 272) escaped immediately, no `tasks[]` slots populated, and the
+        // post-processing safety-net at line 548 never ran — meaning ZERO callbacks
+        // fired and `capturedResults` was empty. The 2s wait gives the dispatch loop
+        // ample time to spawn at least one of the 4 in-flight slots, after which the
+        // production cancel paths (line 354 race-check arm and line 567 IsCanceled
+        // safety-net) reliably fire callbacks.
+        await Task.Delay(2000);
         cts.Cancel();
 
         await Assert.ThrowsAsync<OperationCanceledException>(() => runTask);
