@@ -205,4 +205,62 @@ public class InputReaderTests
         var items = reader.ReadItems().ToList();
         Assert.Empty(items);
     }
+
+    // -- Round-6 SFH I2 contract pins: empty input + cancelled token must throw OCE.
+    //
+    //    Scenario being pinned: the user hits Ctrl+C; CancelKeyPress sets e.Cancel=true and
+    //    cancels the CTS; the CTS callback closes Console.In; the underlying TextReader's
+    //    ReadLine/Read returns null/-1 on first call (effectively immediate EOF); the
+    //    InputReader's read loop never enters its body; only the post-loop
+    //    ThrowIfCancellationRequested at the end of each delimiter handler can catch the
+    //    cancellation. WITHOUT it, ReadItems would return an empty IEnumerable, and
+    //    Program.cs's empty-input branch would misclassify a Ctrl+C-during-stdin as
+    //    benign no_input/exit-0.
+    //
+    //    These tests exist because the previous Round-7 cancellation tests above used
+    //    NON-empty input ("alpha\nbeta\ngamma"), which exercises the in-loop
+    //    ThrowIfCancellationRequested. The empty-input case has its own load-bearing
+    //    line — these tests pin it explicitly so a future refactor can't quietly delete
+    //    "the redundant post-loop throw."
+    //
+    //    They are the in-process counterpart to ProgramMainTests.CtrlCDuringStdin_…
+    //    which is Skipped pending a PTY-allocating test harness — see that test's comment
+    //    block for the full chain and the test-infrastructure gap that motivated this
+    //    in-process coverage. --
+
+    [Fact]
+    public void ReadItems_LineMode_EmptyInput_TokenCancelled_ThrowsOperationCanceledException()
+    {
+        var reader = new InputReader(new StringReader(""), DelimiterMode.Line);
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        Assert.Throws<OperationCanceledException>(() => reader.ReadItems(cts.Token).ToList());
+    }
+
+    [Fact]
+    public void ReadItems_NullMode_EmptyInput_TokenCancelled_ThrowsOperationCanceledException()
+    {
+        var reader = new InputReader(new StringReader(""), DelimiterMode.Null);
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        Assert.Throws<OperationCanceledException>(() => reader.ReadItems(cts.Token).ToList());
+    }
+
+    [Fact]
+    public void ReadItems_WhitespaceMode_EmptyInput_TokenCancelled_ThrowsOperationCanceledException()
+    {
+        var reader = new InputReader(new StringReader(""), DelimiterMode.Whitespace);
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        Assert.Throws<OperationCanceledException>(() => reader.ReadItems(cts.Token).ToList());
+    }
+
+    [Fact]
+    public void ReadItems_CustomMode_EmptyInput_TokenCancelled_ThrowsOperationCanceledException()
+    {
+        var reader = new InputReader(new StringReader(""), DelimiterMode.Custom, ',');
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        Assert.Throws<OperationCanceledException>(() => reader.ReadItems(cts.Token).ToList());
+    }
 }
