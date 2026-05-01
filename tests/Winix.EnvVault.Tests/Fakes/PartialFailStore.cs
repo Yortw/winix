@@ -32,6 +32,7 @@ public sealed class PartialFailStore : ISecretStore
         _delegate.Set(namespace_, key, value);
     }
 
+    public bool TryAdd(string namespace_, string key, byte[] value) => _delegate.TryAdd(namespace_, key, value);
     public byte[]? Get(string namespace_, string key) => _delegate.Get(namespace_, key);
     public bool Delete(string namespace_, string key) => _delegate.Delete(namespace_, key);
     public IReadOnlyList<string> ListKeys(string namespace_) => _delegate.ListKeys(namespace_);

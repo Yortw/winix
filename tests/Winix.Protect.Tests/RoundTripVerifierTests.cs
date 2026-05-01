@@ -21,7 +21,7 @@ public class RoundTripVerifierTests
         byte[] input = System.Text.Encoding.UTF8.GetBytes("hello world");
         NullSecretStore store = new();
         TestAeadBackend backend = new(store);
-        byte[] header = [(byte)'W', (byte)'P', (byte)'R', (byte)'T', 0x01, (byte)PlatformMarker.MacKeychainUser];
+        byte[] header = Header.SerializeForAad(PlatformMarker.MacKeychainUser, new byte[16]);
 
         byte[] sourceHash;
         using (IncrementalHash hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256))
@@ -43,7 +43,7 @@ public class RoundTripVerifierTests
         byte[] input = new byte[] { 1, 2, 3 };
         NullSecretStore store = new();
         TestAeadBackend backend = new(store);
-        byte[] header = [(byte)'W', (byte)'P', (byte)'R', (byte)'T', 0x01, (byte)PlatformMarker.MacKeychainUser];
+        byte[] header = Header.SerializeForAad(PlatformMarker.MacKeychainUser, new byte[16]);
 
         using MemoryStream encrypted = new();
         ChunkWriter.Write(new MemoryStream(input), encrypted, backend, header);

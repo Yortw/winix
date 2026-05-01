@@ -8,10 +8,11 @@ namespace Winix.SecretStore.Tests;
 
 public class MacOsKeychainStoreTests
 {
-    [Fact]
+    [SkippableFact]
     public void ListKeys_ReturnsKeysInNamespace()
     {
-        if (!OperatingSystem.IsMacOS()) return;
+        Skip.IfNot(OperatingSystem.IsMacOS(), "macOS-only integration test");
+        if (!OperatingSystem.IsMacOS()) return; // redundant, satisfies CA1416 analyzer
         MacOsKeychainStore store = new(useSystemKeychain: false);
         string ns = $"envvault-test-{Guid.NewGuid():N}/github";
         try
@@ -30,10 +31,11 @@ public class MacOsKeychainStoreTests
         }
     }
 
-    [Fact]
+    [SkippableFact]
     public void ListNamespaces_ReturnsDistinctNamespacesUnderPrefix()
     {
-        if (!OperatingSystem.IsMacOS()) return;
+        Skip.IfNot(OperatingSystem.IsMacOS(), "macOS-only integration test");
+        if (!OperatingSystem.IsMacOS()) return; // redundant, satisfies CA1416 analyzer
         MacOsKeychainStore store = new(useSystemKeychain: false);
         string prefix = $"envvault-test-{Guid.NewGuid():N}";
         try
@@ -76,10 +78,11 @@ public class MacOsKeychainStoreTests
 #pragma warning restore CA1416
     }
 
-    [Fact]
+    [SkippableFact]
     public void ListKeys_SelfHealsWhenValueRemovedOutOfBand()
     {
-        if (!OperatingSystem.IsMacOS()) return;
+        Skip.IfNot(OperatingSystem.IsMacOS(), "macOS-only integration test");
+        if (!OperatingSystem.IsMacOS()) return; // redundant, satisfies CA1416 analyzer
         MacOsKeychainStore store = new(useSystemKeychain: false);
         string ns = $"envvault-test-{Guid.NewGuid():N}/github";
         try

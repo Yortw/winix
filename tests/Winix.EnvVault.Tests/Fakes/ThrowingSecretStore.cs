@@ -34,6 +34,7 @@ public sealed class ThrowingSecretStore : ISecretStore
     }
 
     public void Set(string namespace_, string key, byte[] value) => throw _exceptionFactory();
+    public bool TryAdd(string namespace_, string key, byte[] value) => throw _exceptionFactory();
     public byte[]? Get(string namespace_, string key) => throw _exceptionFactory();
     public bool Delete(string namespace_, string key) => throw _exceptionFactory();
     public IReadOnlyList<string> ListKeys(string namespace_) => throw _exceptionFactory();

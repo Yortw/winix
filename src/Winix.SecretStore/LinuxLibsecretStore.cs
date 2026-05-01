@@ -25,35 +25,33 @@ public sealed class LinuxLibsecretStore : ISecretStore
         string hex = Convert.ToHexString(value);
         string tool = ExtractTool(namespace_);
 
-        ProcessStartInfo psi = new()
-        {
-            FileName = "secret-tool",
-            RedirectStandardInput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-        };
-        foreach (string a in new[]
-        {
-            "store",
-            "--label", $"winix:{namespace_}/{key}",
-            "tool", tool,
-            "service", namespace_,
-            "key", key,
-        })
-        {
-            psi.ArgumentList.Add(a);
-        }
+        (int exit, string _, string stderr) = RunSecretTool(
+            ["store", "--label", $"winix:{namespace_}/{key}", "tool", tool, "service", namespace_, "key", key],
+            stdin: hex);
 
-        using Process process = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start secret-tool.");
-        process.StandardInput.Write(hex);
-        process.StandardInput.Close();
-        string stderr = process.StandardError.ReadToEnd();
-        process.WaitForExit();
-
-        if (process.ExitCode != 0)
+        if (exit != 0)
         {
-            throw new InvalidOperationException($"secret-tool store failed (exit {process.ExitCode}): {stderr.Trim()}");
+            throw new InvalidOperationException($"secret-tool store failed (exit {exit}): {stderr.Trim()}");
         }
+    }
+
+    /// <inheritdoc />
+    public bool TryAdd(string namespace_, string key, byte[] value)
+    {
+        // libsecret's CLI (secret-tool store) has no non-overwriting form, so we
+        // implement TryAdd as Get-then-Set. Race window: between Get returning null
+        // and Set writing, another process could write to the same (namespace_, key).
+        // Acceptable for the documented use case (single-process per-tool master-key
+        // initialisation) where AeadBackend is the only writer to its namespace.
+        // The Get itself goes through the same retry-on-transient-connect-failure path
+        // as everywhere else, so a flaky read won't false-negative.
+        AssertAvailable();
+        if (Get(namespace_, key) is not null)
+        {
+            return false;
+        }
+        Set(namespace_, key, value);
+        return true;
     }
 
     /// <inheritdoc />
@@ -81,14 +79,14 @@ public sealed class LinuxLibsecretStore : ISecretStore
     public IReadOnlyList<string> ListKeys(string namespace_)
     {
         AssertAvailable();
-        (int exit, string stdout, string _) = RunSecretTool(["search", "--all", "service", namespace_]);
+        (int exit, string stdout, string stderr) = RunSecretTool(["search", "--all", "service", namespace_]);
         if (exit != 0)
         {
             return Array.Empty<string>();
         }
 
         List<string> keys = new();
-        foreach (string line in stdout.Split('\n'))
+        foreach (string line in EnumerateLines(stdout, stderr))
         {
             string trimmed = line.TrimStart();
             const string prefix = "attribute.key = ";
@@ -105,14 +103,14 @@ public sealed class LinuxLibsecretStore : ISecretStore
     public IReadOnlyList<string> ListNamespaces(string toolPrefix)
     {
         AssertAvailable();
-        (int exit, string stdout, string _) = RunSecretTool(["search", "--all", "tool", toolPrefix]);
+        (int exit, string stdout, string stderr) = RunSecretTool(["search", "--all", "tool", toolPrefix]);
         if (exit != 0)
         {
             return Array.Empty<string>();
         }
 
         HashSet<string> namespaces = new(StringComparer.Ordinal);
-        foreach (string line in stdout.Split('\n'))
+        foreach (string line in EnumerateLines(stdout, stderr))
         {
             string trimmed = line.TrimStart();
             const string prefix = "attribute.service = ";
@@ -130,6 +128,19 @@ public sealed class LinuxLibsecretStore : ISecretStore
         List<string> sorted = namespaces.ToList();
         sorted.Sort(StringComparer.Ordinal);
         return sorted;
+    }
+
+    /// <summary>
+    /// Yields every line from <paramref name="stdout"/> followed by every line from
+    /// <paramref name="stderr"/>. <c>secret-tool 0.21+</c> emits the secret value on
+    /// stdout (so it composes cleanly with shell pipes) and the per-record
+    /// <c>attribute.* = …</c> metadata on stderr; older versions emitted both on stdout.
+    /// Scanning both streams keeps the parser version-stable.
+    /// </summary>
+    private static IEnumerable<string> EnumerateLines(string stdout, string stderr)
+    {
+        foreach (string line in stdout.Split('\n')) { yield return line; }
+        foreach (string line in stderr.Split('\n')) { yield return line; }
     }
 
     private static string ExtractTool(string namespace_) => LinuxNamespace.ExtractTool(namespace_);
@@ -157,11 +168,36 @@ public sealed class LinuxLibsecretStore : ISecretStore
         }
     }
 
-    private static (int exitCode, string stdout, string stderr) RunSecretTool(string[] args)
+    private static (int exitCode, string stdout, string stderr) RunSecretTool(string[] args, string? stdin = null)
+    {
+        // Retry on transient "Could not connect" errors. gnome-keyring-daemon's bus
+        // registration races with secret-tool's first connect attempt right after
+        // daemon startup, and dbus-daemon under WSL/some-CI-runners has been observed
+        // to die under SIGPIPE mid-suite, leaving subsequent calls with "Connection
+        // refused" until the next reconnect window. Three attempts at 100ms spacing
+        // absorbs both classes of transient.
+        const int maxAttempts = 3;
+        const int retryDelayMs = 100;
+        (int exitCode, string stdout, string stderr) result = default;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            result = RunSecretToolOnce(args, stdin);
+            if (result.exitCode == 0) { return result; }
+            if (!IsTransientConnectFailure(result.stderr)) { return result; }
+            if (attempt < maxAttempts)
+            {
+                System.Threading.Thread.Sleep(retryDelayMs);
+            }
+        }
+        return result;
+    }
+
+    private static (int exitCode, string stdout, string stderr) RunSecretToolOnce(string[] args, string? stdin)
     {
         ProcessStartInfo psi = new()
         {
             FileName = "secret-tool",
+            RedirectStandardInput = stdin is not null,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -172,9 +208,22 @@ public sealed class LinuxLibsecretStore : ISecretStore
         }
 
         using Process process = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start secret-tool.");
+        if (stdin is not null)
+        {
+            process.StandardInput.Write(stdin);
+            process.StandardInput.Close();
+        }
         string stdout = process.StandardOutput.ReadToEnd();
         string stderr = process.StandardError.ReadToEnd();
         process.WaitForExit();
         return (process.ExitCode, stdout, stderr);
+    }
+
+    private static bool IsTransientConnectFailure(string stderr)
+    {
+        // libsecret/secret-tool wording for an unreachable secret service.
+        return stderr.Contains("Could not connect", StringComparison.Ordinal)
+            || stderr.Contains("Connection refused", StringComparison.Ordinal)
+            || stderr.Contains("Cannot autolaunch", StringComparison.Ordinal);
     }
 }

@@ -49,6 +49,7 @@ cat api.key | protect -o api.key.prot       # stdin streaming
 | `--rm` / `--remove-source` | off | Delete source after successful round-trip verification. |
 | `--scope {user,machine}` | `user` | Key-derivation scope. Windows: DPAPI CurrentUser/LocalMachine. macOS: login/System Keychain. Linux: user only (machine unsupported). |
 | `--no-verify` | off | Skip round-trip verification (faster, less safe). |
+| `-f` / `--force` | off | Overwrite an existing destination file. By default the tool refuses to clobber existing data and exits 125. The overwrite is symlink-safe — if the destination is a symlink, the symlink itself is removed (the target file is untouched) before an exclusive create. |
 | `--color`, `--no-color` | — | Respect `NO_COLOR`. |
 | `--describe` | — | Emit tool metadata as JSON. |
 | `--help`, `--version` | — | Standard introspection. |
@@ -69,7 +70,17 @@ Each OS provides a secure key-derivation function:
 - **macOS**: AES-256-GCM with a key stored in the login/System Keychain. Key is auto-generated on first use, never exposed to the user.
 - **Linux**: AES-256-GCM with a key stored in libsecret. Same auto-generate-on-first-use pattern.
 
-Files are chunked (64 KB per chunk) and each chunk is encrypted with AEAD (GCM) or DPAPI. Truncation is detected via a "final chunk" flag. Round-trip verification (encrypt → decrypt → hash comparison) is included by default; disable with `--no-verify` for speed.
+Files are chunked (64 KB per chunk) and each chunk is encrypted with AEAD (AES-256-GCM) or DPAPI. Every chunk is bound to its specific file via a 16-byte random FileId stored in the header — chunk reorder, cross-file substitution, and truncation are all detected. Round-trip verification (encrypt → decrypt → hash comparison) is included by default; disable with `--no-verify` for speed.
+
+## Integrity Model
+
+Each chunk is authenticated with both its position (chunk index, isFinal flag) and the file's per-file FileId. This prevents:
+
+- **Truncation** — silent removal of chunks (final-chunk flag).
+- **Reorder** — swapping chunks within a file (chunk index in AAD).
+- **Cross-file substitution** — splicing a chunk from a different `.prot` file into this one (FileId in AAD).
+
+**Threat model boundary.** The protections above defend against an attacker with **write** access to your `.prot` file but **no** key access — for example, untrusted backup software, cloud sync services, or shared NAS storage. If the attacker has both filesystem write AND access to your OS keystore (same OS user, or LocalMachine scope on a shared host), they can decrypt directly — splice protections are not the relevant defense.
 
 ## Platform Notes
 

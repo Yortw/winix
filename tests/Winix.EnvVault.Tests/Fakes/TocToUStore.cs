@@ -20,6 +20,7 @@ public sealed class TocToUStore : ISecretStore
     }
 
     public void Set(string namespace_, string key, byte[] value) => _writable.Set(namespace_, key, value);
+    public bool TryAdd(string namespace_, string key, byte[] value) => _writable.TryAdd(namespace_, key, value);
     public byte[]? Get(string namespace_, string key) => null;    // the TOCTOU race: always null
     public bool Delete(string namespace_, string key) => _writable.Delete(namespace_, key);  // honest: reflects whether a Set happened
     public IReadOnlyList<string> ListKeys(string namespace_) => _keysReported;

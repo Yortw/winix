@@ -11,7 +11,7 @@ public sealed class AeadLibsecretBackend : AeadBackend
         : base(
             new LinuxLibsecretStore(),
             PlatformMarker.LinuxLibsecretUser,
-            "winix-protect",
+            SecretLayout.KeyNamespace,
             "default-user-v1")
     {
     }

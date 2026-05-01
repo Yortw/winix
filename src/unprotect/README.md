@@ -44,6 +44,7 @@ unprotect file.prot --rm                    # delete encrypted file after succes
 | `--rm` / `--remove-source` | off | Delete source after successful decryption. |
 | `--scope {user,machine}` | `user` | Key-derivation scope (must match the scope used to encrypt). |
 | `--no-verify` | off | Skip round-trip verification (faster, less safe). |
+| `-f` / `--force` | off | Overwrite an existing destination file. By default the tool refuses to clobber existing data and exits 125. The overwrite is symlink-safe — if the destination is a symlink, the symlink itself is removed (the target file is untouched) before an exclusive create. |
 | `--color`, `--no-color` | — | Respect `NO_COLOR`. |
 | `--describe` | — | Emit tool metadata as JSON. |
 | `--help`, `--version` | — | Standard introspection. |
@@ -65,7 +66,17 @@ unprotect file.prot --rm                    # delete encrypted file after succes
 
 It then decrypts using the same OS key that was used to encrypt. If the key is no longer available (different user, different machine, or key deleted), decryption fails with a clear error message.
 
-Truncation and tampering are detected via AEAD authentication tags (GCM) or DPAPI integrity checks.
+Files are chunked (64 KB per chunk) and each chunk is encrypted with AEAD (AES-256-GCM) or DPAPI. Every chunk is bound to its specific file via a 16-byte random FileId stored in the header — chunk reorder, cross-file substitution, and truncation are all detected via AEAD authentication tags (GCM) or DPAPI integrity checks.
+
+## Integrity Model
+
+Each chunk is authenticated with both its position (chunk index, isFinal flag) and the file's per-file FileId. This prevents:
+
+- **Truncation** — silent removal of chunks (final-chunk flag).
+- **Reorder** — swapping chunks within a file (chunk index in AAD).
+- **Cross-file substitution** — splicing a chunk from a different `.prot` file into this one (FileId in AAD).
+
+**Threat model boundary.** The protections above defend against an attacker with **write** access to your `.prot` file but **no** key access — for example, untrusted backup software, cloud sync services, or shared NAS storage. If the attacker has both filesystem write AND access to your OS keystore (same OS user, or LocalMachine scope on a shared host), they can decrypt directly — splice protections are not the relevant defense.
 
 ## Platform Notes
 

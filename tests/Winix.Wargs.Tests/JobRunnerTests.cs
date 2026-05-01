@@ -622,7 +622,7 @@ public class JobRunnerTests
         Assert.Equal(1, brokenStdout.WriteAttempts);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task RunAsync_KeepOrder_PreservesOrder_WhenJobsCompleteOutOfOrder()
     {
         // Round-1 Q2: the existing KeepOrder test used fast echo; even if KeepOrder were a
@@ -630,11 +630,7 @@ public class JobRunnerTests
         // forces out-of-order completion: jobs 1-4 sleep for decreasing durations, so
         // job 4 finishes first, job 1 last. With KeepOrder the output must STILL be in
         // input order.
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            // Use ping for sleep on Windows. ping -n N localhost takes ~(N-1) seconds.
-            return;
-        }
+        Skip.If(RuntimeInformation.IsOSPlatform(OSPlatform.Windows), "Unix-only — Windows ping-based sleep is too coarse for the descending-duration timing this test relies on.");
 
         // Linux/macOS: use sh -c with sleep + echo, durations descending so completion order
         // is reverse of input order.
@@ -1008,17 +1004,14 @@ public class JobRunnerTests
             "At least one skipped job must have fired the callback so reorder-buffer subscribers can advance.");
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task RunAsync_OnJobCompleted_FiresInCompletionOrderUnderParallel()
     {
         // Round-12.5: pin that the callback fires in COMPLETION order under parallel
         // execution (not input order). This is the contract Program.cs's --keep-order
         // reorder buffer is designed against — without out-of-order callback delivery,
         // the buffer would be unnecessary. Cross-platform via descending sleeps.
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            return; // Windows ping-based sleep is too coarse for the timing
-        }
+        Skip.If(RuntimeInformation.IsOSPlatform(OSPlatform.Windows), "Unix-only — Windows ping-based sleep is too coarse for sub-second timing.");
 
         CommandInvocation MakeSleep(double seconds, int jobIndex)
             => new CommandInvocation(
@@ -1120,17 +1113,14 @@ public class JobRunnerTests
         Assert.Equal(0, result.Failed);
     }
 
-    [Fact]
+    [SkippableFact]
     public async Task RunAsync_Parallel_WallSecondsIsRunDurationNotSum()
     {
         // Round-12 CR/SFH/TA I2: wall_seconds is wall-clock duration of the run, NOT sum
         // of per-job durations. Under -P 4 with 4 jobs each sleeping ~500ms, the run takes
         // ~500ms not ~2000ms. The earlier "across all jobs" wording suggested summation;
         // the new wording explicitly disclaims it. Pin the actual semantics.
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            return; // Windows ping-based sleep is too coarse for sub-second timing pins
-        }
+        Skip.If(RuntimeInformation.IsOSPlatform(OSPlatform.Windows), "Unix-only — Windows ping-based sleep is too coarse for sub-second timing pins.");
 
         CommandInvocation MakeSleep(double seconds, string token)
             => new CommandInvocation(

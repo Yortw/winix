@@ -28,12 +28,17 @@ public static class InPlaceExecutor
         try
         {
             using (FileStream source = new(targetAbs, FileMode.Open, FileAccess.Read, FileShare.Read))
-            using (FileStream dest = new(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             using (IncrementalHash hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256))
             {
-                byte[] header = [(byte)'W', (byte)'P', (byte)'R', (byte)'T', 0x01, (byte)backend.Marker];
-                using TeeReadStream teeSource = new(source, hasher);
-                ChunkWriter.Write(teeSource, dest, backend, header);
+                using (FileStream dest = new(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                {
+                    byte[] fileId = Header.NewFileId();
+                    byte[] header = Header.SerializeForAad(backend.Marker, fileId);
+                    using TeeReadStream teeSource = new(source, hasher);
+                    ChunkWriter.Write(teeSource, dest, backend, header);
+                    // FlushFileBuffers / fsync before close so the rename below promotes durable bytes.
+                    dest.Flush(flushToDisk: true);
+                }
                 sourceHash = hasher.GetCurrentHash();
             }
 
@@ -65,11 +70,15 @@ public static class InPlaceExecutor
         try
         {
             using (FileStream source = new(targetAbs, FileMode.Open, FileAccess.Read, FileShare.Read))
-            using (FileStream dest = new(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             {
-                Header.ReadResult hdr = Header.Read(source);
-                byte[] headerBytes = [(byte)'W', (byte)'P', (byte)'R', (byte)'T', hdr.Version, (byte)hdr.Marker];
-                ChunkReader.Read(source, dest, backend, headerBytes);
+                using (FileStream dest = new(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                {
+                    Header.ReadResult hdr = Header.Read(source);
+                    byte[] headerBytes = Header.SerializeForAad(hdr.Marker, hdr.FileId);
+                    ChunkReader.Read(source, dest, backend, headerBytes);
+                    // FlushFileBuffers / fsync before close so the rename below promotes durable bytes.
+                    dest.Flush(flushToDisk: true);
+                }
             }
             File.Move(tempPath, targetAbs, overwrite: true);
         }

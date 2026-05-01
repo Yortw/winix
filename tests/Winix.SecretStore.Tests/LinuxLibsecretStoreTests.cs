@@ -8,10 +8,11 @@ namespace Winix.SecretStore.Tests;
 
 public class LinuxLibsecretStoreTests
 {
-    [Fact]
+    [SkippableFact]
     public void ListKeys_ReturnsAllKeysSetUnderNamespace()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        Skip.IfNot(OperatingSystem.IsLinux(), "Linux-only integration test");
+        if (!OperatingSystem.IsLinux()) return; // redundant, satisfies CA1416 analyzer
         LinuxLibsecretStore store = new();
         string ns = $"envvault-test-{Guid.NewGuid():N}/github";
         try
@@ -30,10 +31,11 @@ public class LinuxLibsecretStoreTests
         }
     }
 
-    [Fact]
+    [SkippableFact]
     public void ListNamespaces_ReturnsDistinctNamespacesUnderPrefix()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        Skip.IfNot(OperatingSystem.IsLinux(), "Linux-only integration test");
+        if (!OperatingSystem.IsLinux()) return; // redundant, satisfies CA1416 analyzer
         LinuxLibsecretStore store = new();
         string prefix = $"envvault-test-{Guid.NewGuid():N}";
         try

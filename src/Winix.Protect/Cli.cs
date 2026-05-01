@@ -12,10 +12,26 @@ public static class Cli
 
     public static int Run(string[] args, string invocationName)
     {
+        // Validate invocation name BEFORE any other state changes — a renamed binary or typo
+        // must not silently default to encrypt (would expose plaintext on the wrong code path).
+        SubCommand subCommand;
+        if (invocationName == "protect")
+        {
+            subCommand = SubCommand.Protect;
+        }
+        else if (invocationName == "unprotect")
+        {
+            subCommand = SubCommand.Unprotect;
+        }
+        else
+        {
+            Console.Error.WriteLine($"{invocationName}: invocation name must be 'protect' or 'unprotect' (got '{invocationName}'). Refusing to default to encrypt.");
+            return RuntimeErrorExit;
+        }
+
         ConsoleEnv.EnableAnsiIfNeeded();
         ConsoleEnv.UseUtf8Streams();
 
-        SubCommand subCommand = invocationName == "unprotect" ? SubCommand.Unprotect : SubCommand.Protect;
         ArgParser.Result parsed = ArgParser.Parse(args, subCommand);
 
         // ShellKit auto-writes --help / --version / --describe output during Parse and sets IsHandled=true.
@@ -44,6 +60,12 @@ public static class Cli
         {
             Console.Error.WriteLine(Formatting.UsageError(invocationName, ex.Message));
             return ExitCode.UsageError;
+        }
+        catch (AuthenticationTagMismatchException ex)
+        {
+            Console.Error.WriteLine(Formatting.RuntimeError(invocationName,
+                $"authentication failed — file is corrupted or tampered with ({ex.GetType().Name})."));
+            return RuntimeErrorExit;
         }
         catch (CryptographicException ex)
         {
@@ -81,6 +103,25 @@ public static class Cli
             Console.Error.WriteLine(Formatting.RuntimeError(invocationName, $"access denied: {ex.Message}"));
             return RuntimeErrorExit;
         }
+        catch (EndOfStreamException ex)
+        {
+            // EndOfStreamException : IOException, so this catch must precede the IOException handlers
+            // below — otherwise it'd be unreachable. Surfaces truncated headers / chunks as a clear
+            // "not a protect file or truncated" error instead of bleeding through the generic IO path.
+            Console.Error.WriteLine(Formatting.RuntimeError(invocationName,
+                $"ciphertext is truncated or not a protect file: {ex.Message}"));
+            return RuntimeErrorExit;
+        }
+        catch (IOException) when (ResolveEffectiveOutputPath(opts) is string effPath && File.Exists(effPath))
+        {
+            // CreateNew threw because the destination exists. Report cleanly as a usage error.
+            // Covers both explicit -o paths and the implicit default (FILE.prot for protect,
+            // FILE-with-.prot-stripped for unprotect).
+            string effectiveOutput = ResolveEffectiveOutputPath(opts)!;
+            Console.Error.WriteLine(Formatting.UsageError(invocationName,
+                $"destination already exists: {effectiveOutput}. Use --force to overwrite, or specify a different -o path."));
+            return ExitCode.UsageError;
+        }
         catch (IOException ex)
         {
             Console.Error.WriteLine(Formatting.RuntimeError(invocationName, ex.Message));
@@ -88,14 +129,14 @@ public static class Cli
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine(Formatting.RuntimeError(invocationName, $"error: {ex.Message}"));
-            return 1;
+            Console.Error.WriteLine(Formatting.RuntimeError(invocationName, $"unexpected error: {ex.Message}"));
+            return RuntimeErrorExit;
         }
     }
 
     private static int RunProtect(ProtectOptions opts, string invocationName)
     {
-        IProtectBackend backend = BackendFactory.Create(opts.Scope);
+        using IProtectBackend backend = BackendFactory.Create(opts.Scope);
 
         if (opts.InPlace)
         {
@@ -118,25 +159,12 @@ public static class Cli
         {
             if (outputPath is not null)
             {
-                byte[] sourceHash;
-                using (FileStream dest = new(outputPath, FileMode.Create, FileAccess.Write, FileShare.None))
-                using (IncrementalHash hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256))
-                {
-                    byte[] header = [(byte)'W', (byte)'P', (byte)'R', (byte)'T', 0x01, (byte)backend.Marker];
-                    using TeeStream tee = new(input, hasher);
-                    ChunkWriter.Write(tee, dest, backend, header);
-                    sourceHash = hasher.GetCurrentHash();
-                }
-
-                if (!opts.NoVerify)
-                {
-                    using FileStream encrypted = new(outputPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                    RoundTripVerifier.Verify(encrypted, backend, sourceHash);
-                }
+                RunProtectFile(input, outputPath, backend, opts.NoVerify, opts.Force);
             }
             else
             {
-                byte[] header = [(byte)'W', (byte)'P', (byte)'R', (byte)'T', 0x01, (byte)backend.Marker];
+                byte[] fileId = Header.NewFileId();
+                byte[] header = Header.SerializeForAad(backend.Marker, fileId);
                 using Stream stdout = Console.OpenStandardOutput();
                 ChunkWriter.Write(input, stdout, backend, header);
             }
@@ -169,7 +197,7 @@ public static class Cli
             {
                 marker = Header.Read(peek).Marker;
             }
-            IProtectBackend backend = BackendFactory.CreateForMarker(marker);
+            using IProtectBackend backend = BackendFactory.CreateForMarker(marker);
             InPlaceExecutor.ExecuteDecrypt(opts.InputPath, backend);
             return ExitCode.Success;
         }
@@ -180,23 +208,21 @@ public static class Cli
 
         using (input)
         {
-            Header.ReadResult hdr = Header.Read(input);
-            IProtectBackend backend = BackendFactory.CreateForMarker(hdr.Marker);
-            byte[] headerBytes = [(byte)'W', (byte)'P', (byte)'R', (byte)'T', hdr.Version, (byte)hdr.Marker];
-
             string? outputPath = opts.OutputPath;
-            if (outputPath is null && opts.InputPath is not null && opts.InputPath.EndsWith(".prot"))
+            if (outputPath is null && opts.InputPath is not null && opts.InputPath.EndsWith(".prot", StringComparison.Ordinal))
             {
                 outputPath = opts.InputPath.Substring(0, opts.InputPath.Length - ".prot".Length);
             }
 
             if (outputPath is not null)
             {
-                using FileStream dest = new(outputPath, FileMode.Create, FileAccess.Write, FileShare.None);
-                ChunkReader.Read(input, dest, backend, headerBytes);
+                RunUnprotectFile(input, outputPath, opts.Force);
             }
             else
             {
+                Header.ReadResult hdr = Header.Read(input);
+                using IProtectBackend backend = BackendFactory.CreateForMarker(hdr.Marker);
+                byte[] headerBytes = Header.SerializeForAad(hdr.Marker, hdr.FileId);
                 using Stream stdout = Console.OpenStandardOutput();
                 ChunkReader.Read(input, stdout, backend, headerBytes);
             }
@@ -208,6 +234,127 @@ public static class Cli
         }
 
         return ExitCode.Success;
+    }
+
+    /// <summary>
+    /// Encrypt <paramref name="input"/> to <paramref name="outputPath"/> via <paramref name="backend"/>.
+    /// On any throw mid-stream, deletes the partial output file before rethrowing — but only if
+    /// the file was created by THIS call (not pre-existing user data we refused to overwrite).
+    /// </summary>
+    /// <remarks>
+    /// Internal so tests can drive the cleanup path with a throwing backend without going through
+    /// real DPAPI / SecretStore. The <c>createdDest</c> latch is the safety property: an
+    /// IOException from <c>CreateNew</c> against a pre-existing file must not trigger our delete —
+    /// that would silently destroy user data the default-overwrite-refusal contract is meant to
+    /// preserve.
+    /// </remarks>
+    internal static void RunProtectFile(
+        Stream input,
+        string outputPath,
+        IProtectBackend backend,
+        bool noVerify,
+        bool force)
+    {
+        // On --force, remove any existing file or symlink at the destination, THEN exclusively-create.
+        // File.Delete on a symlink unlinks the symlink itself, not its target, so this is safe.
+        // The window between Delete and CreateNew is small and CreateNew is O_EXCL on POSIX —
+        // if an attacker plants a symlink in that window, CreateNew throws EEXIST and we report it.
+        if (force && File.Exists(outputPath))
+        {
+            File.Delete(outputPath);
+        }
+
+        bool createdDest = false;
+        try
+        {
+            byte[] sourceHash;
+            using (FileStream dest = new(outputPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            using (IncrementalHash hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256))
+            {
+                // Latch as soon as CreateNew succeeds — only THEN do we own the destination file.
+                // If CreateNew throws (EEXIST against pre-existing data), createdDest stays false
+                // and the catch block leaves the user's file alone.
+                createdDest = true;
+                byte[] fileId = Header.NewFileId();
+                byte[] header = Header.SerializeForAad(backend.Marker, fileId);
+                using TeeStream tee = new(input, hasher);
+                ChunkWriter.Write(tee, dest, backend, header);
+                sourceHash = hasher.GetCurrentHash();
+            }
+
+            if (!noVerify)
+            {
+                using FileStream encrypted = new(outputPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                RoundTripVerifier.Verify(encrypted, backend, sourceHash);
+            }
+        }
+        catch
+        {
+            if (createdDest)
+            {
+                try { if (File.Exists(outputPath)) File.Delete(outputPath); } catch { }
+            }
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Decrypt <paramref name="input"/> (whose header is read here) to <paramref name="outputPath"/>.
+    /// On any throw mid-stream, deletes the partial output file before rethrowing — but only if
+    /// the file was created by THIS call (not pre-existing user data we refused to overwrite).
+    /// </summary>
+    internal static void RunUnprotectFile(Stream input, string outputPath, bool force)
+    {
+        Header.ReadResult hdr = Header.Read(input);
+        using IProtectBackend backend = BackendFactory.CreateForMarker(hdr.Marker);
+        byte[] headerBytes = Header.SerializeForAad(hdr.Marker, hdr.FileId);
+
+        if (force && File.Exists(outputPath))
+        {
+            File.Delete(outputPath);
+        }
+
+        bool createdDest = false;
+        try
+        {
+            using FileStream dest = new(outputPath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+            createdDest = true;
+            ChunkReader.Read(input, dest, backend, headerBytes);
+        }
+        catch
+        {
+            if (createdDest)
+            {
+                try { if (File.Exists(outputPath)) File.Delete(outputPath); } catch { }
+            }
+            throw;
+        }
+    }
+
+    // Compute the destination path that RunProtect/RunUnprotect would actually write to,
+    // so the IOException-on-destination-exists handler can detect the implicit FILE.prot /
+    // FILE-with-.prot-stripped cases as well as explicit -o paths. Mirrors the logic at the
+    // write sites — keep these in sync.
+    private static string? ResolveEffectiveOutputPath(ProtectOptions opts)
+    {
+        if (opts.OutputPath is not null)
+        {
+            return opts.OutputPath;
+        }
+        if (opts.InputPath is null)
+        {
+            return null; // streaming to stdout — no destination file
+        }
+        if (opts.SubCommand == SubCommand.Protect)
+        {
+            return opts.InputPath + ".prot";
+        }
+        // Unprotect: strip .prot suffix if present; otherwise no implicit output.
+        if (opts.InputPath.EndsWith(".prot", StringComparison.Ordinal))
+        {
+            return opts.InputPath.Substring(0, opts.InputPath.Length - ".prot".Length);
+        }
+        return null;
     }
 
     private sealed class TeeStream : Stream

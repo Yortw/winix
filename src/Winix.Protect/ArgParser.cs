@@ -51,6 +51,7 @@ public static class ArgParser
         // --rm / --remove-source are aliases; either flag being set means "delete source after success".
         bool removeSource = parsed.Has("--rm") || parsed.Has("--remove-source");
         bool noVerify = parsed.Has("--no-verify");
+        bool force = parsed.Has("--force");
 
         Scope scope = Scope.User;
         if (parsed.Has("--scope"))
@@ -86,7 +87,7 @@ public static class ArgParser
             }
         }
 
-        ProtectOptions options = new(subCommand, inputPath, outputPath, inPlace, removeSource, scope, noVerify);
+        ProtectOptions options = new(subCommand, inputPath, outputPath, inPlace, removeSource, scope, noVerify, force);
         return new Result(options, null, false, 0, useColor);
     }
 
@@ -135,7 +136,8 @@ public static class ArgParser
             .Flag("--keep", "-k", "Retain source FILE (explicit default; accepted for symmetry with --rm).")
             .Option("--scope", null, "user|machine",
                 "Key-derivation scope. 'user' (default) — key bound to current OS user, decryptable only by that user on that machine. 'machine' — key bound to machine credential, decryptable by any user on that machine (Windows needs DPAPI LocalMachine access; macOS needs sudo for System Keychain; Linux: unsupported — tool exits with usage error).")
-            .Flag("--no-verify", "Skip the post-encrypt round-trip integrity check (encrypt path only). Faster, less safe.");
+            .Flag("--no-verify", "Skip the post-encrypt round-trip integrity check (encrypt path only). Faster, less safe.")
+            .Flag("--force", "-f", "Overwrite an existing destination file. Without this flag, the tool refuses to clobber existing data. Symlink-safe: the destination is unlinked before exclusive create, so an attacker-planted symlink cannot redirect the write.");
 
         if (isProtect)
         {
@@ -148,8 +150,10 @@ public static class ArgParser
              .ComposesWith("digest", "digest config.json; protect config.json --rm", "Hash a file for audit, then encrypt and remove plaintext")
              .ComposesWith("clip", "clip --paste | protect -o clip.prot", "Encrypt clipboard contents to a file")
              .Section("WPRT Format",
-                "Header: magic 'WPRT' + version 0x01 + backend-marker byte (0x01 DPAPI-user, 0x02 DPAPI-machine, 0x03 Keychain, 0x04 libsecret).\n" +
-                "Body: 64 KB chunks, each length-prefixed and AEAD-sealed (AES-256-GCM on Keychain/libsecret; DPAPI envelope on Windows). Final chunk carries a truncation-detection flag.");
+                "Header (22 bytes): magic 'WPRT' + version 0x01 + backend-marker byte (0x01 DPAPI-user, 0x02 DPAPI-machine, 0x10 Keychain-user, 0x11 Keychain-machine, 0x20 libsecret-user) + 16-byte random FileId.\n" +
+                "Body: 64 KB chunks. AEAD path (Keychain/libsecret): AES-256-GCM with AAD = header || chunkIndex || isFinal — every chunk is bound to this specific file at this specific position.\n" +
+                "DPAPI path (Windows): the same FileId+chunkIndex binding lives inside the protected blob, so chunk reorder and cross-file substitution are detected even though DPAPI itself has no AAD slot.\n" +
+                "Final chunk carries a truncation-detection flag.");
         }
         else
         {

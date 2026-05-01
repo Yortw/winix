@@ -1,11 +1,18 @@
 #nullable enable
+using System;
+
 namespace Winix.Protect;
 
 /// <summary>
 /// Per-chunk encrypt/decrypt contract. Called by <see cref="ChunkWriter"/> / <see cref="ChunkReader"/>.
 /// Implementations are Windows DPAPI (keyless) or AES-GCM-with-SecretStore-key (Mac/Linux).
 /// </summary>
-public interface IProtectBackend
+/// <remarks>
+/// Extends <see cref="IDisposable"/> so backends holding sensitive in-memory key material
+/// (e.g. AES-256 cache in <see cref="AeadBackend"/>) can zero it deterministically rather
+/// than waiting for GC. Callers that construct a backend own its lifetime.
+/// </remarks>
+public interface IProtectBackend : IDisposable
 {
     /// <summary>The platform marker for files produced by this backend.</summary>
     PlatformMarker Marker { get; }

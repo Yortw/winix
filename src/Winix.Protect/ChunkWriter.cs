@@ -28,6 +28,11 @@ public static class ChunkWriter
         {
             throw new ArgumentOutOfRangeException(nameof(chunkSize), "Chunk size must be positive.");
         }
+        if (headerBytes is null) { throw new ArgumentNullException(nameof(headerBytes)); }
+        if (headerBytes.Length != Header.Length)
+        {
+            throw new ArgumentException($"headerBytes must be {Header.Length} bytes (got {headerBytes.Length}).", nameof(headerBytes));
+        }
 
         destination.Write(headerBytes, 0, headerBytes.Length);
 

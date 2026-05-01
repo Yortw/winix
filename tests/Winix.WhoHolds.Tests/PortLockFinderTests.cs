@@ -12,10 +12,11 @@ namespace Winix.WhoHolds.Tests;
 
 public sealed class PortLockFinderTests
 {
-    [Fact]
+    [SkippableFact]
     public void Find_BoundPort_ReturnsCurrentProcess()
     {
-        if (!OperatingSystem.IsWindows()) { return; }
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only integration test");
+        if (!OperatingSystem.IsWindows()) { return; } // redundant, satisfies CA1416 analyzer
 
         var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
@@ -34,10 +35,11 @@ public sealed class PortLockFinderTests
         }
     }
 
-    [Fact]
+    [SkippableFact]
     public void Find_BoundPort_ResourceShowsProtocol()
     {
-        if (!OperatingSystem.IsWindows()) { return; }
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only integration test");
+        if (!OperatingSystem.IsWindows()) { return; } // redundant, satisfies CA1416 analyzer
 
         var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
@@ -59,10 +61,11 @@ public sealed class PortLockFinderTests
         }
     }
 
-    [Fact]
+    [SkippableFact]
     public void Find_UdpBoundPort_ReturnsCurrentProcess()
     {
-        if (!OperatingSystem.IsWindows()) { return; }
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only integration test");
+        if (!OperatingSystem.IsWindows()) { return; } // redundant, satisfies CA1416 analyzer
 
         var udpClient = new UdpClient(0);
         try
@@ -80,10 +83,11 @@ public sealed class PortLockFinderTests
         }
     }
 
-    [Fact]
+    [SkippableFact]
     public void Find_UnusedPort_ReturnsEmpty()
     {
-        if (!OperatingSystem.IsWindows()) { return; }
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only integration test");
+        if (!OperatingSystem.IsWindows()) { return; } // redundant, satisfies CA1416 analyzer
 
         // Bind then immediately stop to find a free port number.
         var listener = new TcpListener(IPAddress.Loopback, 0);
