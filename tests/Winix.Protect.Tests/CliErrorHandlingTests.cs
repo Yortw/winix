@@ -57,8 +57,24 @@ public class CliErrorHandlingTests
             string output = Path.Combine(dir, "secrets.json.prot");
             File.WriteAllText(input, "round-trip me");
 
-            int encExit = Winix.Protect.Cli.Run([input, "-o", output], "protect");
-            Assert.Equal(0, encExit);
+            // Capture stderr around the encrypt call too. The test originally only captured
+            // stderr around unprotect (the assertion target), so an intermittent macOS CI
+            // failure of the protect step (exit 126 — InvalidOperationException from the
+            // Keychain backend) shows up only as "Expected: 0, Actual: 126" with no diagnostic.
+            // When this assertion fails, the captured stderr should reveal whether it's a
+            // Keychain reachability issue, an "existing key wrong size" anomaly, or something
+            // else — and we can then fix the root cause rather than guessing at gates.
+            StringWriter encErr = new();
+            TextWriter originalErr = Console.Error;
+            Console.SetError(encErr);
+            int encExit;
+            try
+            {
+                encExit = Winix.Protect.Cli.Run([input, "-o", output], "protect");
+            }
+            finally { Console.SetError(originalErr); }
+            Assert.True(encExit == 0,
+                $"protect step expected exit 0, got {encExit}. stderr: <{encErr.ToString().Trim()}>");
 
             // Remove the plaintext source so unprotect's default output path (`output` minus
             // the `.prot` suffix == `input`) doesn't collide with an existing file. Without
@@ -73,7 +89,7 @@ public class CliErrorHandlingTests
             File.WriteAllBytes(output, bytes);
 
             StringWriter capturedErr = new();
-            TextWriter originalErr = Console.Error;
+            TextWriter originalErr2 = Console.Error;
             Console.SetError(capturedErr);
             try
             {
@@ -82,7 +98,7 @@ public class CliErrorHandlingTests
                 string err = capturedErr.ToString();
                 Assert.Contains("authentication", err, StringComparison.OrdinalIgnoreCase);
             }
-            finally { Console.SetError(originalErr); }
+            finally { Console.SetError(originalErr2); }
         }
         finally { try { Directory.Delete(dir, recursive: true); } catch { } }
     }
