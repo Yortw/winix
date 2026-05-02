@@ -21,6 +21,7 @@ namespace Winix.Protect.Tests;
 /// portable unit test) and any latent breakage in the Keychain CLI invocation, store layout,
 /// or secret-store namespace contract could ride to production undetected.
 /// </summary>
+[Collection(SharedKeystoreCollection.Name)]
 public class AeadKeychainBackendIntegrationTests
 {
     [SkippableFact]
