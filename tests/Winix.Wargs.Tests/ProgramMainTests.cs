@@ -538,7 +538,24 @@ public class ProgramMainTests
         // to posix_openpt on Linux/macOS or WinPTY on Windows; non-trivial). For now
         // the production path is verified by manual smoke (real terminal Ctrl+C on
         // `echo | wargs --ndjson echo` against held-open input).
-        Skip.If(true, "PTY-allocating test harness needed; see comment for details — production path verified by manual smoke only.");
+        //
+        // ALGORITHMIC COVERAGE LIVES IN-PROCESS:
+        //   InputReaderTests.ReadItems_LineMode_EmptyInput_TokenCancelled_…
+        //   InputReaderTests.ReadItems_NullMode_EmptyInput_TokenCancelled_…
+        //   InputReaderTests.ReadItems_WhitespaceMode_EmptyInput_TokenCancelled_…
+        //   InputReaderTests.ReadItems_CustomMode_EmptyInput_TokenCancelled_…
+        //     ↳ pin the load-bearing piece of Round-6 SFH I2: when stdin EOFs after
+        //       Console.In.Close (the cancellation callback's effect), InputReader's
+        //       post-loop ThrowIfCancellationRequested catches the cancellation rather
+        //       than silently returning empty IEnumerable.
+        //   InputReaderTests.ReadItems_*Mode_TokenAlreadyCancelled_… (Round-7)
+        //     ↳ pin the in-loop ThrowIfCancellationRequested for the mid-stream case.
+        //
+        // What this Skip drops vs. pre-skip: the wiring glue (CancelKeyPress handler →
+        // cts.Cancel → Console.In.Close → ReadLine returns null) and Main's OCE catch
+        // arm. Each is small (closures of 2-3 lines, single-line catch arm) and trivial
+        // by inspection; the algorithmic pieces are unit-pinned above.
+        Skip.If(true, "End-to-end PTY-allocating test harness needed for the full SIGINT chain; algorithmic pieces are pinned in InputReaderTests.ReadItems_*Mode_EmptyInput_TokenCancelled_… — see this test's comment block.");
         await Task.CompletedTask; // satisfies the async Task signature; never reached.
     }
 
