@@ -96,4 +96,42 @@ public sealed class PortRangeParserTests
     {
         Assert.Throws<FormatException>(() => PortRangeParser.Parse("100-80"));
     }
+
+    /// <summary>
+    /// Round-10 review I-3: pin the contract for malformed range edges that prior rounds
+    /// missed. Specifically:
+    /// <list type="bullet">
+    ///   <item><c>"-1"</c> — leading dash with empty low bound. ParsePort("") fails.</item>
+    ///   <item><c>"80-"</c> — trailing dash with empty high bound. ParsePort("") fails.</item>
+    ///   <item><c>"-"</c> — both bounds empty. ParsePort("") fails.</item>
+    /// </list>
+    /// All three must surface as <see cref="FormatException"/> from <c>Parse</c>, not silently
+    /// produce a degenerate range or escape as a different exception type that the CLI wrapper
+    /// would mis-attribute as <c>unexpected_error</c>.
+    /// </summary>
+    [Theory]
+    [InlineData("-1")]
+    [InlineData("80-")]
+    [InlineData("-")]
+    public void Parse_MalformedRangeEdges_Throws(string specifier)
+    {
+        Assert.Throws<FormatException>(() => PortRangeParser.Parse(specifier));
+    }
+
+    /// <summary>
+    /// Round-10 review I-3: pin the contract for leading-zero ports. <c>int.TryParse</c>
+    /// accepts <c>"01"</c> as <c>1</c>, so <c>"01-10"</c> parses as the range <c>(1, 10)</c>.
+    /// This is permissive but documented behaviour — pin it so a future tightening to
+    /// "leading zeros are a syntax error" is a deliberate contract change with a failing
+    /// test, not a silent regression.
+    /// </summary>
+    [Fact]
+    public void Parse_LeadingZeroPort_AcceptedAsCanonicalValue()
+    {
+        IReadOnlyList<PortRange> ranges = PortRangeParser.Parse("01-10");
+
+        Assert.Single(ranges);
+        Assert.Equal(1, ranges[0].Low);
+        Assert.Equal(10, ranges[0].High);
+    }
 }

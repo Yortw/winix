@@ -137,6 +137,74 @@ public sealed class TlsWrapperTests
     /// the fresh <c>tlsCts</c> + <c>CancelAfter</c>; this test ensures reverting that change
     /// fails a named test rather than shipping silently.
     /// </summary>
+    /// <summary>
+    /// Round-10 review I-1: pin the user-cancel arm of the TLS handshake catch block
+    /// (NetCatClient.cs: <c>catch (OperationCanceledException) when (ct.IsCancellationRequested)</c>).
+    /// The arm rethrows so the OCE escapes RunAsync and Main maps it to exit 130/interrupted.
+    /// Without this distinction, a Ctrl+C during a hanging TLS handshake would be caught by
+    /// the timeout arm and silently mis-classified as exit 2/timeout — the user pressing
+    /// Ctrl+C should always be exit 130, never exit 2. The contract distinguishes these via
+    /// the <c>when (ct.IsCancellationRequested)</c> guard; a refactor that merged the two
+    /// catch arms would silently violate the BSD-nc/SIGINT contract on the TLS path. This
+    /// test would fail loudly rather than ship the regression.
+    /// </summary>
+    [Fact]
+    public async Task NetCatClient_TlsHandshakeUserCancel_RethrowsOperationCanceledException()
+    {
+        // Hanging server (same fixture as TlsHandshakeHangs): accepts TCP, never responds.
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+
+        Task serverTask = Task.Run(async () =>
+        {
+            try
+            {
+                using TcpClient peer = await listener.AcceptTcpClientAsync();
+                await Task.Delay(5000); // hold the connection open, never respond to ClientHello
+            }
+            catch { /* listener shutdown */ }
+        });
+
+        try
+        {
+            var options = new NetCatOptions
+            {
+                Mode = NetCatMode.Connect,
+                Protocol = NetCatProtocol.Tcp,
+                Host = "127.0.0.1",
+                Ports = new[] { new Winix.NetCat.PortRange(port) },
+                UseTls = true,
+                InsecureTls = true,
+                // 5s gives the TLS handshake plenty of room to be in flight when we cancel —
+                // we're testing user-cancel, not timeout, so the timeout must NOT fire first.
+                Timeout = System.TimeSpan.FromSeconds(5),
+            };
+
+            using var stdin = new MemoryStream();
+            using var stdout = new MemoryStream();
+            using var stderr = new StringWriter();
+
+            using var userCts = new CancellationTokenSource();
+            // Cancel after the handshake has had time to start (so we land inside
+            // AuthenticateAsClientAsync rather than during TCP connect or pre-handshake setup).
+            userCts.CancelAfter(System.TimeSpan.FromMilliseconds(500));
+
+            // Production code: the catch arm `when (ct.IsCancellationRequested) { throw; }`
+            // rethrows OCE out of RunAsync. The library's contract is that user-initiated
+            // cancellation propagates as OCE rather than being mapped to a RunResult — Main
+            // wraps RunAsync in a top-level try/catch (OperationCanceledException) that emits
+            // exit 130. So at the library level, we expect OCE to escape.
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                new NetCatClient().RunAsync(options, stdin, stdout, stderr, userCts.Token));
+        }
+        finally
+        {
+            listener.Stop();
+            try { await serverTask.WaitAsync(System.TimeSpan.FromSeconds(10)); } catch { }
+        }
+    }
+
     [Fact]
     public async Task NetCatClient_TlsHandshakeHangs_ReturnsExitTwo_Timeout()
     {
