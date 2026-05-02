@@ -166,7 +166,16 @@ public sealed class TlsWrapperTests
                 Ports = new[] { new Winix.NetCat.PortRange(port) },
                 UseTls = true,
                 InsecureTls = true,
-                Timeout = System.TimeSpan.FromMilliseconds(400),
+                // Was 400ms — too aggressive for macOS CI runners under load. The same
+                // timeout value is consumed twice: connectCts.CancelAfter(timeout) for the TCP
+                // connect, then a fresh tlsCts.CancelAfter(timeout) for the TLS handshake.
+                // On a contended runner, the TCP connect itself can take >400ms even on local
+                // loopback, firing connectCts → exit-2-but-with-"connection timed out" stderr,
+                // which fails the "TLS handshake timed out" substring assertion below. 2 seconds
+                // is comfortably above realistic local-loopback accept latency on macos-latest
+                // while still short enough that the hanging-handshake path completes in test time
+                // (peer holds the connection for 5s — handshake fires its own timeout first).
+                Timeout = System.TimeSpan.FromSeconds(2),
             };
 
             using var stdin = new MemoryStream();
@@ -205,7 +214,20 @@ public sealed class TlsWrapperTests
             try
             {
                 using TcpClient peer = await listener.AcceptTcpClientAsync();
-                // Force a hard reset: disable linger with timeout=0, then close.
+                // Wait for the client to send the first byte of its ClientHello before RSTing.
+                // This is the test's load-bearing synchronisation primitive: receiving any byte
+                // from the client proves (a) the TCP handshake completed cleanly on both sides,
+                // and (b) SslStream's AuthenticateAsClientAsync has progressed far enough to
+                // emit ClientHello — i.e. we are now demonstrably inside the TLS handshake.
+                // Without this, on contended CI runners the peer's RST can be observed by the
+                // CLIENT'S TCP layer DURING tcp.ConnectAsync (rather than in SslStream's first
+                // read/write), which surfaces the failure as IOException → "socket_error"
+                // instead of the "tls_failed" path this test exists to pin. Reading one byte
+                // turns timing into causality.
+                NetworkStream ns = peer.GetStream();
+                byte[] firstByte = new byte[1];
+                _ = await ns.ReadAsync(firstByte, 0, 1);
+                // Now force a hard reset: disable linger with timeout=0, then close.
                 peer.LingerState = new LingerOption(true, 0);
                 peer.Close();
             }
