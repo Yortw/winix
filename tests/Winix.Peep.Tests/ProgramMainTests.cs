@@ -349,8 +349,16 @@ public class ProgramMainTests
         Skip.IfNot(!OperatingSystem.IsWindows(), "Unix-only — uses printf to emit ANSI bytes");
         if (OperatingSystem.IsWindows()) return;  // CA1416 satisfaction; redundant after Skip.IfNot
 
+        // Use the absolute path to printf rather than relying on PATH lookup. The
+        // Linux CI step wraps the test runner in `dbus-run-session -- bash -c '...'`
+        // (for libsecret/Keychain integration tests), and the inner environment
+        // does not consistently propagate /usr/bin in PATH for grandchild processes
+        // spawned via Process.Start - peep's CommandExecutor then surfaces a typed
+        // CommandNotFoundException and exits 127. /usr/bin/printf is the canonical
+        // location on both Linux (GNU coreutils) and macOS (BSD), and the test is
+        // already Unix-only via the Skip.IfNot above.
         var result = RunPeep("--once", "--json-output", "--",
-            "printf", @"\033[31mhello\033[0m\n");
+            "/usr/bin/printf", @"\033[31mhello\033[0m\n");
         Assert.Equal(0, result.ExitCode);
         string trimmed = result.Stderr.Trim();
         using var doc = JsonDocument.Parse(trimmed);
