@@ -359,11 +359,18 @@ public class ProgramMainTests
         string lastOutputStr = lastOutput.GetString()!;
         // The visible content survives the strip.
         Assert.Contains("hello", lastOutputStr);
-        // The ANSI bytes do NOT survive the strip — the only way this assertion passes
+        // The ANSI bytes do NOT survive the strip - the only way these assertions pass
         // is if StripAnsi was applied to last_output. If a refactor decoupled the
         // strip from FormatJson's last_output path, the raw ESC bytes would surface
-        // as `[31m` in the JSON string and this assertion would fail.
-        Assert.DoesNotContain("", lastOutputStr);
-        Assert.DoesNotContain("[31m", lastOutputStr);
+        // as `[31m` in the JSON string and these assertions would fail.
+        //
+        // Use StringComparison.Ordinal - xUnit's Assert.DoesNotContain(string, string)
+        // overload defaults to StringComparison.CurrentCulture. Culture-aware comparison
+        // treats Unicode "Format" category characters (ESC and friends) as ignorable,
+        // so a 1-char ESC needle behaves like an empty needle and matches at position 0
+        // of every haystack. The 3-arg overload with StringComparison.Ordinal is the
+        // safe form for any byte-precise check, and is what we want here.
+        Assert.DoesNotContain("\u001b", lastOutputStr, StringComparison.Ordinal);
+        Assert.DoesNotContain("[31m", lastOutputStr, StringComparison.Ordinal);
     }
 }
