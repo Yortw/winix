@@ -6,6 +6,7 @@ using Winix.Protect;
 
 namespace Winix.Protect.Tests;
 
+[Collection(SharedKeystoreCollection.Name)]
 public class CliErrorHandlingTests
 {
     [Fact]

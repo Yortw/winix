@@ -23,6 +23,7 @@ namespace Winix.Protect.Tests;
 /// libsecret call chain (libsecret CLI argument shape, store layout, key-name
 /// interaction, persistence across daemon restarts, etc.).
 /// </summary>
+[Collection(SharedKeystoreCollection.Name)]
 public class AeadLibsecretBackendIntegrationTests
 {
     [SkippableFact]
