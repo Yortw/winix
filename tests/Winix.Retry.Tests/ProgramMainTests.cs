@@ -13,6 +13,26 @@ namespace Winix.Retry.Tests;
 /// regressions in <c>Program.Main</c> — if someone reintroduces the phantom <c>-v</c> alias,
 /// drops a <c>JsonField</c>, or changes the --stdout error-routing behaviour, the library tests
 /// pass while the actual CLI breaks. These tests drive the entry point.
+///
+/// **DEFERRED COVERAGE GAP — kill-on-cancel for the spawned child process.** The R6 fixes for
+/// I4 (grace-block exception handling) and I5 (killReg.Dispose ordering for second-Ctrl+C
+/// race) live inside the spawner closure at <c>Program.cs:262-350</c>. They have no test
+/// coverage — a regression that drops <c>process.Kill(entireProcessTree:true)</c> or
+/// re-orders the disposal would ship undetected. Two paths exist to close this gap:
+/// <list type="bullet">
+///   <item>Extract the spawner to a testable seam (<c>Winix.Retry.IProcessSpawner</c>) so
+///         a fake <c>Process</c>-equivalent can verify the kill-tree call and grace-block
+///         escape contracts. Estimated cost: ~30-50 LOC refactor + 5-10 unit tests.</item>
+///   <item>Add a Unix-gated integration test that spawns retry with a long-sleeping child,
+///         delivers SIGINT to retry, and verifies (a) retry exits within the 5s+grace
+///         window and (b) the grandchild process is gone. Cross-platform Ctrl+C delivery
+///         on Windows requires AttachConsole/GenerateConsoleCtrlEvent P/Invoke + console
+///         allocation gymnastics — Unix-only via SkippableFact is the practical scope.</item>
+/// </list>
+/// Current status: defer to a future tooling pass. Memory entry
+/// <c>feedback_test_infeasible_extract_to_library.md</c> directly addresses this pattern —
+/// the seam-extraction option is the suite-canonical answer for "test-infeasible inline
+/// closure". Tracked here so the next session can pick it up rather than re-discover it.
 /// </summary>
 public class ProgramMainTests
 {
@@ -204,6 +224,34 @@ public class ProgramMainTests
         Assert.Equal(125, result.ExitCode);
         Assert.Contains("invalid --times value", result.Stderr);
         Assert.Contains("abc", result.Stderr);
+    }
+
+    /// <summary>
+    /// Round-11 verification follow-up: short aliases <c>-n</c>, <c>-d</c>, <c>-b</c> are
+    /// documented in the README but the prior 6-round review did not pin them in
+    /// <see cref="ProgramMainTests"/>. A regression that dropped the short form from
+    /// <c>CommandLineParser.Option(...)</c> (e.g. typo in the second-arg short-alias
+    /// position, or refactor to a different ShellKit overload) would ship undetected
+    /// because every other ProgramMainTests case uses the long form.
+    /// <para/>
+    /// Using a known-bad value for each alias ensures the parser actually recognised the
+    /// short form (validation-error response = parser saw the flag) — vs an unknown-flag
+    /// rejection if the short form were missing (which would produce a different stderr).
+    /// </summary>
+    [Theory]
+    [InlineData("-n", "abc", "invalid --times value")]
+    [InlineData("-d", "banana", "invalid --delay value")]
+    [InlineData("-b", "quadratic", "invalid --backoff value")]
+    public void ShortAlias_RecognisedByParser(string alias, string badValue, string expectedStderrFragment)
+    {
+        var result = RunRetry(alias, badValue, "ls");
+
+        Assert.Equal(125, result.ExitCode);
+        Assert.Contains(expectedStderrFragment, result.Stderr);
+        // A regression that dropped the short alias would surface as an unknown-flag error
+        // instead — pin against that specific failure mode by asserting the alias is NOT
+        // echoed back as the unknown token.
+        Assert.DoesNotContain($"unknown option '{alias}'", result.Stderr);
     }
 
     [Fact]

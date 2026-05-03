@@ -19,5 +19,6 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="README.md" Pack="true" PackagePath="/" />
+    <Content Include="man\man1\schedule.1" CopyToPublishDirectory="PreserveNewest" Link="share\man\man1\schedule.1" />
   </ItemGroup>
 </Project>

@@ -193,8 +193,8 @@ On **Linux/macOS**, Winix-managed crontab entries are tagged with a `# winix:<na
 
 ## Colour
 
-- Task names are highlighted for quick scanning.
-- Enabled/disabled state is colour-coded.
+- Table headers are dimmed in `list` output for visual separation from the data rows.
+- Status indicators (`✓` / `✗`) returned from add/remove/run/enable/disable operations are coloured (green for success, red for failure).
 - `--no-color` suppresses all ANSI colour output.
 - Respects the `NO_COLOR` environment variable ([no-color.org](https://no-color.org)).
 
