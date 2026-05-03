@@ -25,7 +25,7 @@ public static class Cli
     /// <param name="payloadStdin">Raw byte <see cref="Stream"/> for stdin payload; tests inject a MemoryStream.</param>
     /// <param name="stdout">Output writer for hash / JSON output.</param>
     /// <param name="stderr">Error writer for warnings, errors, and verify-mismatch diagnostics.</param>
-    /// <returns>Process exit code (0 success, 1 verify-mismatch, 2 usage error, 125 runtime error).</returns>
+    /// <returns>Process exit code (0 success, 1 verify-mismatch, 125 usage error, 126 runtime error).</returns>
     public static int Run(
         string[] args,
         TextReader keyStdin,

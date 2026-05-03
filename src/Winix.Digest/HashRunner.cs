@@ -89,12 +89,10 @@ public static class HashRunner
             using var stream = File.OpenRead(path);
             return new[] { new HashResult(hasher.Hash(stream), path) };
         }
-        catch (IOException ex)
-        {
-            error = $"failed to read '{path}': {ex.Message}";
-            return Array.Empty<HashResult>();
-        }
-        catch (UnauthorizedAccessException ex)
+        // Round-3 review — single `when` clause across IOException + UnauthorizedAccessException
+        // collapses two dead-equivalent catch arms into one, removing the untested branch
+        // pointed out by the round-3 test analyzer. Same diagnostic text either way.
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             error = $"failed to read '{path}': {ex.Message}";
             return Array.Empty<HashResult>();
@@ -123,12 +121,7 @@ public static class HashRunner
                 using var stream = File.OpenRead(path);
                 results.Add(new HashResult(hasher.Hash(stream), path));
             }
-            catch (IOException ex)
-            {
-                error = $"failed to read '{path}': {ex.Message}";
-                return Array.Empty<HashResult>();
-            }
-            catch (UnauthorizedAccessException ex)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 error = $"failed to read '{path}': {ex.Message}";
                 return Array.Empty<HashResult>();

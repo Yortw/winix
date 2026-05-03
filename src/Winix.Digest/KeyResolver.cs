@@ -122,12 +122,7 @@ public static class KeyResolver
                 {
                     fileBytes = ReadCapped(File.OpenRead(file.Path), MaxKeySizeBytes, out fileExceeded);
                 }
-                catch (IOException ex)
-                {
-                    error = $"failed to read key file '{file.Path}': {ex.Message}";
-                    return null;
-                }
-                catch (UnauthorizedAccessException ex)
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
                     error = $"failed to read key file '{file.Path}': {ex.Message}";
                     return null;
