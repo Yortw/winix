@@ -239,12 +239,29 @@ public static class CommandExecutor
     /// enforced per line; a pathological single line larger than the cap is truncated
     /// at the flush boundary.
     /// </summary>
-    private static async Task ReadStreamAsync(
-        StreamReader reader, StringBuilder output, object outputLock, TruncationFlag truncation, int maxOutputChars)
+    // Internal (not private) so deterministic chunk-pattern tests can drive this directly
+    // via TextReader subclasses without spawning a real child process. Parameter is the
+    // TextReader base type (StreamReader inherits from it) so a custom test reader can
+    // return controlled char-buffer chunks on each ReadAsync call. Production call sites
+    // pass `process.StandardOutput` / `process.StandardError` (StreamReader) — unchanged.
+    internal static async Task ReadStreamAsync(
+        TextReader reader, StringBuilder output, object outputLock, TruncationFlag truncation, int maxOutputChars)
     {
         char[] buffer = new char[4096];
         var lineBuffer = new StringBuilder();
         int charsRead;
+
+        // Per-stream lineBuffer cap. If a child writes a stream WITHOUT '\n' (e.g. a binary
+        // dump, `cat largebinary`, `dd if=/dev/urandom`, `curl https://huge.bin`), the
+        // line-atomic merge would otherwise grow lineBuffer unbounded — the per-line
+        // FlushLine at '\n' is the only place the per-call cap is applied. Round-19
+        // verification (2026-05-03) caught this regression: today's line-atomic merge fix
+        // bypassed the R1 C2 OOM defence (the 64MB DefaultMaxOutputChars cap) for
+        // newline-less input. Cap lineBuffer at maxOutputChars so the worst case is one
+        // mid-line forced flush per stream — same OOM bound as the chunked-merge era,
+        // with only the cosmetic cost of splitting an arbitrarily-long single line at the
+        // cap boundary across one extra Append.
+        int lineBufferCap = maxOutputChars;
 
         while ((charsRead = await reader.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false)) > 0)
         {
@@ -254,6 +271,17 @@ public static class CommandExecutor
                 lineBuffer.Append(c);
                 if (c == '\n')
                 {
+                    FlushLine(lineBuffer, output, outputLock, truncation, maxOutputChars);
+                    lineBuffer.Clear();
+                }
+                else if (lineBuffer.Length >= lineBufferCap)
+                {
+                    // OOM safety: forced mid-line flush. FlushLine respects the per-call
+                    // cap and trips truncation if appending the partial would exceed it,
+                    // so the user-visible "[peep: output truncated ...]" marker still
+                    // fires via the post-merge handler. After flush, continue reading
+                    // (don't break the read loop) so the child's pipe still drains and
+                    // we don't wedge a runaway producer.
                     FlushLine(lineBuffer, output, outputLock, truncation, maxOutputChars);
                     lineBuffer.Clear();
                 }
@@ -304,7 +332,10 @@ public static class CommandExecutor
     /// Shared mutable state between stdout and stderr readers indicating whether the
     /// output cap has been reached. Mutated under <c>outputLock</c>.
     /// </summary>
-    private sealed class TruncationFlag
+    // Internal so deterministic ReadStreamAsync tests can construct one. Production
+    // call site (RunAsync) is the only producer; consumers are the two ReadStreamAsync
+    // tasks plus the post-merge truncation marker emit at line ~195.
+    internal sealed class TruncationFlag
     {
         public bool Triggered;
     }

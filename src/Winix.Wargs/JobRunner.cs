@@ -772,19 +772,58 @@ public sealed class JobRunner
     }
 
     /// <summary>
-    /// Reads a redirected stream in chunks and appends to the shared <see cref="StringBuilder"/>.
-    /// The lock serialises interleaved stdout/stderr writes so chunks don't get torn.
+    /// Reads a redirected stream and emits one line at a time into the shared
+    /// <paramref name="output"/> StringBuilder, holding the lock only across each line
+    /// flush. This prevents cross-stream chunk interleaving from landing mid-line.
+    /// <para/>
+    /// Pre-fix this method appended each ReadAsync chunk under a lock — the lock
+    /// prevented torn appends but DID NOT prevent one stream's chunk landing
+    /// mid-line of the other. This is the same defect-class the peep R6 manual smoke
+    /// caught (memory: <c>feedback_concurrent_stream_merge_corruption.md</c>) and that
+    /// the round-19 verification (2026-05-03) flagged for wargs after pattern-matching
+    /// against the confirmed peep defect. Reproducer in
+    /// <c>JobRunnerStreamMergeTests.ReadStreamAsync_ChunkSplitsAcrossLines_OutputIsLineAtomic</c>
+    /// (mutation-tested: pre-fix code produces "AAABBB\nCCC\n" — interleaved corruption —
+    /// while post-fix produces "BBB\n" then "AAACCC\n").
+    /// <para/>
+    /// Lines from stdout and stderr can still interleave at LINE boundaries (true
+    /// chronological merge across two pipes is impossible without OS-level support),
+    /// but the granularity is line-atomic instead of chunk-atomic.
     /// </summary>
-    private static async Task ReadStreamAsync(StreamReader reader, StringBuilder output, object outputLock)
+    // Internal (not private) so the deterministic chunk-pattern test can drive this
+    // directly via TextReader subclasses. Parameter is the TextReader base type
+    // (StreamReader inherits from it) so a custom test reader can return controlled
+    // char-buffer chunks. Production call sites pass `process.StandardOutput` /
+    // `process.StandardError` (StreamReader) — unchanged.
+    internal static async Task ReadStreamAsync(TextReader reader, StringBuilder output, object outputLock)
     {
         char[] buffer = new char[4096];
+        var lineBuffer = new StringBuilder();
         int charsRead;
 
         while ((charsRead = await reader.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false)) > 0)
         {
+            for (int i = 0; i < charsRead; i++)
+            {
+                char c = buffer[i];
+                lineBuffer.Append(c);
+                if (c == '\n')
+                {
+                    lock (outputLock)
+                    {
+                        output.Append(lineBuffer);
+                    }
+                    lineBuffer.Clear();
+                }
+            }
+        }
+
+        // Final partial line at EOF (no trailing newline) — flush so it isn't lost.
+        if (lineBuffer.Length > 0)
+        {
             lock (outputLock)
             {
-                output.Append(buffer, 0, charsRead);
+                output.Append(lineBuffer);
             }
         }
     }
