@@ -27,14 +27,7 @@ internal sealed class Program
 
         var opts = parse.Options!;
 
-        if (opts.Algorithm == HashAlgorithm.Md5)
-        {
-            Console.Error.WriteLine("digest: warning: MD5 is cryptographically broken; do not use for security-sensitive purposes.");
-        }
-        else if (opts.Algorithm == HashAlgorithm.Sha1)
-        {
-            Console.Error.WriteLine("digest: warning: SHA-1 is broken for collision resistance; HMAC-SHA-1 is still acceptable for signing but prefer HMAC-SHA-256 for new systems.");
-        }
+        AlgorithmWarning.EmitIfLegacy(opts.Algorithm, Console.Error);
 
         try
         {

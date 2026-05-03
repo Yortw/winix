@@ -187,9 +187,16 @@ public static class ArgParser
         InputSource source;
         if (hasString)
         {
-            if (positionals.Length > 0 || sawStdinDash)
+            // Round-1 review I8 — distinguish file-positional from stdin-dash conflicts.
+            // The previous "--string cannot be combined with file arguments" was misleading
+            // when the conflicting arg was a bare `-` (stdin sentinel, not a file).
+            if (positionals.Length > 0)
             {
                 return Fail("--string cannot be combined with file arguments");
+            }
+            if (sawStdinDash)
+            {
+                return Fail("--string cannot be combined with stdin (-)");
             }
             source = new StringInput(parsed.GetString("--string"));
         }
@@ -269,20 +276,60 @@ public static class ArgParser
         return (filtered.ToArray(), seen);
     }
 
-    // ShellKit's ParseResult doesn't expose "how many times was this option given" —
-    // we scan the original argv to enforce --string-specified-once. Counts any of
-    // the long name or short alias, in their standalone forms. The equivalents
-    // "--string=X" / "-s=X" are also counted.
+    // Round-1 review I7 — ShellKit's ParseResult doesn't expose "how many times was this
+    // option given", so we replicate just enough of its parsing to count flag-USES of
+    // --string / -s (as opposed to value-uses where the same token appears as the value
+    // of another option). The previous implementation textually matched `-s` anywhere in
+    // argv, mis-counting `digest -s -s` as 2 occurrences when it's actually 1 use with
+    // the literal string value "-s". The fixed walker steps over the value-slot of every
+    // value-taking option, including --string itself, so the value is never confused for
+    // a flag-use. Anything after `--` is treated as a positional and never counted.
+    private static readonly System.Collections.Generic.HashSet<string> OptionsThatTakeValues =
+        new(StringComparer.Ordinal)
+        {
+            "--string", "-s",
+            "--algo",   "-a",
+            "--hmac",
+            "--key-env", "--key-file", "--key",
+            "--verify",
+        };
+
     private static int CountOccurrences(string[] argv, string longName, string shortName)
     {
         int count = 0;
         string longEq = longName + "=";
         string shortEq = shortName + "=";
-        foreach (string a in argv)
+        bool afterDashDash = false;
+        int i = 0;
+        while (i < argv.Length)
         {
-            if (a == longName || a == shortName) count++;
-            else if (a.StartsWith(longEq, StringComparison.Ordinal)) count++;
-            else if (a.StartsWith(shortEq, StringComparison.Ordinal)) count++;
+            string a = argv[i];
+            if (afterDashDash) { i++; continue; }
+            if (a == "--") { afterDashDash = true; i++; continue; }
+
+            if (a == longName || a == shortName)
+            {
+                count++;
+                // Skip the value-slot — even if the value happens to be another `-s` or
+                // `--string`, that token is the value, not a second flag-use.
+                i += 2;
+                continue;
+            }
+            if (a.StartsWith(longEq, StringComparison.Ordinal) ||
+                a.StartsWith(shortEq, StringComparison.Ordinal))
+            {
+                count++;
+                i++;
+                continue;
+            }
+            // For other value-taking options, skip the value so a `-s` appearing as
+            // someone-else's value isn't mistaken for a --string flag-use.
+            if (OptionsThatTakeValues.Contains(a))
+            {
+                i += 2;
+                continue;
+            }
+            i++;
         }
         return count;
     }
@@ -303,10 +350,25 @@ public static class ArgParser
         }
     }
 
+    // Round-1 review I-SFH-18 — SHA-3 is platform-conditional (.NET 8+ on Windows 11 22H2+ /
+    // recent Linux kernels). The previous --describe blurb advertised "SHA-2/SHA-3/BLAKE2b"
+    // unconditionally, so an agent or human reading --describe on (say) Windows Server 2019
+    // would think SHA-3 is available — and only learn otherwise on the runtime
+    // PlatformNotSupportedException. Probe at parse-time and reshape the description so the
+    // claim matches the actual capability of the running binary.
+    internal static bool IsSha3Available()
+    {
+        return System.Security.Cryptography.SHA3_256.IsSupported &&
+               System.Security.Cryptography.SHA3_512.IsSupported;
+    }
+
     private static CommandLineParser BuildParser()
     {
+        string description = IsSha3Available()
+            ? "Cross-platform cryptographic hashing and HMAC — SHA-2/SHA-3/BLAKE2b, safe HMAC key handling."
+            : "Cross-platform cryptographic hashing and HMAC — SHA-2/BLAKE2b (SHA-3 unavailable on this platform), safe HMAC key handling.";
         return new CommandLineParser("digest", ResolveVersion())
-            .Description("Cross-platform cryptographic hashing and HMAC — SHA-2/SHA-3/BLAKE2b, safe HMAC key handling.")
+            .Description(description)
             .StandardFlags()
             .Platform("cross-platform",
                 replaces: new[] { "sha256sum", "md5sum", "openssl dgst" },

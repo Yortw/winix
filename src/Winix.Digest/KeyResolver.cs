@@ -40,6 +40,14 @@ public static class KeyResolver
         "digest: warning: --key exposes the key via 'ps', shell history, and process listings.\n" +
         "        Prefer --key-env, --key-file, or --key-stdin for non-ephemeral scripts.";
 
+    // Round-1 review I3 — cap key reads at 1 MB. HMAC keys are typically 16–128 bytes;
+    // an HMAC block-size cap (128 bytes for SHA-512) is the cryptographic ceiling above
+    // which the BCL pre-hashes the key, so keys larger than ~1 KB convey no extra entropy.
+    // 1 MB is a generous upper bound that still catches the OOM cases this defends against:
+    // accidental `--key-file /dev/zero`, `--key-file /proc/kcore`, or piping a multi-GB
+    // file via `--key-stdin`. Any legitimate use fits well under the cap.
+    internal const int MaxKeySizeBytes = 1024 * 1024;
+
     /// <summary>
     /// Resolves the key bytes. Returns null on error; the <paramref name="error"/> out-param
     /// carries the user-facing message (for the console app to format and exit with code 125).
@@ -81,19 +89,50 @@ public static class KeyResolver
                     error = $"key file '{file.Path}' not found";
                     return null;
                 }
+                // Round-1 review I3 — size-cap the file BEFORE allocation. FileInfo.Length is
+                // O(1) on a real file; on /dev/zero / /proc/kcore it returns 0 so the
+                // post-read length check below is the actual guard for those cases.
+                try
+                {
+                    long fileSize = new FileInfo(file.Path).Length;
+                    if (fileSize > MaxKeySizeBytes)
+                    {
+                        error = $"key file '{file.Path}' is {fileSize} bytes — exceeds {MaxKeySizeBytes}-byte cap";
+                        return null;
+                    }
+                }
+                catch (IOException ex)
+                {
+                    error = $"failed to stat key file '{file.Path}': {ex.Message}";
+                    return null;
+                }
                 string? permWarning = KeyFilePermissionsCheck.GetWarningOrNull(file.Path);
                 if (permWarning is not null)
                 {
                     stderr.WriteLine(permWarning);
                 }
-                byte[] fileBytes = File.ReadAllBytes(file.Path);
+                byte[] fileBytes = ReadCapped(File.OpenRead(file.Path), MaxKeySizeBytes, out bool fileExceeded);
+                if (fileExceeded)
+                {
+                    error = $"key file '{file.Path}' exceeds {MaxKeySizeBytes}-byte cap (read returned more than the size hint)";
+                    return null;
+                }
                 key = stripTrailingNewline ? StripOneTrailingNewline(fileBytes) : fileBytes;
                 sourceLabel = $"key file '{file.Path}'";
                 break;
 
             case KeySource.StdinSource:
-                string stdinText = stdin.ReadToEnd();
-                byte[] stdinBytes = Encoding.UTF8.GetBytes(stdinText);
+                // Round-1 review I3 — stdin has no size hint; read up to cap+1 chars then
+                // reject if we got cap+1 (which means there was more we'd be discarding).
+                // Using a char buffer is correct because TextReader is text-shaped — encoded
+                // byte count will be >= char count for non-ASCII so capping chars is a
+                // strictly tighter bound than capping bytes.
+                byte[] stdinBytes = ReadCappedStdin(stdin, MaxKeySizeBytes, out bool stdinExceeded);
+                if (stdinExceeded)
+                {
+                    error = $"stdin key exceeds {MaxKeySizeBytes}-byte cap";
+                    return null;
+                }
                 key = stripTrailingNewline ? StripOneTrailingNewline(stdinBytes) : stdinBytes;
                 sourceLabel = "stdin";
                 break;
@@ -123,6 +162,67 @@ public static class KeyResolver
         }
 
         return key;
+    }
+
+    // Read up to `cap` bytes from the stream. If a (cap+1)th byte exists, set exceeded=true
+    // and return whatever was read (caller discards it via the error path). Used for files
+    // where FileInfo.Length is unreliable (/dev/zero, /proc/kcore — both report length 0
+    // but stream forever). Reads in 64 KB chunks.
+    private static byte[] ReadCapped(Stream stream, int cap, out bool exceeded)
+    {
+        using (stream)
+        {
+            using var ms = new MemoryStream();
+            byte[] buffer = new byte[64 * 1024];
+            int total = 0;
+            while (true)
+            {
+                int toRead = Math.Min(buffer.Length, cap + 1 - total);
+                if (toRead <= 0) break;
+                int n = stream.Read(buffer, 0, toRead);
+                if (n == 0) break;
+                ms.Write(buffer, 0, n);
+                total += n;
+                if (total > cap)
+                {
+                    exceeded = true;
+                    return ms.ToArray();
+                }
+            }
+            exceeded = false;
+            return ms.ToArray();
+        }
+    }
+
+    // Read up to `cap` bytes' worth of chars from the TextReader. We bound by char count
+    // (strictly tighter than byte count for non-ASCII) and check the encoded byte length.
+    private static byte[] ReadCappedStdin(TextReader stdin, int cap, out bool exceeded)
+    {
+        char[] buffer = new char[64 * 1024];
+        var sb = new StringBuilder();
+        int total = 0;
+        while (true)
+        {
+            int toRead = Math.Min(buffer.Length, cap + 1 - total);
+            if (toRead <= 0) break;
+            int n = stdin.Read(buffer, 0, toRead);
+            if (n == 0) break;
+            sb.Append(buffer, 0, n);
+            total += n;
+            if (total > cap)
+            {
+                exceeded = true;
+                return Encoding.UTF8.GetBytes(sb.ToString());
+            }
+        }
+        byte[] encoded = Encoding.UTF8.GetBytes(sb.ToString());
+        if (encoded.Length > cap)
+        {
+            exceeded = true;
+            return encoded;
+        }
+        exceeded = false;
+        return encoded;
     }
 
     // Strip a single trailing LF or CRLF. Indexed access (not range syntax) per project style.

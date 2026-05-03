@@ -266,4 +266,75 @@ public class KeyResolverTests
         Assert.Contains("empty", error, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("--key", error, StringComparison.Ordinal);
     }
+
+    // -- Round-1 review I3 — size-cap key reads at 1 MB. Defends against accidental
+    //    --key-file /dev/zero, /proc/kcore, or piping a multi-GB file via --key-stdin. --
+
+    [Fact]
+    public void ResolveFromFile_AtCap_Succeeds()
+    {
+        // A file whose payload (after newline strip) sits at the cap should still be accepted.
+        // Use the cap-1 raw bytes so a no-newline file works the same.
+        string path = Path.GetTempFileName();
+        try
+        {
+            byte[] payload = new byte[KeyResolver.MaxKeySizeBytes];
+            for (int i = 0; i < payload.Length; i++) payload[i] = (byte)(i % 251 + 1); // never 0, never \n
+            File.WriteAllBytes(path, payload);
+            var stderr = new StringWriter();
+            byte[]? key = KeyResolver.Resolve(
+                source: KeySource.File(path),
+                stdin: new FakeTextReader(""),
+                stripTrailingNewline: true,
+                stderr: stderr,
+                out string? error);
+            Assert.Null(error);
+            Assert.NotNull(key);
+            Assert.Equal(KeyResolver.MaxKeySizeBytes, key!.Length);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void ResolveFromFile_OverCap_Errors()
+    {
+        string path = Path.GetTempFileName();
+        try
+        {
+            byte[] payload = new byte[KeyResolver.MaxKeySizeBytes + 1];
+            File.WriteAllBytes(path, payload);
+            var stderr = new StringWriter();
+            byte[]? key = KeyResolver.Resolve(
+                source: KeySource.File(path),
+                stdin: new FakeTextReader(""),
+                stripTrailingNewline: true,
+                stderr: stderr,
+                out string? error);
+            Assert.Null(key);
+            Assert.NotNull(error);
+            Assert.Contains("cap", error, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains(path, error, StringComparison.Ordinal);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void ResolveFromStdin_OverCap_Errors()
+    {
+        // FakeTextReader returns the whole string on first ReadToEnd; for the bounded read
+        // path we need the buffered Read(buffer, offset, count) overload to drain it. The
+        // test fake's Read(...) is the standard TextReader behaviour (delegates to its
+        // backing string), so this exercises the cap path.
+        var stderr = new StringWriter();
+        byte[]? key = KeyResolver.Resolve(
+            source: KeySource.Stdin(),
+            stdin: new FakeTextReader(new string('x', KeyResolver.MaxKeySizeBytes + 1)),
+            stripTrailingNewline: true,
+            stderr: stderr,
+            out string? error);
+        Assert.Null(key);
+        Assert.NotNull(error);
+        Assert.Contains("cap", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("stdin", error, StringComparison.OrdinalIgnoreCase);
+    }
 }
