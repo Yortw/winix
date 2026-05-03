@@ -35,10 +35,15 @@ public static class KeyFilePermissionsCheck
             return $"digest: warning: {path} has mode 0{octal} and is readable by group/other.{Environment.NewLine}" +
                    $"        Consider 'chmod 0600 {path}'.";
         }
-        catch
-        {
-            // If we can't read permissions, don't block the operation — just stay silent.
-            return null;
-        }
+        // Round-2 review CR-M5/SFH-I3 — narrow from a bare `catch { }`. The realistic
+        // throws here are IOException (transient FS problem), UnauthorizedAccessException
+        // (perm denied on the directory), or PlatformNotSupportedException (e.g. running
+        // under WSL1 with a degraded VFS, or a fileless test host). All are non-fatal for
+        // a permission *warning* — the subsequent File.OpenRead in KeyResolver will fail
+        // loudly if there's a real problem. Anything else (NRE, OOM, OperationCanceled)
+        // is a programmer bug or pre-existing fault and should propagate.
+        catch (IOException) { return null; }
+        catch (UnauthorizedAccessException) { return null; }
+        catch (PlatformNotSupportedException) { return null; }
     }
 }

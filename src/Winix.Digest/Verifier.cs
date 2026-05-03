@@ -6,8 +6,9 @@ namespace Winix.Digest;
 
 /// <summary>
 /// Compares a computed hash against an expected encoded string in constant time.
-/// Hex comparison is case-insensitive (per convention); base64 and base32 comparisons
-/// are case-sensitive because their alphabets include mixed case that carries meaning.
+/// Hex and Crockford base32 comparisons are case-insensitive (per their respective specs);
+/// base64 (standard and URL-safe) is case-sensitive because the base64 alphabet includes
+/// mixed case that carries meaning.
 /// </summary>
 public static class Verifier
 {
@@ -31,7 +32,12 @@ public static class Verifier
             OutputFormat.Base32    => Base32Crockford.Encode(computed),
             _ => throw new ArgumentOutOfRangeException(nameof(format), format, null),
         };
-        bool caseInsensitive = format == OutputFormat.Hex;
+        // Round-2 review CR-I1 — Crockford base32 is defined as case-insensitive on
+        // decode (the encoder emits uppercase, but a user-supplied --verify value in
+        // lowercase must still match). The previous implementation only made hex
+        // case-insensitive, so `digest --base32 --verify <lowercase> file` rejected
+        // valid hashes as mismatches.
+        bool caseInsensitive = format == OutputFormat.Hex || format == OutputFormat.Base32;
         return ConstantTimeCompare.StringEqualsAscii(computedStr, expected, caseInsensitive);
     }
 }
