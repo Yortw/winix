@@ -14,6 +14,8 @@ public sealed class FakeBackend : IBackend
     public bool ShouldSucceed { get; set; } = true;
     public string FailureMessage { get; set; } = "fake failure";
     public int DelayMs { get; set; } = 0;
+    /// <summary>When non-null, SendAsync throws this exception instead of returning a result. Used to test the dispatcher's never-throw defense-in-depth catch.</summary>
+    public Exception? ShouldThrow { get; set; }
     public List<NotifyMessage> Received { get; } = new();
 
     /// <summary>UTC timestamp at which <see cref="SendAsync"/> entered. Null until the call happens.</summary>
@@ -33,6 +35,10 @@ public sealed class FakeBackend : IBackend
         }
         Received.Add(message);
         EndedAt = DateTime.UtcNow;
+        if (ShouldThrow is not null)
+        {
+            throw ShouldThrow;
+        }
         return ShouldSucceed
             ? new BackendResult(Name, true, null, null)
             : new BackendResult(Name, false, FailureMessage, null);

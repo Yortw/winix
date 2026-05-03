@@ -66,14 +66,49 @@ public sealed class NtfyBackend : IBackend
             if (!response.IsSuccessStatusCode)
             {
                 int code = (int)response.StatusCode;
-                return new BackendResult(Name, false, $"ntfy POST failed: {code} {response.ReasonPhrase}", detail);
+                // Round-1 review M1 — surface the response body (capped to keep diagnostics
+                // bounded) so users see the server's "topic requires auth" or "rate limited"
+                // explanation instead of just the status code.
+                string bodyHint = await TryReadBodySnippetAsync(response, ct).ConfigureAwait(false);
+                string suffix = bodyHint.Length > 0 ? $" — {bodyHint}" : "";
+                return new BackendResult(Name, false, $"ntfy POST failed: {code} {response.ReasonPhrase}{suffix}", detail);
             }
 
             return new BackendResult(Name, true, null, detail);
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        // Round-1 review SFH-I2 — widen the catch to the generic IBackend never-throw contract.
+        // The previous filter (HttpRequestException or TaskCanceledException) let
+        // UriFormatException / ArgumentException from a malformed --ntfy-server escape, fault
+        // Task.WhenAll in Dispatcher, and discard sibling backends' successful results — so a
+        // typo'd ntfy server URL would mask a successful desktop notification with a generic
+        // process-crash message. Match peer backends (Linux/macOS/Windows) which catch broadly.
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            return new BackendResult(Name, false, $"ntfy POST failed: {ex.Message}", detail);
+            // Round-1 review M2 — let cooperative cancellation propagate cleanly. Reporting
+            // it as a backend failure ("TaskCanceledException: A task was canceled.") misleads
+            // the user into thinking ntfy is broken when their own timeout/Ctrl-C fired.
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return new BackendResult(Name, false, $"ntfy POST failed: {ex.GetType().Name}: {ex.Message}", detail);
+        }
+    }
+
+    // Read up to 512 chars of the response body for diagnostics. Never throws — failures
+    // here must not turn a 4xx/5xx report into something worse. Returns "" on any error.
+    private static async Task<string> TryReadBodySnippetAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        try
+        {
+            string body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(body)) return "";
+            string trimmed = body.Trim();
+            return trimmed.Length > 512 ? trimmed.Substring(0, 512) + "…" : trimmed;
+        }
+        catch
+        {
+            return "";
         }
     }
 

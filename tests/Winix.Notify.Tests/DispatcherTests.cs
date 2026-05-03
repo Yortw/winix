@@ -1,4 +1,5 @@
 #nullable enable
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Xunit;
@@ -80,5 +81,39 @@ public class DispatcherTests
         Assert.Equal("first", results[0].BackendName);
         Assert.Equal("second", results[1].BackendName);
         Assert.Equal("third", results[2].BackendName);
+    }
+
+    // -- Round-1 review SFH-I3 — defense-in-depth: a backend that violates the never-throw
+    //    contract must NOT corrupt the batch. Pre-fix, Task.WhenAll would fault and discard
+    //    sibling backends' successful BackendResults — so a typo'd ntfy server URL would
+    //    silently mask a successful desktop notification with a process-crash error. --
+    [Fact]
+    public async Task Dispatch_OneBackendThrows_OtherBackendResultPreserved()
+    {
+        var ok = new FakeBackend("desktop") { ShouldSucceed = true };
+        var bad = new FakeBackend("ntfy") { ShouldThrow = new System.UriFormatException("Invalid URI: bogus") };
+        var results = await Dispatcher.SendAsync(new IBackend[] { ok, bad }, Msg(), CancellationToken.None);
+        Assert.Equal(2, results.Count);
+        Assert.True(results[0].Ok);                 // desktop success preserved
+        Assert.Equal("desktop", results[0].BackendName);
+        Assert.False(results[1].Ok);                // ntfy converted to typed result
+        Assert.Equal("ntfy", results[1].BackendName);
+        Assert.NotNull(results[1].Error);
+        Assert.Contains("UriFormatException", results[1].Error, StringComparison.Ordinal);
+        Assert.Contains("never-throw contract", results[1].Error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Dispatch_BackendThrowsOperationCanceledOnRequestedCancellation_Propagates()
+    {
+        // When the caller cancels the dispatcher's CancellationToken, an OCE that's tied to
+        // that cancellation should propagate as cancellation rather than be swallowed and
+        // reported as a per-backend failure (which would mislead the user into thinking the
+        // backend itself broke).
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var b = new FakeBackend("ntfy") { ShouldThrow = new System.OperationCanceledException(cts.Token) };
+        await Assert.ThrowsAnyAsync<System.OperationCanceledException>(
+            async () => await Dispatcher.SendAsync(new IBackend[] { b }, Msg(), cts.Token));
     }
 }

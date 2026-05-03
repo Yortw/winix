@@ -1,4 +1,5 @@
 #nullable enable
+using System;
 using System.Threading;
 using Xunit;
 using Winix.Notify;
@@ -14,20 +15,35 @@ public class LinuxNotifySendBackendTests
         Assert.Equal("linux-notify-send", b.Name);
     }
 
-    [Fact]
-    public async System.Threading.Tasks.Task Send_ProducesResult_WithCorrectName()
+    // -- Round-1 review TA-I3 — was previously a [Fact] with conditional assertions
+    //    ("if (!result.Ok) ..."), which let the test pass vacuously on Linux when
+    //    notify-send was installed (no negative assertion ran), and rely on the wrong
+    //    platform's binary-not-found failure on Windows/macOS. Split into two
+    //    SkippableFacts so each platform deterministically exercises one branch. --
+
+    [SkippableFact]
+    public async System.Threading.Tasks.Task Send_OnLinux_ProducesResultWithCorrectName()
     {
-        // We can't reliably exercise the success path in CI (no display), but we can verify
-        // the backend never throws and surfaces a result with the expected name. On Windows
-        // dev machines this falls into the "notify-send not found" failure path.
+        Skip.IfNot(OperatingSystem.IsLinux(), "Linux-only — exercises the notify-send process invocation.");
+        if (!OperatingSystem.IsLinux()) return; // satisfies CA1416 alongside Skip.IfNot
+
         var b = new LinuxNotifySendBackend();
         var result = await b.SendAsync(new NotifyMessage("t", "b", Urgency.Normal, null), CancellationToken.None);
-
         Assert.Equal("linux-notify-send", result.BackendName);
-        if (!result.Ok)
-        {
-            // The failure message should mention notify-send so the user knows what's missing.
-            Assert.Contains("notify-send", result.Error);
-        }
+        // Don't assert Ok — CI may not have a display server even on Linux. We only assert
+        // the contract that the backend produced a typed result and didn't throw.
+    }
+
+    [SkippableFact]
+    public async System.Threading.Tasks.Task Send_OnNonLinux_FailsWithNotifySendNotFound()
+    {
+        Skip.If(OperatingSystem.IsLinux(), "Non-Linux platforms — pins the binary-not-found failure-path message.");
+
+        var b = new LinuxNotifySendBackend();
+        var result = await b.SendAsync(new NotifyMessage("t", "b", Urgency.Normal, null), CancellationToken.None);
+        Assert.Equal("linux-notify-send", result.BackendName);
+        Assert.False(result.Ok);
+        Assert.NotNull(result.Error);
+        Assert.Contains("notify-send", result.Error, StringComparison.Ordinal);
     }
 }

@@ -1,4 +1,6 @@
 #nullable enable
+using System;
+using System.Threading;
 using Xunit;
 using Winix.Notify;
 
@@ -11,6 +13,22 @@ public class MacOsAppleScriptBackendTests
     {
         var b = new MacOsAppleScriptBackend();
         Assert.Equal("macos-osascript", b.Name);
+    }
+
+    // -- Round-1 review TA-I3 — pin the failure-path naming on non-macOS the same way
+    //    we did for Linux: a deterministic "binary not found" error rather than relying
+    //    on opportunistic CI behaviour. --
+    [SkippableFact]
+    public async System.Threading.Tasks.Task Send_OnNonMacOs_FailsWithOsascriptNotFound()
+    {
+        Skip.If(OperatingSystem.IsMacOS(), "Non-macOS platforms — pins the osascript-not-found failure-path message.");
+
+        var b = new MacOsAppleScriptBackend();
+        var result = await b.SendAsync(new NotifyMessage("t", "b", Urgency.Normal, null), CancellationToken.None);
+        Assert.Equal("macos-osascript", result.BackendName);
+        Assert.False(result.Ok);
+        Assert.NotNull(result.Error);
+        Assert.Contains("osascript", result.Error, StringComparison.Ordinal);
     }
 
     [Theory]
