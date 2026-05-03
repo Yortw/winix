@@ -169,7 +169,7 @@ public class HmacFactoryTests
         Array.Fill(key, (byte)0xAB);
         var ex = Assert.Throws<ArgumentOutOfRangeException>(
             () => HmacFactory.Create(HashAlgorithm.Blake2b, key));
-        Assert.Contains("64 bytes", ex.Message);
+        Assert.Contains("64 bytes", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]

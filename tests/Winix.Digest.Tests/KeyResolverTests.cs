@@ -44,7 +44,7 @@ public class KeyResolverTests
             stderr: stderr,
             out string? error);
         Assert.NotNull(error);
-        Assert.Contains("not set", error);
+        Assert.Contains("not set", error, StringComparison.Ordinal);
         Assert.Null(key);
     }
 
@@ -115,8 +115,8 @@ public class KeyResolverTests
         Assert.Null(error);
         Assert.Equal(Encoding.UTF8.GetBytes("literal-secret"), key);
         string stderrText = stderr.ToString();
-        Assert.Contains("--key exposes the key", stderrText);
-        Assert.Contains("ps", stderrText);
+        Assert.Contains("--key exposes the key", stderrText, StringComparison.Ordinal);
+        Assert.Contains("ps", stderrText, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -130,7 +130,7 @@ public class KeyResolverTests
             stderr: stderr,
             out string? error);
         Assert.NotNull(error);
-        Assert.Contains("not found", error);
+        Assert.Contains("not found", error, StringComparison.Ordinal);
         Assert.Null(key);
     }
 
@@ -153,8 +153,117 @@ public class KeyResolverTests
                 stderr: stderr,
                 out string? error);
             Assert.Null(error);
-            Assert.Contains("readable by group/other", stderr.ToString());
+            Assert.Contains("readable by group/other", stderr.ToString(), StringComparison.Ordinal);
         }
         finally { File.Delete(path); }
+    }
+
+    // -- Round-1 review C1 — empty HMAC keys must be rejected at the resolver layer.
+    //    The BCL HMAC* classes accept zero-length keys without complaint and produce
+    //    a deterministic-but-cryptographically-meaningless tag an attacker can forge.
+    //    All four key sources can produce a zero-length key (env empty, 0-byte file,
+    //    EOF-only stdin, '--key ""'); each is rejected with a usage-error naming the
+    //    source. These tests pin the rejection contract for each source. --
+
+    [Fact]
+    public void ResolveFromEnv_EmptyValue_Errors()
+    {
+        Environment.SetEnvironmentVariable("DIGEST_TEST_KEY_EMPTY", "");
+        try
+        {
+            var stderr = new StringWriter();
+            byte[]? key = KeyResolver.Resolve(
+                source: KeySource.EnvVariable("DIGEST_TEST_KEY_EMPTY"),
+                stdin: new FakeTextReader(""),
+                stripTrailingNewline: true,
+                stderr: stderr,
+                out string? error);
+            Assert.Null(key);
+            Assert.NotNull(error);
+            Assert.Contains("empty", error, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("DIGEST_TEST_KEY_EMPTY", error, StringComparison.Ordinal);
+            Assert.Contains("forgeable", error, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DIGEST_TEST_KEY_EMPTY", null);
+        }
+    }
+
+    [Fact]
+    public void ResolveFromFile_ZeroByteFile_Errors()
+    {
+        string path = Path.GetTempFileName();
+        try
+        {
+            // Path.GetTempFileName creates a 0-byte file; perfect for this case.
+            var stderr = new StringWriter();
+            byte[]? key = KeyResolver.Resolve(
+                source: KeySource.File(path),
+                stdin: new FakeTextReader(""),
+                stripTrailingNewline: true,
+                stderr: stderr,
+                out string? error);
+            Assert.Null(key);
+            Assert.NotNull(error);
+            Assert.Contains("empty", error, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains(path, error);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void ResolveFromFile_OnlyTrailingNewline_AfterStrip_Errors()
+    {
+        // A file containing only "\n" or "\r\n" gets stripped to 0 bytes by the
+        // post-read newline strip. Verify the rejection still fires.
+        string path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(path, "\n");
+            var stderr = new StringWriter();
+            byte[]? key = KeyResolver.Resolve(
+                source: KeySource.File(path),
+                stdin: new FakeTextReader(""),
+                stripTrailingNewline: true,
+                stderr: stderr,
+                out string? error);
+            Assert.Null(key);
+            Assert.NotNull(error);
+            Assert.Contains("empty", error, StringComparison.OrdinalIgnoreCase);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void ResolveFromStdin_EmptyInput_Errors()
+    {
+        var stderr = new StringWriter();
+        byte[]? key = KeyResolver.Resolve(
+            source: KeySource.Stdin(),
+            stdin: new FakeTextReader(""), // EOF immediately
+            stripTrailingNewline: true,
+            stderr: stderr,
+            out string? error);
+        Assert.Null(key);
+        Assert.NotNull(error);
+        Assert.Contains("empty", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("stdin", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ResolveLiteral_EmptyValue_Errors()
+    {
+        var stderr = new StringWriter();
+        byte[]? key = KeyResolver.Resolve(
+            source: KeySource.Literal(""),
+            stdin: new FakeTextReader(""),
+            stripTrailingNewline: true,
+            stderr: stderr,
+            out string? error);
+        Assert.Null(key);
+        Assert.NotNull(error);
+        Assert.Contains("empty", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("--key", error, StringComparison.Ordinal);
     }
 }

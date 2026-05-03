@@ -73,9 +73,25 @@ public static class HashRunner
             error = $"'{path}' not found";
             return Array.Empty<HashResult>();
         }
-        using (var stream = File.OpenRead(path))
+        // Round-1 review I4 — wrap File.OpenRead in scoped catches so a TOCTOU race
+        // between File.Exists (above) and File.OpenRead (here), or a permission change,
+        // produces a typed error rather than escaping to Program's outer IOException
+        // catch and being silently absorbed as exit 0. Without this, the user sees a
+        // clean exit with no hash output and no diagnostic — masquerading as success.
+        try
         {
+            using var stream = File.OpenRead(path);
             return new[] { new HashResult(hasher.Hash(stream), path) };
+        }
+        catch (IOException ex)
+        {
+            error = $"failed to read '{path}': {ex.Message}";
+            return Array.Empty<HashResult>();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            error = $"failed to read '{path}': {ex.Message}";
+            return Array.Empty<HashResult>();
         }
     }
 
@@ -93,9 +109,23 @@ public static class HashRunner
         var results = new List<HashResult>(paths.Count);
         foreach (string path in paths)
         {
-            using (var stream = File.OpenRead(path))
+            // Round-1 review I4 — same scoped catch pattern as HashSingleFile.
+            // The all-or-nothing contract requires NO partial output if any read fails,
+            // so we surface the error on the first failure and return an empty list.
+            try
             {
+                using var stream = File.OpenRead(path);
                 results.Add(new HashResult(hasher.Hash(stream), path));
+            }
+            catch (IOException ex)
+            {
+                error = $"failed to read '{path}': {ex.Message}";
+                return Array.Empty<HashResult>();
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                error = $"failed to read '{path}': {ex.Message}";
+                return Array.Empty<HashResult>();
             }
         }
         return results;

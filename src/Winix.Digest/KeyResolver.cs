@@ -59,6 +59,9 @@ public static class KeyResolver
     {
         error = null;
 
+        byte[]? key;
+        string sourceLabel;
+
         switch (source)
         {
             case KeySource.EnvSource env:
@@ -68,7 +71,9 @@ public static class KeyResolver
                     error = $"environment variable '{env.Name}' is not set";
                     return null;
                 }
-                return Encoding.UTF8.GetBytes(value);
+                key = Encoding.UTF8.GetBytes(value);
+                sourceLabel = $"environment variable '{env.Name}'";
+                break;
 
             case KeySource.FileSource file:
                 if (!File.Exists(file.Path))
@@ -82,20 +87,42 @@ public static class KeyResolver
                     stderr.WriteLine(permWarning);
                 }
                 byte[] fileBytes = File.ReadAllBytes(file.Path);
-                return stripTrailingNewline ? StripOneTrailingNewline(fileBytes) : fileBytes;
+                key = stripTrailingNewline ? StripOneTrailingNewline(fileBytes) : fileBytes;
+                sourceLabel = $"key file '{file.Path}'";
+                break;
 
             case KeySource.StdinSource:
                 string stdinText = stdin.ReadToEnd();
                 byte[] stdinBytes = Encoding.UTF8.GetBytes(stdinText);
-                return stripTrailingNewline ? StripOneTrailingNewline(stdinBytes) : stdinBytes;
+                key = stripTrailingNewline ? StripOneTrailingNewline(stdinBytes) : stdinBytes;
+                sourceLabel = "stdin";
+                break;
 
             case KeySource.LiteralSource literal:
                 stderr.WriteLine(LiteralWarning);
-                return Encoding.UTF8.GetBytes(literal.Value);
+                key = Encoding.UTF8.GetBytes(literal.Value);
+                sourceLabel = "--key";
+                break;
 
             default:
                 throw new ArgumentOutOfRangeException(nameof(source), source, null);
         }
+
+        // Round-1 review C1 — reject empty HMAC keys at this layer rather than letting them
+        // pass through to BCL HMAC*. The BCL accepts a zero-length key without complaint and
+        // produces a deterministic-but-cryptographically-meaningless tag that an attacker can
+        // forge instantly. All four key sources can produce a zero-length key (env var set to
+        // empty, 0-byte key file, EOF-only stdin, '--key ""'); each path is rejected here with
+        // a usage-error message naming the source so the user can correct it. Any newline
+        // strip has already happened above, so this is the post-strip length.
+        if (key.Length == 0)
+        {
+            error = $"HMAC key is empty (from {sourceLabel}). " +
+                    "An empty HMAC key produces a forgeable tag and is rejected.";
+            return null;
+        }
+
+        return key;
     }
 
     // Strip a single trailing LF or CRLF. Indexed access (not range syntax) per project style.

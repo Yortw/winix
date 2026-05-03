@@ -74,7 +74,7 @@ public class HashRunnerTests
             stdin: new FakeTextReader(""),
             out string? error);
         Assert.NotNull(error);
-        Assert.Contains("not found", error);
+        Assert.Contains("not found", error, StringComparison.Ordinal);
         Assert.Empty(results);
     }
 
@@ -123,7 +123,7 @@ public class HashRunnerTests
                 stdin: new FakeTextReader(""),
                 out string? error);
             Assert.NotNull(error);
-            Assert.Contains("not found", error);
+            Assert.Contains("not found", error, StringComparison.Ordinal);
             Assert.Empty(results);
         }
         finally { File.Delete(p1); }

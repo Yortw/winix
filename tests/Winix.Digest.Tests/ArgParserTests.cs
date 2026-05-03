@@ -50,7 +50,7 @@ public class ArgParserTests
     {
         var r = ArgParser.Parse(new[] { "--sha256", "--sha512", "-s", "abc" });
         Assert.False(r.Success);
-        Assert.Contains("multiple algorithms", r.Error);
+        Assert.Contains("multiple algorithms", r.Error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -58,7 +58,7 @@ public class ArgParserTests
     {
         var r = ArgParser.Parse(new[] { "--algo", "weirdhash", "-s", "abc" });
         Assert.False(r.Success);
-        Assert.Contains("unknown algorithm", r.Error);
+        Assert.Contains("unknown algorithm", r.Error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -66,7 +66,7 @@ public class ArgParserTests
     {
         var r = ArgParser.Parse(new[] { "--hmac", "sha256", "-s", "abc" });
         Assert.False(r.Success);
-        Assert.Contains("--hmac requires", r.Error);
+        Assert.Contains("--hmac requires", r.Error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -79,7 +79,7 @@ public class ArgParserTests
             "-s", "abc"
         });
         Assert.False(r.Success);
-        Assert.Contains("exactly one of", r.Error);
+        Assert.Contains("exactly one of", r.Error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -87,7 +87,7 @@ public class ArgParserTests
     {
         var r = ArgParser.Parse(new[] { "--hmac", "sha256", "--sha512", "--key-env", "K", "-s", "abc" });
         Assert.False(r.Success);
-        Assert.Contains("--hmac carries its own algorithm", r.Error);
+        Assert.Contains("--hmac carries its own algorithm", r.Error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -105,7 +105,7 @@ public class ArgParserTests
     {
         var r = ArgParser.Parse(new[] { "-s", "hello", "file.txt" });
         Assert.False(r.Success);
-        Assert.Contains("--string cannot be combined with file arguments", r.Error);
+        Assert.Contains("--string cannot be combined with file arguments", r.Error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -113,7 +113,7 @@ public class ArgParserTests
     {
         var r = ArgParser.Parse(new[] { "-s", "hello", "--string", "world" });
         Assert.False(r.Success);
-        Assert.Contains("--string can only be specified once", r.Error);
+        Assert.Contains("--string can only be specified once", r.Error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -121,7 +121,7 @@ public class ArgParserTests
     {
         var r = ArgParser.Parse(new[] { "--hex", "--base64", "-s", "abc" });
         Assert.False(r.Success);
-        Assert.Contains("multiple output formats", r.Error);
+        Assert.Contains("multiple output formats", r.Error, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -177,8 +177,8 @@ public class ArgParserTests
     {
         var r = ArgParser.Parse(new[] { "/this/file/does/not/exist-xyz123" });
         Assert.False(r.Success);
-        Assert.Contains("not found", r.Error);
-        Assert.Contains("--string", r.Error);
+        Assert.Contains("not found", r.Error, StringComparison.Ordinal);
+        Assert.Contains("--string", r.Error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -196,7 +196,7 @@ public class ArgParserTests
         string self = typeof(ArgParserTests).Assembly.Location;
         var r = ArgParser.Parse(new[] { "--verify", "abc", self, self });
         Assert.False(r.Success);
-        Assert.Contains("--verify is not supported with multiple files", r.Error);
+        Assert.Contains("--verify is not supported with multiple files", r.Error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -206,7 +206,7 @@ public class ArgParserTests
         // exit code + terse stderr message, not a structured record. Reject the pair.
         var r = ArgParser.Parse(new[] { "--verify", "abc", "--json", "-s", "hello" });
         Assert.False(r.Success);
-        Assert.Contains("--verify is not compatible with --json", r.Error);
+        Assert.Contains("--verify is not compatible with --json", r.Error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -233,7 +233,7 @@ public class ArgParserTests
     {
         var r = ArgParser.Parse(new[] { flag, value, "-s", "abc" });
         Assert.False(r.Success);
-        Assert.Contains("--key* options require --hmac", r.Error);
+        Assert.Contains("--key* options require --hmac", r.Error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -241,7 +241,7 @@ public class ArgParserTests
     {
         var r = ArgParser.Parse(new[] { "--key-stdin", "-s", "abc" });
         Assert.False(r.Success);
-        Assert.Contains("--key* options require --hmac", r.Error);
+        Assert.Contains("--key* options require --hmac", r.Error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -249,7 +249,7 @@ public class ArgParserTests
     {
         var r = ArgParser.Parse(new[] { "--key-raw", "-s", "abc" });
         Assert.False(r.Success);
-        Assert.Contains("--key* options require --hmac", r.Error);
+        Assert.Contains("--key* options require --hmac", r.Error, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -260,6 +260,6 @@ public class ArgParserTests
     {
         var r = ArgParser.Parse(new[] { formatFlag, "--uppercase", "-s", "abc" });
         Assert.False(r.Success);
-        Assert.Contains("--uppercase only applies to hex", r.Error);
+        Assert.Contains("--uppercase only applies to hex", r.Error, StringComparison.Ordinal);
     }
 }

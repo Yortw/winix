@@ -139,13 +139,18 @@ internal sealed class Program
 
             return ExitCode.Success;
         }
-        catch (IOException)
-        {
-            // Broken pipe (e.g. `digest *.log | head`) — clean exit, not an error.
-            return ExitCode.Success;
-        }
         catch (Exception ex)
         {
+            // Round-1 review I9 + SFH-12: the prior outer `catch (IOException) → exit 0`
+            // arm was too broad. It was added for broken-pipe (`digest *.log | head`)
+            // but also swallowed real read failures from HashRunner — file disappears
+            // mid-multi-file scan, permission denied on a previously-readable file,
+            // network share dropped — converting them to silent success. Per memory
+            // `project_broken_pipe_design_question.md`, .NET 10 already absorbs broken-pipe
+            // at the Console.Out layer on both Windows and Linux, so the catch was
+            // also unnecessary for its stated purpose. HashRunner now wraps File.OpenRead
+            // in scoped catches that produce typed errors via `runError`, so any
+            // IOException reaching here is unexpected and gets the generic-error path.
             Console.Error.WriteLine($"digest: error: {ex.Message}");
             return 1;
         }
