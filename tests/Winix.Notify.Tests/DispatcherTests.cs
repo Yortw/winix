@@ -103,17 +103,46 @@ public class DispatcherTests
         Assert.Contains("never-throw contract", results[1].Error, StringComparison.Ordinal);
     }
 
+    // -- Round-2 review R2-I1 — when the dispatcher's cancellation token fires (its own
+    //    timeout, not user Ctrl-C), an in-flight backend's OperationCanceledException must
+    //    be CONVERTED to a per-backend failure result, NOT propagated as an OCE that
+    //    Task.WhenAll faults on. The fault would discard sibling backends' already-completed
+    //    successes — meaning a 15s timeout that fires while ntfy is mid-flight would also
+    //    wipe the successful desktop notification result the user already received. --
     [Fact]
-    public async Task Dispatch_BackendThrowsOperationCanceledOnRequestedCancellation_Propagates()
+    public async Task Dispatch_TimeoutCancellation_PreservesSiblingSuccess()
     {
-        // When the caller cancels the dispatcher's CancellationToken, an OCE that's tied to
-        // that cancellation should propagate as cancellation rather than be swallowed and
-        // reported as a per-backend failure (which would mislead the user into thinking the
-        // backend itself broke).
+        using var cts = new CancellationTokenSource();
+        var fast = new FakeBackend("desktop") { ShouldSucceed = true };
+        // Slow backend will throw OCE because its delay exceeds the cancel-after below.
+        var slow = new FakeBackend("ntfy") { DelayMs = 5000, ShouldSucceed = true };
+        cts.CancelAfter(50);
+
+        var results = await Dispatcher.SendAsync(new IBackend[] { fast, slow }, Msg(), cts.Token);
+
+        Assert.Equal(2, results.Count);
+        Assert.True(results[0].Ok);                  // desktop preserved
+        Assert.Equal("desktop", results[0].BackendName);
+        Assert.False(results[1].Ok);                 // ntfy converted to typed result
+        Assert.Equal("ntfy", results[1].BackendName);
+        Assert.NotNull(results[1].Error);
+        Assert.Contains("cancelled", results[1].Error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Dispatch_BackendThrowsOperationCanceledOnRequestedCancellation_ConvertsToFailureResult()
+    {
+        // Round-2 R2-I1 update: was previously testing OCE propagation; now we pin that
+        // OCE is CONVERTED to a per-backend failure regardless. The original "cooperative
+        // cancellation propagates" shape was speculative (no caller passes an external ct)
+        // and caused partial-success loss on dispatcher-internal timeouts.
         using var cts = new CancellationTokenSource();
         cts.Cancel();
         var b = new FakeBackend("ntfy") { ShouldThrow = new System.OperationCanceledException(cts.Token) };
-        await Assert.ThrowsAnyAsync<System.OperationCanceledException>(
-            async () => await Dispatcher.SendAsync(new IBackend[] { b }, Msg(), cts.Token));
+        var results = await Dispatcher.SendAsync(new IBackend[] { b }, Msg(), cts.Token);
+        Assert.Single(results);
+        Assert.False(results[0].Ok);
+        Assert.NotNull(results[0].Error);
+        Assert.Contains("cancelled", results[0].Error, StringComparison.OrdinalIgnoreCase);
     }
 }

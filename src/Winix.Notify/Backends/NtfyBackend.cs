@@ -95,16 +95,35 @@ public sealed class NtfyBackend : IBackend
         }
     }
 
-    // Read up to 512 chars of the response body for diagnostics. Never throws — failures
-    // here must not turn a 4xx/5xx report into something worse. Returns "" on any error.
+    // Round-2 review R2-I2 — bounded stream read replaces ReadAsStringAsync.
+    // The previous implementation buffered the entire response body before applying the
+    // 512-char cap; a hostile or misconfigured ntfy endpoint returning a multi-GB 4xx body
+    // would OOM the process before the cap took effect, violating the "never throws" contract.
+    // Now: read at most 2 KB from the response stream, then UTF-8 decode and trim/cap.
+    // Always returns "" on any error so the 4xx/5xx report never becomes something worse.
+    private const int MaxBodySnippetBytes = 2048;
+    private const int MaxBodySnippetChars = 512;
+
     private static async Task<string> TryReadBodySnippetAsync(HttpResponseMessage response, CancellationToken ct)
     {
         try
         {
-            string body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-            if (string.IsNullOrWhiteSpace(body)) return "";
+#pragma warning disable CA2016 // ReadAsStreamAsync's CancellationToken overload may not exist on every runtime; fallback is fine.
+            await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+#pragma warning restore CA2016
+            byte[] buffer = new byte[MaxBodySnippetBytes];
+            int read = 0;
+            while (read < MaxBodySnippetBytes)
+            {
+                int n = await stream.ReadAsync(buffer.AsMemory(read, MaxBodySnippetBytes - read), ct).ConfigureAwait(false);
+                if (n == 0) break;
+                read += n;
+            }
+            if (read == 0) return "";
+            string body = Encoding.UTF8.GetString(buffer, 0, read);
             string trimmed = body.Trim();
-            return trimmed.Length > 512 ? trimmed.Substring(0, 512) + "…" : trimmed;
+            if (trimmed.Length == 0) return "";
+            return trimmed.Length > MaxBodySnippetChars ? trimmed.Substring(0, MaxBodySnippetChars) + "…" : trimmed;
         }
         catch
         {

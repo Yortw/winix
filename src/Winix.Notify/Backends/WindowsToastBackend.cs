@@ -26,6 +26,15 @@ public sealed class WindowsToastBackend : IBackend
     /// <inheritdoc />
     public string Name => "windows-toast";
 
+    /// <summary>
+    /// Test seam for the AUMID-shortcut precondition. Production callers leave this null
+    /// (the real <see cref="AumidShortcut.EnsureExists"/> is used). Tests inject a synthetic
+    /// failure to pin the SFH-C1 contract — the round-1 fix's headline "user thinks
+    /// notification delivered, but it wasn't" silent-failure conversion.
+    /// </summary>
+    internal delegate bool ShortcutCheck(out string? error);
+    internal static ShortcutCheck? AumidShortcutOverride { get; set; }
+
     /// <inheritdoc />
     public async Task<BackendResult> SendAsync(NotifyMessage message, CancellationToken ct)
     {
@@ -38,7 +47,8 @@ public sealed class WindowsToastBackend : IBackend
             // silently dropped. The previous code discarded the bool, so the user saw exit 0
             // and "Ok=true" with no notification — the canonical "user thinks notification
             // delivered, but it wasn't" failure. Surface the error to BackendResult instead.
-            if (!AumidShortcut.EnsureExists(out string? aumidError))
+            ShortcutCheck check = AumidShortcutOverride ?? AumidShortcut.EnsureExists;
+            if (!check(out string? aumidError))
             {
                 return new BackendResult(Name, false,
                     $"Windows toast: could not register AUMID shortcut ({aumidError ?? "unknown reason"}). " +
