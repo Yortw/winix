@@ -63,6 +63,35 @@ public class VerifierTests
         Assert.True(Verifier.Verify(computed, expected, OutputFormat.Base32));
     }
 
+    // -- Round-2 review CR-I1 — Crockford base32 is case-insensitive on decode.
+    //    The encoder produces uppercase but a user typing --verify in lowercase
+    //    (a common shell-history situation) must still match. Pre-fix the comparison
+    //    rejected lowercase as a mismatch; post-fix it accepts. --
+    [Fact]
+    public void Verify_Base32_MatchesCrockfordLowerCase()
+    {
+        byte[] computed = new byte[] { 0x12, 0x34, 0x56, 0x78 };
+        string expectedUpper = Winix.Codec.Base32Crockford.Encode(computed);
+        string expectedLower = expectedUpper.ToLowerInvariant();
+        Assert.NotEqual(expectedUpper, expectedLower); // sanity: there's actual case to fold
+        Assert.True(Verifier.Verify(computed, expectedLower, OutputFormat.Base32));
+    }
+
+    [Fact]
+    public void Verify_Base32_MatchesCrockfordMixedCase()
+    {
+        byte[] computed = new byte[] { 0x12, 0x34, 0x56, 0x78 };
+        string expectedUpper = Winix.Codec.Base32Crockford.Encode(computed);
+        // Toggle every other char's case.
+        var sb = new System.Text.StringBuilder(expectedUpper.Length);
+        for (int i = 0; i < expectedUpper.Length; i++)
+        {
+            char c = expectedUpper[i];
+            sb.Append((i % 2 == 0 && c >= 'A' && c <= 'Z') ? char.ToLowerInvariant(c) : c);
+        }
+        Assert.True(Verifier.Verify(computed, sb.ToString(), OutputFormat.Base32));
+    }
+
     [Fact]
     public void Verify_NullExpected_ReturnsFalse()
     {

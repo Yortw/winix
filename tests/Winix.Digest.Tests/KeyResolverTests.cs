@@ -318,6 +318,46 @@ public class KeyResolverTests
         finally { File.Delete(path); }
     }
 
+    // -- Round-2 review CR-I2/SFH-I1 — File.OpenRead failures must produce a typed
+    //    error through the resolver's out-param contract, not escape to the caller's
+    //    outer catch. Reproduce by holding an exclusive lock so the resolver's open
+    //    fails. On non-Windows the FileShare semantics differ; this is the most
+    //    portable repro that fires deterministically. --
+    [Fact]
+    public void ResolveFromFile_LockedFile_TypedError()
+    {
+        string path = Path.GetTempFileName();
+        File.WriteAllText(path, "my-secret");
+        try
+        {
+            // Open the file with no shared read access — Windows refuses concurrent
+            // opens from File.OpenRead under FileShare.None, producing IOException.
+            using var holder = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None);
+            var stderr = new StringWriter();
+            byte[]? key = KeyResolver.Resolve(
+                source: KeySource.File(path),
+                stdin: new FakeTextReader(""),
+                stripTrailingNewline: true,
+                stderr: stderr,
+                out string? error);
+
+            // On platforms where FileShare.None doesn't block (some POSIX kernels)
+            // the read may succeed — accept either outcome but require the error
+            // path, when taken, to produce a typed error rather than throwing.
+            if (key is null)
+            {
+                Assert.NotNull(error);
+                Assert.Contains("failed to read key file", error, StringComparison.Ordinal);
+                Assert.Contains(path, error, StringComparison.Ordinal);
+            }
+            else
+            {
+                Assert.Null(error);
+            }
+        }
+        finally { File.Delete(path); }
+    }
+
     [Fact]
     public void ResolveFromStdin_OverCap_Errors()
     {

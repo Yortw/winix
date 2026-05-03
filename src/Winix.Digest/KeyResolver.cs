@@ -111,7 +111,27 @@ public static class KeyResolver
                 {
                     stderr.WriteLine(permWarning);
                 }
-                byte[] fileBytes = ReadCapped(File.OpenRead(file.Path), MaxKeySizeBytes, out bool fileExceeded);
+                // Round-2 review CR-I2/SFH-I1 — scope catches around File.OpenRead the same way
+                // HashRunner does for payload reads. A TOCTOU race between FileInfo.Length above
+                // and File.OpenRead here, or a permission change, must produce a typed error
+                // through this resolver's contract — not escape to Program's outer catch where
+                // it gets the wrong (verify-mismatch-shaped) exit code.
+                byte[] fileBytes;
+                bool fileExceeded;
+                try
+                {
+                    fileBytes = ReadCapped(File.OpenRead(file.Path), MaxKeySizeBytes, out fileExceeded);
+                }
+                catch (IOException ex)
+                {
+                    error = $"failed to read key file '{file.Path}': {ex.Message}";
+                    return null;
+                }
+                catch (UnauthorizedAccessException ex)
+                {
+                    error = $"failed to read key file '{file.Path}': {ex.Message}";
+                    return null;
+                }
                 if (fileExceeded)
                 {
                     error = $"key file '{file.Path}' exceeds {MaxKeySizeBytes}-byte cap (read returned more than the size hint)";

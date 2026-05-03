@@ -25,13 +25,20 @@ public static class HashRunner
     /// </summary>
     /// <param name="source">The input source: literal string, stdin, a single file, or a file list.</param>
     /// <param name="hasher">The hasher (plain or HMAC) to apply to each input.</param>
-    /// <param name="stdin">TextReader used when <paramref name="source"/> is <see cref="StdinInput"/>; tests inject a fake reader.</param>
+    /// <param name="stdinPayload">Byte stream used when <paramref name="source"/> is <see cref="StdinInput"/>; tests inject a MemoryStream.</param>
     /// <param name="error">Out-param: user-facing error message, or null on success.</param>
     /// <returns>On success, one result per input; on failure, an empty list (see <paramref name="error"/>).</returns>
+    /// <remarks>
+    /// Round-2 review CR-I3 — the payload stdin path takes a raw byte <see cref="Stream"/> rather
+    /// than a <see cref="TextReader"/>. The previous shape read text + re-encoded as UTF-8, which
+    /// silently corrupted any non-UTF-8 bytes in binary stdin (`cat binary.bin | digest` produced
+    /// a hash that disagreed with `sha256sum binary.bin` for the same file). Byte stream is the
+    /// only correct shape for payload hashing.
+    /// </remarks>
     public static IReadOnlyList<HashResult> Run(
         InputSource source,
         IHasher hasher,
-        TextReader stdin,
+        Stream stdinPayload,
         out string? error)
     {
         error = null;
@@ -40,7 +47,7 @@ public static class HashRunner
             case StringInput s:
                 return HashString(s.Value, hasher);
             case StdinInput:
-                return HashStdin(stdin, hasher);
+                return HashStdin(stdinPayload, hasher);
             case SingleFileInput f:
                 return HashSingleFile(f.Path, hasher, out error);
             case MultiFileInput m:
@@ -56,13 +63,12 @@ public static class HashRunner
         return new[] { new HashResult(hasher.Hash(bytes), null) };
     }
 
-    private static IReadOnlyList<HashResult> HashStdin(TextReader stdin, IHasher hasher)
+    private static IReadOnlyList<HashResult> HashStdin(Stream stdinPayload, IHasher hasher)
     {
-        // Read stdin as text then re-encode as UTF-8 — matches the string-input path
-        // and gives a consistent byte view regardless of the host console encoding.
-        string text = stdin.ReadToEnd();
-        byte[] bytes = Encoding.UTF8.GetBytes(text);
-        return new[] { new HashResult(hasher.Hash(bytes), null) };
+        // Stream the raw bytes through the hasher — no text decoding, no UTF-8 round-trip.
+        // The IHasher.Hash(Stream) overload handles incremental hashing for both BCL hashers
+        // (SHA-2/SHA-3 via HashData) and the BLAKE2b incremental hasher.
+        return new[] { new HashResult(hasher.Hash(stdinPayload), null) };
     }
 
     private static IReadOnlyList<HashResult> HashSingleFile(string path, IHasher hasher, out string? error)
