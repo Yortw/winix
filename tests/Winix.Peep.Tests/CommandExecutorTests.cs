@@ -97,11 +97,16 @@ public class CommandExecutorTests
         Skip.IfNot(!OperatingSystem.IsWindows(), "Unix-only — uses /bin/sh + printf");
         if (OperatingSystem.IsWindows()) return; // CA1416 satisfaction; redundant after Skip.IfNot
 
-        // Force interleaving: alternate small writes to stdout and stderr several
-        // times. Each write is fully terminated by \n so a correct line-atomic merge
-        // produces every line intact regardless of the order the OS schedules pipe
-        // reads. Pre-fix (chunked merge) would land cross-stream chunks mid-line and
-        // break at least one of the substring asserts below.
+        // Smoke-level integration coverage: a child writes to BOTH streams; assertions
+        // verify the captured Output contains the expected lines. NOTE: this integration
+        // test does NOT strictly mutation-pin the chunk-vs-line discipline — kernel pipe
+        // semantics typically deliver each printf invocation atomically, so chunked merge
+        // would also pass this case. Strict regression coverage of the line-atomic merge
+        // contract is in `ReadStreamAsync_ChunkSplitsAcrossLines_OutputIsLineAtomic`
+        // below, which uses the internal seam to drive deterministic chunk patterns.
+        Skip.IfNot(!OperatingSystem.IsWindows(), "Unix-only — uses /bin/sh + printf");
+        if (OperatingSystem.IsWindows()) return; // CA1416 satisfaction; redundant after Skip.IfNot
+
         const string script =
             "for i in 1 2 3 4 5; do " +
             "  printf 'stdout line %s\\n' \"$i\"; " +
@@ -136,7 +141,12 @@ public class CommandExecutorTests
         Assert.Contains("line1", result.Output);
         Assert.Contains("line2", result.Output);
         // Must be LF-only — no carriage returns survive the API boundary.
-        Assert.DoesNotContain("\r", result.Output);
+        // StringComparison.Ordinal: see ProgramMainTests.Once_JsonOutput_StripsAnsiInLastOutput
+        // (commit bb2a881) — '\r' (U+000D) is in Unicode 'Cc' category, same trap as ESC. The
+        // 2-arg Assert.DoesNotContain defaults to CurrentCulture which treats Cc as ignorable,
+        // making the pre-fix CRLF-leaks-through case pass vacuously. Round-19 verification
+        // (2026-05-03) caught this on the same line of the same file as the ESC fix.
+        Assert.DoesNotContain("\r", result.Output, System.StringComparison.Ordinal);
     }
 
     [Fact]
@@ -182,4 +192,84 @@ public class CommandExecutorTests
                 "ping", new[] { flag, "30", "127.0.0.1" },
                 TriggerSource.Manual, cts.Token));
     }
+
+    /// <summary>
+    /// Round-19 verification (pr-test-analyzer Important): the prior "child writes to
+    /// both streams" integration test could not reliably mutation-pin the chunk-vs-line
+    /// merge contract — kernel pipe semantics typically deliver each printf's bytes
+    /// atomically, so a chunked merge would also pass. This test drives
+    /// <see cref="CommandExecutor.ReadStreamAsync"/> directly via <see cref="ChunkedReader"/>
+    /// to construct a deterministic chunk pattern that EXERCISES the cross-stream
+    /// mid-line interleave: stream A emits a partial line ("AAA" — no newline) in chunk
+    /// 1, stream B emits a complete line ("BBB\n") in chunk 2 (interleaved between A's
+    /// chunks), stream A's chunk 3 completes the partial line ("CCC\n").
+    /// <para/>
+    /// Pre-fix chunk-based merge would produce <c>"AAABBB\nCCC\n"</c> — A's partial chunk
+    /// gets appended, then B's full chunk lands, splitting A's logical line.
+    /// Post-fix line-atomic merge buffers A's "AAA" in lineBuffer until the '\n' arrives
+    /// in chunk 3, then flushes "AAACCC\n" atomically. B's "BBB\n" flushes when B's chunk
+    /// is read.
+    /// <para/>
+    /// Contract: <c>"AAACCC"</c> must appear as a complete substring of the merged Output.
+    /// Mutation-tested: replacing the line-atomic merge with chunk-append-under-lock makes
+    /// this assertion fail.
+    /// </summary>
+    [Fact]
+    public async Task ReadStreamAsync_ChunkSplitsAcrossLines_OutputIsLineAtomic()
+    {
+        // Stream A: "AAA" (partial), "CCC\n" (completes the line).
+        // Stream B: "BBB\n" (one full line — interleaved between A's two chunks).
+        //
+        // Schedule we want to drive deterministically:
+        //   T1: A emits "AAA" (partial line — line-atomic merge buffers, no Append yet).
+        //   T2: B emits "BBB\n" (full line — flushes "BBB\n" atomically to output).
+        //   T3: A emits "CCC\n" (completes A's partial — flushes "AAACCC\n" atomically).
+        //
+        // Pre-fix chunk-based merge would Append "AAA" at T1 immediately, then Append
+        // "BBB\n" at T2 → output starts "AAABBB\n" — A's logical line is split.
+        // Post-fix line-atomic merge buffers "AAA" until '\n' arrives at T3 → output
+        // contains "AAACCC" as a complete substring.
+        //
+        // The ChunkedReader gates each ReadAsync on a per-chunk TCS that the test
+        // controls via ReleaseChunk(N) — we call N AFTER the corresponding ReadAsync
+        // is awaiting the gate, so the signal lands.
+        var readerA = new ChunkedReader(new[] { "AAA", "CCC\n" });
+        var readerB = new ChunkedReader(new[] { "BBB\n" });
+
+        var output = new System.Text.StringBuilder();
+        var outputLock = new object();
+        var truncation = new CommandExecutor.TruncationFlag();
+        const int cap = 1024 * 1024;
+
+        Task taskA = CommandExecutor.ReadStreamAsync(readerA, output, outputLock, truncation, cap);
+        Task taskB = CommandExecutor.ReadStreamAsync(readerB, output, outputLock, truncation, cap);
+
+        // Wait until both readers have entered their first ReadAsync await before signalling.
+        await readerA.WaitForChunkAwait(0);
+        await readerB.WaitForChunkAwait(0);
+
+        // T1: release A's first chunk ("AAA").
+        readerA.ReleaseChunk(0);
+        await readerA.WaitForChunkAwait(1); // A is now awaiting its second chunk gate
+
+        // T2: release B's only chunk ("BBB\n").
+        readerB.ReleaseChunk(0);
+        // Wait for B to reach EOF check (its readindex is now at end).
+        await Task.Delay(50);
+
+        // T3: release A's second chunk ("CCC\n").
+        readerA.ReleaseChunk(1);
+
+        await Task.WhenAll(taskA, taskB).WaitAsync(TimeSpan.FromSeconds(5));
+
+        string merged = output.ToString();
+
+        // Load-bearing: A's logical line "AAACCC" appears as a complete substring.
+        // Pre-fix chunk-merge would produce "AAABBB\nCCC\n" — "AAACCC" would NOT match.
+        Assert.Contains("AAACCC", merged);
+        Assert.Contains("BBB", merged);
+        // The corruption signature must NOT appear.
+        Assert.DoesNotContain("AAABBB", merged);
+    }
+
 }
