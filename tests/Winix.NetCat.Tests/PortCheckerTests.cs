@@ -204,6 +204,50 @@ public sealed class PortCheckerTests
         Assert.Contains("IPv4", results[0].ErrorMessage ?? "");
     }
 
+    /// <summary>
+    /// Round-10 review I-2: pin the cancel-mid-scan contract. CheckAsync runs probes via
+    /// Task.WhenAll with each ProbeOneAsync linked to the outer ct via CreateLinkedTokenSource.
+    /// ProbeOneAsync's catch arms distinguish <c>!ct.IsCancellationRequested</c> (probe-local
+    /// timeout → returns Timeout result) from user cancel (no catch — OCE escapes the probe,
+    /// Task.WhenAll observes it, CheckAsync rethrows). Real-world risk: <c>nc -z host 1-1000</c>
+    /// interrupted by Ctrl+C must propagate to the caller as OCE rather than (a) silently
+    /// returning a partial-results list as if the scan completed, (b) escaping as a different
+    /// exception type Main can't classify, or (c) hanging until every probe times out
+    /// individually. A regression that broadened the probe-local catch to swallow user-cancel
+    /// would silently violate (a). This test pins (a)/(b)/(c) via three observable properties:
+    /// the call throws OCE, the throw arrives well before the per-probe timeout would have
+    /// fired, and the throw is the standard OCE type Main already handles.
+    /// </summary>
+    [Fact]
+    public async Task CheckAsync_CancelMidScan_PropagatesOperationCanceledException()
+    {
+        // Probe a wide range against a non-routable RFC 5737 documentation IP — every probe
+        // hangs in connect until either the per-probe timeout fires or external cancel is
+        // observed. We set a long per-probe timeout (10s) so the scan would take many seconds
+        // if cancel were ignored; observing the throw within ~500ms proves cancel propagated
+        // before any natural timeout.
+        var checker = new PortChecker();
+
+        using var userCts = new CancellationTokenSource();
+        userCts.CancelAfter(System.TimeSpan.FromMilliseconds(200));
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            checker.CheckAsync(
+                host: "192.0.2.1",
+                ranges: new[] { new PortRange(1, 100) },
+                timeout: System.TimeSpan.FromSeconds(10),
+                maxConcurrency: 4,
+                ct: userCts.Token));
+        sw.Stop();
+
+        // Cancel must propagate well before the per-probe timeout would have. 3-second
+        // upper bound gives generous headroom for slow CI runners while still proving
+        // we're not just waiting on natural completion of all 100 probes.
+        Assert.True(sw.Elapsed < System.TimeSpan.FromSeconds(3),
+            $"Expected cancel to propagate quickly, but CheckAsync took {sw.Elapsed.TotalSeconds:F1}s");
+    }
+
     private static int GetEphemeralPortNoLongerBound()
     {
         var listener = new TcpListener(IPAddress.Loopback, 0);

@@ -1,7 +1,5 @@
 #nullable enable
 
-using System.Collections.Generic;
-
 namespace Winix.NetCat;
 
 /// <summary>
@@ -33,7 +31,4 @@ public sealed class RunResult
 
     /// <summary>Local bind address (Listen mode only).</summary>
     public string? LocalAddress { get; init; }
-
-    /// <summary>Per-port results (Check mode only).</summary>
-    public IReadOnlyList<PortCheckResult>? PortResults { get; init; }
 }
