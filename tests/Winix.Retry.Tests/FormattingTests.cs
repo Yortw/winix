@@ -80,7 +80,12 @@ public class FormatAttemptTests
 
         string line = Formatting.FormatAttempt(info, useColor: true);
 
-        Assert.Contains("\x1b[", line);
+        // StringComparison.Ordinal: xUnit's 2-arg Assert.Contains defaults to CurrentCulture,
+        // which treats ESC (Unicode "Format" category) as ignorable — meaning the needle
+        // collapses to "[" and matches anywhere a literal bracket appears, hiding a real
+        // regression that drops the SGR escape. The 3-arg overload with Ordinal locks the
+        // assertion to byte-precise comparison. Same class fixed in peep at commit bb2a881.
+        Assert.Contains("\x1b[", line, System.StringComparison.Ordinal);
     }
 
     [Fact]
@@ -107,7 +112,8 @@ public class FormatAttemptTests
         string line = Formatting.FormatAttempt(info, useColor: true);
 
         // ANSI SGR 31 = red. Must appear around the "failed" word.
-        Assert.Contains("\x1b[31m", line);
+        // StringComparison.Ordinal: see FormatAttempt_WithColor_ContainsAnsiSequences.
+        Assert.Contains("\x1b[31m", line, System.StringComparison.Ordinal);
         Assert.Contains("failed", line);
     }
 
@@ -120,7 +126,7 @@ public class FormatAttemptTests
         string line = Formatting.FormatAttempt(info, useColor: true);
 
         // ANSI SGR 32 = green.
-        Assert.Contains("\x1b[32m", line);
+        Assert.Contains("\x1b[32m", line, System.StringComparison.Ordinal);
         Assert.Contains("succeeded", line);
     }
 
@@ -134,7 +140,7 @@ public class FormatAttemptTests
 
         string line = Formatting.FormatAttempt(info, useColor: true);
 
-        Assert.Contains("\x1b[0m", line);  // the reset sequence
+        Assert.Contains("\x1b[0m", line, System.StringComparison.Ordinal);  // the reset sequence
         // Rough count check: there are 3 colours in the retry line (dim, red, yellow) plus the
         // attempt prefix's dim. Every opening SGR except the default closes with \x1b[0m, so we
         // expect multiple resets. Fewer than 3 is suspicious; require at least 2.
@@ -173,7 +179,7 @@ public class FormatAttemptTests
         string line = Formatting.FormatAttempt(info, useColor: true);
 
         // ANSI SGR 33 = yellow, wrapping the "cancelled" word.
-        Assert.Contains("\x1b[33m", line);
+        Assert.Contains("\x1b[33m", line, System.StringComparison.Ordinal);
         Assert.Contains("cancelled", line);
     }
 
