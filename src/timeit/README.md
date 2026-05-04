@@ -100,7 +100,7 @@ timeit -- myapp --help
 | 126 | Command found but not executable, or bad EXE format |
 | 127 | Command not found |
 
-**Ambiguity warning**: timeit's 125/126/127 collide with the same codes the child might return on its own. POSIX shells use 127 for "command not found" and timeit follows the convention, so an exit code of 127 from `timeit -- foo` could mean either "timeit could not find `foo`" or "`foo` ran and exited 127 itself" — the bare exit code can't distinguish. For unambiguous detection, use `--json` and check the `exit_reason` field: `success` means the child ran and `child_exit_code` is its exit code; `command_not_found` / `command_not_executable` / `start_error` indicate timeit-side failures.
+**Ambiguity warning**: timeit's 125/126/127 collide with the same codes the child might return on its own. POSIX shells use 127 for "command not found" and timeit follows the convention, so an exit code of 127 from `timeit -- foo` could mean either "timeit could not find `foo`" or "`foo` ran and exited 127 itself" — the bare exit code can't distinguish. For unambiguous detection, use `--json` and check the `exit_reason` field: `success` means the child ran and `child_exit_code` is its exit code; any other value (`usage_error`, `command_not_found`, `command_not_executable`, `start_error`) indicates a timeit-side failure where the child never ran.
 
 ## Colour
 

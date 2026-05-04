@@ -81,7 +81,7 @@ Command found but not executable, or bad EXE format.
 Command not found.
 .PP
 \f[B]Ambiguity warning\f[R]: timeit's 125/126/127 collide with the same codes the child might return on its own. POSIX shells use 127 for \(dqcommand not found\(dq and timeit follows the convention, so an exit code of 127 from \f[B]timeit \-\- foo\f[R] could mean either \(dqtimeit could not find foo\(dq or \(dqfoo ran and exited 127 itself\(dq.
-For unambiguous detection, use \f[B]\(enjson\f[R] and check the \f[B]exit_reason\f[R] field: \f[B]success\f[R] means the child ran and \f[B]child_exit_code\f[R] is its exit code; \f[B]command_not_found\f[R] / \f[B]command_not_executable\f[R] / \f[B]start_error\f[R] indicate timeit\-side failures.
+For unambiguous detection, use \f[B]\(enjson\f[R] and check the \f[B]exit_reason\f[R] field: \f[B]success\f[R] means the child ran and \f[B]child_exit_code\f[R] is its exit code; any other value (\f[B]usage_error\f[R], \f[B]command_not_found\f[R], \f[B]command_not_executable\f[R], \f[B]start_error\f[R]) indicates a timeit\-side failure where the child never ran.
 .SH ENVIRONMENT
 .TP
 \f[B]NO_COLOR\f[R]

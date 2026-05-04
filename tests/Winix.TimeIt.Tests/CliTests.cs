@@ -56,6 +56,42 @@ public class CliTests
         Assert.Contains("no command specified", r.stderr, StringComparison.Ordinal);
     }
 
+    // -- Round-2 review SFH-R2-I1 — the empty-command path used to route through `writer`
+    //    (= stdout when --stdout is set) instead of stderr. That violated the
+    //    "errors always go to stderr" invariant the catch arms enforce. A script
+    //    doing `timeit --json --stdout | jq` with a missing command argument would
+    //    pipe the JSON usage error to jq's stdin and silently misclassify the
+    //    bad-invocation case. Now stderr is hardcoded for this path too. --
+    [Fact]
+    public void Run_NoCommand_WithStdout_ErrorMustGoToStderr()
+    {
+        var r = RunCli("--stdout");
+        Assert.Equal(ExitCode.UsageError, r.exit);
+        Assert.Empty(r.stdout);
+        Assert.Contains("no command specified", r.stderr, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Run_NoCommand_JsonStdout_ErrorMustGoToStderr()
+    {
+        var r = RunCli("--json", "--stdout");
+        Assert.Equal(ExitCode.UsageError, r.exit);
+        Assert.Empty(r.stdout);
+        Assert.Contains("no command specified", r.stderr, StringComparison.Ordinal);
+    }
+
+    // -- Round-2 review DOCS-IMP1 — pin that the JSON usage_error exit_reason value
+    //    actually appears in stderr when --json is set. Without this, a regression
+    //    that emitted a different reason string for usage errors would silently break
+    //    the documented contract that scripts use to disambiguate timeit-side failures. --
+    [Fact]
+    public void Run_NoCommand_Json_EmitsUsageErrorReason()
+    {
+        var r = RunCli("--json");
+        Assert.Equal(ExitCode.UsageError, r.exit);
+        Assert.Contains("\"exit_reason\":\"usage_error\"", r.stderr, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Run_CommandNotFound_ReturnsNotFound()
     {
@@ -75,6 +111,54 @@ public class CliTests
         Assert.Empty(r.stdout); // No JSON to stdout — the error doesn't go there
         Assert.Contains("command_not_found", r.stderr, StringComparison.Ordinal);
         Assert.Contains("\"exit_reason\"", r.stderr, StringComparison.Ordinal);
+    }
+
+    // -- Round-2 review TA-I5 — IOE (bad EXE format / start error) at the Cli seam was
+    //    untested. The catch arm at Cli.cs converts IOE → exit 126 + JSON exit_reason
+    //    "start_error". A regression mapping IOE to 125/UsageError or to plain
+    //    "command_not_executable" JSON would ship green without this pin.
+    //    Gated to Windows for the same reason as CommandRunnerTests.Run_BadExecutableFormat:
+    //    Linux/macOS kernel behaviour for +x text files is non-deterministic. --
+    [SkippableFact]
+    public void Run_BadExecutableFormat_PlainOutput_ExitsNotExecutable()
+    {
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only — kernel ENOEXEC behaviour varies on Linux/macOS.");
+        if (!OperatingSystem.IsWindows()) return;
+
+        string tempFile = Path.Combine(Path.GetTempPath(), $"timeit-cli-test-{Guid.NewGuid()}.exe");
+        try
+        {
+            File.WriteAllText(tempFile, "this is not an executable");
+            var r = RunCli(tempFile);
+            Assert.Equal(ExitCode.NotExecutable, r.exit); // 126, NOT 125
+            Assert.Contains("timeit:", r.stderr, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [SkippableFact]
+    public void Run_BadExecutableFormat_JsonOutput_EmitsStartErrorReason()
+    {
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only — kernel ENOEXEC behaviour varies on Linux/macOS.");
+        if (!OperatingSystem.IsWindows()) return;
+
+        string tempFile = Path.Combine(Path.GetTempPath(), $"timeit-cli-test-{Guid.NewGuid()}.exe");
+        try
+        {
+            File.WriteAllText(tempFile, "this is not an executable");
+            var r = RunCli("--json", tempFile);
+            Assert.Equal(ExitCode.NotExecutable, r.exit);
+            Assert.Empty(r.stdout); // JSON-error invariant: stderr only
+            Assert.Contains("\"exit_reason\":\"start_error\"", r.stderr, StringComparison.Ordinal);
+            Assert.Contains("\"exit_code\":126", r.stderr, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
     }
 
     // ── --stdout writer routing for SUCCESS path ──

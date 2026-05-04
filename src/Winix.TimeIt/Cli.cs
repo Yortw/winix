@@ -46,7 +46,14 @@ public static class Cli
 
         if (result.Command.Length == 0)
         {
-            return result.WriteError("no command specified. Run 'timeit --help' for usage.", writer);
+            // Round-2 review SFH-R2-I1 — pre-spawn validation errors must go to stderr, NOT
+            // through `writer` (which is stdout when --stdout is set). The three exception
+            // branches below already hardcode `stderr` correctly; this branch was the gap.
+            // Rationale matches: an "errors always go to stderr" invariant only holds if
+            // every error path honours it, and a script doing `timeit --json --stdout | jq`
+            // with a missing command argument would otherwise pipe the JSON usage error to
+            // jq's stdin and silently misclassify the bad-invocation case.
+            return result.WriteError("no command specified. Run 'timeit --help' for usage.", stderr);
         }
 
         string command = result.Command[0];
@@ -146,7 +153,7 @@ public static class Cli
             .JsonField("tool", "string", "Tool name (\"timeit\")")
             .JsonField("version", "string", "Tool version")
             .JsonField("exit_code", "int", "Tool exit code (0 = success). Distinct from child_exit_code below.")
-            .JsonField("exit_reason", "string", "Machine-readable exit reason: success, command_not_found, command_not_executable, start_error.")
+            .JsonField("exit_reason", "string", "Machine-readable exit reason: success, usage_error, command_not_found, command_not_executable, start_error.")
             .JsonField("child_exit_code", "int|null", "Child process exit code (the code the child process itself returned). null when the child never ran (e.g. command_not_found).")
             .JsonField("wall_seconds", "float", "Wall clock time in seconds")
             .JsonField("user_cpu_seconds", "float|null", "User CPU time in seconds")
