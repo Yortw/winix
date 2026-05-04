@@ -39,6 +39,28 @@ public static class UrlBuilder
             return new Result(null, "host is required");
         }
 
+        // Round-1 review CR-I2 — reject host strings that contain URL component separators.
+        // Without this, `--host "evil.com/@trusted.com"` produces `https://evil.com/@trusted.com/...`
+        // where Uri normalisation silently parses the `@` as userinfo or splits at the `/`,
+        // so the assembled URL's host is NOT what the user intended. This is a script-injection
+        // concern when --host is fed from less-trusted input. We check the literal characters
+        // first (clear error message), then defer to Uri.CheckHostName for general well-formedness.
+        // Round-tripping a host with `[ipv6]` brackets is intentionally allowed — Uri.CheckHostName
+        // accepts those for IPv6 hosts.
+        foreach (char c in host)
+        {
+            if (c == '/' || c == '?' || c == '#' || c == '@' || c == ' ' || c == '\t' || c == '\r' || c == '\n')
+            {
+                return new Result(null,
+                    $"--host contains a URL-component separator ('{(c == ' ' ? "space" : c == '\t' ? "tab" : c == '\r' ? "CR" : c == '\n' ? "LF" : c.ToString())}'); " +
+                    "the host must not include path, query, fragment, userinfo, or whitespace characters");
+            }
+        }
+        if (Uri.CheckHostName(host) == UriHostNameType.Unknown)
+        {
+            return new Result(null, $"--host '{host}' is not a well-formed hostname");
+        }
+
         scheme ??= "https";
 
         if (port is int p && (p < 1 || p > 65535))

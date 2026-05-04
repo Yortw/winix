@@ -28,4 +28,8 @@ public sealed record UrlOptions(
     string? JoinRelative,
     // query get/set/delete: key + optional value.
     string? QueryKey,
-    string? QueryValue);
+    string? QueryValue,
+    // Round-1 review SFH-I3 — decode --strict: reject malformed percent-escapes.
+    bool Strict,
+    // Round-1 review SFH-I2 — query get --all: emit every duplicate value (one per line).
+    bool All);

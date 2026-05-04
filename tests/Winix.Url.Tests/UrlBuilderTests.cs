@@ -102,10 +102,19 @@ public class UrlBuilderTests
     public void Build_Raw_StillValidatesSyntax()
     {
         // --raw must not skip syntactic validation. A host with a literal space is not a legal URI.
+        // Round-1 review CR-I2 — host validation now fires earlier with a more specific error
+        // ("URL-component separator") than the previous generic "invalid URL". The contract being
+        // pinned (raw doesn't skip validation, bad host rejected) is unchanged; the error message
+        // just got more actionable.
         var r = UrlBuilder.Build("https", "foo bar.com", null, "/",
             System.Array.Empty<(string, string)>(), null, raw: true);
         Assert.False(r.Success);
-        Assert.Contains("invalid URL", r.Error);
+        Assert.NotNull(r.Error);
+        // Both the new (specific) and old (generic) wording satisfy the contract.
+        Assert.True(
+            r.Error!.Contains("URL-component separator", System.StringComparison.Ordinal)
+            || r.Error.Contains("invalid URL", System.StringComparison.Ordinal),
+            $"expected either 'URL-component separator' or 'invalid URL' in error, got: {r.Error}");
     }
 
     [Fact]
