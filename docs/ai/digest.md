@@ -76,6 +76,14 @@ BLAKE2b keyed mode caps keys at 64 bytes (RFC 7693 §2.9). If you have a longer 
 
 You cannot use `--key-stdin` when the payload is also coming from stdin — there is only one stdin stream. `digest` detects this and exits 125.
 
+### Empty key rejection
+
+A zero-length HMAC key produces a forgeable tag — the BCL accepts it but cryptographically it's meaningless. `digest` rejects empty keys at the resolver layer with a usage error naming the source. All four sources can produce empty: env var set to "", 0-byte file, EOF-only stdin, `--key ""`. Each fails fast.
+
+### Key file size cap
+
+Key files are read with a 1 MB cap. HMAC keys are typically under 128 bytes (algorithm block size); above ~1 KB the BCL pre-hashes anyway so no entropy is added. The cap defends against accidental `--key-file /dev/zero` or piping a multi-GB stream via `--key-stdin`.
+
 ## Output Formats
 
 ```bash
@@ -131,7 +139,7 @@ digest --verify e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
 # exit 0 if match, 1 if mismatch
 ```
 
-Hex comparison is case-insensitive; base64 and base32 comparisons are case-sensitive. Verify is single-hash only — not supported with multiple files.
+Hex and Crockford base32 comparisons are case-insensitive (Crockford base32 spec defines case-insensitive decoding even though the encoder emits uppercase). Standard base64 and base64-url comparisons are case-sensitive — those alphabets carry case meaning. Verify is single-hash only — not supported with multiple files.
 
 ## Input-Mode Rules
 
@@ -181,8 +189,14 @@ sha256sum -c checksums.txt
 |---|---|
 | 0 | Success, or verification match. |
 | 1 | Verification failed (`--verify` mismatch). |
-| 125 | Usage error — bad flags, unknown value, flag conflict, missing file. |
-| 126 | Runtime error — SHA-3 unavailable on this platform, file read failure. |
+| 125 | Usage error — bad flags, unknown value, flag conflict, missing file, empty HMAC key, key file over size cap. |
+| 126 | Runtime error — SHA-3 unavailable on this platform, file read failure, generic catch-all. |
+
+**Important for scripts**: exit `1` is reserved exclusively for `--verify` mismatches. A runtime crash (file read failure mid-scan, etc.) returns `126`. So `digest --verify HASH FILE || alert` only fires on actual mismatch — runtime crashes won't trigger the alert path.
+
+## Stdin Payloads (Binary-Safe)
+
+`cat binary.bin | digest` reads raw bytes through to the hasher with no UTF-8 round-trip. The output matches `sha256sum binary.bin` byte-for-byte. (Earlier versions decoded stdin as text and re-encoded as UTF-8, which silently corrupted any non-UTF-8 byte — fixed in tier-2 review.)
 
 ## Metadata
 

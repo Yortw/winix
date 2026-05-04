@@ -139,7 +139,16 @@ The stderr warning from the failed desktop attempt is honest about what happened
 | 0 | Success — at least one configured backend succeeded. |
 | 1 | `--strict` mode and at least one backend failed. |
 | 125 | Usage error — bad flags, missing TITLE, no backends configured. |
-| 126 | All backends failed. |
+| 126 | All backends failed, or runtime error (generic catch-all). |
+
+**Important for scripts**: exit `1` is reserved for `--strict`-mode failures. Runtime crashes return `126`. So `notify ... --strict || alert-loud` only fires on actual delivery failure — runtime exceptions won't trigger the alert path.
+
+## Backend Failure Modes (Important for Agents)
+
+- **Windows AUMID shortcut creation failure** (locked-down profile, AV blocking lnk write, COM init failure) is now reported as a typed backend failure, NOT a silent toast drop. The user sees a clear "could not register AUMID shortcut" error with the captured diagnostic.
+- **Concurrent-batch isolation**: if one backend throws an exception (e.g. malformed `--ntfy-server` URL), the dispatcher converts it to a per-backend failure result rather than corrupting the whole batch. So a typo'd ntfy server URL won't mask a successful desktop notification.
+- **Cooperative cancellation**: the internal 15s timeout converts in-flight backends to per-backend "cancelled before completion" results so siblings' completed successes are preserved.
+- **ntfy 4xx/5xx body**: when ntfy returns an error status, `notify` reads up to 2 KB of the response body and surfaces a 512-character snippet in the stderr error. So 401 from a self-hosted server with auth misconfigured shows the server's "topic requires auth" detail rather than just the bare status code.
 
 ## Metadata
 

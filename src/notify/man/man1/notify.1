@@ -82,12 +82,13 @@ Success \(em at least one configured backend succeeded.
 .TP
 .B 1
 \fB--strict\fR mode; at least one backend failed.
+Exit 1 is reserved for strict-mode failures and never used for runtime errors \(em a runtime crash returns 126 instead, so \fBnotify ... --strict || alert\fR can rely on 1 meaning "delivery channel failed".
 .TP
 .B 125
 Usage error \(em bad flags, missing TITLE, no backends configured.
 .TP
 .B 126
-All backends failed.
+All backends failed, or runtime error (generic catch-all).
 
 .SH EXAMPLES
 Basic desktop notification:
@@ -153,6 +154,7 @@ timeit slow-script.sh && notify "done"
 Inline PowerShell + WinRT toast XML.
 Creates a per-user Start Menu shortcut at \fB%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Winix Notify.lnk\fR on first run \(em this is an Action Center requirement (toasts need an AppUserModelID).
 The shortcut is created idempotently and is harmless to delete.
+If the shortcut can't be created (locked-down profile, AV blocking lnk write, COM init failure), \fBnotify\fR returns a typed backend failure with the captured diagnostic; the toast does not silently no-op.
 Cold-start latency: ~400ms (PowerShell startup).
 
 .SS macOS

@@ -76,6 +76,15 @@ url query get    "https://x.io/?a=1&b=2" a        # 1
 url query set    "https://x.io/?a=1" b 2          # https://x.io/?a=1&b=2
 url query delete "https://x.io/?a=1&b=2" a        # https://x.io/?b=2
 
+# Get every value when a key has duplicates (default is first-only with stderr warning)
+url query get "https://x.io/?a=1&a=2&a=3" a --all
+# 1
+# 2
+# 3
+
+# Strict decode rejects malformed percent-escapes (default is lenient)
+url decode "a%" --strict        # exit 126, "malformed percent-escape at position 1"
+
 # Compose with other Winix tools
 ids --type uuid7 | xargs -I{} url build --host api.example.com --path /v1/resources/{}
 retry -- curl "$(url build --host api.example.com --path /v1/health)"
@@ -90,18 +99,22 @@ retry -- curl "$(url build --host api.example.com --path /v1/health)"
 | `parse` | URL | Deconstruct into fields. Plain `key=value` lines, `--json`, or `--field NAME`. |
 | `build` | (none; flags) | Assemble a URL from `--scheme --host --port --path --query K=V --fragment`. |
 | `join` | BASE RELATIVE | RFC 3986 §5 resolution: resolve RELATIVE against BASE. |
-| `query get` | URL KEY | Read the first value for KEY. |
-| `query set` | URL KEY VALUE | Set or replace all values for KEY. |
-| `query delete` | URL KEY | Remove all values for KEY. |
+| `query get` | URL KEY | Read the first value for KEY (use `--all` for every value). Stderr warning when duplicates exist. |
+| `query set` | URL KEY VALUE | Set the first occurrence; collapse remaining duplicates. Stderr warning if more than one was collapsed. |
+| `query delete` | URL KEY | Remove all values for KEY. Stderr warning when more than one was removed. |
 
 ## Global Flags
+
+Subcommand-specific flags are gated — passing one on a subcommand it doesn't apply to is rejected with a usage error rather than silently ignored.
 
 | Flag | Default | Applies to | Description |
 |---|---|---|---|
 | `--mode {component,path,query,form}` | `component` | encode / decode | Encoding variant. |
 | `--form` | off | encode / decode | Shorthand for `--mode form` (space ↔ `+`). |
+| `--strict` | off | decode | Reject malformed percent-escapes (lone `%`, `%X`, `%XY` where X/Y not hex). Lenient default passes them through verbatim. |
 | `--raw` | off | build / join / query set+delete | Disable URL normalisation. |
 | `--field NAME` | none | parse | Emit a single field; conflicts with `--json`. |
+| `--all` | off | query get | Emit every value (one per line) for keys with duplicates. Without `--all`, prints the first value and warns on stderr that more exist. |
 | `--json` | off | parse | Structured JSON output. |
 | `--describe` | | | Emit structured JSON metadata for AI discoverability. |
 | `--help` `-h` | | | Show help and exit. |
@@ -127,6 +140,30 @@ retry -- curl "$(url build --host api.example.com --path /v1/health)"
 | `path` | Same + `/` preserved | `%20` | Building URL path segments. |
 | `query` | Same as component | `%20` | Query-string values where space should be `%20`. |
 | `form` | Same as component | `+` | `application/x-www-form-urlencoded`. |
+
+## Security & Validation
+
+`url` runs untrusted-input-shaped operations (host assembly, relative URL resolution, query manipulation) so a few rules are enforced on inputs to prevent silent misinterpretation:
+
+### `--host` rejects URL-component characters
+
+`url build --host VALUE` rejects values that contain `/`, `?`, `#`, `@`, or any whitespace / control character. Without this, `--host "evil.com/@trusted.com"` would assemble a URL whose host portion silently differs from what the user typed (`@` re-parsed as userinfo, `/` splits at the path boundary). Control characters report position + hex code in the error so invisible characters (vertical tab, null byte) are diagnosable.
+
+`Uri.CheckHostName` is also consulted for general well-formedness — empty DNS labels (`foo..bar`) and similar are rejected.
+
+### `url join` scheme allowlist
+
+`url join` accepts only hierarchical schemes that have authority semantics: `http`, `https`, `ws`, `wss`, `ftp`, `ftps`, `ssh`, `file`. Opaque schemes (`javascript:`, `mailto:`, `data:`, `urn:`, etc.) are rejected with a clear error naming the allowed set.
+
+This prevents scheme-smuggling — without the allowlist, `url join "javascript:foo" "bar"` would emit `javascript:bar` which is a foothold in pipelines that pass the joined result to a browser/renderer.
+
+### Query keys are decoded before lookup
+
+`query get` / `set` / `delete` percent-decode the user-supplied key before matching. Both `url query get URL "a=b"` and `url query get URL "a%3Db"` look up the same key — so round-tripping a key through `--field query` (which preserves wire form) and back to `query get` works for keys containing encoded characters.
+
+### Decoder strict mode
+
+`url decode --strict` rejects malformed percent-escapes (`a%`, `a%X`, `a%ZZ`) with a position-specific error. Default behaviour is lenient (matches `Uri.UnescapeDataString`) — input passes through verbatim — so a tool whose job is round-tripping can't distinguish "input was plain" from "input was corrupted" without the opt-in.
 
 ## Normalisation
 
