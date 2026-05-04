@@ -102,19 +102,22 @@ public class UrlBuilderTests
     public void Build_Raw_StillValidatesSyntax()
     {
         // --raw must not skip syntactic validation. A host with a literal space is not a legal URI.
-        // Round-1 review CR-I2 — host validation now fires earlier with a more specific error
-        // ("URL-component separator") than the previous generic "invalid URL". The contract being
-        // pinned (raw doesn't skip validation, bad host rejected) is unchanged; the error message
-        // just got more actionable.
+        // Round-1 review CR-I2 / Round-2 review SFH-I2 — host validation now fires earlier with
+        // a specific error. Round 1 introduced "URL-component separator" for the structural
+        // chars (/ ? # @); round 2 moved whitespace to a separate "control or whitespace
+        // character" branch with position + hex code. The contract being pinned (raw doesn't
+        // skip validation, bad host rejected) is unchanged across both rounds; the error just
+        // got more actionable.
         var r = UrlBuilder.Build("https", "foo bar.com", null, "/",
             System.Array.Empty<(string, string)>(), null, raw: true);
         Assert.False(r.Success);
         Assert.NotNull(r.Error);
-        // Both the new (specific) and old (generic) wording satisfy the contract.
+        // Any of the rejection wordings satisfies the contract; pin breadth, not specifics.
         Assert.True(
             r.Error!.Contains("URL-component separator", System.StringComparison.Ordinal)
+            || r.Error.Contains("control or whitespace character", System.StringComparison.Ordinal)
             || r.Error.Contains("invalid URL", System.StringComparison.Ordinal),
-            $"expected either 'URL-component separator' or 'invalid URL' in error, got: {r.Error}");
+            $"expected one of the host-rejection wordings in error, got: {r.Error}");
     }
 
     [Fact]
@@ -136,5 +139,46 @@ public class UrlBuilderTests
             System.Array.Empty<(string, string)>(), null, raw: false);
         Assert.True(r.Success);
         Assert.Equal("https://x.io/a%20b", r.Url);
+    }
+
+    // -- Round-2 review TA-I2 — pin the Uri.CheckHostName secondary-rejection branch.
+    //    The char-loop catches obvious separators and control chars, but a host like
+    //    "foo..bar" (empty label, valid chars otherwise) passes the loop and must be
+    //    rejected by CheckHostName. Without a test, removing/inverting that branch
+    //    would silently allow malformed-but-printable hosts. --
+    [Fact]
+    public void Build_HostFailsCheckHostName_RejectsAsNotWellFormed()
+    {
+        // "foo..bar" has an empty DNS label between the dots — valid chars throughout but
+        // not a well-formed hostname per Uri.CheckHostName.
+        var r = UrlBuilder.Build("https", "foo..bar", null, "/",
+            System.Array.Empty<(string, string)>(), null, raw: false);
+        Assert.False(r.Success);
+        Assert.NotNull(r.Error);
+        Assert.Contains("not a well-formed hostname", r.Error, System.StringComparison.Ordinal);
+    }
+
+    // -- Round-2 review SFH-I2 — pin the control-char rejection path so a host with an
+    //    invisible \v or \0 surfaces with position + hex code, NOT silently stripped by
+    //    Uri.CheckHostName which would echo back the WRONG host string in any error. --
+    [Fact]
+    public void Build_HostWithVerticalTab_RejectsWithPositionAndHex()
+    {
+        var r = UrlBuilder.Build("https", "evil\vcom", null, "/",
+            System.Array.Empty<(string, string)>(), null, raw: false);
+        Assert.False(r.Success);
+        Assert.NotNull(r.Error);
+        Assert.Contains("control or whitespace character", r.Error, System.StringComparison.Ordinal);
+        // Hex code 0x0B for vertical tab — the user must see WHICH invisible char they typed.
+        Assert.Contains("0x0B", r.Error, System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_HostWithNullByte_Rejected()
+    {
+        var r = UrlBuilder.Build("https", "evil\0com", null, "/",
+            System.Array.Empty<(string, string)>(), null, raw: false);
+        Assert.False(r.Success);
+        Assert.Contains("0x00", r.Error, System.StringComparison.Ordinal);
     }
 }

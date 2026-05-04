@@ -198,8 +198,13 @@ public static class Cli
             stderr.WriteLine($"url: {r.Error}");
             // "base URL must be absolute" / "scheme not allowed" are usage errors;
             // everything else is a runtime failure.
-            return (r.Error!.Contains("must be absolute", StringComparison.Ordinal)
-                || r.Error!.Contains("scheme not allowed", StringComparison.Ordinal))
+            // Round-2 review SFH-I1 — defensive `?? ""` so a future runtime that returns
+            // Success=false with Error=null can't NRE the substring match here. The
+            // typed-error-enum refactor (round-2 SFH-I1 / CR-Minor-2) would be sturdier
+            // long-term but the null-coalesce closes the immediate fragility cheaply.
+            string err = r.Error ?? "";
+            return (err.Contains("must be absolute", StringComparison.Ordinal)
+                || err.Contains("scheme not allowed", StringComparison.Ordinal))
                 ? ExitCode.UsageError
                 : ExitCode.NotExecutable;
         }

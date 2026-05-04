@@ -43,17 +43,26 @@ public static class UrlBuilder
         // Without this, `--host "evil.com/@trusted.com"` produces `https://evil.com/@trusted.com/...`
         // where Uri normalisation silently parses the `@` as userinfo or splits at the `/`,
         // so the assembled URL's host is NOT what the user intended. This is a script-injection
-        // concern when --host is fed from less-trusted input. We check the literal characters
-        // first (clear error message), then defer to Uri.CheckHostName for general well-formedness.
-        // Round-tripping a host with `[ipv6]` brackets is intentionally allowed — Uri.CheckHostName
-        // accepts those for IPv6 hosts.
+        // concern when --host is fed from less-trusted input.
+        // Round-2 review SFH-I2 — extended to reject ALL control characters (\0, \v, \f, \b, etc.)
+        // and ALL whitespace. Without this, char.IsControl chars pass the original char-loop and
+        // get silently stripped by Uri.CheckHostName, producing an error message that doesn't
+        // include the bad character (information loss — user sees "evilcom" instead of
+        // "evil\vcom" and can't tell what they typed wrong).
         foreach (char c in host)
         {
-            if (c == '/' || c == '?' || c == '#' || c == '@' || c == ' ' || c == '\t' || c == '\r' || c == '\n')
+            if (c == '/' || c == '?' || c == '#' || c == '@')
             {
                 return new Result(null,
-                    $"--host contains a URL-component separator ('{(c == ' ' ? "space" : c == '\t' ? "tab" : c == '\r' ? "CR" : c == '\n' ? "LF" : c.ToString())}'); " +
+                    $"--host contains a URL-component separator ('{c}'); " +
                     "the host must not include path, query, fragment, userinfo, or whitespace characters");
+            }
+            if (char.IsControl(c) || char.IsWhiteSpace(c))
+            {
+                // Surface the offending position + hex code so the user can see invisible characters.
+                return new Result(null,
+                    $"--host contains a control or whitespace character at position {host.IndexOf(c)} " +
+                    $"(0x{(int)c:X2}); the host must not include whitespace, tabs, newlines, or control characters");
             }
         }
         if (Uri.CheckHostName(host) == UriHostNameType.Unknown)

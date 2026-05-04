@@ -51,7 +51,7 @@ public static class UrlJoiner
         if (!IsAllowedJoinScheme(baseUri.Scheme))
         {
             return new Result(null,
-                $"scheme not allowed for join: '{baseUri.Scheme}' (allowed: http, https, ftp, ftps, ssh, file)");
+                $"scheme not allowed for join: '{baseUri.Scheme}' (allowed: http, https, ws, wss, ftp, ftps, ssh, file)");
         }
 
         try
@@ -68,9 +68,14 @@ public static class UrlJoiner
 
     private static bool IsAllowedJoinScheme(string scheme)
     {
+        // Round-2 review SFH-I3 / CR-Minor-1 — ws and wss added. WebSocket URLs are
+        // hierarchical with authority semantics (mirror http/https) and are a realistic
+        // compose target — `retry -- websocat "$(url join $WS_BASE chat)"` is a normal
+        // pipeline. urn:/git:/data: rejection (which remains) is correct (opaque or
+        // non-authority); ws/wss exclusion was unintentional.
         return scheme.ToLowerInvariant() switch
         {
-            "http" or "https" or "ftp" or "ftps" or "ssh" or "file" => true,
+            "http" or "https" or "ws" or "wss" or "ftp" or "ftps" or "ssh" or "file" => true,
             _ => false,
         };
     }
