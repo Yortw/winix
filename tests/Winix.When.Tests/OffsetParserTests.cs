@@ -97,4 +97,68 @@ public class OffsetParserTests
         bool ok = OffsetParser.TryParse("42", out _, out string? error);
         Assert.False(ok); Assert.NotNull(error);
     }
+
+    // ── Round-2 review: combined shorthand was documented in README/man/docs/ai/--describe
+    //    but never implemented. ShellKit's DurationParser is single-chunk only; the
+    //    Round-2 fix added TryParseCombinedShorthand to OffsetParser to fill the gap.
+    //    These tests pin the documented contract so a future regression in the shorthand
+    //    parser is caught immediately. ──
+
+    [Fact]
+    public void TryParse_TwoChunks_HoursMinutes_Parses()
+    {
+        bool ok = OffsetParser.TryParse("2h30m", out TimeSpan result, out string? error);
+        Assert.True(ok, error);
+        Assert.Equal(new TimeSpan(2, 30, 0), result);
+    }
+
+    [Fact]
+    public void TryParse_TwoChunks_DaysHours_Parses()
+    {
+        bool ok = OffsetParser.TryParse("1d12h", out TimeSpan result, out string? error);
+        Assert.True(ok, error);
+        Assert.Equal(new TimeSpan(1, 12, 0, 0), result);
+    }
+
+    [Fact]
+    public void TryParse_FourChunks_DHMS_Parses()
+    {
+        bool ok = OffsetParser.TryParse("1d2h30m15s", out TimeSpan result, out string? error);
+        Assert.True(ok, error);
+        Assert.Equal(new TimeSpan(1, 2, 30, 15), result);
+    }
+
+    [Fact]
+    public void TryParse_TwoChunks_WeeksDays_Parses()
+    {
+        bool ok = OffsetParser.TryParse("2w3d", out TimeSpan result, out string? error);
+        Assert.True(ok, error);
+        Assert.Equal(TimeSpan.FromDays(2 * 7 + 3), result);
+    }
+
+    [Fact]
+    public void TryParse_CombinedWithMilliseconds_Parses()
+    {
+        bool ok = OffsetParser.TryParse("1s500ms", out TimeSpan result, out string? error);
+        Assert.True(ok, error);
+        Assert.Equal(TimeSpan.FromMilliseconds(1500), result);
+    }
+
+    [Fact]
+    public void TryParse_CombinedTrailingDigits_Fails()
+    {
+        // "1d12" — trailing digits with no suffix is malformed.
+        bool ok = OffsetParser.TryParse("1d12", out _, out string? error);
+        Assert.False(ok);
+        Assert.NotNull(error);
+    }
+
+    [Fact]
+    public void TryParse_CombinedUnknownSuffix_Fails()
+    {
+        // 'y' is not a supported unit (years are calendar-dependent).
+        bool ok = OffsetParser.TryParse("1d2y", out _, out string? error);
+        Assert.False(ok);
+        Assert.NotNull(error);
+    }
 }

@@ -153,11 +153,23 @@ public static class IsoDurationParser
             return false;
         }
 
+        // Round-1 review CR-C1 — TimeSpan.FromSeconds throws OverflowException (not
+        // ArgumentOutOfRangeException) when its argument exceeds TimeSpan.MaxValue.TotalSeconds.
+        // The previous catch caught only AOOR, so input like "PT99999999999999S" leaked an
+        // unhandled OverflowException with a stack trace and non-zero non-documented exit code.
+        // Catch both, AND pre-validate `seconds` against TimeSpan.MaxValue.TotalSeconds so we
+        // produce the user-facing error before constructing the TimeSpan.
+        const double TimeSpanMaxSeconds = 922_337_203_685.4775; // TimeSpan.MaxValue.TotalSeconds
+        if (Math.Abs(seconds) > TimeSpanMaxSeconds)
+        {
+            error = $"ISO 8601 duration value is out of range for TimeSpan ({seconds:G} seconds exceeds TimeSpan.MaxValue).";
+            return false;
+        }
         try
         {
             result = new TimeSpan(days, hours, minutes, 0) + TimeSpan.FromSeconds(seconds);
         }
-        catch (ArgumentOutOfRangeException)
+        catch (Exception ex) when (ex is ArgumentOutOfRangeException || ex is OverflowException)
         {
             error = "ISO 8601 duration value is out of range for TimeSpan.";
             return false;

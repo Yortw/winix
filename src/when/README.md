@@ -73,25 +73,27 @@ cat epochs.txt | wargs when
 
 ### Output
 
-**Default** (all formats):
+**Default** (all formats; local timezone shown is your system's, NZST in this example):
 ```
-UTC:       2024-06-18T16:00:00Z
-Local:     2024-06-18T04:00:00+12:00  (NZST)
-Epoch:     1718726400  (1718726400000 ms)
-Relative:  4 months ago
+UTC:       2024-06-18T21:20:00Z
+Local:     2024-06-19 09:20:00 NZST (+12:00)
+Relative:  1 year ago
+Unix:      1718745600
 ```
 
 **Diff mode:**
 ```
-Duration:  7 days  (P7D)
-From:      2024-06-18T00:00:00Z
-To:        2024-06-25T00:00:00Z
+Duration:  7 days
+ISO 8601:  P7DT0H0M
+Seconds:   604800
 ```
 
 **JSON** (`--json`):
 ```json
-{"tool":"when","version":"0.3.0","exit_code":0,"exit_reason":"success","input":"1718745600","utc":"2024-06-18T16:00:00Z","local":"2024-06-19T04:00:00+12:00","local_timezone":"NZST","unix_seconds":1718745600,"unix_milliseconds":1718745600000,"relative":"4 months ago"}
+{"tool":"when","version":"0.4.0","exit_code":0,"exit_reason":"success","input":"1718745600","offset":null,"utc":"2024-06-18T21:20:00Z","local":"2024-06-19T09:20:00+12:00","local_timezone":"NZST","unix_seconds":1718745600,"unix_milliseconds":1718745600000,"relative":"1 year ago"}
 ```
+
+When `--tz ZONE` is set in conversion mode, the JSON envelope additionally includes `"target"` (target-zone ISO 8601 timestamp) and `"target_timezone"` (target abbreviation).
 
 ## Options
 
@@ -112,14 +114,15 @@ To:        2024-06-25T00:00:00Z
 
 | Format | Example | Notes |
 |--------|---------|-------|
-| Unix epoch (seconds) | `1718745600` | Auto-detected |
-| Unix epoch (milliseconds) | `1718745600000` | 13-digit numbers treated as ms |
-| ISO 8601 date | `2024-06-18` | |
+| Unix epoch (seconds) | `1718745600` | 1-10 digits |
+| Unix epoch (milliseconds) | `1718745600000` | 11-13 digits |
+| Negative epoch | `-86400` | Pre-1970, seconds before epoch |
+| ISO 8601 date | `2024-06-18` | Treated as midnight UTC |
 | ISO 8601 datetime | `2024-06-18T16:00:00Z` | With or without timezone offset |
 | Named month | `18 Jun 2024` | |
 | `now` | `now` | Current instant |
 
-Ambiguous formats (e.g. `06/07/2024` where month/day order is unclear) are rejected with an error rather than silently guessing.
+Ambiguous formats are rejected rather than silently guessing — e.g. `06/07/2024` (month/day order unclear) and any value whose integer part is in the year range `1900-2200` with ≤4 digits (e.g. `2025`, `+2025`, `-2025`, `2025.0`, all rejected as ambiguous between year and Unix epoch second). To force epoch interpretation of a year-shaped value, pad to 5+ digits with leading zeros (`02025` = epoch second 2025).
 
 ### Offset Formats
 
@@ -127,11 +130,15 @@ Offsets can be prefixed with `+` or `-`:
 
 | Format | Example | Meaning |
 |--------|---------|---------|
-| Duration shorthand | `+7d`, `-2h30m`, `+90s` | Days, hours, minutes, seconds |
+| Duration shorthand | `+7d`, `-2h30m`, `+500ms`, `+1d12h30m` | Combinable single-unit chunks |
 | ISO 8601 duration | `+P1DT12H` | Standard duration notation |
 | Time of day | `+01:30:00` | HH:MM:SS |
 
-Supported shorthand units: `d` (days), `h` (hours), `m` (minutes), `s` (seconds). Units can be combined: `+1d12h`.
+Supported shorthand units: `ms` (milliseconds), `s` (seconds), `m` (minutes), `h` (hours), `d` (days), `w` (weeks). Each chunk is a non-negative integer plus a unit suffix; chunks can be combined in any order (`+1d12h`, `+30m45s`, `+2w3d`). Negative values are achieved with the leading `-` (`-2h30m`).
+
+ISO 8601 durations support days (D), hours (H), minutes (M), and seconds (S) only. Years (Y), months (M before T), and weeks (W) are rejected as calendar-dependent or ambiguous — use the day equivalent (e.g. `P14D` instead of `P2W`, `P30D` instead of `P1M`).
+
+To pass a leading-`-` offset on the command line, prefix it with `--` so the shell doesn't interpret it as a flag (e.g. `when 2024-06-18 -- -3h` or simply `when 2024-06-18 -3h` — `when` auto-injects `--` when it detects a negative-shape positional).
 
 ### Timezone
 

@@ -143,6 +143,21 @@ public static class InputParser
         result = default;
         error = null;
 
+        // Round-2 hardening: SFH-I1's original guard ran AFTER the decimal short-circuit and
+        // AFTER the negative-epoch branch, leaving three bypasses for the same misparse class:
+        //   `2025.0`  → parsed as fractional epoch (1970-01-01T00:33:45.0...)
+        //   `-2025`   → parsed as negative epoch  (1969-12-31T23:26:15)
+        //   `+2025`   → parsed as positive epoch  (length 5 evades the original `<= 4` check)
+        // All three are silent year-like misparses. Detect the bare-year shape first, sign-
+        // aware and decimal-aware, before any numeric branch consumes the input.
+        if (IsBareYearShape(input, out int yearAbs))
+        {
+            string yearStr = yearAbs.ToString("D4", CultureInfo.InvariantCulture);
+            error = $"Input '{input}' is ambiguous — did you mean the year {yearStr} or a Unix epoch second? " +
+                    $"Use '{yearStr}-01-01' for the year, or pad to 5+ digits (e.g. '0{yearStr}') to force epoch interpretation.";
+            return false;
+        }
+
         // Decimal point always means fractional seconds regardless of magnitude
         if (input.Contains('.'))
         {
@@ -216,6 +231,50 @@ public static class InputParser
         // 14+ digits: reject — too large to be a valid epoch in seconds or milliseconds
         error = $"Epoch value '{input}' is out of range (max 13 digits for milliseconds).";
         return false;
+    }
+
+    // Detects shapes that could plausibly be a year (1900-2200) typed with no further
+    // qualification — and which would otherwise silently parse as a tiny epoch value.
+    // Sign- and decimal-aware: covers `2025`, `+2025`, `-2025`, `2025.0`, `+2025.5`, etc.
+    // The integer part must be exactly 1-4 digits AND fall in [1900, 2200] (absolute value
+    // for the negative case). Returns the absolute year for use in the error message.
+    private static bool IsBareYearShape(string input, out int yearAbs)
+    {
+        yearAbs = 0;
+        if (string.IsNullOrEmpty(input)) return false;
+
+        int start = 0;
+        if (input[0] == '+' || input[0] == '-') start++;
+
+        int dotIdx = input.IndexOf('.');
+        int intEnd = dotIdx >= 0 ? dotIdx : input.Length;
+        int intDigitCount = intEnd - start;
+
+        if (intDigitCount < 1 || intDigitCount > 4) return false;
+
+        if (!int.TryParse(input.AsSpan(start, intDigitCount), NumberStyles.None,
+            CultureInfo.InvariantCulture, out int n))
+        {
+            return false;
+        }
+
+        if (n < 1900 || n > 2200) return false;
+
+        // If the input has a fractional part, every fractional digit must be 0-9 (the parse
+        // upstream will validate; here we only require well-formed shape so we don't
+        // false-positive on malformed input that downstream parsing would also reject).
+        if (dotIdx >= 0)
+        {
+            for (int i = dotIdx + 1; i < input.Length; i++)
+            {
+                if (!char.IsDigit(input[i])) return false;
+            }
+            // Empty fractional part (e.g. "2025.") is not bare-year; let downstream reject it.
+            if (dotIdx == input.Length - 1) return false;
+        }
+
+        yearAbs = n;
+        return true;
     }
 
     private static bool TryParseIso8601(string input, out DateTimeOffset result)

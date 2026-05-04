@@ -103,15 +103,17 @@ when 1718745600 --json | jq '.relative'
 
 **Ambiguous formats are rejected.** `06/07/2024` is ambiguous (month-day-year vs day-month-year), so `when` returns a usage error rather than silently guessing. Use ISO 8601 or named-month formats to be unambiguous.
 
+**Bare year-shaped values rejected as ambiguous.** Any value whose integer part is `1900-2200` with ≤4 digits is rejected — covers `2025`, `+2025`, `-2025`, `2025.0`. Use `2025-01-01` to mean the year, or pad to 5+ digits with leading zeros (`02025`) to force epoch interpretation.
+
 ## Offset Format Details
 
 | Syntax | Example | Notes |
 |--------|---------|-------|
-| Shorthand | `+7d`, `-2h30m`, `+1d12h30m` | Units: `d`, `h`, `m`, `s` |
-| ISO 8601 | `+P1DT12H`, `-P30D` | Standard duration |
+| Shorthand | `+7d`, `-2h30m`, `+500ms`, `+1d12h30m` | Combinable single-unit chunks |
+| ISO 8601 | `+P1DT12H`, `-P30D` | Standard duration; Y/M/W rejected |
 | Time span | `+01:30:00` | HH:MM:SS |
 
-Units can be combined in shorthand: `+1d2h30m15s`.
+Shorthand units: `ms` (milliseconds), `s` (seconds), `m` (minutes), `h` (hours), `d` (days), `w` (weeks). Each chunk is a non-negative integer plus a suffix; chunks combine in any order: `+1d2h30m15s`, `+2w3d`. The leading `+`/`-` applies to the whole offset.
 
 ## Diff Mode
 
@@ -121,7 +123,7 @@ Default output shows the breakdown and the ISO 8601 duration. Use `--iso` for ju
 
 ## Gotchas
 
-**13-digit epochs are treated as milliseconds.** `1718745600000` (ms) is auto-detected. Shorter numbers are treated as seconds.
+**11-13 digit epochs are treated as milliseconds.** `1718745600000` (13 digits) and any 11-13 digit value are auto-detected as ms. 1-10 digit values are seconds. Negative values are always seconds (no millisecond ambiguity).
 
 **Ambiguous formats are rejected, not guessed.** This is deliberate — silent wrong answers cause subtle bugs. Use unambiguous formats.
 

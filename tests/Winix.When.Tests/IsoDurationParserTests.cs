@@ -213,4 +213,42 @@ public class IsoDurationParserFormatTests
         string formatted = IsoDurationParser.Format(parsed);
         Assert.Equal("PT0S", formatted);
     }
+
+    // ── Round-1 review TA-I6 — additional ISO 8601 edge cases ──
+
+    // P alone (no value, no designator) is malformed per ISO 8601 — must be rejected.
+    [Fact]
+    public void TryParse_PAlone_Rejected()
+    {
+        bool ok = IsoDurationParser.TryParse("P", out _, out string? error);
+        Assert.False(ok);
+        Assert.NotNull(error);
+    }
+
+    // PT alone (time-part marker with no time fields) is also malformed.
+    [Fact]
+    public void TryParse_PTAlone_Rejected()
+    {
+        bool ok = IsoDurationParser.TryParse("PT", out _, out string? error);
+        Assert.False(ok);
+        Assert.NotNull(error);
+    }
+
+    [Fact]
+    public void TryParse_FractionalSeconds_Parses()
+    {
+        // PT1.5S = 1.5 seconds. ISO 8601 allows fractional seconds with either '.' or ','.
+        bool ok = IsoDurationParser.TryParse("PT1.5S", out TimeSpan result, out string? error);
+        Assert.True(ok, error);
+        Assert.Equal(TimeSpan.FromSeconds(1.5), result);
+    }
+
+    [Fact]
+    public void TryParse_NoLeadingP_Rejected()
+    {
+        // "3DT4H" without the leading 'P' is not a valid ISO 8601 duration.
+        bool ok = IsoDurationParser.TryParse("3DT4H", out _, out string? error);
+        Assert.False(ok);
+        Assert.NotNull(error);
+    }
 }

@@ -179,7 +179,7 @@ public sealed class CommandLineParser
         Flag("--version", "Show version");
         Flag("--color", "Force colored output");
         Flag("--no-color", "Disable colored output");
-        Flag("--json", "JSON output to stderr");
+        Flag("--json", "JSON output");
         Flag("--describe", "Structured JSON metadata for AI agents");
         return this;
     }
