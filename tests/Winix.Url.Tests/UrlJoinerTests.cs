@@ -75,4 +75,40 @@ public class UrlJoinerTests
         Assert.True(r.Success, $"expected success, got error: {r.Error}");
         Assert.Equal("file:///tmp/base/child.txt", r.Url);
     }
+
+    // -- Round-3 review TA-I1 — pin the round-2 ws/wss allowlist addition. Without these
+    //    tests, removing the line silently passes the suite. WebSocket URLs are
+    //    hierarchical with authority semantics — `retry -- websocat "$(url join $WS_BASE chat)"`
+    //    is a documented compose pattern. --
+    [Fact]
+    public void Join_WsBase_Accepted()
+    {
+        var r = UrlJoiner.Join("ws://ws.example.com/", "chat");
+        Assert.True(r.Success, $"expected success, got error: {r.Error}");
+        Assert.Equal("ws://ws.example.com/chat", r.Url);
+    }
+
+    [Fact]
+    public void Join_WssBase_Accepted()
+    {
+        var r = UrlJoiner.Join("wss://ws.example.com/v1/", "chat");
+        Assert.True(r.Success, $"expected success, got error: {r.Error}");
+        Assert.Equal("wss://ws.example.com/v1/chat", r.Url);
+    }
+
+    [Fact]
+    public void Join_AllowlistMessage_NamesAllAllowedSchemes()
+    {
+        // Pin the user-facing diagnostic — if a future refactor changes the allowlist,
+        // the error message MUST stay in sync so users hitting an excluded scheme see
+        // the actual current set rather than a stale one.
+        var r = UrlJoiner.Join("urn:isbn:0451450523", "x");
+        Assert.False(r.Success);
+        Assert.NotNull(r.Error);
+        Assert.Contains("scheme not allowed", r.Error, System.StringComparison.Ordinal);
+        Assert.Contains("ws", r.Error, System.StringComparison.Ordinal);
+        Assert.Contains("wss", r.Error, System.StringComparison.Ordinal);
+        Assert.Contains("http", r.Error, System.StringComparison.Ordinal);
+        Assert.Contains("https", r.Error, System.StringComparison.Ordinal);
+    }
 }

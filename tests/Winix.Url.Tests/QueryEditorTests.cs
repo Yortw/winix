@@ -138,4 +138,48 @@ public class QueryEditorTests
         Assert.True(r.Success);
         Assert.Contains("user:pw@", r.Url);
     }
+
+    // -- Round-2 review TA-I3 — GetMany value ordering must match URL order. The Cli --all
+    //    test happens to use ascending values so an unstable order would still pass Contains;
+    //    this test interleaves the target key with other keys and asserts exact positional
+    //    equality, which catches both reordering and key-mismatch regressions. --
+    [Fact]
+    public void GetMany_Duplicates_PreservesUrlOrderAcrossInterleavedKeys()
+    {
+        var r = QueryEditor.GetMany("https://x.io/?a=1&b=x&a=2&c=y&a=3", "a");
+        Assert.True(r.Success);
+        Assert.NotNull(r.Values);
+        Assert.Equal(3, r.Values.Count);
+        Assert.Equal("1", r.Values[0]);
+        Assert.Equal("2", r.Values[1]);
+        Assert.Equal("3", r.Values[2]);
+    }
+
+    [Fact]
+    public void GetMany_Single_ReturnsOneValueListNotEmpty()
+    {
+        var r = QueryEditor.GetMany("https://x.io/?a=1", "a");
+        Assert.True(r.Success);
+        Assert.Single(r.Values!);
+        Assert.Equal("1", r.Values![0]);
+    }
+
+    [Fact]
+    public void GetMany_KeyAbsent_ErrorWithKeyName()
+    {
+        var r = QueryEditor.GetMany("https://x.io/?a=1", "missing");
+        Assert.False(r.Success);
+        Assert.Null(r.Values);
+        Assert.Contains("missing", r.Error, System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GetMany_EncodedKey_MatchesDecodedKey()
+    {
+        // CR-I1 — symmetric to the Cli-level pin: library-tier check that GetMany's
+        // user-key decoding matches the parser's URL-key decoding.
+        var r = QueryEditor.GetMany("https://x.io/?a%3Db=1&a%3Db=2", "a=b");
+        Assert.True(r.Success);
+        Assert.Equal(2, r.Values!.Count);
+    }
 }

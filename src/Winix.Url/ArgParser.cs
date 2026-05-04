@@ -71,10 +71,51 @@ public static class ArgParser
         bool json = parsed.Has("--json");
         string? field = parsed.Has("--field") ? parsed.GetString("--field") : null;
 
+        // Round-1 review SFH-I3 — --strict on decode rejects malformed percent-escapes.
+        // Round-1 review SFH-I2 — --all on query get prints every duplicate value.
+        bool strict = parsed.Has("--strict");
+        bool all = parsed.Has("--all");
+
         // --field only valid on parse.
         if (field is not null && subcommand != "parse")
         {
             return Fail("--field only applies to parse");
+        }
+        // --strict only valid on decode.
+        if (strict && subcommand != "decode")
+        {
+            return Fail("--strict only applies to decode");
+        }
+        // --all only valid on query get.
+        if (all)
+        {
+            if (subcommand != "query")
+            {
+                return Fail("--all only applies to query get");
+            }
+            // Stricter check below once we know the query op.
+        }
+
+        // Round-3 review SFH-I1 — gate the remaining subcommand-specific flags so users
+        // who pass them on the wrong subcommand get an explicit usage error instead of
+        // a silent no-op. The pattern was already applied to --field/--strict/--all but
+        // these four were missed:
+        //  - --json: only consumed by RunParse (other subcommands ignore it).
+        //  - --mode: only consumed by Encoder (encode/decode form variant).
+        //  - --form: same as --mode (shorthand for --mode form).
+        //  - --raw: only consumed by build / join / query set / query delete normalisation.
+        if (json && subcommand != "parse")
+        {
+            return Fail("--json only applies to parse");
+        }
+        bool modeExplicit = parsed.Has("--mode");
+        if ((modeExplicit || form) && subcommand != "encode" && subcommand != "decode")
+        {
+            return Fail($"{(modeExplicit ? "--mode" : "--form")} only applies to encode and decode");
+        }
+        if (rawFlag && subcommand != "build" && subcommand != "join" && subcommand != "query")
+        {
+            return Fail("--raw only applies to build, join, and query set/delete");
         }
 
         switch (subcommand)
@@ -92,7 +133,8 @@ public static class ArgParser
                     Mode: mode, Form: form, Raw: rawFlag, Json: json, Field: null,
                     BuildScheme: null, BuildHost: null, BuildPort: null, BuildPath: null,
                     BuildQuery: System.Array.Empty<(string, string)>(), BuildFragment: null,
-                    JoinRelative: null, QueryKey: null, QueryValue: null));
+                    JoinRelative: null, QueryKey: null, QueryValue: null,
+                    Strict: strict, All: all));
             }
 
             case "parse":
@@ -111,7 +153,8 @@ public static class ArgParser
                     Mode: mode, Form: form, Raw: rawFlag, Json: json, Field: field,
                     BuildScheme: null, BuildHost: null, BuildPort: null, BuildPath: null,
                     BuildQuery: System.Array.Empty<(string, string)>(), BuildFragment: null,
-                    JoinRelative: null, QueryKey: null, QueryValue: null));
+                    JoinRelative: null, QueryKey: null, QueryValue: null,
+                    Strict: strict, All: all));
             }
 
             case "build":
@@ -152,7 +195,8 @@ public static class ArgParser
                     Mode: mode, Form: form, Raw: rawFlag, Json: json, Field: null,
                     BuildScheme: bScheme, BuildHost: bHost, BuildPort: bPort, BuildPath: bPath,
                     BuildQuery: queryPairs, BuildFragment: bFragment,
-                    JoinRelative: null, QueryKey: null, QueryValue: null));
+                    JoinRelative: null, QueryKey: null, QueryValue: null,
+                    Strict: strict, All: all));
             }
 
             case "join":
@@ -167,7 +211,8 @@ public static class ArgParser
                     Mode: mode, Form: form, Raw: rawFlag, Json: json, Field: null,
                     BuildScheme: null, BuildHost: null, BuildPort: null, BuildPath: null,
                     BuildQuery: System.Array.Empty<(string, string)>(), BuildFragment: null,
-                    JoinRelative: positionals[2], QueryKey: null, QueryValue: null));
+                    JoinRelative: positionals[2], QueryKey: null, QueryValue: null,
+                    Strict: strict, All: all));
             }
 
             case "query":
@@ -202,13 +247,26 @@ public static class ArgParser
                     }
                     qValue = positionals[4];
                 }
+                // --all is meaningful only on `query get`; reject on set/delete with a clear error.
+                if (all && sub != SubCommand.QueryGet)
+                {
+                    return Fail($"--all only applies to query get (got query {op})");
+                }
+                // Round-3 review SFH-I1 — --raw is meaningful for set/delete (suppresses URL
+                // normalisation on the rebuilt URL) but query get returns a raw value with
+                // no normalisation step, so --raw is a silent no-op there. Reject explicitly.
+                if (rawFlag && sub == SubCommand.QueryGet)
+                {
+                    return Fail("--raw does not apply to query get (the value is returned verbatim)");
+                }
                 return Ok(new UrlOptions(
                     SubCommand: sub,
                     PrimaryInput: positionals[2],
                     Mode: mode, Form: form, Raw: rawFlag, Json: json, Field: null,
                     BuildScheme: null, BuildHost: null, BuildPort: null, BuildPath: null,
                     BuildQuery: System.Array.Empty<(string, string)>(), BuildFragment: null,
-                    JoinRelative: null, QueryKey: positionals[3], QueryValue: qValue));
+                    JoinRelative: null, QueryKey: positionals[3], QueryValue: qValue,
+                    Strict: strict, All: all));
             }
 
             default:
@@ -252,6 +310,8 @@ public static class ArgParser
             .JsonField("fragment", "string|null", "Fragment without #")
             .Flag("--form", "Shorthand for --mode form (applies to encode/decode)")
             .Flag("--raw", "Disable normalisation on build/join/query set/delete")
+            .Flag("--strict", "(decode only) reject malformed percent-escapes (default: pass through)")
+            .Flag("--all", "(query get only) print every value for the key, one per line")
             .Option("--mode", null, "MODE", "Encoding variant: component (default), path, query, form")
             .Option("--field", null, "NAME", "(parse only) emit a single field; conflicts with --json")
             .Option("--scheme", null, "S", "(build only) URL scheme; defaults to https")

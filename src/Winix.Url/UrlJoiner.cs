@@ -41,6 +41,19 @@ public static class UrlJoiner
             return new Result(null, "base URL must be absolute");
         }
 
+        // Round-1 review CR-I3 — reject opaque-scheme bases (javascript:, mailto:, data:, tel:).
+        // Uri.TryCreate accepts `javascript:foo` as a valid absolute URI, so without this guard
+        // `url join "javascript:foo" "bar"` produces `javascript:bar` — a scheme-smuggling
+        // foothold for callers wiring url-join into a less-trusted pipeline (e.g. a config-
+        // file base URL combined with a user-supplied path). We allow only hierarchical schemes
+        // that have authority semantics (host[:port][/path]) since those are the realistic
+        // use cases for url join (HTTP composition, FTP, SSH-clone-style URLs, file://).
+        if (!IsAllowedJoinScheme(baseUri.Scheme))
+        {
+            return new Result(null,
+                $"scheme not allowed for join: '{baseUri.Scheme}' (allowed: http, https, ws, wss, ftp, ftps, ssh, file)");
+        }
+
         try
         {
             var resolved = new Uri(baseUri, relative);
@@ -51,5 +64,19 @@ public static class UrlJoiner
         {
             return new Result(null, $"invalid URL: {ex.Message}");
         }
+    }
+
+    private static bool IsAllowedJoinScheme(string scheme)
+    {
+        // Round-2 review SFH-I3 / CR-Minor-1 — ws and wss added. WebSocket URLs are
+        // hierarchical with authority semantics (mirror http/https) and are a realistic
+        // compose target — `retry -- websocat "$(url join $WS_BASE chat)"` is a normal
+        // pipeline. urn:/git:/data: rejection (which remains) is correct (opaque or
+        // non-authority); ws/wss exclusion was unintentional.
+        return scheme.ToLowerInvariant() switch
+        {
+            "http" or "https" or "ws" or "wss" or "ftp" or "ftps" or "ssh" or "file" => true,
+            _ => false,
+        };
     }
 }
