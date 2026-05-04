@@ -122,7 +122,7 @@ When `--tz ZONE` is set in conversion mode, the JSON envelope additionally inclu
 | Named month | `18 Jun 2024` | |
 | `now` | `now` | Current instant |
 
-Ambiguous formats are rejected rather than silently guessing — e.g. `06/07/2024` (month/day order unclear) and bare 4-digit values in the year range `1900-2200` (e.g. `2025`, ambiguous between year and Unix epoch second). To force epoch interpretation of a year-shaped value, use leading zeros (`0000002025` = epoch second 2025).
+Ambiguous formats are rejected rather than silently guessing — e.g. `06/07/2024` (month/day order unclear) and any value whose integer part is in the year range `1900-2200` with ≤4 digits (e.g. `2025`, `+2025`, `-2025`, `2025.0`, all rejected as ambiguous between year and Unix epoch second). To force epoch interpretation of a year-shaped value, pad to 5+ digits with leading zeros (`02025` = epoch second 2025).
 
 ### Offset Formats
 
@@ -130,11 +130,11 @@ Offsets can be prefixed with `+` or `-`:
 
 | Format | Example | Meaning |
 |--------|---------|---------|
-| Duration shorthand | `+7d`, `-2h30m`, `+90s` | Days, hours, minutes, seconds |
+| Duration shorthand | `+7d`, `-2h30m`, `+500ms`, `+1d12h30m` | Combinable single-unit chunks |
 | ISO 8601 duration | `+P1DT12H` | Standard duration notation |
 | Time of day | `+01:30:00` | HH:MM:SS |
 
-Supported shorthand units: `d` (days), `h` (hours), `m` (minutes), `s` (seconds). Units can be combined: `+1d12h`.
+Supported shorthand units: `ms` (milliseconds), `s` (seconds), `m` (minutes), `h` (hours), `d` (days), `w` (weeks). Each chunk is a non-negative integer plus a unit suffix; chunks can be combined in any order (`+1d12h`, `+30m45s`, `+2w3d`). Negative values are achieved with the leading `-` (`-2h30m`).
 
 ISO 8601 durations support days (D), hours (H), minutes (M), and seconds (S) only. Years (Y), months (M before T), and weeks (W) are rejected as calendar-dependent or ambiguous — use the day equivalent (e.g. `P14D` instead of `P2W`, `P30D` instead of `P1M`).
 

@@ -76,17 +76,24 @@ The keyword \f[B]now\f[R] for the current instant
 .PP
 Ambiguous formats are rejected with an error rather than silently
 guessing \(em e.g.\ \f[B]06/07/2024\f[R] (month/day order unclear) and
-bare 4\-digit values in the range 1900\-2200 (ambiguous between year and
-Unix epoch second).
-To force epoch interpretation of a year\-shaped value, pad with leading
-zeros: \f[B]0000002025\f[R] is epoch second 2025.
+any value whose integer part is in the range 1900\-2200 with \(<=\&4
+digits (ambiguous between year and Unix epoch second).
+This includes signed forms \f[B]+2025\f[R] and \f[B]\-2025\f[R] and
+decimal forms \f[B]2025.0\f[R].
+To force epoch interpretation of a year\-shaped value, pad to 5+ digits
+with leading zeros: \f[B]02025\f[R] is epoch second 2025.
 .SH OFFSET FORMATS
 Offsets are prefixed with \f[B]+\f[R] or \f[B]\-\f[R] and support three
 syntaxes:
 .IP \(bu 2
-Duration shorthand: \f[B]+7d\f[R], \f[B]\-2h30m\f[R], \f[B]+90s\f[R]
-(units: \f[B]d\f[R] days, \f[B]h\f[R] hours, \f[B]m\f[R] minutes,
-\f[B]s\f[R] seconds)
+Duration shorthand \(em combinable single\-unit chunks:
+\f[B]+7d\f[R], \f[B]\-2h30m\f[R], \f[B]+500ms\f[R], \f[B]+1d12h30m\f[R].
+Each chunk is a non\-negative integer plus a unit suffix.
+Supported units: \f[B]ms\f[R] (milliseconds), \f[B]s\f[R] (seconds),
+\f[B]m\f[R] (minutes), \f[B]h\f[R] (hours), \f[B]d\f[R] (days),
+\f[B]w\f[R] (weeks).
+Chunks may appear in any order; the leading \f[B]+\f[R] or \f[B]\-\f[R]
+applies to the whole offset.
 .IP \(bu 2
 ISO 8601 duration: \f[B]+P1DT12H\f[R].
 Years (Y), months (M before T), and weeks (W) are rejected as
