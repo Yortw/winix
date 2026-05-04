@@ -82,13 +82,12 @@ public sealed class NtfyBackend : IBackend
         // Task.WhenAll in Dispatcher, and discard sibling backends' successful results — so a
         // typo'd ntfy server URL would mask a successful desktop notification with a generic
         // process-crash message. Match peer backends (Linux/macOS/Windows) which catch broadly.
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            // Round-1 review M2 — let cooperative cancellation propagate cleanly. Reporting
-            // it as a backend failure ("TaskCanceledException: A task was canceled.") misleads
-            // the user into thinking ntfy is broken when their own timeout/Ctrl-C fired.
-            throw;
-        }
+        // Round-3 review (SFH M1) — the previous round-1 M2 OperationCanceledException re-throw
+        // arm was removed. After R2-I1 the dispatcher converts OCE to a per-backend "cancelled
+        // before completion" result anyway, so the per-backend re-throw was redundant — and
+        // asymmetric with peer backends (Linux/macOS/Windows) which fall through their broad
+        // catches. Letting OCE land in the generic catch here produces an identical-shape
+        // result; the dispatcher's OCE-conversion path remains the single source of truth.
         catch (Exception ex)
         {
             return new BackendResult(Name, false, $"ntfy POST failed: {ex.GetType().Name}: {ex.Message}", detail);
