@@ -106,22 +106,28 @@ public class CommandRunnerTests
         }
     }
 
-    [Fact]
+    // Round-2 review TA-I6 — gated to Windows because Linux kernel behaviour for an
+    // executable text file is non-deterministic: some distros' glibc posix_spawn falls
+    // back to /bin/sh execution (no exception, child runs as a script), others return
+    // ENOEXEC. The contract "bad EXE format throws InvalidOperationException" is reliable
+    // only on Windows where ERROR_BAD_EXE_FORMAT is produced deterministically by
+    // CreateProcess. macOS behaviour is similarly variable (depends on signing posture
+    // and kernel version). Per CLAUDE.md the test must use SkippableFact + Skip.IfNot
+    // rather than early-return — the early-return form silently CI-passes on Linux/macOS.
+    [SkippableFact]
     public void Run_BadExecutableFormat_ThrowsInvalidOperationException()
     {
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only — Linux/macOS kernel behaviour for +x text files is non-deterministic.");
+        if (!OperatingSystem.IsWindows()) return; // satisfies CA1416 alongside Skip.IfNot
+
         // Create a temp file with invalid EXE content — triggers ERROR_BAD_EXE_FORMAT
-        // on Windows or ENOEXEC on Linux. Previously this was misreported as
-        // CommandNotFoundException; now it surfaces as InvalidOperationException.
+        // on Windows. CreateProcess fails with this error code, which CommandRunner.Run
+        // surfaces as InvalidOperationException (not CommandNotFound, because the file
+        // does exist; not CommandNotExecutable, because permissions aren't the issue).
         string tempFile = Path.Combine(Path.GetTempPath(), $"timeit-test-{Guid.NewGuid()}.exe");
         try
         {
             File.WriteAllText(tempFile, "this is not an executable");
-            if (!OperatingSystem.IsWindows())
-            {
-                // Make it executable on Unix so we get past the EACCES check
-                File.SetUnixFileMode(tempFile,
-                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-            }
 
             var ex = Assert.Throws<InvalidOperationException>(
                 () => CommandRunner.Run(tempFile, Array.Empty<string>()));
