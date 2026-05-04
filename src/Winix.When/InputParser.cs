@@ -183,6 +183,19 @@ public static class InputParser
             }
         }
 
+        // Round-1 review SFH-I1 — bare 4-digit values in the year-likely range (1900-2200)
+        // are ambiguous: a user typing `when 2025` almost always means the year 2025, but
+        // the previous code silently parsed it as Unix epoch second 2025 → 1970-01-01.
+        // In the pipe-friendly modes (--utc / --local / --json) the misparse is invisible:
+        // downstream consumers see "1970" with no clue the input was a year. Reject as
+        // ambiguous and guide the user to disambiguate explicitly.
+        if (epoch >= 1900 && epoch <= 2200 && input.Length <= 4)
+        {
+            error = $"Input '{input}' is ambiguous — did you mean the year {input} or Unix epoch second {input}? " +
+                    $"Use '{input}-01-01' for the year, or '{epoch:D5}' (5+ digits) to force epoch interpretation.";
+            return false;
+        }
+
         // ≤10 digits: seconds (covers 0 through 9,999,999,999 — year 2286)
         if (epoch <= 9_999_999_999L)
         {

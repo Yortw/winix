@@ -8,5 +8,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Yort.ShellKit\Yort.ShellKit.csproj" />
+    <InternalsVisibleTo Include="Winix.When.Tests" />
   </ItemGroup>
 </Project>

@@ -61,8 +61,9 @@ Emit machine\-readable JSON metadata (flags, examples, composability).
 .SH INPUT FORMATS
 The following input formats are accepted:
 .IP \(bu 2
-Unix epoch in seconds (auto\-detected; 13\-digit numbers are treated as
-milliseconds)
+Unix epoch in seconds (1\-10 digits) or milliseconds (11\-13 digits),
+auto\-detected by digit count.
+Negative epochs (pre\-1970) are accepted, e.g.\ \f[B]\-86400\f[R].
 .IP \(bu 2
 ISO 8601 date: \f[B]2024\-06\-18\f[R]
 .IP \(bu 2
@@ -73,8 +74,12 @@ Named month: \f[B]18 Jun 2024\f[R]
 .IP \(bu 2
 The keyword \f[B]now\f[R] for the current instant
 .PP
-Ambiguous formats (e.g.\ \f[B]06/07/2024\f[R] where month/day order is
-unclear) are rejected with an error.
+Ambiguous formats are rejected with an error rather than silently
+guessing \(em e.g.\ \f[B]06/07/2024\f[R] (month/day order unclear) and
+bare 4\-digit values in the range 1900\-2200 (ambiguous between year and
+Unix epoch second).
+To force epoch interpretation of a year\-shaped value, pad with leading
+zeros: \f[B]0000002025\f[R] is epoch second 2025.
 .SH OFFSET FORMATS
 Offsets are prefixed with \f[B]+\f[R] or \f[B]\-\f[R] and support three
 syntaxes:
@@ -83,9 +88,17 @@ Duration shorthand: \f[B]+7d\f[R], \f[B]\-2h30m\f[R], \f[B]+90s\f[R]
 (units: \f[B]d\f[R] days, \f[B]h\f[R] hours, \f[B]m\f[R] minutes,
 \f[B]s\f[R] seconds)
 .IP \(bu 2
-ISO 8601 duration: \f[B]+P1DT12H\f[R]
+ISO 8601 duration: \f[B]+P1DT12H\f[R].
+Years (Y), months (M before T), and weeks (W) are rejected as
+calendar\-dependent or ambiguous \(em use \f[B]P14D\f[R] instead of
+\f[B]P2W\f[R], \f[B]P30D\f[R] instead of \f[B]P1M\f[R].
 .IP \(bu 2
 Time span: \f[B]+01:30:00\f[R] (HH:MM:SS)
+.PP
+A leading\-\f[B]\-\f[R] offset (e.g.\ \f[B]\-3h\f[R]) on the command
+line is auto\-injected with a POSIX \f[B]\-\-\f[R] separator so it is
+not parsed as a flag; you may also write the separator yourself
+(\f[B]when 2024\-06\-18 \-\- \-3h\f[R]).
 .SH EXIT CODES
 .TP
 \f[B]0\f[R]

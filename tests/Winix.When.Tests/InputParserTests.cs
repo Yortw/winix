@@ -44,13 +44,44 @@ public class InputParserTests
         Assert.Equal(new DateTimeOffset(2024, 6, 18, 20, 0, 0, TimeSpan.Zero), result);
     }
 
+    // -- Round-1 review SFH-I1 — CONTRACT CHANGE.
+    //    The original contract pinned by `TryParse_SmallEpoch_TreatedAsEpochNotYear`
+    //    was "small numerics are always epoch seconds, never years". SFH found a real
+    //    silent-wrong-output bug under that contract: `when 2025 --utc` produced
+    //    `1970-01-01T00:33:45Z` with no signal to the user that they probably meant the
+    //    year. In pipe-friendly modes (--utc / --local / --json) the misparse is
+    //    invisible to downstream consumers.
+    //    New contract: bare positive integers in [1900, 2200] AND length ≤ 4 are rejected
+    //    as ambiguous with an error directing the user to `2024-01-01` (year) or `0000002024`
+    //    (epoch escape hatch). Numerics outside that range still go through the epoch
+    //    path unchanged. --
     [Fact]
-    public void TryParse_SmallEpoch_TreatedAsEpochNotYear()
+    public void TryParse_BareYearLikeInteger_RejectedAsAmbiguous()
     {
         bool ok = InputParser.TryParse("2024", out DateTimeOffset result, out string? error);
-        Assert.True(ok);
-        Assert.Null(error);
-        Assert.Equal(DateTimeOffset.UnixEpoch.AddSeconds(2024), result);
+        Assert.False(ok);
+        Assert.NotNull(error);
+        Assert.Contains("ambiguous", error, System.StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("2024-01-01", error, System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TryParse_SmallEpoch_OutsideYearRange_StillTreatedAsEpoch()
+    {
+        // 1234 = epoch second 1234 = 1970-01-01 00:20:34 UTC. Outside [1900, 2200].
+        bool ok = InputParser.TryParse("1234", out DateTimeOffset result, out string? error);
+        Assert.True(ok, error);
+        Assert.Equal(DateTimeOffset.UnixEpoch.AddSeconds(1234), result);
+    }
+
+    [Fact]
+    public void TryParse_LeadingZerosForceEpoch_ParsesEvenInYearRange()
+    {
+        // `0000002025` (5+ digits with leading zeros) is the documented escape hatch for
+        // forcing epoch interpretation when the value would otherwise be ambiguous.
+        bool ok = InputParser.TryParse("0000002025", out DateTimeOffset result, out string? error);
+        Assert.True(ok, error);
+        Assert.Equal(DateTimeOffset.UnixEpoch.AddSeconds(2025), result);
     }
 
     [Fact]
