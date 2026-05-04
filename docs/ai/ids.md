@@ -55,12 +55,15 @@ Pass `--json` for a machine-parseable single JSON array:
 ids --count 3 --json
 ```
 
-Output shape:
+Output shape (illustrative IDs only — actual values are random within the
+monotonic-increasing constraint, NOT literal +1 increments. The `Increment`
+fallback only fires when two candidates land in the same millisecond AND the
+second candidate would sort below the first):
 ```json
 [
   {"id": "018f3c2a-1b4d-7e8f-a1b2-c3d4e5f60718", "type": "uuid7"},
-  {"id": "018f3c2a-1b4d-7e8f-a1b2-c3d4e5f60719", "type": "uuid7"},
-  {"id": "018f3c2a-1b4d-7e8f-a1b2-c3d4e5f60720", "type": "uuid7"}
+  {"id": "018f3c2a-1b4d-7e8f-9d4e-92c1aa3f7b21", "type": "uuid7"},
+  {"id": "018f3c2a-1b4d-7e8f-bc02-1f8e44d91c08", "type": "uuid7"}
 ]
 ```
 
@@ -109,6 +112,7 @@ Some flags only apply to specific ID types; `ids` exits 125 with a clear message
 | Code | Meaning |
 |---|---|
 | 0 | Success. |
+| 1 | Unexpected runtime error (e.g. OS CSPRNG failure, OOM). Stderr carries the message. |
 | 125 | Usage error — invalid flags, unknown values, flag/type mismatch, count/length ≤ 0. |
 
 ## Metadata

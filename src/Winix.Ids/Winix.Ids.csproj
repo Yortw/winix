@@ -9,5 +9,6 @@
   <ItemGroup>
     <ProjectReference Include="..\Yort.ShellKit\Yort.ShellKit.csproj" />
     <ProjectReference Include="..\Winix.Codec\Winix.Codec.csproj" />
+    <InternalsVisibleTo Include="Winix.Ids.Tests" />
   </ItemGroup>
 </Project>
