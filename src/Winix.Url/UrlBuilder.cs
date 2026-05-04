@@ -49,19 +49,24 @@ public static class UrlBuilder
         // get silently stripped by Uri.CheckHostName, producing an error message that doesn't
         // include the bad character (information loss — user sees "evilcom" instead of
         // "evil\vcom" and can't tell what they typed wrong).
-        foreach (char c in host)
+        // Round-3 review SFH-M1 — use indexed for-loop so the reported position is the
+        // ITERATION index, not the result of host.IndexOf(c) which returns the FIRST match
+        // and so misreports duplicate offending characters (e.g. host "ab\v cd\v" would
+        // report position 2 for both vertical tabs).
+        for (int i = 0; i < host.Length; i++)
         {
+            char c = host[i];
             if (c == '/' || c == '?' || c == '#' || c == '@')
             {
                 return new Result(null,
-                    $"--host contains a URL-component separator ('{c}'); " +
+                    $"--host contains a URL-component separator ('{c}') at position {i}; " +
                     "the host must not include path, query, fragment, userinfo, or whitespace characters");
             }
             if (char.IsControl(c) || char.IsWhiteSpace(c))
             {
                 // Surface the offending position + hex code so the user can see invisible characters.
                 return new Result(null,
-                    $"--host contains a control or whitespace character at position {host.IndexOf(c)} " +
+                    $"--host contains a control or whitespace character at position {i} " +
                     $"(0x{(int)c:X2}); the host must not include whitespace, tabs, newlines, or control characters");
             }
         }

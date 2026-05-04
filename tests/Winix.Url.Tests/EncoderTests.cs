@@ -88,4 +88,31 @@ public class EncoderTests
         Assert.Equal("/a%A0b", Encoder.Encode("/a%a0b", EncodeMode.Path, form: false));
         Assert.Equal("/a%A0b", Encoder.Encode("/a%A0b", EncodeMode.Path, form: false));
     }
+
+    // -- Round-3 review TA-I2 — surrogate-pair (astral-plane) round-trip. A 4-byte UTF-8
+    //    codepoint requires high+low surrogate pair handling on encode; an encoder that
+    //    iterates `char` rather than rune may silently corrupt these. Lock in the
+    //    round-trip equivalence with Uri.EscapeDataString so a future Span<char> refactor
+    //    can't regress without failing this test. --
+
+    [Theory]
+    [InlineData("\U0001F600")]                          // grinning-face emoji (U+1F600, requires high+low surrogate)
+    [InlineData("\U0001F389\U0001F4A9")]                // party-popper + pile-of-poo (consecutive surrogate pairs)
+    [InlineData("hello \U0001F60A world")]              // BMP + astral-plane interleaved
+    public void Encode_SurrogatePairs_RoundTripsThroughDecoder(string input)
+    {
+        // Component mode — most strict, encodes everything non-unreserved.
+        string encoded = Encoder.Encode(input, EncodeMode.Component, form: false);
+        string decoded = Decoder.Decode(encoded, form: false);
+        Assert.Equal(input, decoded);
+    }
+
+    [Fact]
+    public void Encode_SurrogatePair_ProducesFourByteUtf8Sequence()
+    {
+        // 🎉 (U+1F389) is 0xF0 0x9F 0x8E 0x89 in UTF-8 — verify the encoded form contains
+        // the four expected percent triplets uppercase (matching Uri.EscapeDataString).
+        string encoded = Encoder.Encode("\U0001F389", EncodeMode.Component, form: false);
+        Assert.Equal("%F0%9F%8E%89", encoded);
+    }
 }

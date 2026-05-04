@@ -96,6 +96,28 @@ public static class ArgParser
             // Stricter check below once we know the query op.
         }
 
+        // Round-3 review SFH-I1 — gate the remaining subcommand-specific flags so users
+        // who pass them on the wrong subcommand get an explicit usage error instead of
+        // a silent no-op. The pattern was already applied to --field/--strict/--all but
+        // these four were missed:
+        //  - --json: only consumed by RunParse (other subcommands ignore it).
+        //  - --mode: only consumed by Encoder (encode/decode form variant).
+        //  - --form: same as --mode (shorthand for --mode form).
+        //  - --raw: only consumed by build / join / query set / query delete normalisation.
+        if (json && subcommand != "parse")
+        {
+            return Fail("--json only applies to parse");
+        }
+        bool modeExplicit = parsed.Has("--mode");
+        if ((modeExplicit || form) && subcommand != "encode" && subcommand != "decode")
+        {
+            return Fail($"{(modeExplicit ? "--mode" : "--form")} only applies to encode and decode");
+        }
+        if (rawFlag && subcommand != "build" && subcommand != "join" && subcommand != "query")
+        {
+            return Fail("--raw only applies to build, join, and query set/delete");
+        }
+
         switch (subcommand)
         {
             case "encode":
@@ -229,6 +251,13 @@ public static class ArgParser
                 if (all && sub != SubCommand.QueryGet)
                 {
                     return Fail($"--all only applies to query get (got query {op})");
+                }
+                // Round-3 review SFH-I1 — --raw is meaningful for set/delete (suppresses URL
+                // normalisation on the rebuilt URL) but query get returns a raw value with
+                // no normalisation step, so --raw is a silent no-op there. Reject explicitly.
+                if (rawFlag && sub == SubCommand.QueryGet)
+                {
+                    return Fail("--raw does not apply to query get (the value is returned verbatim)");
                 }
                 return Ok(new UrlOptions(
                     SubCommand: sub,
