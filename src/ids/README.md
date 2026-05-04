@@ -56,11 +56,14 @@ ids --type nanoid
 ids --type nanoid --length 12 --alphabet hex
 # 3f8a2c1d9b04
 
-# Five UUID v7s, one per line
+# Five UUID v7s, one per line — illustrative IDs only; actual values are random
+# within the monotonic-increasing constraint (not literal +1 increments).
 ids --count 5
 # 018f3c2a-1b4d-7e8f-a1b2-c3d4e5f60718
-# 018f3c2a-1b4d-7e8f-a1b2-c3d4e5f60719
-# ...
+# 018f3c2a-1b4d-7e8f-9d4e-92c1aa3f7b21
+# 018f3c2a-1b4d-7e8f-bc02-1f8e44d91c08
+# 018f3c2a-1b4d-7e8f-a4f1-557b3ae0289d
+# 018f3c2a-1b4d-7e8f-c0a8-d3f9e1b46472
 
 # Windows-registry-style GUID (braces, uppercase)
 ids --type uuid7 --format braces --uppercase
@@ -126,6 +129,7 @@ For time-ordered ID types (UUID v7 and ULID), `ids` guarantees monotonicity with
 | Code | Meaning |
 |---|---|
 | 0 | Success. |
+| 1 | Unexpected runtime error (e.g. OS CSPRNG failure, OOM). Stderr carries the message. |
 | 125 | Usage error — invalid flags, unknown type/format/alphabet, flag/type mismatch, or count/length ≤ 0. |
 
 ## Colour
