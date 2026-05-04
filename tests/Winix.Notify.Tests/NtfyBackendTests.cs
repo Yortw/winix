@@ -118,7 +118,39 @@ public class NtfyBackendTests
 
         Assert.False(result.Ok);
         Assert.Contains("403", result.Error);
+        // Round-3 review test gap (M1) — the round-1 fix surfaces the response body so
+        // the user sees the server's "topic requires auth" / "rate limited" detail. Without
+        // this assertion, a regression to a discarded body would still pass the 403 check.
+        Assert.Contains("forbidden", result.Error, System.StringComparison.Ordinal);
         Assert.Equal("ntfy", result.BackendName);
+    }
+
+    // -- Round-3 review test gap (R2-I2) — bounded-read OOM cap is the entire
+    //    mitigation for a hostile/misconfigured server returning a multi-GB 4xx body.
+    //    The round-2 fix replaced ReadAsStringAsync with a stream-bounded read; without
+    //    a test, a regression back to the unbounded shape would silently pass. We don't
+    //    pin the literal cap (2 KB / 512 chars — implementation detail) — we pin the
+    //    behaviour: bodies larger than the cap get truncated with an ellipsis marker,
+    //    and the resulting Error string remains bounded in length. --
+    [Fact]
+    public async Task Send_HttpErrorWithLargeBody_TruncatesWithEllipsis()
+    {
+        // 10 KB of payload — well above the round-2 2 KB raw / 512 char cap.
+        string largeBody = new string('x', 10_000);
+        var fake = new FakeHttpMessageHandler { StatusCode = HttpStatusCode.Forbidden, ResponseBody = largeBody };
+        var http = new HttpClient(fake);
+        var backend = new NtfyBackend(http, "https://ntfy.sh", "alerts", null);
+
+        var result = await backend.SendAsync(new NotifyMessage("t", "b", Urgency.Normal, null), CancellationToken.None);
+
+        Assert.False(result.Ok);
+        Assert.NotNull(result.Error);
+        // Truncation marker MUST be present — proves we capped before display.
+        Assert.Contains("…", result.Error, System.StringComparison.Ordinal);
+        // The total Error string must be bounded — generous ceiling that catches an
+        // unbounded read regression (an unbounded read would produce a >10 KB Error).
+        Assert.True(result.Error.Length < 2_000,
+            $"expected Error to be capped well under the 10 KB body, got {result.Error.Length} chars");
     }
 
     [Fact]

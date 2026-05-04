@@ -75,4 +75,64 @@ public class WindowsToastBackendTests
         Assert.Contains("XmlDocument", script);
         Assert.Contains("ContentType=WindowsRuntime", script);
     }
+
+    // -- Round-2 review test gap (SFH-C1 contract pin) — the round-1 fix converts
+    //    AumidShortcut registration failures from silent toast drops (Ok=true, no
+    //    notification) into typed BackendResult failures. The contract was unguarded
+    //    until this test. The internal seam lets us inject a synthetic shortcut failure
+    //    without needing a locked-down Windows profile / AV-blocked lnk write to
+    //    reproduce. The PowerShell call site must NEVER run when the shortcut fails. --
+    [Fact]
+    public async System.Threading.Tasks.Task SendAsync_ShortcutRegistrationFails_ReturnsTypedFailure_DoesNotInvokePowerShell()
+    {
+        try
+        {
+            // Inject a synthetic shortcut failure with a distinctive marker we can assert on.
+            WindowsToastBackend.AumidShortcutOverride = (out string? error) =>
+            {
+                error = "synthetic AV block (test marker)";
+                return false;
+            };
+
+            var b = new WindowsToastBackend();
+            var result = await b.SendAsync(new NotifyMessage("hi", "world", Urgency.Normal, null), System.Threading.CancellationToken.None);
+
+            Assert.Equal("windows-toast", result.BackendName);
+            Assert.False(result.Ok); // SFH-C1 contract: silent drop must NOT report Ok=true
+            Assert.NotNull(result.Error);
+            Assert.Contains("AUMID shortcut", result.Error, System.StringComparison.Ordinal);
+            Assert.Contains("synthetic AV block (test marker)", result.Error, System.StringComparison.Ordinal);
+        }
+        finally
+        {
+            WindowsToastBackend.AumidShortcutOverride = null;
+        }
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task SendAsync_ShortcutNullErrorWithFalseReturn_FallsBackToUnknownReason()
+    {
+        // Defensive: pin the `?? "unknown reason"` fallback. Even though the production
+        // EnsureExists never returns (false, null), a future refactor could regress that;
+        // the fallback ensures the user always gets some context.
+        try
+        {
+            WindowsToastBackend.AumidShortcutOverride = (out string? error) =>
+            {
+                error = null;
+                return false;
+            };
+
+            var b = new WindowsToastBackend();
+            var result = await b.SendAsync(new NotifyMessage("hi", null, Urgency.Normal, null), System.Threading.CancellationToken.None);
+
+            Assert.False(result.Ok);
+            Assert.NotNull(result.Error);
+            Assert.Contains("unknown reason", result.Error, System.StringComparison.Ordinal);
+        }
+        finally
+        {
+            WindowsToastBackend.AumidShortcutOverride = null;
+        }
+    }
 }

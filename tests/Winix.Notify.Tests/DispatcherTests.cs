@@ -1,4 +1,5 @@
 #nullable enable
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Xunit;
@@ -80,5 +81,68 @@ public class DispatcherTests
         Assert.Equal("first", results[0].BackendName);
         Assert.Equal("second", results[1].BackendName);
         Assert.Equal("third", results[2].BackendName);
+    }
+
+    // -- Round-1 review SFH-I3 — defense-in-depth: a backend that violates the never-throw
+    //    contract must NOT corrupt the batch. Pre-fix, Task.WhenAll would fault and discard
+    //    sibling backends' successful BackendResults — so a typo'd ntfy server URL would
+    //    silently mask a successful desktop notification with a process-crash error. --
+    [Fact]
+    public async Task Dispatch_OneBackendThrows_OtherBackendResultPreserved()
+    {
+        var ok = new FakeBackend("desktop") { ShouldSucceed = true };
+        var bad = new FakeBackend("ntfy") { ShouldThrow = new System.UriFormatException("Invalid URI: bogus") };
+        var results = await Dispatcher.SendAsync(new IBackend[] { ok, bad }, Msg(), CancellationToken.None);
+        Assert.Equal(2, results.Count);
+        Assert.True(results[0].Ok);                 // desktop success preserved
+        Assert.Equal("desktop", results[0].BackendName);
+        Assert.False(results[1].Ok);                // ntfy converted to typed result
+        Assert.Equal("ntfy", results[1].BackendName);
+        Assert.NotNull(results[1].Error);
+        Assert.Contains("UriFormatException", results[1].Error, StringComparison.Ordinal);
+        Assert.Contains("never-throw contract", results[1].Error, StringComparison.Ordinal);
+    }
+
+    // -- Round-2 review R2-I1 — when the dispatcher's cancellation token fires (its own
+    //    timeout, not user Ctrl-C), an in-flight backend's OperationCanceledException must
+    //    be CONVERTED to a per-backend failure result, NOT propagated as an OCE that
+    //    Task.WhenAll faults on. The fault would discard sibling backends' already-completed
+    //    successes — meaning a 15s timeout that fires while ntfy is mid-flight would also
+    //    wipe the successful desktop notification result the user already received. --
+    [Fact]
+    public async Task Dispatch_TimeoutCancellation_PreservesSiblingSuccess()
+    {
+        using var cts = new CancellationTokenSource();
+        var fast = new FakeBackend("desktop") { ShouldSucceed = true };
+        // Slow backend will throw OCE because its delay exceeds the cancel-after below.
+        var slow = new FakeBackend("ntfy") { DelayMs = 5000, ShouldSucceed = true };
+        cts.CancelAfter(50);
+
+        var results = await Dispatcher.SendAsync(new IBackend[] { fast, slow }, Msg(), cts.Token);
+
+        Assert.Equal(2, results.Count);
+        Assert.True(results[0].Ok);                  // desktop preserved
+        Assert.Equal("desktop", results[0].BackendName);
+        Assert.False(results[1].Ok);                 // ntfy converted to typed result
+        Assert.Equal("ntfy", results[1].BackendName);
+        Assert.NotNull(results[1].Error);
+        Assert.Contains("cancelled", results[1].Error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Dispatch_BackendThrowsOperationCanceledOnRequestedCancellation_ConvertsToFailureResult()
+    {
+        // Round-2 R2-I1 update: was previously testing OCE propagation; now we pin that
+        // OCE is CONVERTED to a per-backend failure regardless. The original "cooperative
+        // cancellation propagates" shape was speculative (no caller passes an external ct)
+        // and caused partial-success loss on dispatcher-internal timeouts.
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var b = new FakeBackend("ntfy") { ShouldThrow = new System.OperationCanceledException(cts.Token) };
+        var results = await Dispatcher.SendAsync(new IBackend[] { b }, Msg(), cts.Token);
+        Assert.Single(results);
+        Assert.False(results[0].Ok);
+        Assert.NotNull(results[0].Error);
+        Assert.Contains("cancelled", results[0].Error, StringComparison.OrdinalIgnoreCase);
     }
 }

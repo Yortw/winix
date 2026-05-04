@@ -26,12 +26,35 @@ public sealed class WindowsToastBackend : IBackend
     /// <inheritdoc />
     public string Name => "windows-toast";
 
+    /// <summary>
+    /// Test seam for the AUMID-shortcut precondition. Production callers leave this null
+    /// (the real <see cref="AumidShortcut.EnsureExists"/> is used). Tests inject a synthetic
+    /// failure to pin the SFH-C1 contract — the round-1 fix's headline "user thinks
+    /// notification delivered, but it wasn't" silent-failure conversion.
+    /// </summary>
+    internal delegate bool ShortcutCheck(out string? error);
+    internal static ShortcutCheck? AumidShortcutOverride { get; set; }
+
     /// <inheritdoc />
     public async Task<BackendResult> SendAsync(NotifyMessage message, CancellationToken ct)
     {
         try
         {
-            AumidShortcut.EnsureExists();
+            // Round-1 review SFH-C1 — Windows requires an AUMID-tagged Start Menu shortcut
+            // before ToastNotificationManager.CreateToastNotifier(aumid).Show() will display
+            // anything. If the shortcut can't be registered (locked-down profile, AV blocking
+            // lnk write, COM init failure), Show() returns successfully but the toast is
+            // silently dropped. The previous code discarded the bool, so the user saw exit 0
+            // and "Ok=true" with no notification — the canonical "user thinks notification
+            // delivered, but it wasn't" failure. Surface the error to BackendResult instead.
+            ShortcutCheck check = AumidShortcutOverride ?? AumidShortcut.EnsureExists;
+            if (!check(out string? aumidError))
+            {
+                return new BackendResult(Name, false,
+                    $"Windows toast: could not register AUMID shortcut ({aumidError ?? "unknown reason"}). " +
+                    "Try running notify once interactively, or check Start Menu Programs folder permissions.",
+                    null);
+            }
             string xml = BuildToastXml(message);
             string script = BuildPowerShellScript(AumidShortcut.Aumid, xml);
 

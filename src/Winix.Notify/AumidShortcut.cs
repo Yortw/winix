@@ -22,7 +22,13 @@ internal static class AumidShortcut
     public const string ShortcutName = "Winix Notify.lnk";
 
     /// <summary>Idempotently create the shortcut. Returns true if the shortcut existed or was created; false on failure.</summary>
-    public static bool EnsureExists()
+    /// <remarks>
+    /// Round-1 review SFH-C1/I1 — used to be a bare <c>catch { return false; }</c> that swallowed
+    /// every diagnostic. The caller (WindowsToastBackend) discarded the bool, so a failed
+    /// shortcut creation produced a silent toast drop with <c>Ok=true</c>. Now the diagnostic is
+    /// captured into <paramref name="error"/> and the caller is expected to honour the bool.
+    /// </remarks>
+    public static bool EnsureExists(out string? error)
     {
         try
         {
@@ -30,13 +36,35 @@ internal static class AumidShortcut
             string path = Path.Combine(startMenu, ShortcutName);
             if (File.Exists(path))
             {
+                error = null;
                 return true;
             }
             CreateShortcut(path);
-            return File.Exists(path);
+            bool ok = File.Exists(path);
+            error = ok ? null : $"shortcut file not present after CreateShortcut at '{path}'";
+            return ok;
         }
-        catch
+        // Narrow catches replace the previous bare `catch`. Each is realistic for this code
+        // path: COM init failures, missing/locked Programs folder, AV blocking lnk write.
+        // Anything else (NRE, OOM) is a programmer fault and propagates.
+        catch (InvalidOperationException ex)
         {
+            error = $"COM error: {ex.Message}";
+            return false;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            error = $"access denied: {ex.Message}";
+            return false;
+        }
+        catch (IOException ex)
+        {
+            error = $"I/O error: {ex.Message}";
+            return false;
+        }
+        catch (System.Runtime.InteropServices.COMException ex)
+        {
+            error = $"COM error: {ex.Message} (HRESULT 0x{ex.HResult:X8})";
             return false;
         }
     }
