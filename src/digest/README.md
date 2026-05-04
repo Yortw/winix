@@ -175,6 +175,18 @@ When reading a key from `--key-file` or `--key-stdin`, `digest` strips a single 
 
 BLAKE2b keyed mode caps keys at 64 bytes per RFC 7693 §2.9. Longer keys are rejected at flag-parse time. For longer keys, use `--hmac sha256` (or another SHA-family algorithm) which auto-hashes oversized keys.
 
+### Empty keys are rejected
+
+A zero-length HMAC key is cryptographically meaningless — the BCL `HMAC*` classes accept it and produce a deterministic-but-forgeable tag. `digest` rejects empty keys at the resolver layer with a usage error naming the source (env variable, key file, stdin, or `--key`). All four key sources can produce an empty key (env var set to empty, 0-byte file, EOF-only stdin, `--key ""`); each is rejected with a clear message.
+
+### Key file size cap
+
+Key files are read with a 1 MB cap. HMAC keys are typically 16–128 bytes, and any key larger than the algorithm's block size (128 bytes for SHA-512) is internally pre-hashed by the BCL — so values above ~1 KB add no entropy. The cap defends against accidental `--key-file /dev/zero` or piping a multi-GB stream via `--key-stdin`.
+
+### Binary stdin payloads
+
+When the payload comes from stdin (`cat binary.bin | digest`), `digest` reads raw bytes through to the hasher — no UTF-8 round-trip. This matches `sha256sum binary.bin` for the same input. Earlier versions decoded stdin as text and re-encoded as UTF-8, which silently corrupted any byte that wasn't valid UTF-8.
+
 ## Input Modes
 
 - **String (`-s VALUE`)** — hash the UTF-8 bytes of the literal string. Cannot be combined with positional file arguments.
@@ -205,7 +217,7 @@ digest --verify wronghash -s ""
 # exit 1
 ```
 
-Hex comparison is case-insensitive; base64 and base32 comparisons are case-sensitive. Verify is **not supported with multiple files** — use `sha256sum -c <checksum-file>` for batch verification flows.
+Hex and Crockford base32 comparisons are case-insensitive (Crockford base32 defines decoding as case-insensitive even though the encoder emits uppercase only). Standard base64 and base64-url comparisons are case-sensitive — those alphabets carry case meaning. Verify is **not supported with multiple files** — use `sha256sum -c <checksum-file>` for batch verification flows.
 
 ## Multi-file Output Format
 
@@ -232,8 +244,10 @@ The `*` before the filename signals **binary mode** — the hash was computed ov
 |---|---|
 | 0 | Success (or verification match). |
 | 1 | Verification failed (`--verify` mismatch). |
-| 125 | Usage error — bad flags, unknown value, flag conflict, missing file. |
-| 126 | Runtime error — SHA-3 unavailable on this platform, file read failure. |
+| 125 | Usage error — bad flags, unknown value, flag conflict, missing file, empty HMAC key, key file over size cap. |
+| 126 | Runtime error — SHA-3 unavailable on this platform, file read failure, key file read failure, generic catch-all. |
+
+Exit `1` is reserved for `--verify` mismatches and never returned for runtime errors. Scripts of the shape `digest --verify ... || alert` can rely on `1` meaning "the hash you supplied doesn't match" — a runtime crash returns `126` instead.
 
 ## Related Tools
 

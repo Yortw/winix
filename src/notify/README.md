@@ -110,6 +110,8 @@ notify "release published" --ntfy phone | tee log.txt
 
 The Windows backend creates a per-user Start Menu shortcut at `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Winix Notify.lnk` on first invocation. This is an Action Center requirement — toasts won't display unless the calling process has an `AppUserModelID` (AUMID) that resolves to a Start Menu shortcut. The shortcut is created idempotently (skipped if it already exists) and is harmless to delete; it'll be recreated on the next run.
 
+If the shortcut can't be created (locked-down profile, AV blocking lnk write, COM init failure), `notify` returns a typed backend failure with the captured diagnostic — the toast does not silently no-op. Recovery hint: try running `notify` once interactively, or check Programs folder permissions.
+
 Toasts appear in the standard Action Center / notification flyout. Click behaviour: launches `notify.exe` (the AUMID target) which is a no-op since notify is fire-and-forget.
 
 The PowerShell-shellout latency (~400ms) is the trade-off for not requiring a Windows-only TFM split — modern .NET cannot directly marshal `IInspectable` (the WinRT base interface). A future v2 may migrate to the official WinRT projection if sub-100ms latency becomes important.
@@ -160,6 +162,10 @@ export NOTIFY_NTFY_TOPIC=deploys
 notify "deploy ok"  # uses all three from env
 ```
 
+### ntfy error diagnostics
+
+When ntfy returns a non-2xx status (401 unauthorized, 403 forbidden, 429 rate-limited, etc.), `notify` reads up to 2 KB of the response body and includes a 512-character snippet in the stderr error message. So a 401 from a self-hosted server with auth misconfigured will surface the server's "topic requires auth" / "rate limited" detail rather than just the bare status code. The body read is bounded to defend against hostile or misconfigured servers returning multi-GB responses.
+
 ### Why both desktop and ntfy fire
 
 When you set `NOTIFY_NTFY_TOPIC` and run `notify`, **both** the desktop notification AND the ntfy push fire in parallel. Rationale: at desk → see desktop; stepped out → phone catches it. The env var is the global "I want remote alerts on" switch; per-call `--no-desktop` / `--no-ntfy` are the suppression escape hatches.
@@ -181,7 +187,13 @@ The stderr warning from the failed desktop backend is honest about what happened
 | 0 | Success — at least one configured backend succeeded. |
 | 1 | `--strict` mode and at least one backend failed. |
 | 125 | Usage error — bad flags, missing TITLE, no backends configured. |
-| 126 | All backends failed. |
+| 126 | All backends failed, or runtime error (generic catch-all). |
+
+Exit `1` is reserved for `--strict`-mode failures and never used for runtime errors. Scripts of the shape `notify ... --strict || alert-loud` can rely on `1` meaning "at least one delivery channel failed" — runtime crashes return `126` instead.
+
+### Concurrent backend isolation
+
+When multiple backends run in parallel (desktop + ntfy), one backend throwing an exception can no longer corrupt the batch — the dispatcher converts any backend's exception to a per-backend `BackendResult` with a clear "violated never-throw contract" diagnostic. So a typo'd `--ntfy-server` URL won't mask a successful desktop notification with a process-crash error. Cooperative cancellation (the internal 15-second timeout) is also converted to per-backend "cancelled before completion" results so partial successes are preserved.
 
 ## Differences from `notify-send`
 

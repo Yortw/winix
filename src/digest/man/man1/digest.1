@@ -111,8 +111,9 @@ Single-input forms emit one object; multi-file forms emit an array.
 .TP
 .B \-\-verify " " \fIEXPECTED\fR
 Compare the computed hash against \fIEXPECTED\fR in constant time.
-Hex comparison is case-insensitive; base64 and base32 are case-sensitive.
+Hex and Crockford base32 comparisons are case-insensitive; standard base64 and base64-url comparisons are case-sensitive (those alphabets carry case meaning).
 Exit 0 on match, 1 on mismatch.
+Exit 1 is reserved for verify mismatches and never used for runtime errors — runtime crashes return 126 instead.
 Not supported with multiple files.
 
 .SS Standard flags

@@ -44,6 +44,13 @@ url join "https://example.com/api/v1/users" "/login"
 url query get    "https://x.io/?a=1&b=2" a
 url query set    "https://x.io/?a=1" b 2
 url query delete "https://x.io/?a=1&b=2" a
+
+# Duplicate-key handling — first-only by default with stderr warning, --all for every value
+url query get "https://x.io/?a=1&a=2&a=3" a          # prints "1" + stderr warning
+url query get "https://x.io/?a=1&a=2&a=3" a --all    # prints "1\n2\n3"
+
+# Strict decode rejects malformed percent
+url decode "a%" --strict        # exit 126, "malformed percent-escape at position 1"
 ```
 
 ## JSON Output
@@ -87,6 +94,17 @@ url query delete "https://x.io/?a=1&b=2" a
 - `--raw` disables normalisation where it would apply, but the result is still syntax-validated.
 - UserInfo is preserved across `query set` / `query delete` operations (basic-auth URLs survive query edits).
 - Unicode hostnames pass through without auto-Punycoding. Applications needing Punycode can post-process externally.
+
+## Validation Rules (Important for Agents)
+
+These rules prevent silent misinterpretation of inputs — agents calling `url` programmatically should expect them to fire on adversarial-shaped inputs:
+
+- **`--host` rejects URL-component characters** (`/`, `?`, `#`, `@`, whitespace, control chars). `--host "evil.com/@trusted.com"` exits 125 — assemble the URL with explicit `--path` instead.
+- **`url join` accepts only hierarchical schemes**: `http`, `https`, `ws`, `wss`, `ftp`, `ftps`, `ssh`, `file`. Opaque schemes (`javascript:`, `mailto:`, `data:`, `urn:`) are rejected with a clear allowlist message.
+- **Query keys are decoded before lookup**: both `url query get URL "a=b"` and `url query get URL "a%3Db"` match the same key.
+- **Query duplicate-key semantics**: `query get` is first-wins by default with a stderr warning when duplicates exist; use `--all` to suppress the warning and print every value. `query set/delete` warn on stderr when more than one duplicate is collapsed/removed.
+- **Decoder default is lenient**: `url decode "a%"` returns `"a%"` exit 0 (matches `Uri.UnescapeDataString`). For round-trip-strict workflows, use `--strict` which rejects malformed `%` sequences.
+- **Subcommand-flag gating**: `--strict`/`--all`/`--field`/`--json`/`--mode`/`--form`/`--raw` are each gated to the subcommands that consume them. Passing one on a wrong subcommand produces a usage error rather than silent ignore.
 
 ## Platform Notes
 

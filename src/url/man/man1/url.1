@@ -50,6 +50,10 @@ Shorthand for \fB--mode form\fR.
 .SS decode
 Percent-decode \fISTRING\fR.
 Default RFC 3986 (literal \fB+\fR); \fB--form\fR or \fB--mode form\fR treats \fB+\fR as space.
+.TP
+.B \-\-strict
+Reject malformed percent-escapes (lone \fB%\fR, \fB%X\fR, \fB%XY\fR with non-hex digits).
+Default behaviour is lenient (matches \fBUri.UnescapeDataString\fR) and passes such inputs through verbatim.
 
 .SS parse
 Deconstruct \fIURL\fR into fields.
@@ -70,6 +74,9 @@ URL scheme; defaults to \fBhttps\fR.
 .TP
 .B \-\-host " " \fIH\fR
 Hostname (required).
+Rejected if the value contains URL-component characters (\fI/\fR, \fI?\fR, \fI#\fR, \fI@\fR) or any whitespace/control character — these cause silent re-parsing of the assembled URL.
+Control characters report position + hex code in the error so invisible characters are diagnosable.
+\fBUri.CheckHostName\fR is also consulted for general well-formedness (empty DNS labels etc. are rejected).
 .TP
 .B \-\-port " " \fIN\fR
 Port number (1–65535).
@@ -94,20 +101,30 @@ Skip normalisation (preserve default ports, case).
 .SS join
 Resolve \fIRELATIVE\fR against \fIBASE\fR per RFC 3986 §5.
 Handles dot-segments, absolute-URL override, query-only refs (\fB?y\fR), fragment-only refs (\fB#s\fR), and protocol-relative URLs (\fB//host\fR).
-\fIBASE\fR must be absolute.
+\fIBASE\fR must be absolute and must use one of the allowed hierarchical schemes: \fBhttp\fR, \fBhttps\fR, \fBws\fR, \fBwss\fR, \fBftp\fR, \fBftps\fR, \fBssh\fR, \fBfile\fR.
+Opaque schemes (\fBjavascript:\fR, \fBmailto:\fR, \fBdata:\fR, \fBurn:\fR) are rejected — without this guard, \fBurl join "javascript:foo" "bar"\fR would produce a scheme-smuggling foothold in pipelines that pass the result to a browser/renderer.
 
 .SS query get
 Return the first value for \fIKEY\fR in \fIURL\fR's query.
 Exits non-zero with \fBkey not found\fR if absent.
+When duplicates exist for \fIKEY\fR, prints the first value to stdout and emits a stderr warning naming the duplicate count.
+The user-supplied \fIKEY\fR is percent-decoded before lookup, so both \fBa=b\fR and \fBa%3Db\fR match the same parsed key.
+.TP
+.B \-\-all
+Emit every value for \fIKEY\fR (one per line) instead of first-only.
+Suppresses the duplicate-warning stderr message.
 
 .SS query set
 Set \fIKEY\fR to \fIVALUE\fR in \fIURL\fR's query.
-Replaces all existing occurrences; appends if absent.
+Replaces the first occurrence; collapses any further duplicates.
+When more than one duplicate is collapsed, emits a stderr warning naming the affected count (HTTP query duplicate-key semantics differ across servers, so silent collapse can lose data).
+Appends if \fIKEY\fR is absent.
 Output: updated URL.
 
 .SS query delete
 Remove all occurrences of \fIKEY\fR from \fIURL\fR's query.
 No-op (exit 0) if key is absent.
+When more than one occurrence is removed, emits a stderr warning naming the count.
 Output: updated URL.
 
 .SH ENCODING MODES
