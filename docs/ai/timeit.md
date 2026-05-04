@@ -33,7 +33,7 @@ timeit --json dotnet test 2>timing.json
 **One-line format for log files:**
 ```bash
 timeit -1 dotnet publish -c Release
-# Output: [timeit] 12.4s wall | 9.1s cpu | 482 MB peak | exit 0
+# Output: [timeit] 12.4s wall | 9.1s user | 0.300s sys | 482.0 MB peak | exit 0
 ```
 
 **Capture child stdout while still timing:**
@@ -84,10 +84,20 @@ timeit --json dotnet test
 
 JSON is written to **stderr** (use `--stdout` to redirect to stdout). Fields:
 
-- `wall_seconds` — elapsed wall clock time in seconds
-- `cpu_seconds` — total CPU time across all cores in seconds
-- `peak_memory_bytes` — peak resident set size in bytes
-- `exit_code` — child process exit code
+| Field | Type | Description |
+|---|---|---|
+| `tool` | string | Always `"timeit"`. |
+| `version` | string | Tool version. |
+| `exit_code` | int | **Tool's** exit code (0 = success). NOT the child's. Use this to detect timeit failures (command not found / not executable / start error). |
+| `exit_reason` | string | Machine-readable: `success`, `command_not_found`, `command_not_executable`, `start_error`. |
+| `child_exit_code` | int \| null | **Child process's** exit code. `null` when the child never ran (e.g. `command_not_found`). This is the value scripts care about for the program's own success/failure. |
+| `wall_seconds` | float | Elapsed wall clock time in seconds. |
+| `user_cpu_seconds` | float \| null | User-mode CPU time in seconds. |
+| `sys_cpu_seconds` | float \| null | Kernel-mode CPU time in seconds. |
+| `cpu_seconds` | float \| null | Total CPU time (`user_cpu_seconds + sys_cpu_seconds`). |
+| `peak_memory_bytes` | int \| null | Peak resident set size in bytes. |
+
+**Important: `exit_code` vs `child_exit_code`** — top-level `exit_code` reports whether *timeit itself* succeeded; the child's actual exit code is in `child_exit_code`. So a successful run of a child that exits non-zero (e.g. failing build) shows `exit_code: 0, exit_reason: "success", child_exit_code: 1`. Scripts parsing JSON should check `child_exit_code` for the program's outcome and `exit_code` only for timeit infrastructure failures.
 
 **--describe** — machine-readable flag reference:
 ```bash
