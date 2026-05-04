@@ -63,7 +63,7 @@ ids --count 5
 # 018f3c2a-1b4d-7e8f-9d4e-92c1aa3f7b21
 # 018f3c2a-1b4d-7e8f-bc02-1f8e44d91c08
 # 018f3c2a-1b4d-7e8f-a4f1-557b3ae0289d
-# 018f3c2a-1b4d-7e8f-c0a8-d3f9e1b46472
+# 018f3c2a-1b4d-7e8f-b0a8-d3f9e1b46472
 
 # Windows-registry-style GUID (braces, uppercase)
 ids --type uuid7 --format braces --uppercase
