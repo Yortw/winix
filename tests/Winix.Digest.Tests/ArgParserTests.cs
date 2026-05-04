@@ -148,14 +148,18 @@ public class ArgParserTests
         }
 
         string output = sw.ToString();
+        // Pre-existing test bug surfaced on Linux CI where SHA-3 IS available: the bare
+        // "SHA-3 unavailable" substring also matches the exit-code description
+        // ("Runtime error (file read failure, SHA-3 unavailable)") which is always present
+        // regardless of platform. Use the more specific description-only phrasing.
         if (ArgParser.IsSha3Available())
         {
             Assert.Contains("SHA-3", output, StringComparison.Ordinal);
-            Assert.DoesNotContain("SHA-3 unavailable", output, StringComparison.Ordinal);
+            Assert.DoesNotContain("SHA-3 unavailable on this platform", output, StringComparison.Ordinal);
         }
         else
         {
-            Assert.Contains("SHA-3 unavailable", output, StringComparison.Ordinal);
+            Assert.Contains("SHA-3 unavailable on this platform", output, StringComparison.Ordinal);
         }
     }
 
