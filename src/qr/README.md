@@ -51,7 +51,7 @@ echo "https://example.com" | qr                # stdin
 | `--no-margin` | off | Strip the 4-module quiet zone. May reduce scannability. |
 | `--output PATH` / `-o PATH` | stdout | Write to file instead of stdout. Refuses to overwrite existing files unless `--force` is passed. |
 | `--force-binary` | off | Allow PNG output to a TTY (otherwise refused). |
-| `--force` | off | Overwrite an existing `--output` file (refused by default to avoid losing user data). |
+| `--force` | off | Overwrite an existing `--output` file (refused by default to avoid losing user data). Has no effect — and is rejected as a usage error — if `--output` is not also supplied. |
 | `--describe` | off | Emit tool metadata as JSON. |
 | `--help`, `--version` | — | Standard introspection. |
 | `--color`, `--no-color` | — | Respect `NO_COLOR`. |
@@ -73,8 +73,8 @@ echo "https://example.com" | qr                # stdin
 | Code | Meaning |
 |---|---|
 | 0 | Success. |
-| 125 | Usage error (bad flags, missing required, empty payload, PNG to TTY without `--force-binary`, `--format` contradicts `--output` extension, refusing to overwrite without `--force`, helper field value violates its grammar). |
-| 126 | Runtime error (payload exceeds QR capacity, invalid UTF-8 on stdin, output file write failed). |
+| 125 | Usage error: bad flags, missing required field, empty payload, PNG to TTY without `--force-binary`, `--format` contradicts `--output` extension, refusing to overwrite an existing `--output` file without `--force`, `--force` supplied without `--output`, `--output` path empty or whitespace, helper field value violates its grammar (e.g. tel/sms with letters, geo coordinates out of range). |
+| 126 | Runtime error: payload exceeds QR capacity (try `--error-correction l` or shorten payload), invalid UTF-8 on stdin, output file write failed (parent directory missing, permission denied, path too long, etc.). |
 
 `--format svg --output code.png` (and similar contradictions) are rejected at parse time so downstream tools that route on extension don't get content with a misleading suffix.
 

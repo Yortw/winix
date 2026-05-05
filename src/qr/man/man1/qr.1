@@ -47,7 +47,7 @@ Write output to a file instead of stdout. Refuses to overwrite an existing file 
 Permit PNG output to a TTY (otherwise refused to avoid terminal corruption).
 .TP
 \fB--force\fR
-Overwrite an existing \fB--output\fR file. Refused by default to avoid losing user data.
+Overwrite an existing \fB--output\fR file. Refused by default to avoid losing user data. Rejected as a usage error if \fB--output\fR is not also supplied.
 .TP
 \fB--describe\fR
 Emit a JSON description of the tool.
@@ -60,10 +60,10 @@ Colour control. Respects the \fBNO_COLOR\fR environment variable.
 Success.
 .TP
 .B 125
-Usage error: bad flags, missing required field, empty payload, PNG to TTY without \fB--force-binary\fR, \fB--format\fR contradicts \fB--output\fR extension, refusing to overwrite an existing \fB--output\fR file without \fB--force\fR, helper field value violates its grammar (e.g. tel/sms phone number contains letters).
+Usage error: bad flags, missing required field, empty payload, PNG to TTY without \fB--force-binary\fR, \fB--format\fR contradicts \fB--output\fR extension, refusing to overwrite an existing \fB--output\fR file without \fB--force\fR, \fB--force\fR supplied without \fB--output\fR, \fB--output\fR path empty or whitespace, helper field value violates its grammar (e.g. tel/sms phone number contains letters, geo coordinates out of range).
 .TP
 .B 126
-Runtime error: payload exceeds QR capacity, invalid UTF-8 on stdin, output file write failed.
+Runtime error: payload exceeds QR capacity (try \fB--error-correction l\fR or shorten payload), invalid UTF-8 on stdin, output file write failed (parent directory missing, permission denied, path too long, etc.).
 .SH EXAMPLES
 .PP
 Encode a URL:

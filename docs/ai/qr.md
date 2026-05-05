@@ -34,8 +34,8 @@ qr "<payload>"
 ## Exit-code contract
 
 - `0` — success.
-- `125` — usage error: bad flags, missing required field, empty payload, PNG to TTY without `--force-binary`, `--format` contradicts `--output` extension (e.g. `--format svg --output code.png`), refusing to overwrite an existing file without `--force`, helper field violates its grammar (tel/sms phone numbers reject letters and shell metacharacters).
-- `126` — runtime error: capacity overflow (payload too long), invalid stdin UTF-8, output write failed.
+- `125` — usage error: bad flags, missing required field, empty payload, PNG to TTY without `--force-binary`, `--format` contradicts `--output` extension (e.g. `--format svg --output code.png`), refusing to overwrite an existing file without `--force`, `--force` supplied without `--output`, `--output` path empty or whitespace, helper field violates its grammar (tel/sms phone numbers reject letters and shell metacharacters, geo coordinates out of range).
+- `126` — runtime error: payload exceeds QR capacity (try `-e l` or shorten payload), invalid stdin UTF-8, output write failed (parent directory missing, permission denied, path too long, etc.).
 
 ## Describe output
 
