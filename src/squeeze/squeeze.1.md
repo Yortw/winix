@@ -85,10 +85,18 @@ Decompression (**-d**) auto-detects the format from magic bytes — the file ext
 :   Success.
 
 **1**
-:   Compression or decompression error: corrupt input, truncated gzip stream (ISIZE mismatch), unknown format, write failed.
+:   Compression or decompression error: corrupt input, truncated gzip stream (ISIZE mismatch), multi-member gzip (concatenated gzip is rejected — see BUGS), unknown format, write failed.
 
 **2**
 :   Usage error: bad arguments, missing input, **--brotli** with **--zstd**, **--output** empty/whitespace, **--output** with multiple inputs, level out of range.
+
+# BUGS
+
+Multi-member gzip (concatenated gzip streams produced by `cat a.gz b.gz` or `gzip file1 file2 && cat *.gz`) is rejected with exit 1 and "data is corrupt or truncated", even though the decompressed content is correct. This is because squeeze validates the final ISIZE field against the cumulative decompressed byte count, and for multi-member streams ISIZE only represents the last member's size.
+
+Workaround: pipe through system gzip (`gzip -dc concat.gz`) which handles multi-member natively, or split the concatenation back into individual `.gz` files.
+
+This trade-off was made to prefer loud false-positives on rare multi-member input over silent corruption on common incompressible-truncation input. A future release may add proper member-by-member parsing.
 
 # ENVIRONMENT
 

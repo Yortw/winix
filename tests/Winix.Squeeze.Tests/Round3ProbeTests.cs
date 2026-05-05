@@ -44,24 +44,25 @@ public class Round3ProbeTests
         return ms.ToArray();
     }
 
+    // Hotfix (post-merge of 64fd7a5): multi-member detection was DROPPED entirely after
+    // it was found to false-positive on incompressible data, silently accepting truncated
+    // single-member input. Option 2.5 trade-off: ALL multi-member gzip is now rejected as
+    // "data is corrupt or truncated" regardless of stream seekability. This was the SFH
+    // probe for "detection across chunk boundaries" — now repurposed to pin the new
+    // contract (multi-member rejected loudly, not silently accepted).
     [Fact]
-    public async Task MultiMember_DetectedEvenWhenInputReturnsOneByteAtATime()
+    public async Task MultiMember_RejectedAsCorrupt_RegardlessOfChunkBoundary()
     {
-        // Concatenated gzip; underlying stream returns 1 byte per Read so the
-        // 1f/8b magic of member 2 will straddle every chunk boundary.
         byte[] one = await GzipAsync(new byte[] { 0x41 });
         byte[] concat = new byte[one.Length * 2];
         Buffer.BlockCopy(one, 0, concat, 0, one.Length);
         Buffer.BlockCopy(one, 0, concat, one.Length, one.Length);
 
-        // Wrap a seekable MemoryStream in SingleByteStream so the detector's
-        // ReadAsync returns one byte at a time. Note: SingleByteStream is seekable.
         using var inner = new MemoryStream(concat);
         using var slow = new SingleByteStream(inner);
         using var output = new MemoryStream();
-        await Compressor.DecompressAsync(slow, output, CompressionFormat.Gzip);
-
-        Assert.Equal(new byte[] { 0x41, 0x41 }, output.ToArray());
+        await Assert.ThrowsAsync<InvalidDataException>(
+            () => Compressor.DecompressAsync(slow, output, CompressionFormat.Gzip));
     }
 
     [Fact]
@@ -123,8 +124,10 @@ public class Round3ProbeTests
             () => Compressor.DecompressAsync(src, output, CompressionFormat.Gzip));
     }
 
+    // Hotfix (post-merge of 64fd7a5): multi-member detection dropped — see comment on
+    // MultiMember_RejectedAsCorrupt_RegardlessOfChunkBoundary above for rationale.
     [Fact]
-    public async Task ConcatenatedTwoMembers_RoundTrips()
+    public async Task ConcatenatedTwoMembers_RejectedAsCorrupt()
     {
         byte[] one = await GzipAsync("hello "u8.ToArray());
         byte[] two = await GzipAsync("world"u8.ToArray());
@@ -134,8 +137,8 @@ public class Round3ProbeTests
 
         using var src = new MemoryStream(concat);
         using var output = new MemoryStream();
-        await Compressor.DecompressAsync(src, output, CompressionFormat.Gzip);
-        Assert.Equal("hello world"u8.ToArray(), output.ToArray());
+        await Assert.ThrowsAsync<InvalidDataException>(
+            () => Compressor.DecompressAsync(src, output, CompressionFormat.Gzip));
     }
 
     /// <summary>
