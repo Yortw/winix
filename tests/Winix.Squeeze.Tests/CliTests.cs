@@ -305,12 +305,15 @@ public class CliTests : IDisposable
         Assert.Equal(0, r.exit);
     }
 
-    // ── Round-2 review (closing CR-C1 / SFH-C2): multi-member gzip must round-trip cleanly,
-    //    not be rejected as corrupt. Pre-fix the round-1 ISIZE check compared the LAST
-    //    member's ISIZE against the SUM of all members' decompressed bytes — guaranteed
-    //    false positive on any concatenated input. ──
+    // ── Hotfix (post-merge of 64fd7a5): multi-member gzip is now REJECTED as corrupt rather
+    //    than round-tripped, because round-3's structural-header validation still produced
+    //    silent corruption on incompressible truncated single-member input (10MB random
+    //    truncated to 5MB → ~5MB garbled output, exit 0). The trade-off prefers loud false
+    //    positive on rare multi-member input over silent corruption on common incompressible
+    //    truncation. Documented limitation in docs/ai/squeeze.md; workaround is `gzip -dc
+    //    concat.gz | squeeze`. ──
     [Fact]
-    public async Task RunAsync_MultiMemberGzipFile_RoundTripsCleanly()
+    public async Task RunAsync_MultiMemberGzipFile_RejectedAsCorrupt()
     {
         string a = MakeFile("a.txt", "first member content");
         var ca = await RunCliAsync(new[] { a });
@@ -320,7 +323,6 @@ public class CliTests : IDisposable
         var cb = await RunCliAsync(new[] { b });
         Assert.Equal(0, cb.exit);
 
-        // Concatenate the two .gz files.
         string multi = Path.Combine(_tempDir, "multi.gz");
         byte[] aGz = File.ReadAllBytes(a + ".gz");
         byte[] bGz = File.ReadAllBytes(b + ".gz");
@@ -329,11 +331,39 @@ public class CliTests : IDisposable
         Buffer.BlockCopy(bGz, 0, combined, aGz.Length, bGz.Length);
         File.WriteAllBytes(multi, combined);
 
-        // Decompress to a new file and verify the concatenated content.
-        string outPath = Path.Combine(_tempDir, "multi-out");
-        var d = await RunCliAsync(new[] { "-d", multi, "-o", outPath });
-        Assert.Equal(0, d.exit);
-        Assert.Equal("first member contentsecond member content", File.ReadAllText(outPath));
+        var d = await RunCliAsync(new[] { "-d", multi, "-c" });
+        Assert.Equal(1, d.exit);
+        Assert.Contains("corrupt", d.stderr, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // ── Hotfix regression test: large incompressible truncated input. The user-found
+    //    case that exposed the round-3 multi-member-detector hole: 10MB random data
+    //    truncated to 5MB → silent partial output. With multi-member detection dropped,
+    //    this now exits 1 cleanly. ──
+    [Fact]
+    public async Task RunAsync_LargeIncompressibleTruncated_RejectedAsCorrupt()
+    {
+        // 1MB random data is enough to reliably reproduce the false-positive scenario
+        // (any size > ~100KB has high probability of containing a structurally-plausible
+        // spurious 1f 8b sequence in the deflate output).
+        Random rnd = new(42);
+        byte[] data = new byte[1024 * 1024];
+        rnd.NextBytes(data);
+        string raw = Path.Combine(_tempDir, "rand1mb.bin");
+        File.WriteAllBytes(raw, data);
+
+        var c = await RunCliAsync(new[] { raw });
+        Assert.Equal(0, c.exit);
+
+        byte[] gz = File.ReadAllBytes(raw + ".gz");
+        // Truncate to 60% of the gz size to ensure mid-deflate truncation.
+        int truncateLen = (int)(gz.Length * 0.6);
+        File.WriteAllBytes(raw + ".gz", gz[..truncateLen]);
+        File.Delete(raw);
+
+        var d = await RunCliAsync(new[] { raw + ".gz", "-d", "-c" });
+        // Pre-hotfix this exited 0 with ~truncateLen bytes of silent garbled output.
+        Assert.Equal(1, d.exit);
     }
 
     // ── Round-2 review (closing SFH-C1 part 2): header-only truncation (e.g. 15-30 bytes

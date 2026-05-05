@@ -128,6 +128,8 @@ data.csv → data.csv.gz  1,234,567 → 456,789 (63.0% saved)  gzip/6  0.12s
 
 When decompressing, gzip streams are validated against their RFC 1952 trailer (CRC32 + ISIZE). Truncated or corrupt streams that .NET's `GZipStream` would silently treat as terminated are rejected with exit 1.
 
+**Known limitation: multi-member gzip is rejected as corrupt.** Concatenated gzip streams (`cat a.gz b.gz`, `gzip file1 file2 && cat *.gz`) currently fail the ISIZE check because the LAST member's ISIZE doesn't match the cumulative decompressed bytes. squeeze emits the full content to stdout, then exits 1. **Workaround**: use `gzip -dc concat.gz` directly, or decompress members individually. The trade-off was deliberate — preferring loud false-positive on rare multi-member input over silent corruption on common incompressible-truncation input. A future version may add member-by-member parsing.
+
 The `format` field in JSON output emits the short form (`gz`, `br`, `zst`).
 
 The `errors` JSON field is present (array of strings) when `exit_reason` is `partial_failure` or `failure`, listing per-file error messages.
