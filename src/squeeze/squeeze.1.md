@@ -48,7 +48,7 @@ Decompression (**-d**) auto-detects the format from magic bytes — the file ext
 :   Delete the input file after a successful operation.
 
 **-k**, **--keep**
-:   Keep the original file (default; accepted for gzip compatibility).
+:   Keep the original file (default). Takes precedence over **--remove** when both are supplied; a warning is emitted to stderr.
 
 **-v**, **--verbose**
 :   Show stats even when piped.
@@ -85,10 +85,10 @@ Decompression (**-d**) auto-detects the format from magic bytes — the file ext
 :   Success.
 
 **1**
-:   Compression or decompression error.
+:   Compression or decompression error: corrupt input, truncated gzip stream (ISIZE mismatch), unknown format, write failed.
 
 **2**
-:   Usage error (bad arguments).
+:   Usage error: bad arguments, missing input, **--brotli** with **--zstd**, **--output** empty/whitespace, **--output** with multiple inputs, level out of range.
 
 # ENVIRONMENT
 

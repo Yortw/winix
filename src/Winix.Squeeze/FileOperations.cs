@@ -96,14 +96,22 @@ public static class FileOperations
         catch (Exception ex)
         {
             TryDeleteFile(resolvedOutput);
-            return new FileOperationResult(1, "compress_failed", null, ex.Message);
+            var (reason, message) = ClassifyIoException(ex, inputPath, decompress: false);
+            return new FileOperationResult(1, reason, null, message);
         }
 
         stopwatch.Stop();
 
         if (remove)
         {
-            TryDeleteFile(inputPath);
+            // Round-1 review TA-I8: surface --remove deletion failures rather than
+            // silently swallowing them. Compression succeeded, so exit 0 is preserved,
+            // but the user gets a stderr warning that the original wasn't removed.
+            if (!TryDeleteFileWithStatus(inputPath, out string? failureReason))
+            {
+                Console.Error.WriteLine(
+                    $"squeeze: warning: failed to remove input '{inputPath}': {failureReason}");
+            }
         }
 
         var result = new SqueezeResult(inputPath, resolvedOutput, inputBytes, outputBytes, format, level, stopwatch.Elapsed);
@@ -190,14 +198,21 @@ public static class FileOperations
         catch (Exception ex)
         {
             TryDeleteFile(resolvedOutput);
-            return new FileOperationResult(1, "decompress_failed", null, ex.Message);
+            var (reason, message) = ClassifyIoException(ex, inputPath, decompress: true);
+            return new FileOperationResult(1, reason, null, message);
         }
 
         stopwatch.Stop();
 
         if (remove)
         {
-            TryDeleteFile(inputPath);
+            // Round-1 review TA-I8: surface --remove deletion failures (see CompressFileAsync
+            // for full rationale). Decompression succeeded; exit 0 preserved.
+            if (!TryDeleteFileWithStatus(inputPath, out string? failureReason))
+            {
+                Console.Error.WriteLine(
+                    $"squeeze: warning: failed to remove input '{inputPath}': {failureReason}");
+            }
         }
 
         var result = new SqueezeResult(inputPath, resolvedOutput, inputBytes, outputBytes, detectedFormat, 0, stopwatch.Elapsed);
@@ -276,8 +291,8 @@ public static class FileOperations
         }
         catch (Exception ex)
         {
-            return new FileOperationResult(1, decompress ? "corrupt_input" : "io_error", null,
-                $"squeeze: {inputPath}: {ex.Message}");
+            var (reason, message) = ClassifyIoException(ex, inputPath, decompress);
+            return new FileOperationResult(1, reason, null, message);
         }
     }
 
@@ -295,5 +310,85 @@ public static class FileOperations
         {
             // Best-effort cleanup — nothing useful to do if deletion fails
         }
+    }
+
+    /// <summary>
+    /// Best-effort delete that returns whether deletion succeeded. Used by --remove so a
+    /// silent failure to delete the original (e.g. file locked by antivirus, read-only
+    /// attribute) can be surfaced to the user instead of being swallowed.
+    /// </summary>
+    /// <remarks>
+    /// Round-1 review TA-I8: <see cref="TryDeleteFile"/> swallows all exceptions, which is
+    /// the correct contract for partial-output cleanup but the wrong one for --remove.
+    /// </remarks>
+    internal static bool TryDeleteFileWithStatus(string path, out string? failureReason)
+    {
+        try
+        {
+            File.Delete(path);
+            failureReason = null;
+            return true;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            failureReason = "permission denied";
+            return false;
+        }
+        catch (IOException)
+        {
+            // File-locked-by-another-process / read-only attribute / etc.
+            failureReason = "file is in use or read-only";
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Maps a framework exception thrown during compress/decompress I/O to a clean
+    /// project-controlled English message + exit-reason classifier.
+    /// </summary>
+    /// <remarks>
+    /// Round-1 review CR-C1 / SFH-C2/C3: piping <c>ex.Message</c> from framework exceptions
+    /// (IOException / DirectoryNotFoundException / UnauthorizedAccessException /
+    /// ArgumentException) to user output leaks resource keys (<c>IO_PathNotFound_Path</c>,
+    /// <c>Arg_ParamName_Name</c>) under <c>InvariantGlobalization=true</c>. Classify by
+    /// exception subtype and emit project-controlled English; reserve <c>ex.Message</c> as
+    /// a fallback for genuinely unexpected I/O codes (with the exception type prefixed so
+    /// the user has actionable context).
+    /// </remarks>
+    internal static (string ExitReason, string Message) ClassifyIoException(
+        Exception ex, string contextPath, bool decompress)
+    {
+        // Round-2 review (closing the IOException fallback resource-key leak): the round-1
+        // fallback piped ex.Message — but plain IOException.Message under
+        // InvariantGlobalization=true is a raw resource key (IO_SharingViolation_File,
+        // IO_DiskFull, etc). Classify common IOException HRESULTs explicitly; for the
+        // genuinely unknown remainder, emit the type name only and a generic descriptor —
+        // no ex.Message which can leak resource tokens.
+        return ex switch
+        {
+            DirectoryNotFoundException =>
+                ("io_error", $"squeeze: {contextPath}: parent directory does not exist"),
+            UnauthorizedAccessException =>
+                ("io_error", $"squeeze: {contextPath}: permission denied"),
+            FileNotFoundException =>
+                ("file_not_found", $"squeeze: {contextPath}: no such file"),
+            PathTooLongException =>
+                ("io_error", $"squeeze: {contextPath}: path too long"),
+            InvalidDataException =>
+                (decompress ? "corrupt_input" : "compress_failed",
+                 $"squeeze: {contextPath}: data is corrupt or truncated"),
+            ArgumentException =>
+                ("io_error", $"squeeze: {contextPath}: invalid path"),
+            // Plain IOException covers sharing violations, disk-full, network errors, etc.
+            // Map to a generic message + type name so the user has actionable context
+            // without leaking a raw SR key.
+            IOException =>
+                ("io_error",
+                 $"squeeze: {contextPath} (IOException): I/O failed (file may be locked, disk full, or path inaccessible)"),
+            // Fallback: include the exception TYPE name only (locale-independent CLR text)
+            // — explicitly omit ex.Message which may be a resource key.
+            _ => (decompress ? "decompress_failed" : "compress_failed",
+                 $"squeeze: {contextPath} ({ex.GetType().Name}): unexpected error during {(decompress ? "decompression" : "compression")}"),
+        };
     }
 }

@@ -79,7 +79,13 @@ squeeze --json --zstd data.csv 2>&1 | jq '.files[0].input_bytes, .files[0].outpu
 
 ## Gotchas
 
-**Brotli has no magic bytes — detection uses file extension.** When decompressing with `-d`, gzip and zstd are identified by magic bytes in the file header. Brotli has no standard magic bytes, so `squeeze` falls back to the `.br` extension. If your brotli file has a non-standard extension, detection will fail.
+**Brotli has no magic bytes — detection uses file extension first, then trial-decompression.** When decompressing with `-d`, gzip and zstd are identified by magic bytes in the file header. Brotli has no standard magic bytes, so `squeeze` falls back to the `.br` extension OR a trial-decompression attempt (which is why brotli files with non-standard extensions like `.dat` may still decompress successfully — but is fragile, prefer `.br`).
+
+**Truncated gzip is rejected with exit 1.** Pre-round-tier-2-review `squeeze` silently produced partial output for half-downloaded `.gz` files. Now the gzip trailer (CRC32 + ISIZE) is validated against the actual decompressed byte count; mismatch = exit 1 with a clear "integrity check failed" message. Pipe consumers should rely on exit codes, not partial-output detection.
+
+**Pipe-mode multi-member gzip false positive.** Concatenated gzip streams (e.g. `cat a.gz b.gz`) decompress correctly in **file mode** (`squeeze -d concat.gz`), but in **pipe mode** (`cat concat.gz | squeeze -d`) they currently exit 1 with `data is corrupt or truncated` AFTER emitting the full decompressed content. The multi-member detector requires a seekable input to scan for additional `1f 8b` magic-byte sequences; non-seekable pipes skip detection and fall through to the strict single-member ISIZE check, which fails because the cumulative decompressed bytes don't match the LAST member's ISIZE. Workaround: pass concatenated streams as a file argument (`squeeze -d concat.gz`) rather than via pipe. This trade-off was documented in the round-2 source comments and is targeted for a future round-3 fix that buffers pipe input for detection.
+
+**`--keep` and `--remove` together: `--keep` wins.** Mirrors gzip(1) semantics. A warning is printed to stderr so users see that `--remove` was overridden.
 
 **Output file is created alongside the input by default.** `squeeze data.csv` creates `data.csv.gz` in the same directory. Use `-o` to specify a different output path, or `-c`/`--stdout` to write to stdout instead.
 
@@ -99,16 +105,21 @@ squeeze --json --zstd data.csv 2>&1 | jq '.files[0].input_bytes, .files[0].outpu
 squeeze --json --zstd data.csv 2>stats.json
 ```
 
-Top-level fields: `tool`, `version`, `exit_code`, `exit_reason`, `files`.
+Top-level fields: `tool`, `version`, `exit_code`, `exit_reason`, `files`, `errors`.
+
+`errors` is an array of strings present when `exit_reason` is `partial_failure` or `failure` (file mode); each string describes one per-file failure. Omitted on full success.
 
 Each entry in `files`:
 - `input` — input file path
 - `output` — output file path
 - `input_bytes` — size before compression
 - `output_bytes` — size after compression
-- `format` — `"gzip"`, `"brotli"`, or `"zstd"`
-- `level` — compression level used
+- `ratio` — `output_bytes / input_bytes` (0.0–1.0)
+- `format` — `"gz"`, `"br"`, or `"zst"` (short form; pre-2026-05 docs incorrectly said `"gzip"`/`"brotli"`/`"zstd"`)
+- `level` — compression level used (compress mode only)
 - `seconds` — time taken
+
+`exit_reason` values: `success`, `partial_failure`, `failure`, `usage_error`, `file_not_found`, `corrupt_input`, `decompress_failed`, `compress_failed`, `io_error`, `output_exists`, `unknown_extension`.
 
 **--describe** — machine-readable flag reference:
 ```bash

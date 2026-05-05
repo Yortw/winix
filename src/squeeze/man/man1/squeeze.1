@@ -48,7 +48,9 @@ Overwrite existing output files.
 Delete the input file after a successful operation.
 .TP
 \f[B]\-k\f[R], \f[B]\(enkeep\f[R]
-Keep the original file (default; accepted for gzip compatibility).
+Keep the original file (default).
+Takes precedence over \f[B]\(enremove\f[R] when both are supplied; a
+warning is emitted to stderr.
 .TP
 \f[B]\-v\f[R], \f[B]\(enverbose\f[R]
 Show stats even when piped.
@@ -119,10 +121,13 @@ T}
 Success.
 .TP
 \f[B]1\f[R]
-Compression or decompression error.
+Compression or decompression error: corrupt input, truncated gzip stream
+(ISIZE mismatch), unknown format, write failed.
 .TP
 \f[B]2\f[R]
-Usage error (bad arguments).
+Usage error: bad arguments, missing input, \f[B]\(enbrotli\f[R] with
+\f[B]\(enzstd\f[R], \f[B]\(enoutput\f[R] empty/whitespace,
+\f[B]\(enoutput\f[R] with multiple inputs, level out of range.
 .SH ENVIRONMENT
 .TP
 \f[B]NO_COLOR\f[R]
