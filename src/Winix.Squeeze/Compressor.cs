@@ -83,6 +83,15 @@ public static class Compressor
     {
         var (format, headerBytes) = await FormatDetector.DetectFromStreamAsync(input, filename);
 
+        // Round-1 review SFH-C1 (auto-detect path): empty input was silently succeeding via
+        // the brotli/deflate fallback (BrotliStream.CopyToAsync from empty returns 0 without
+        // throwing). gzip(1) rejects empty input on -d; we now do too.
+        if (format is null && headerBytes.Length == 0)
+        {
+            throw new InvalidDataException(
+                "input is empty — no compressed data to decompress.");
+        }
+
         if (format.HasValue)
         {
             using var combined = new ConcatenatedStream(headerBytes, input);
@@ -259,8 +268,103 @@ public static class Compressor
 
     private static async Task DecompressGzipAsync(Stream input, Stream output)
     {
-        await using var gzip = new GZipStream(input, CompressionMode.Decompress, leaveOpen: true);
-        await gzip.CopyToAsync(output, BufferSize).ConfigureAwait(false);
+        // Round-1 review SFH-C1 — silent corruption on truncated gzip. .NET's GZipStream
+        // does not throw when the underlying stream EOFs mid-deflate or before the 8-byte
+        // trailer (CRC32 + ISIZE) is consumed. A user piping a half-downloaded .gz got
+        // partial output with exit 0 — invisible data corruption.
+        //
+        // Strategy: wrap input in a TrailingBufferStream that captures the LAST 8 bytes
+        // that flowed through it. For valid single-member gzip these bytes ARE the
+        // trailer (CRC32 + ISIZE). For truncated input these are random pre-trailer
+        // bytes whose ISIZE will not match the actual decompressed byte count.
+        //
+        // After CopyToAsync, ALSO try to read up to 8 more bytes directly from `input`
+        // (in case GZipStream stopped reading before consuming the trailer). Whichever
+        // path yields 8 bytes is the candidate trailer; if neither yields 8, the stream
+        // is structurally truncated.
+        //
+        // Multi-member gzip: ISIZE applies only to the LAST member. .NET's GZipStream
+        // handles concatenated members natively; the LAST member's trailer is what we
+        // validate, which is correct.
+        TrailingBufferStream trackingInput = new(input, captureSize: 8);
+        CountingStream countingOutput = new(output);
+
+        await using (var gzip = new GZipStream(trackingInput, CompressionMode.Decompress, leaveOpen: true))
+        {
+            await gzip.CopyToAsync(countingOutput, BufferSize).ConfigureAwait(false);
+        }
+
+        long decompressed = countingOutput.BytesWritten;
+
+        if (trackingInput.BytesRead == 0)
+        {
+            throw new InvalidDataException(
+                "gzip stream is empty — no compressed data to decompress.");
+        }
+
+        // Try to read up to 8 trailer bytes directly from the underlying input. .NET's
+        // GZipStream often leaves the trailer unconsumed, in which case we get a clean
+        // 8 bytes here. If GZipStream already consumed them, we get 0 — and the last 8
+        // bytes captured by the trailing buffer ARE those trailer bytes.
+        byte[] freshTrailer = new byte[8];
+        int freshBytes = 0;
+        while (freshBytes < 8)
+        {
+            int n = await input.ReadAsync(freshTrailer.AsMemory(freshBytes, 8 - freshBytes))
+                .ConfigureAwait(false);
+            if (n == 0) break;
+            freshBytes += n;
+        }
+
+        // .NET 10's GZipStream emits a non-RFC-compliant 15-byte output for empty input
+        // (header + minimal end-block, no trailer) — see github.com/dotnet/runtime PR #56299.
+        // When decompressed == 0, .NET's own decompress accepts this as valid, and we
+        // can't distinguish .NET-empty-gzip from truncated-to-empty-output. Skip ISIZE
+        // validation in that case; the BytesRead == 0 check above already catches
+        // truly-empty input.
+        if (decompressed == 0)
+        {
+            return;
+        }
+
+        ReadOnlySpan<byte> trailerSource;
+        if (freshBytes == 8)
+        {
+            // GZipStream left the trailer for us — typical .NET behaviour for non-empty input.
+            trailerSource = freshTrailer;
+        }
+        else if (freshBytes == 0)
+        {
+            // GZipStream consumed everything, including the trailer. The last 8 bytes
+            // captured by the trailing buffer ARE the trailer (when input was valid)
+            // or random pre-trailer bytes (when input was truncated).
+            trailerSource = trackingInput.GetTrailingBytes();
+            if (trailerSource.Length < 8)
+            {
+                throw new InvalidDataException(
+                    $"gzip stream is truncated — only {trackingInput.BytesRead} bytes read, " +
+                    "shorter than the 18-byte minimum (10-byte header + 8-byte trailer).");
+            }
+        }
+        else
+        {
+            // Got partial trailer bytes (1-7) from `input`. Stream definitely truncated.
+            throw new InvalidDataException(
+                "gzip stream is truncated — incomplete trailer (CRC32+ISIZE).");
+        }
+
+        uint isize = (uint)trailerSource[4]
+                   | ((uint)trailerSource[5] << 8)
+                   | ((uint)trailerSource[6] << 16)
+                   | ((uint)trailerSource[7] << 24);
+        uint actualLow32 = (uint)(decompressed & 0xFFFFFFFFu);
+
+        if (isize != actualLow32)
+        {
+            throw new InvalidDataException(
+                $"gzip integrity check failed — trailer ISIZE={isize} but decompressed " +
+                $"{decompressed} bytes (mod 2^32 = {actualLow32}). Stream is truncated or corrupt.");
+        }
     }
 
     private static async Task DecompressBrotliAsync(Stream input, Stream output)

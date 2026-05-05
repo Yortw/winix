@@ -69,8 +69,10 @@ public static class PipeOperations
         }
         catch (Exception ex)
         {
-            string reason = decompress ? "corrupt_input" : "io_error";
-            return new FileOperationResult(1, reason, null, ex.Message);
+            // Round-1 review CR-C1: classify by exception subtype to avoid leaking
+            // resource keys under InvariantGlobalization. Pipe context is "<stdin>".
+            var (reason, message) = FileOperations.ClassifyIoException(ex, "<stdin>", decompress);
+            return new FileOperationResult(1, reason, null, message);
         }
 
         stopwatch.Stop();

@@ -101,7 +101,7 @@ data.csv → data.csv.gz  1,234,567 → 456,789 (63.0% saved)  gzip/6  0.12s
 | `-o`, `--output FILE` | Explicit output file (single input only; `-` for stdout) |
 | `-f`, `--force` | Overwrite existing output files |
 | `--remove` | Delete input file after successful operation |
-| `-k`, `--keep` | Keep original file (default, accepted for gzip compat) |
+| `-k`, `--keep` | Keep original file (default; takes precedence over `--remove` if both supplied — emits a warning) |
 | `-v`, `--verbose` | Show stats even when piped |
 | `-q`, `--quiet` | Suppress stats even on terminal |
 | `--json` | JSON output to stderr |
@@ -123,8 +123,14 @@ data.csv → data.csv.gz  1,234,567 → 456,789 (63.0% saved)  gzip/6  0.12s
 | Code | Meaning |
 |------|---------|
 | 0 | Success |
-| 1 | Compression/decompression error |
-| 2 | Usage error (bad arguments) |
+| 1 | Compression/decompression error: corrupt input, truncated gzip stream (ISIZE mismatch), unknown format, write failed |
+| 2 | Usage error: bad arguments, missing input, `--brotli` with `--zstd`, `--output` empty/whitespace, `--output` with multiple inputs, level out of range |
+
+When decompressing, gzip streams are validated against their RFC 1952 trailer (CRC32 + ISIZE). Truncated or corrupt streams that .NET's `GZipStream` would silently treat as terminated are rejected with exit 1.
+
+The `format` field in JSON output emits the short form (`gz`, `br`, `zst`).
+
+The `errors` JSON field is present (array of strings) when `exit_reason` is `partial_failure` or `failure`, listing per-file error messages.
 
 ## Colour
 
