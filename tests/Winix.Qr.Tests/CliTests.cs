@@ -322,6 +322,22 @@ public class CliTests
         Assert.Contains("--force has no effect without --output", r.stderr, StringComparison.Ordinal);
     }
 
+    // ── Round-3 review SFH-I1 (round-stop-blocking): `qr "hi" --output ""` previously crashed
+    //    with unhandled ArgumentException + resource-key leak. The round-2 I/O catch chain
+    //    only handled IOException subtypes; File.WriteAllText/Bytes throws ArgumentException
+    //    BEFORE opening the file. Now validated at parse time → usage error 125. ──
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("\t")]
+    public void Run_EmptyOrWhitespaceOutputPath_RejectedAsUsageError(string outputPath)
+    {
+        var r = RunCli(new[] { "hello", "--output", outputPath });
+        Assert.Equal(ExitCode.UsageError, r.exit);
+        Assert.Contains("--output path must not be empty", r.stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain("Arg_ParamName_Name", r.stderr, StringComparison.Ordinal);
+    }
+
     // ── Round-2 review TA-I2: defensive `stdoutBinary is null` branch in PNG path.
     //    Test must call Cli.Run directly (the convenience runner always supplies a sink). ──
     [Fact]

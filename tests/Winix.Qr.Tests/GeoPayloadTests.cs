@@ -35,6 +35,25 @@ public class GeoPayloadTests
         Assert.Throws<ArgumentException>(() => GeoPayload.Build(lat, lon, null));
     }
 
+    // ── Round-3 review TA-I1: regression detector for the InvariantGlobalization-induced
+    //    'Arg_ParamName_Name' resource-key leak. Both lat and lon validation sites are
+    //    covered. See MailtoPayloadTests for full rationale. ──
+    [Fact]
+    public void Build_LatOutOfRange_ErrorMessageDoesNotContainResourceKey()
+    {
+        ArgumentException ex = Assert.Throws<ArgumentException>(
+            () => GeoPayload.Build(91, 0, null));
+        Assert.DoesNotContain("Arg_ParamName_Name", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_LonOutOfRange_ErrorMessageDoesNotContainResourceKey()
+    {
+        ArgumentException ex = Assert.Throws<ArgumentException>(
+            () => GeoPayload.Build(0, 181, null));
+        Assert.DoesNotContain("Arg_ParamName_Name", ex.Message, StringComparison.Ordinal);
+    }
+
     // ── Round-1 review TA-I4: pin the exact boundary values so an off-by-one
     //    in the validator (e.g. `>` vs `>=`) is caught explicitly. ──
     [Theory]

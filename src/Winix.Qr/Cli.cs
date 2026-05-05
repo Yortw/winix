@@ -117,6 +117,19 @@ public static class Cli
             return ExitCode.UsageError;
         }
 
+        // Round-3 review SFH-I1: `qr "hi" --output ""` (empty or whitespace path) crashed with
+        // unhandled ArgumentException from File.WriteAllText/Bytes path validation. The round-2
+        // I/O catch chain only handles IOException subtypes, not ArgumentException — so this
+        // escaped to the runtime with stack trace AND resource-key leak (`Argument_EmptyString
+        // Arg_ParamName_Name, path`), exactly the failure mode round-2 was supposed to fix.
+        // Validate at parse time so this is a usage error (125), not a runtime crash.
+        if (opts.OutputPath is not null && string.IsNullOrWhiteSpace(opts.OutputPath))
+        {
+            stderr.WriteLine(Formatting.UsageError(
+                "--output path must not be empty or whitespace."));
+            return ExitCode.UsageError;
+        }
+
         // Round-1 review SFH-I2: --output overwrote existing files silently. Without --force,
         // refuse-on-exists. The user's existing file is preserved unless they opt in.
         if (opts.OutputPath is not null && !opts.ForceOverwrite && File.Exists(opts.OutputPath))

@@ -1,4 +1,6 @@
 #nullable enable
+using System;
+using System.IO;
 using Xunit;
 using Winix.Qr;
 using Winix.QrCode;
@@ -345,5 +347,48 @@ public class ArgParserTests
         ArgParser.Result r = ArgParser.Parse(["hello"]);
         Assert.NotNull(r.Options);
         Assert.False(r.Options!.ForceOverwrite);
+    }
+
+    // ── Round-3 review TA-I2: regression detectors for the --describe ExitCodes block content.
+    //    Round-2 (CR-I3 / DOCS-C1) rewrote both BuildTextParser and BuildHelperBase ExitCodes
+    //    descriptions because the originals contradicted the binary (capacity overflow listed
+    //    under 125 instead of 126; new refusal/contradiction conditions missing). Without these
+    //    tests, the next regression in either block ships silently — agents reading --describe
+    //    would re-discover the same defect. ShellKit writes --describe output to Console.Out
+    //    during Parse, so we capture via SetOut. ──
+    [Fact]
+    public void Describe_TextMode_ExitCodes_AlignsWithReadme()
+    {
+        string captured = CaptureDescribe(["--describe"]);
+        // 125 enumerates the round-2 contracts:
+        Assert.Contains("--force", captured, StringComparison.Ordinal);
+        Assert.Contains("extension contradiction", captured, StringComparison.Ordinal);
+        // 126 correctly lists capacity overflow (was misclassified as 125 pre-round-2):
+        Assert.Contains("capacity", captured, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Describe_WifiSubcommand_ExitCodes_AlignsWithReadme()
+    {
+        string captured = CaptureDescribe(["wifi", "--describe"]);
+        Assert.Contains("helper grammar violation", captured, StringComparison.Ordinal);
+        Assert.Contains("capacity", captured, StringComparison.Ordinal);
+    }
+
+    private static string CaptureDescribe(string[] args)
+    {
+        TextWriter origOut = Console.Out;
+        StringWriter sw = new();
+        try
+        {
+            Console.SetOut(sw);
+            ArgParser.Result r = ArgParser.Parse(args);
+            Assert.True(r.IsHandled, "expected --describe to be handled by ShellKit");
+        }
+        finally
+        {
+            Console.SetOut(origOut);
+        }
+        return sw.ToString();
     }
 }
