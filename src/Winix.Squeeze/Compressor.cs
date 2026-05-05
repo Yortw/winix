@@ -480,10 +480,20 @@ public static class Compressor
 
         try
         {
-            // A second member can only start at byte (startPos + 18) at the earliest:
-            // first member's 10-byte header + minimum 0-byte deflate body + 8-byte trailer.
-            // Skip past the first member's own magic-byte position to avoid false positive
-            // on the first member's header. Stream-scan for a `1f 8b` pair from there.
+            // Round-3 review (closing CR-C1: false-positive on incompressible single-member
+            // gzip with spurious 1f 8b byte pairs). Finding a `1f 8b` byte pair past offset
+            // 18 is necessary but NOT sufficient to declare multi-member — for compressed
+            // random/encrypted data, the deflate stream preserves enough byte patterns that
+            // spurious `1f 8b` occur roughly once per 64KB. Empirically verified: 64KB
+            // random → spurious magic at offset 18037 → multi-member branch fires → ISIZE
+            // skipped → truncation silently accepted. Re-opens the SFH-C1 hole.
+            //
+            // Tighten by ALSO validating the candidate header is structurally plausible:
+            //  - byte +2: CM (compression method) must be 08 (deflate; only valid per RFC 1952)
+            //  - byte +3: FLG reserved bits 5-7 must be zero
+            // This drops the false-positive rate by ~2048x (1/256 × 1/8). For very large
+            // (100MB+) random-data inputs there's still a residual chance, but it's narrow
+            // enough that valid multi-member input dominates the use case.
             const int ScanBufferSize = 8192;
             byte[] buf = new byte[ScanBufferSize];
             byte prev = 0;
@@ -501,14 +511,16 @@ public static class Compressor
                 for (int i = 0; i < read; i++)
                 {
                     byte cur = buf[i];
-                    // Magic 1f-8b at absolute position (pos + i - 1) for the 1f byte and
-                    // (pos + i) for the 8b byte. The 1f position must be ≥ minSecondMagicPos.
                     if (havePrev && prev == 0x1f && cur == 0x8b)
                     {
                         long magicStart = pos + i - 1;
                         if (magicStart >= minSecondMagicPos)
                         {
-                            return true;
+                            // Structural validation: peek the next 2 bytes (CM + FLG).
+                            if (await IsPlausibleGzipHeaderAtAsync(input, magicStart).ConfigureAwait(false))
+                            {
+                                return true;
+                            }
                         }
                     }
                     prev = cur;
@@ -522,6 +534,43 @@ public static class Compressor
         finally
         {
             input.Position = startPos; // rewind for actual decompression
+        }
+    }
+
+    /// <summary>
+    /// Validates that the bytes at <paramref name="magicStart"/> on a seekable stream form
+    /// a structurally-plausible gzip header start — magic <c>1f 8b</c> already confirmed
+    /// by the caller; this method checks CM=08 and FLG reserved bits 5-7 = 0.
+    /// </summary>
+    /// <remarks>
+    /// Round-3 review (closing CR-C1): without this, raw <c>1f 8b</c> byte pairs in
+    /// deflate-compressed incompressible data trigger false-positive multi-member detection.
+    /// </remarks>
+    private static async Task<bool> IsPlausibleGzipHeaderAtAsync(Stream input, long magicStart)
+    {
+        long savedPos = input.Position;
+        try
+        {
+            input.Position = magicStart + 2; // past magic, points at CM byte
+            byte[] cmFlg = new byte[2];
+            int read = 0;
+            while (read < 2)
+            {
+                int n = await input.ReadAsync(cmFlg.AsMemory(read, 2 - read)).ConfigureAwait(false);
+                if (n == 0) break;
+                read += n;
+            }
+            if (read < 2) return false;
+
+            // CM=08 is the only RFC-defined compression method (deflate).
+            if (cmFlg[0] != 0x08) return false;
+            // FLG reserved bits 5-7 (mask 0xE0) must be zero per RFC 1952 §2.3.1.
+            if ((cmFlg[1] & 0xE0) != 0) return false;
+            return true;
+        }
+        finally
+        {
+            input.Position = savedPos;
         }
     }
 

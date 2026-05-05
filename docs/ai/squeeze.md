@@ -83,6 +83,8 @@ squeeze --json --zstd data.csv 2>&1 | jq '.files[0].input_bytes, .files[0].outpu
 
 **Truncated gzip is rejected with exit 1.** Pre-round-tier-2-review `squeeze` silently produced partial output for half-downloaded `.gz` files. Now the gzip trailer (CRC32 + ISIZE) is validated against the actual decompressed byte count; mismatch = exit 1 with a clear "integrity check failed" message. Pipe consumers should rely on exit codes, not partial-output detection.
 
+**Pipe-mode multi-member gzip false positive.** Concatenated gzip streams (e.g. `cat a.gz b.gz`) decompress correctly in **file mode** (`squeeze -d concat.gz`), but in **pipe mode** (`cat concat.gz | squeeze -d`) they currently exit 1 with `data is corrupt or truncated` AFTER emitting the full decompressed content. The multi-member detector requires a seekable input to scan for additional `1f 8b` magic-byte sequences; non-seekable pipes skip detection and fall through to the strict single-member ISIZE check, which fails because the cumulative decompressed bytes don't match the LAST member's ISIZE. Workaround: pass concatenated streams as a file argument (`squeeze -d concat.gz`) rather than via pipe. This trade-off was documented in the round-2 source comments and is targeted for a future round-3 fix that buffers pipe input for detection.
+
 **`--keep` and `--remove` together: `--keep` wins.** Mirrors gzip(1) semantics. A warning is printed to stderr so users see that `--remove` was overridden.
 
 **Output file is created alongside the input by default.** `squeeze data.csv` creates `data.csv.gz` in the same directory. Use `-o` to specify a different output path, or `-c`/`--stdout` to write to stdout instead.

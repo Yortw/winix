@@ -364,6 +364,65 @@ public class CliTests : IDisposable
     // ── Round-2 review (closing the .NET-non-compliant empty-gzip workaround): empty
     //    input now produces a canonical 23-byte RFC 1952 gzip (not .NET's 15-byte
     //    non-compliant output). Round-trip must work cleanly. ──
+    // ── Round-3 review TA-I4: pin the seekable-input rewind path in DecompressAutoDetectAsync.
+    //    A file without a recognised compression extension (so DetectFromExtension fails)
+    //    that has valid gzip magic bytes must still round-trip via auto-detect — this
+    //    exercises the `if (input.CanSeek) { input.Position -= headerBytes.Length; ... }`
+    //    branch added in round 2. ──
+    [Fact]
+    public async Task RunAsync_AutoDetectViaMagicBytes_NoExtension_RoundTripsCleanly()
+    {
+        string input = MakeFile("data.txt", "auto-detect via magic, not extension");
+        var c = await RunCliAsync(new[] { input });
+        Assert.Equal(0, c.exit);
+
+        // Rename .gz file to a non-recognised extension so the FormatDetector falls back to magic bytes.
+        string mysteryPath = Path.Combine(_tempDir, "mystery.bin");
+        File.Move(input + ".gz", mysteryPath);
+
+        // -d with explicit -o avoids GetDecompressOutputPath rejection (which strips by extension).
+        string outPath = Path.Combine(_tempDir, "decoded");
+        var d = await RunCliAsync(new[] { mysteryPath, "-d", "-o", outPath });
+        Assert.Equal(0, d.exit);
+        Assert.Equal("auto-detect via magic, not extension", File.ReadAllText(outPath));
+    }
+
+    // ── Round-3 review CR-C1 (Critical): the round-2 multi-member detector treated any
+    //    `1f 8b` byte pair past offset 18 as a second member. For incompressible data
+    //    (random/encrypted/already-compressed), spurious `1f 8b` pairs occur ~1/65k
+    //    positions, so >64KB single-member gzip files often contained false positives →
+    //    multi-member branch → ISIZE skipped → truncation silently accepted. Round-3
+    //    closes by structurally validating CM=08 + FLG-reserved-bits-zero at the
+    //    candidate header. This test pins the contract on incompressible-data truncation. ──
+    [Fact]
+    public async Task RunAsync_IncompressibleTruncated_RejectedAsCorrupt_NoFalseMultiMember()
+    {
+        // 64KB of pseudo-random incompressible data with deterministic seed so we can
+        // reliably reproduce the spurious-1f-8b false-positive case the round-3 reviewer
+        // identified. Seed 3, 64KB → produces a single-member gzip likely containing
+        // spurious 1f 8b past offset 18.
+        Random rnd = new(3);
+        byte[] data = new byte[64 * 1024];
+        rnd.NextBytes(data);
+        string raw = Path.Combine(_tempDir, "rand.bin");
+        File.WriteAllBytes(raw, data);
+
+        var c = await RunCliAsync(new[] { raw });
+        Assert.Equal(0, c.exit);
+
+        byte[] gz = File.ReadAllBytes(raw + ".gz");
+        Assert.True(gz.Length > 18000, $"Test data too small to exercise the spurious-magic case (got {gz.Length})");
+
+        // Truncate to a length that cuts off the real trailer.
+        int truncateLen = Math.Min(18237, gz.Length - 16);
+        File.WriteAllBytes(raw + ".gz", gz[..truncateLen]);
+        File.Delete(raw);
+
+        var d = await RunCliAsync(new[] { raw + ".gz", "-d" });
+        // Pre-fix this exited 0 with partial output. Now must exit 1.
+        Assert.Equal(1, d.exit);
+    }
+
     [Fact]
     public async Task RunAsync_EmptyInputRoundTrip_Canonical23Bytes()
     {
