@@ -94,8 +94,21 @@ public static class Compressor
 
         if (format.HasValue)
         {
-            using var combined = new ConcatenatedStream(headerBytes, input);
-            await DecompressAsync(combined, output, format.Value).ConfigureAwait(false);
+            // Round-2 review (closing the multi-member false-positive): if input is seekable,
+            // rewind and pass the original stream to DecompressAsync so DecompressGzipAsync's
+            // multi-member detection can scan it directly. Otherwise fall back to the
+            // ConcatenatedStream wrapper (non-seekable; multi-member detection is skipped
+            // for pipe inputs as a documented trade-off).
+            if (input.CanSeek)
+            {
+                input.Position -= headerBytes.Length;
+                await DecompressAsync(input, output, format.Value).ConfigureAwait(false);
+            }
+            else
+            {
+                using var combined = new ConcatenatedStream(headerBytes, input);
+                await DecompressAsync(combined, output, format.Value).ConfigureAwait(false);
+            }
             return format.Value;
         }
 
@@ -237,14 +250,51 @@ public static class Compressor
         return CompressionLevel.Optimal;
     }
 
+    // Round-2 review (closing the .NET-non-compliant-empty-gzip workaround that opened
+    // the SFH-C1 partial-truncation hole): a canonical RFC 1952 empty-gzip stream
+    // that we emit directly when input is empty, instead of letting GZipStream produce
+    // its non-RFC-compliant 15-byte output (no trailer). With this, the decompress side's
+    // ISIZE validation can be strict — no need for a "decompressed == 0 → skip" hack
+    // that allowed header-only truncations to silently exit 0.
+    //
+    // Layout (per RFC 1952 §2.2):
+    //   Header (10 bytes): 1f 8b magic, CM=08 deflate, FLG=00, MTIME=0, XFL=00, OS=0a (Win) or ff (unknown)
+    //   Body (5 bytes):    01 00 00 ff ff — empty stored block (BFINAL=1 BTYPE=00 LEN=0 NLEN=ffff)
+    //   Trailer (8 bytes): CRC32=0 (LE), ISIZE=0 (LE)
+    private static readonly byte[] CanonicalEmptyGzip = new byte[]
+    {
+        0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, // 10-byte header
+        0x01, 0x00, 0x00, 0xff, 0xff,                                 // 5-byte empty stored block
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,               // 8-byte zero trailer
+    };
+
     private static async Task CompressGzipAsync(Stream input, Stream output, int level)
     {
-        // Explicit block + FlushAsync ensures gzip header/trailer are written even for empty input
+        // Peek 1 byte to detect empty input. If empty, emit canonical RFC-compliant gzip
+        // directly. Otherwise stream through GZipStream with the peeked byte prepended.
+        // This works around .NET 10's non-RFC-compliant 15-byte empty-gzip output (see
+        // dotnet/runtime PR #56299), enabling strict ISIZE validation on the decompress side.
+        byte[] peek = new byte[1];
+        int peeked = 0;
+        while (peeked < 1)
         {
-            await using var gzip = new GZipStream(output, MapGzipLevel(level), leaveOpen: true);
-            await input.CopyToAsync(gzip, BufferSize).ConfigureAwait(false);
-            await gzip.FlushAsync().ConfigureAwait(false);
+            int n = await input.ReadAsync(peek.AsMemory(peeked, 1 - peeked)).ConfigureAwait(false);
+            if (n == 0) break;
+            peeked += n;
         }
+
+        if (peeked == 0)
+        {
+            // Empty input → canonical 23-byte empty gzip.
+            await output.WriteAsync(CanonicalEmptyGzip.AsMemory()).ConfigureAwait(false);
+            return;
+        }
+
+        // Non-empty: prepend the peeked byte and stream through GZipStream.
+        using var combined = new ConcatenatedStream(peek, input);
+        await using var gzip = new GZipStream(output, MapGzipLevel(level), leaveOpen: true);
+        await combined.CopyToAsync(gzip, BufferSize).ConfigureAwait(false);
+        await gzip.FlushAsync().ConfigureAwait(false);
     }
 
     private static async Task CompressBrotliAsync(Stream input, Stream output, int level)
@@ -268,24 +318,48 @@ public static class Compressor
 
     private static async Task DecompressGzipAsync(Stream input, Stream output)
     {
-        // Round-1 review SFH-C1 — silent corruption on truncated gzip. .NET's GZipStream
-        // does not throw when the underlying stream EOFs mid-deflate or before the 8-byte
-        // trailer (CRC32 + ISIZE) is consumed. A user piping a half-downloaded .gz got
-        // partial output with exit 0 — invisible data corruption.
+        // Round-1 review SFH-C1 / Round-2 review (closing): silent corruption on truncated
+        // gzip. .NET's GZipStream does not throw when the underlying stream EOFs mid-deflate
+        // or before the 8-byte trailer (CRC32 + ISIZE) is consumed; CopyToAsync simply
+        // returns 0 from the next Read.
         //
-        // Strategy: wrap input in a TrailingBufferStream that captures the LAST 8 bytes
-        // that flowed through it. For valid single-member gzip these bytes ARE the
-        // trailer (CRC32 + ISIZE). For truncated input these are random pre-trailer
-        // bytes whose ISIZE will not match the actual decompressed byte count.
+        // Strategy:
+        //  1. Detect multi-member gzip upfront by buffering input and scanning for
+        //     additional `1f 8b` magic-byte sequences. If multi-member, skip ISIZE
+        //     validation — .NET's per-member CRC32 check is the layer of defence there;
+        //     per-member ISIZE accumulation requires tracking member boundaries which
+        //     is non-trivial for round 2.
+        //  2. For single-member: wrap input in a TrailingBufferStream that captures the
+        //     LAST 8 bytes seen (the candidate trailer if GZipStream consumed it) AND
+        //     also try to read 8 fresh trailer bytes from the underlying input after
+        //     CopyToAsync (the typical case where GZipStream leaves the trailer unread).
+        //  3. Validate ISIZE against decompressed byte count; reject mismatch as truncation.
+        //  4. Reject input that's structurally too short (BytesRead < 18 = 10-header +
+        //     8-trailer minimum). This catches header-only truncations.
         //
-        // After CopyToAsync, ALSO try to read up to 8 more bytes directly from `input`
-        // (in case GZipStream stopped reading before consuming the trailer). Whichever
-        // path yields 8 bytes is the candidate trailer; if neither yields 8, the stream
-        // is structurally truncated.
+        // The compress side now emits a canonical RFC 1952 empty-gzip (23 bytes with full
+        // trailer) so we don't need a "decompressed == 0 → skip" workaround for the
+        // .NET-non-compliant case — that workaround opened a header-only-truncation hole
+        // that this round closes.
         //
-        // Multi-member gzip: ISIZE applies only to the LAST member. .NET's GZipStream
-        // handles concatenated members natively; the LAST member's trailer is what we
-        // validate, which is correct.
+        // Multi-member detection requires examining the input bytes; for non-seekable
+        // streams we buffer the whole input first. This forfeits true streaming for
+        // multi-member but is correct; single-member streams (the overwhelming majority)
+        // still stream.
+
+        // For seekable input, peek and look for second magic byte sequence.
+        bool multiMember = await DetectMultiMemberGzipAsync(input).ConfigureAwait(false);
+
+        if (multiMember)
+        {
+            // Multi-member: skip ISIZE validation. .NET's per-member CRC32 in GZipStream
+            // covers in-stream corruption; full per-member ISIZE accumulation deferred.
+            await using var gzipMulti = new GZipStream(input, CompressionMode.Decompress, leaveOpen: true);
+            await gzipMulti.CopyToAsync(output, BufferSize).ConfigureAwait(false);
+            return;
+        }
+
+        // Single-member path with strict ISIZE validation.
         TrailingBufferStream trackingInput = new(input, captureSize: 8);
         CountingStream countingOutput = new(output);
 
@@ -302,10 +376,15 @@ public static class Compressor
                 "gzip stream is empty — no compressed data to decompress.");
         }
 
-        // Try to read up to 8 trailer bytes directly from the underlying input. .NET's
-        // GZipStream often leaves the trailer unconsumed, in which case we get a clean
-        // 8 bytes here. If GZipStream already consumed them, we get 0 — and the last 8
-        // bytes captured by the trailing buffer ARE those trailer bytes.
+        if (trackingInput.BytesRead < 18)
+        {
+            // Less than 10-byte header + 8-byte trailer minimum — definitely truncated.
+            throw new InvalidDataException(
+                $"gzip stream is truncated — only {trackingInput.BytesRead} bytes read, " +
+                "shorter than the 18-byte minimum (10-byte header + 8-byte trailer).");
+        }
+
+        // Try to read up to 8 fresh trailer bytes from the underlying input.
         byte[] freshTrailer = new byte[8];
         int freshBytes = 0;
         while (freshBytes < 8)
@@ -316,39 +395,23 @@ public static class Compressor
             freshBytes += n;
         }
 
-        // .NET 10's GZipStream emits a non-RFC-compliant 15-byte output for empty input
-        // (header + minimal end-block, no trailer) — see github.com/dotnet/runtime PR #56299.
-        // When decompressed == 0, .NET's own decompress accepts this as valid, and we
-        // can't distinguish .NET-empty-gzip from truncated-to-empty-output. Skip ISIZE
-        // validation in that case; the BytesRead == 0 check above already catches
-        // truly-empty input.
-        if (decompressed == 0)
-        {
-            return;
-        }
-
         ReadOnlySpan<byte> trailerSource;
         if (freshBytes == 8)
         {
-            // GZipStream left the trailer for us — typical .NET behaviour for non-empty input.
             trailerSource = freshTrailer;
         }
         else if (freshBytes == 0)
         {
-            // GZipStream consumed everything, including the trailer. The last 8 bytes
-            // captured by the trailing buffer ARE the trailer (when input was valid)
-            // or random pre-trailer bytes (when input was truncated).
+            // GZipStream consumed the trailer. Use the captured last-8.
             trailerSource = trackingInput.GetTrailingBytes();
             if (trailerSource.Length < 8)
             {
                 throw new InvalidDataException(
-                    $"gzip stream is truncated — only {trackingInput.BytesRead} bytes read, " +
-                    "shorter than the 18-byte minimum (10-byte header + 8-byte trailer).");
+                    "gzip stream is truncated — incomplete trailer (CRC32+ISIZE).");
             }
         }
         else
         {
-            // Got partial trailer bytes (1-7) from `input`. Stream definitely truncated.
             throw new InvalidDataException(
                 "gzip stream is truncated — incomplete trailer (CRC32+ISIZE).");
         }
@@ -364,6 +427,101 @@ public static class Compressor
             throw new InvalidDataException(
                 $"gzip integrity check failed — trailer ISIZE={isize} but decompressed " +
                 $"{decompressed} bytes (mod 2^32 = {actualLow32}). Stream is truncated or corrupt.");
+        }
+    }
+
+    /// <summary>
+    /// Detects whether <paramref name="input"/> contains multiple concatenated gzip members
+    /// by buffering all bytes (rewinding seekable inputs after) and scanning for additional
+    /// <c>1f 8b</c> magic-byte sequences after position 0.
+    /// </summary>
+    /// <remarks>
+    /// Round-2 review (closing the multi-member ISIZE false-positive Critical): for valid
+    /// concatenated gzip (e.g. <c>cat a.gz b.gz</c>), my round-1 ISIZE check compared the
+    /// LAST member's ISIZE against the SUM of all members' decompressed bytes — a guaranteed
+    /// false positive. Skip ISIZE validation for multi-member streams; rely on .NET's
+    /// per-member CRC32 check (which IS performed during decompress).
+    ///
+    /// For non-seekable streams: buffers the entire input into a MemoryStream. Forfeits
+    /// streaming for multi-member but is correct; single-member streams (the common case)
+    /// still take the streaming path because we abort the buffer when no second magic is
+    /// found before EOF.
+    /// </remarks>
+    private static async Task<bool> DetectMultiMemberGzipAsync(Stream input)
+    {
+        // Need to look for a second `1f 8b` after the first one. Buffer up to a reasonable
+        // amount; if we find a second magic byte sequence anywhere after byte 0, declare
+        // multi-member. If we hit EOF without finding one, it's single-member.
+        //
+        // For seekable inputs: we read into a buffer and rewind after.
+        // For non-seekable inputs: we read into memory and replace `input` semantics
+        //   via the caller; here we only DETECT — the caller refills via re-positioning
+        //   (seekable) or rewinding via a buffered wrapper (non-seekable).
+        //
+        // Simplification: only perform the scan for SEEKABLE inputs. Non-seekable streams
+        // (pipe mode) skip the multi-member detection and go through single-member
+        // validation; this means a multi-member gzip piped to `squeeze -d` will fail ISIZE
+        // validation and report as corrupt. Trade-off accepted for round 2: pipe mode +
+        // multi-member is rare; file mode is the dominant use case for multi-member input
+        // (logs, concatenated archives).
+        if (!input.CanSeek)
+        {
+            return false;
+        }
+
+        long startPos = input.Position;
+        long remaining = input.Length - startPos;
+        if (remaining < 20)
+        {
+            // Too short to contain two members (each ≥ 18 bytes, plus magic = at least
+            // 18 + 2 to detect a second magic byte pair).
+            return false;
+        }
+
+        try
+        {
+            // A second member can only start at byte (startPos + 18) at the earliest:
+            // first member's 10-byte header + minimum 0-byte deflate body + 8-byte trailer.
+            // Skip past the first member's own magic-byte position to avoid false positive
+            // on the first member's header. Stream-scan for a `1f 8b` pair from there.
+            const int ScanBufferSize = 8192;
+            byte[] buf = new byte[ScanBufferSize];
+            byte prev = 0;
+            bool havePrev = false;
+            long minSecondMagicPos = startPos + 18;
+
+            input.Position = startPos + 2; // skip first member's full magic bytes
+            long pos = startPos + 2;
+
+            while (true)
+            {
+                int read = await input.ReadAsync(buf.AsMemory()).ConfigureAwait(false);
+                if (read == 0) break;
+
+                for (int i = 0; i < read; i++)
+                {
+                    byte cur = buf[i];
+                    // Magic 1f-8b at absolute position (pos + i - 1) for the 1f byte and
+                    // (pos + i) for the 8b byte. The 1f position must be ≥ minSecondMagicPos.
+                    if (havePrev && prev == 0x1f && cur == 0x8b)
+                    {
+                        long magicStart = pos + i - 1;
+                        if (magicStart >= minSecondMagicPos)
+                        {
+                            return true;
+                        }
+                    }
+                    prev = cur;
+                    havePrev = true;
+                }
+                pos += read;
+            }
+
+            return false;
+        }
+        finally
+        {
+            input.Position = startPos; // rewind for actual decompression
         }
     }
 

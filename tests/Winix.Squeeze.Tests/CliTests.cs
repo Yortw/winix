@@ -304,4 +304,87 @@ public class CliTests : IDisposable
         var r = await RunCliAsync(new[] { "--describe" });
         Assert.Equal(0, r.exit);
     }
+
+    // ── Round-2 review (closing CR-C1 / SFH-C2): multi-member gzip must round-trip cleanly,
+    //    not be rejected as corrupt. Pre-fix the round-1 ISIZE check compared the LAST
+    //    member's ISIZE against the SUM of all members' decompressed bytes — guaranteed
+    //    false positive on any concatenated input. ──
+    [Fact]
+    public async Task RunAsync_MultiMemberGzipFile_RoundTripsCleanly()
+    {
+        string a = MakeFile("a.txt", "first member content");
+        var ca = await RunCliAsync(new[] { a });
+        Assert.Equal(0, ca.exit);
+
+        string b = MakeFile("b.txt", "second member content");
+        var cb = await RunCliAsync(new[] { b });
+        Assert.Equal(0, cb.exit);
+
+        // Concatenate the two .gz files.
+        string multi = Path.Combine(_tempDir, "multi.gz");
+        byte[] aGz = File.ReadAllBytes(a + ".gz");
+        byte[] bGz = File.ReadAllBytes(b + ".gz");
+        byte[] combined = new byte[aGz.Length + bGz.Length];
+        Buffer.BlockCopy(aGz, 0, combined, 0, aGz.Length);
+        Buffer.BlockCopy(bGz, 0, combined, aGz.Length, bGz.Length);
+        File.WriteAllBytes(multi, combined);
+
+        // Decompress to a new file and verify the concatenated content.
+        string outPath = Path.Combine(_tempDir, "multi-out");
+        var d = await RunCliAsync(new[] { "-d", multi, "-o", outPath });
+        Assert.Equal(0, d.exit);
+        Assert.Equal("first member contentsecond member content", File.ReadAllText(outPath));
+    }
+
+    // ── Round-2 review (closing SFH-C1 part 2): header-only truncation (e.g. 15-30 bytes
+    //    of a longer gzip) previously slipped through the 'decompressed == 0 → skip' hack
+    //    and exited 0 with empty output. The compress-side now emits canonical RFC 1952
+    //    empty-gzip so the decompress side can be strict, AND the decompress side now
+    //    rejects BytesRead < 18. ──
+    [Theory]
+    [InlineData(15)]
+    [InlineData(20)]
+    [InlineData(30)]
+    public async Task RunAsync_ShortGzipTruncation_RejectedAsCorrupt(int bytesToKeep)
+    {
+        string input = MakeFile("data.txt", "the quick brown fox jumps over the lazy dog");
+        var c = await RunCliAsync(new[] { input });
+        Assert.Equal(0, c.exit);
+
+        byte[] full = File.ReadAllBytes(input + ".gz");
+        if (full.Length <= bytesToKeep) return; // Test data isn't long enough to truncate this short.
+        File.WriteAllBytes(input + ".gz", full[..bytesToKeep]);
+        File.Delete(input);
+
+        var d = await RunCliAsync(new[] { input + ".gz", "-d" });
+        Assert.Equal(1, d.exit);
+        // Either "truncated", "corrupt", or "incomplete trailer" is acceptable; just must NOT exit 0.
+    }
+
+    // ── Round-2 review (closing the .NET-non-compliant empty-gzip workaround): empty
+    //    input now produces a canonical 23-byte RFC 1952 gzip (not .NET's 15-byte
+    //    non-compliant output). Round-trip must work cleanly. ──
+    [Fact]
+    public async Task RunAsync_EmptyInputRoundTrip_Canonical23Bytes()
+    {
+        string empty = MakeFile("empty.txt", "");
+        var c = await RunCliAsync(new[] { empty });
+        Assert.Equal(0, c.exit);
+
+        byte[] gz = File.ReadAllBytes(empty + ".gz");
+        Assert.Equal(23, gz.Length);
+        // Verify magic and trailer pattern.
+        Assert.Equal(0x1f, gz[0]);
+        Assert.Equal(0x8b, gz[1]);
+        // Trailer (last 8 bytes) should be all zeros for empty input (CRC32=0, ISIZE=0).
+        for (int i = 15; i < 23; i++)
+        {
+            Assert.Equal(0, gz[i]);
+        }
+
+        File.Delete(empty);
+        var d = await RunCliAsync(new[] { empty + ".gz", "-d" });
+        Assert.Equal(0, d.exit);
+        Assert.Equal("", File.ReadAllText(empty));
+    }
 }

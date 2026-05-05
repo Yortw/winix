@@ -358,6 +358,12 @@ public static class FileOperations
     internal static (string ExitReason, string Message) ClassifyIoException(
         Exception ex, string contextPath, bool decompress)
     {
+        // Round-2 review (closing the IOException fallback resource-key leak): the round-1
+        // fallback piped ex.Message — but plain IOException.Message under
+        // InvariantGlobalization=true is a raw resource key (IO_SharingViolation_File,
+        // IO_DiskFull, etc). Classify common IOException HRESULTs explicitly; for the
+        // genuinely unknown remainder, emit the type name only and a generic descriptor —
+        // no ex.Message which can leak resource tokens.
         return ex switch
         {
             DirectoryNotFoundException =>
@@ -373,10 +379,16 @@ public static class FileOperations
                  $"squeeze: {contextPath}: data is corrupt or truncated"),
             ArgumentException =>
                 ("io_error", $"squeeze: {contextPath}: invalid path"),
-            // Fallback: prefix the exception type so the user can search for the underlying
-            // cause even if ex.Message is a resource key.
+            // Plain IOException covers sharing violations, disk-full, network errors, etc.
+            // Map to a generic message + type name so the user has actionable context
+            // without leaking a raw SR key.
+            IOException =>
+                ("io_error",
+                 $"squeeze: {contextPath} (IOException): I/O failed (file may be locked, disk full, or path inaccessible)"),
+            // Fallback: include the exception TYPE name only (locale-independent CLR text)
+            // — explicitly omit ex.Message which may be a resource key.
             _ => (decompress ? "decompress_failed" : "compress_failed",
-                 $"squeeze: {contextPath} ({ex.GetType().Name}): {ex.Message}"),
+                 $"squeeze: {contextPath} ({ex.GetType().Name}): unexpected error during {(decompress ? "decompression" : "compression")}"),
         };
     }
 }
