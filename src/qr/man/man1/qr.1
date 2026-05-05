@@ -41,10 +41,13 @@ Error-correction level. Default \fBm\fR (~15% recovery). Use \fBh\fR for outdoor
 Strip the 4-module quiet zone around the code. May reduce scannability.
 .TP
 \fB--output\fR \fIPATH\fR, \fB-o\fR \fIPATH\fR
-Write output to a file instead of stdout.
+Write output to a file instead of stdout. Refuses to overwrite an existing file unless \fB--force\fR is also supplied.
 .TP
 \fB--force-binary\fR
 Permit PNG output to a TTY (otherwise refused to avoid terminal corruption).
+.TP
+\fB--force\fR
+Overwrite an existing \fB--output\fR file. Refused by default to avoid losing user data.
 .TP
 \fB--describe\fR
 Emit a JSON description of the tool.
@@ -57,10 +60,10 @@ Colour control. Respects the \fBNO_COLOR\fR environment variable.
 Success.
 .TP
 .B 125
-Usage error (bad flags, missing required, empty payload, PNG to TTY without \fB--force-binary\fR).
+Usage error: bad flags, missing required field, empty payload, PNG to TTY without \fB--force-binary\fR, \fB--format\fR contradicts \fB--output\fR extension, refusing to overwrite an existing \fB--output\fR file without \fB--force\fR, helper field value violates its grammar (e.g. tel/sms phone number contains letters).
 .TP
 .B 126
-Runtime error (payload exceeds QR capacity, invalid UTF-8 on stdin, invalid helper field value).
+Runtime error: payload exceeds QR capacity, invalid UTF-8 on stdin, output file write failed.
 .SH EXAMPLES
 .PP
 Encode a URL:

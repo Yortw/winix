@@ -18,6 +18,7 @@ public sealed record QrOptions(
     bool NoMargin,
     string? OutputPath,
     bool ForceBinary,
+    bool ForceOverwrite,
     // wifi helper.
     string? WifiSsid,
     string? WifiPassword,

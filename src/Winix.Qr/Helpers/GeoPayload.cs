@@ -16,13 +16,15 @@ public static class GeoPayload
     {
         if (lat < -90 || lat > 90)
         {
+            // Round-2 review CR-I1: single-arg ArgumentException — see TelPayload for rationale.
+            // Format the value via InvariantCulture so e.g. de-DE doesn't render '91,5' for 91.5.
             throw new ArgumentException(
-                $"Latitude must be in [-90, 90]; got {lat}.", nameof(lat));
+                string.Create(CultureInfo.InvariantCulture, $"--lat must be in [-90, 90]; got {lat}."));
         }
         if (lon < -180 || lon > 180)
         {
             throw new ArgumentException(
-                $"Longitude must be in [-180, 180]; got {lon}.", nameof(lon));
+                string.Create(CultureInfo.InvariantCulture, $"--lon must be in [-180, 180]; got {lon}."));
         }
 
         string uri = string.Create(CultureInfo.InvariantCulture, $"geo:{lat},{lon}");

@@ -18,6 +18,7 @@ public class PayloadBuilderTests
         NoMargin: false,
         OutputPath: null,
         ForceBinary: false,
+        ForceOverwrite: false,
         WifiSsid: null, WifiPassword: null, WifiSecurity: null, WifiHidden: false,
         SmsNumber: null, SmsMessage: null,
         MailtoTo: null, MailtoSubject: null, MailtoBody: null, MailtoCc: null, MailtoBcc: null,

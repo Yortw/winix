@@ -19,7 +19,10 @@ public static class WifiPayload
     {
         if (string.IsNullOrEmpty(ssid))
         {
-            throw new ArgumentException("SSID must be non-empty.", nameof(ssid));
+            // Round-2 review CR-I1: ArgumentException(msg, paramName) leaks the resource key
+            // 'Arg_ParamName_Name' under InvariantGlobalization=true (which qr.csproj sets).
+            // Use the single-arg form; the message itself names the bad field.
+            throw new ArgumentException("SSID must be non-empty.");
         }
 
         string securityCode = security.ToLowerInvariant() switch
@@ -28,15 +31,14 @@ public static class WifiPayload
             "wep" => "WEP",
             "nopass" => "nopass",
             _ => throw new ArgumentException(
-                $"Unknown security type '{security}'. Expected wpa2, wpa, wep, or nopass.", nameof(security)),
+                $"Unknown --security value '{security}'. Expected wpa2, wpa, wep, or nopass."),
         };
 
         bool isOpen = securityCode == "nopass";
         if (!isOpen && string.IsNullOrEmpty(password))
         {
             throw new ArgumentException(
-                $"Password is required for security type '{security}'. Use --security nopass for open networks.",
-                nameof(password));
+                $"--password is required for --security {security}. Use --security nopass for open networks.");
         }
 
         StringBuilder sb = new();

@@ -44,4 +44,19 @@ public class MailtoPayloadTests
     {
         Assert.Throws<ArgumentException>(() => MailtoPayload.Build("", null, null, null, null));
     }
+
+    // ── Round-3 review TA-I1: regression detector for the InvariantGlobalization-induced
+    //    'Arg_ParamName_Name' resource-key leak. The test project sets
+    //    InvariantGlobalization=true, so reverting MailtoPayload to the two-arg
+    //    ArgumentException(message, paramName) constructor will cause Message to contain
+    //    the SR token. Without this test, a future regression in MailtoPayload would slip
+    //    silently — the current Build_EmptyTo_Throws asserts only the exception type, not
+    //    the message content. ──
+    [Fact]
+    public void Build_EmptyTo_ErrorMessageDoesNotContainResourceKey()
+    {
+        ArgumentException ex = Assert.Throws<ArgumentException>(
+            () => MailtoPayload.Build("", null, null, null, null));
+        Assert.DoesNotContain("Arg_ParamName_Name", ex.Message, StringComparison.Ordinal);
+    }
 }

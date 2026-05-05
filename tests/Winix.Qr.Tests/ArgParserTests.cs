@@ -1,4 +1,6 @@
 #nullable enable
+using System;
+using System.IO;
 using Xunit;
 using Winix.Qr;
 using Winix.QrCode;
@@ -269,5 +271,124 @@ public class ArgParserTests
     {
         ArgParser.Result r = ArgParser.Parse(["wifi", "--help"]);
         Assert.True(r.IsHandled);
+    }
+
+    // ── Round-1 review TA-I5: per-subcommand positional-rejection branches. Each helper
+    //    rejects positional args with a specific error message; one test per dispatch site. ──
+
+    [Fact]
+    public void Parse_Wifi_WithPositional_Rejected()
+    {
+        ArgParser.Result r = ArgParser.Parse(["wifi", "stray", "--ssid", "Net"]);
+        Assert.NotNull(r.Error);
+        Assert.Contains("wifi does not accept positional", r.Error!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Parse_Sms_WithPositional_Rejected()
+    {
+        ArgParser.Result r = ArgParser.Parse(["sms", "stray", "--number", "+1555"]);
+        Assert.NotNull(r.Error);
+        Assert.Contains("sms does not accept positional", r.Error!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Parse_Mailto_WithPositional_Rejected()
+    {
+        ArgParser.Result r = ArgParser.Parse(["mailto", "stray", "--to", "a@b.com"]);
+        Assert.NotNull(r.Error);
+        Assert.Contains("mailto does not accept positional", r.Error!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Parse_Geo_WithPositional_Rejected()
+    {
+        ArgParser.Result r = ArgParser.Parse(["geo", "stray", "--lat", "0", "--lon", "0"]);
+        Assert.NotNull(r.Error);
+        Assert.Contains("geo does not accept positional", r.Error!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Parse_Tel_WithPositional_Rejected()
+    {
+        ArgParser.Result r = ArgParser.Parse(["tel", "stray", "--number", "+1555"]);
+        Assert.NotNull(r.Error);
+        Assert.Contains("tel does not accept positional", r.Error!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Parse_Text_TooManyPositionals_Rejected()
+    {
+        ArgParser.Result r = ArgParser.Parse(["one", "two"]);
+        Assert.NotNull(r.Error);
+        Assert.Contains("unexpected positional", r.Error!, StringComparison.Ordinal);
+    }
+
+    // ── Round-1 review SFH-I2 (CLI surface): --force flag is registered and parses ──
+    [Fact]
+    public void Parse_ForceFlag_OnText_SetsForceOverwrite()
+    {
+        ArgParser.Result r = ArgParser.Parse(["hello", "--force"]);
+        Assert.NotNull(r.Options);
+        Assert.True(r.Options!.ForceOverwrite);
+    }
+
+    [Fact]
+    public void Parse_ForceFlag_OnHelper_SetsForceOverwrite()
+    {
+        ArgParser.Result r = ArgParser.Parse(["wifi", "--ssid", "Net", "--password", "pw", "--force"]);
+        Assert.NotNull(r.Options);
+        Assert.True(r.Options!.ForceOverwrite);
+    }
+
+    [Fact]
+    public void Parse_NoForceFlag_DefaultsFalse()
+    {
+        ArgParser.Result r = ArgParser.Parse(["hello"]);
+        Assert.NotNull(r.Options);
+        Assert.False(r.Options!.ForceOverwrite);
+    }
+
+    // ── Round-3 review TA-I2: regression detectors for the --describe ExitCodes block content.
+    //    Round-2 (CR-I3 / DOCS-C1) rewrote both BuildTextParser and BuildHelperBase ExitCodes
+    //    descriptions because the originals contradicted the binary (capacity overflow listed
+    //    under 125 instead of 126; new refusal/contradiction conditions missing). Without these
+    //    tests, the next regression in either block ships silently — agents reading --describe
+    //    would re-discover the same defect. ShellKit writes --describe output to Console.Out
+    //    during Parse, so we capture via SetOut. ──
+    [Fact]
+    public void Describe_TextMode_ExitCodes_AlignsWithReadme()
+    {
+        string captured = CaptureDescribe(["--describe"]);
+        // 125 enumerates the round-2 contracts:
+        Assert.Contains("--force", captured, StringComparison.Ordinal);
+        Assert.Contains("extension contradiction", captured, StringComparison.Ordinal);
+        // 126 correctly lists capacity overflow (was misclassified as 125 pre-round-2):
+        Assert.Contains("capacity", captured, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Describe_WifiSubcommand_ExitCodes_AlignsWithReadme()
+    {
+        string captured = CaptureDescribe(["wifi", "--describe"]);
+        Assert.Contains("helper grammar violation", captured, StringComparison.Ordinal);
+        Assert.Contains("capacity", captured, StringComparison.Ordinal);
+    }
+
+    private static string CaptureDescribe(string[] args)
+    {
+        TextWriter origOut = Console.Out;
+        StringWriter sw = new();
+        try
+        {
+            Console.SetOut(sw);
+            ArgParser.Result r = ArgParser.Parse(args);
+            Assert.True(r.IsHandled, "expected --describe to be handled by ShellKit");
+        }
+        finally
+        {
+            Console.SetOut(origOut);
+        }
+        return sw.ToString();
     }
 }
