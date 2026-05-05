@@ -14,7 +14,9 @@ public static class MailtoPayload
     {
         if (string.IsNullOrEmpty(to))
         {
-            throw new ArgumentException("To must be non-empty.", nameof(to));
+            // Round-2 review CR-I1: single-arg ArgumentException avoids the
+            // InvariantGlobalization-induced 'Arg_ParamName_Name' suffix in qr.csproj's AOT build.
+            throw new ArgumentException("--to must be non-empty.");
         }
 
         StringBuilder sb = new();

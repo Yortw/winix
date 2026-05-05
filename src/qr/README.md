@@ -60,15 +60,13 @@ echo "https://example.com" | qr                # stdin
 
 **`qr wifi`** — `--ssid <s>`, `--password <p>`, `--security {wpa2,wpa,wep,nopass}` (default `wpa2`), `--hidden`.
 
-**`qr sms`** — `--number <n>` (required), `--message <m>`.
+**`qr sms`** — `--number <n>` (required), `--message <m>`. The number is sanitised by the same rules as `qr tel`.
 
 **`qr mailto`** — `--to <a>` (required), `--subject <s>`, `--body <b>`, `--cc <a>`, `--bcc <a>`.
 
 **`qr geo`** — `--lat <n>`, `--lon <n>` (both required; lat ∈ [-90, 90], lon ∈ [-180, 180]), `--query <q>`.
 
 **`qr tel`** — `--number <n>` (required). Phone numbers are sanitised: ASCII whitespace is stripped, and only digits, an optional leading `+`, separators `()-./*#`, and RFC 3966 `;param=value` extensions are accepted. Letters and shell metacharacters are rejected.
-
-**`qr sms`** — same number sanitisation as `qr tel`.
 
 ## Exit codes
 

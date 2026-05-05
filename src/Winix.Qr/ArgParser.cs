@@ -244,8 +244,8 @@ public static class ArgParser
                 valueOnUnix: "One tool covering unicode terminal output, ascii for no-UTF8 terminals, SVG and PNG, plus structured helpers (Wi-Fi / SMS / mailto / geo / tel) missing from qrencode.")
             .ExitCodes(
                 (0, "Success"),
-                (ExitCode.UsageError, "Usage error: bad flags, missing required field for a helper subcommand, capacity-overflow-refused (use --error-correction l)"),
-                (ExitCode.NotExecutable, "Runtime error: stdin not valid UTF-8, output write failed"))
+                (ExitCode.UsageError, "Usage error: bad flags, missing required field for a helper subcommand, helper grammar violation (e.g. tel/sms with letters), --format vs --output extension contradiction, refusing to overwrite an existing --output file without --force, PNG to TTY without --force-binary"),
+                (ExitCode.NotExecutable, "Runtime error: payload exceeds QR capacity (try --error-correction l), stdin not valid UTF-8, output write failed (parent missing, permission denied, etc.)"))
             .StdinDescription("Text payload to encode when no positional is given, or when '-' is passed.")
             .StdoutDescription("Rendered QR code (unicode/ascii/svg by default; bytes for PNG unless --output).")
             .StderrDescription("Errors, capacity-overflow hints, and diagnostic messages.")
@@ -354,8 +354,8 @@ public static class ArgParser
                 valueOnUnix: "Structured helpers for Wi-Fi / SMS / mailto / geo / tel are missing from qrencode and most alternatives.")
             .ExitCodes(
                 (0, "Success"),
-                (ExitCode.UsageError, "Usage error: missing required field, bad flag value"),
-                (ExitCode.NotExecutable, "Runtime error: output write failed"))
+                (ExitCode.UsageError, "Usage error: missing required field, bad flag value, helper grammar violation (e.g. tel/sms with letters or out-of-range geo coordinates), --format vs --output extension contradiction, refusing to overwrite an existing --output file without --force"),
+                (ExitCode.NotExecutable, "Runtime error: payload exceeds QR capacity (try --error-correction l), output write failed (parent missing, permission denied, etc.)"))
             .StdinDescription("Not used by helper subcommands.")
             .StdoutDescription("Rendered QR code (unicode/ascii/svg by default; bytes for PNG unless --output).")
             .StderrDescription("Errors and diagnostic messages.")

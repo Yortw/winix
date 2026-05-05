@@ -239,7 +239,8 @@ public class CliTests
         // from PayloadBuilder.Build map to 125.
         var r = RunCli(new[] { "wifi", "--ssid", "Net", "--password", "pw", "--security", "xyz" });
         Assert.Equal(ExitCode.UsageError, r.exit);
-        Assert.Contains("Unknown security type", r.stderr, StringComparison.Ordinal);
+        // Round-2 review CR-I1 reworded to surface the flag name directly.
+        Assert.Contains("Unknown --security", r.stderr, StringComparison.Ordinal);
     }
 
     // ── Subcommand dispatch ──
@@ -310,5 +311,88 @@ public class CliTests
         // ShellKit writes help to stdout — and qr wifi --help should mention --ssid which text-mode doesn't.
         // The actual capture goes through ShellKit's Console writer not our test sink, so we only
         // assert the exit code here. (Subcommand-specific content is exercised by ArgParser tests.)
+    }
+
+    // ── Round-2 review DOCS-I2: --force without --output is a usage error. ──
+    [Fact]
+    public void Run_ForceWithoutOutput_RejectedAsUsageError()
+    {
+        var r = RunCli(new[] { "hello", "--force" });
+        Assert.Equal(ExitCode.UsageError, r.exit);
+        Assert.Contains("--force has no effect without --output", r.stderr, StringComparison.Ordinal);
+    }
+
+    // ── Round-2 review TA-I2: defensive `stdoutBinary is null` branch in PNG path.
+    //    Test must call Cli.Run directly (the convenience runner always supplies a sink). ──
+    [Fact]
+    public void Run_PngWithNullBinarySink_FailsClosed()
+    {
+        StringReader reader = new("");
+        StringWriter outW = new();
+        StringWriter errW = new();
+        int exit = Cli.Run(
+            new[] { "hello", "--format", "png", "--force-binary" },
+            reader, outW, errW,
+            stdoutBinary: null,
+            stdinIsRedirected: false,
+            stdoutIsTty: true);
+        Assert.Equal(126, exit);
+        Assert.Contains("no binary stdout sink configured", errW.ToString(), StringComparison.Ordinal);
+    }
+
+    // ── Round-2 review CR-I2 / SFH2-I1: under InvariantGlobalization=true (now set on this
+    //    test project to mirror qr.csproj), helper-validation errors and I/O exception messages
+    //    must NOT contain the .NET resource-key tokens that the framework's localised suffix
+    //    falls back to. These tests will fail if any helper reverts to the two-arg ArgumentException
+    //    constructor or pipes raw IOException.Message into the user envelope. ──
+    [Fact]
+    public void Run_WifiBadSecurity_ErrorMessageDoesNotContainResourceKey()
+    {
+        var r = RunCli(new[] { "wifi", "--ssid", "Net", "--password", "pw", "--security", "xyz" });
+        Assert.Equal(ExitCode.UsageError, r.exit);
+        Assert.DoesNotContain("Arg_ParamName_Name", r.stderr, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Run_WifiMissingPassword_ErrorMessageDoesNotContainResourceKey()
+    {
+        var r = RunCli(new[] { "wifi", "--ssid", "Net", "--security", "wpa2" });
+        Assert.Equal(ExitCode.UsageError, r.exit);
+        Assert.DoesNotContain("Arg_ParamName_Name", r.stderr, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Run_WriteToMissingDirectory_EmitsCleanEnglish()
+    {
+        // SFH2-I1: pre-fix, ex.Message under InvariantGlobalization returned 'IO_PathNotFound_Path'.
+        // Now we classify by exception subtype and emit project-controlled English.
+        string missing = Path.Combine(Path.GetTempPath(),
+            $"qr-missing-parent-{Guid.NewGuid():N}", "code.svg");
+        var r = RunCli(new[] { "hello", "--format", "svg", "--output", missing });
+        Assert.Equal(126, r.exit);
+        Assert.Contains("parent directory does not exist", r.stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain("IO_PathNotFound_Path", r.stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain("UnauthorizedAccess_IODenied_Path", r.stderr, StringComparison.Ordinal);
+    }
+
+    // ── Round-2 review TA-I1: bare-Exception narrowing revert-detector. The current narrowing
+    //    catches InvalidOperationException + ArgumentException from OutputDispatcher.Dispatch.
+    //    Reverting to a blanket `catch (Exception) { return 1; }` would re-introduce the
+    //    contract leak. To pin this *exit-code* contract specifically, exercise the only path
+    //    that legitimately throws from Dispatch in production today: capacity overflow. The
+    //    QrCapacityExceededException catch must produce 126 (RuntimeErrorExit), NOT 1, NOT 125.
+    //    A separate explicit "Dispatch shouldn't return 1" assertion would require a fault-
+    //    injection seam we don't have; this combined contract is the closest revert-detector. ──
+    [Fact]
+    public void Run_CapacityOverflow_ReturnsExit126_NotOne()
+    {
+        // ECC level H + a long enough payload exceeds capacity. Use 4000 chars to overflow even
+        // the largest version-40 H code (2,953-char binary capacity per ISO/IEC 18004).
+        string huge = new string('A', 4000);
+        var r = RunCli(new[] { huge, "--error-correction", "h", "--format", "ascii" });
+        Assert.Equal(126, r.exit);
+        // Ensure we didn't slip back into the old exit-1 contract.
+        Assert.NotEqual(1, r.exit);
+        Assert.Contains("payload too long", r.stderr, StringComparison.Ordinal);
     }
 }

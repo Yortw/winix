@@ -54,15 +54,12 @@ public class GeoPayloadTests
     public void Build_FormatUsesInvariantCulture()
     {
         // Regression: cultures with ',' as decimal separator must not produce "geo:41,2924,174,7787".
-        System.Globalization.CultureInfo original = System.Globalization.CultureInfo.CurrentCulture;
-        try
-        {
-            System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("de-DE");
-            Assert.Equal("geo:41.2924,174.7787", GeoPayload.Build(41.2924, 174.7787, null));
-        }
-        finally
-        {
-            System.Globalization.CultureInfo.CurrentCulture = original;
-        }
+        // Round-2 review: this test originally swapped CurrentCulture to de-DE, but Winix.Qr.Tests
+        // now sets InvariantGlobalization=true (mirroring qr.csproj) and CultureInfo("de-DE") cannot
+        // even be constructed in invariant mode. The point of the test is to pin the formatter's
+        // OUTPUT, which is unconditionally invariant-formatted via string.Create(InvariantCulture).
+        // A plain assertion on the output is the test that actually pins the contract under
+        // production runtime config.
+        Assert.Equal("geo:41.2924,174.7787", GeoPayload.Build(41.2924, 174.7787, null));
     }
 }

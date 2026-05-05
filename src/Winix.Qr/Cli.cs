@@ -106,6 +106,17 @@ public static class Cli
             return ExitCode.UsageError;
         }
 
+        // Round-2 review DOCS-I2: --force is meaningful only with --output. Pre-fix the tool
+        // silently accepted '--force' on its own — users assumed it had done something. Reject
+        // explicitly so the contract documented in README/man (--force gates --output overwrite)
+        // matches behaviour.
+        if (opts.ForceOverwrite && opts.OutputPath is null)
+        {
+            stderr.WriteLine(Formatting.UsageError(
+                "--force has no effect without --output (it gates overwriting an existing output file)."));
+            return ExitCode.UsageError;
+        }
+
         // Round-1 review SFH-I2: --output overwrote existing files silently. Without --force,
         // refuse-on-exists. The user's existing file is preserved unless they opt in.
         if (opts.OutputPath is not null && !opts.ForceOverwrite && File.Exists(opts.OutputPath))
@@ -206,15 +217,36 @@ public static class Cli
                 }
             }
         }
-        catch (IOException ex)
+        // Round-2 review SFH2-I1: under InvariantGlobalization=true (qr.csproj sets this),
+        // ex.Message for built-in I/O exceptions returns the raw resource KEY ('IO_PathNotFound_Path',
+        // 'UnauthorizedAccess_IODenied_Path') instead of a localised English message. Classify by
+        // exception subtype and emit project-controlled English text. Reserve ex.Message as a
+        // fallback for genuinely unexpected I/O codes — but format it safely.
+        catch (DirectoryNotFoundException)
         {
-            stderr.WriteLine(Formatting.RuntimeError($"write failed: {ex.Message}"));
+            stderr.WriteLine(Formatting.RuntimeError(
+                $"write failed: parent directory does not exist: '{opts.OutputPath}'"));
             return RuntimeErrorExit;
         }
-        catch (UnauthorizedAccessException ex)
+        catch (UnauthorizedAccessException)
         {
-            // Permission-denied on the output path is functionally an I/O failure; same exit code.
-            stderr.WriteLine(Formatting.RuntimeError($"write failed: {ex.Message}"));
+            stderr.WriteLine(Formatting.RuntimeError(
+                $"write failed: permission denied: '{opts.OutputPath}'"));
+            return RuntimeErrorExit;
+        }
+        catch (PathTooLongException)
+        {
+            stderr.WriteLine(Formatting.RuntimeError(
+                $"write failed: path too long: '{opts.OutputPath}'"));
+            return RuntimeErrorExit;
+        }
+        catch (IOException ex)
+        {
+            // Generic I/O fallback — disk full, file locked, etc. ex.Message under
+            // InvariantGlobalization may still be a resource key, so prefix with our own context
+            // and let the user file an issue if they can't act on the SR token.
+            stderr.WriteLine(Formatting.RuntimeError(
+                $"write failed for '{opts.OutputPath}' ({ex.GetType().Name}): {ex.Message}"));
             return RuntimeErrorExit;
         }
 
