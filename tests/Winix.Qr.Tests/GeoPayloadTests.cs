@@ -35,6 +35,21 @@ public class GeoPayloadTests
         Assert.Throws<ArgumentException>(() => GeoPayload.Build(lat, lon, null));
     }
 
+    // ── Round-1 review TA-I4: pin the exact boundary values so an off-by-one
+    //    in the validator (e.g. `>` vs `>=`) is caught explicitly. ──
+    [Theory]
+    [InlineData(-90.0, -180.0)]
+    [InlineData(-90.0, 180.0)]
+    [InlineData(90.0, -180.0)]
+    [InlineData(90.0, 180.0)]
+    [InlineData(0.0, 0.0)]
+    public void Build_LatLonAtBoundary_Accepted(double lat, double lon)
+    {
+        // Exact boundary values are inclusive — must NOT throw.
+        string result = GeoPayload.Build(lat, lon, null);
+        Assert.StartsWith("geo:", result, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Build_FormatUsesInvariantCulture()
     {

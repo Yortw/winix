@@ -49,8 +49,9 @@ echo "https://example.com" | qr                # stdin
 | `--size N` / `-s N` | `10` | Pixels per module (PNG/SVG only). |
 | `--error-correction {l,m,q,h}` / `-e X` | `m` | ECC level. `m`=15% recovery (default), `h`=30%. |
 | `--no-margin` | off | Strip the 4-module quiet zone. May reduce scannability. |
-| `--output PATH` / `-o PATH` | stdout | Write to file instead of stdout. |
+| `--output PATH` / `-o PATH` | stdout | Write to file instead of stdout. Refuses to overwrite existing files unless `--force` is passed. |
 | `--force-binary` | off | Allow PNG output to a TTY (otherwise refused). |
+| `--force` | off | Overwrite an existing `--output` file (refused by default to avoid losing user data). |
 | `--describe` | off | Emit tool metadata as JSON. |
 | `--help`, `--version` | — | Standard introspection. |
 | `--color`, `--no-color` | — | Respect `NO_COLOR`. |
@@ -65,15 +66,19 @@ echo "https://example.com" | qr                # stdin
 
 **`qr geo`** — `--lat <n>`, `--lon <n>` (both required; lat ∈ [-90, 90], lon ∈ [-180, 180]), `--query <q>`.
 
-**`qr tel`** — `--number <n>` (required).
+**`qr tel`** — `--number <n>` (required). Phone numbers are sanitised: ASCII whitespace is stripped, and only digits, an optional leading `+`, separators `()-./*#`, and RFC 3966 `;param=value` extensions are accepted. Letters and shell metacharacters are rejected.
+
+**`qr sms`** — same number sanitisation as `qr tel`.
 
 ## Exit codes
 
 | Code | Meaning |
 |---|---|
 | 0 | Success. |
-| 125 | Usage error (bad flags, missing required, empty payload, PNG to TTY without `--force-binary`). |
-| 126 | Runtime error (payload exceeds QR capacity, invalid UTF-8 on stdin, invalid helper field value). |
+| 125 | Usage error (bad flags, missing required, empty payload, PNG to TTY without `--force-binary`, `--format` contradicts `--output` extension, refusing to overwrite without `--force`, helper field value violates its grammar). |
+| 126 | Runtime error (payload exceeds QR capacity, invalid UTF-8 on stdin, output file write failed). |
+
+`--format svg --output code.png` (and similar contradictions) are rejected at parse time so downstream tools that route on extension don't get content with a misleading suffix.
 
 ## Name collisions
 

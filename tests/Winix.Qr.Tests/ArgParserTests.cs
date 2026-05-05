@@ -270,4 +270,80 @@ public class ArgParserTests
         ArgParser.Result r = ArgParser.Parse(["wifi", "--help"]);
         Assert.True(r.IsHandled);
     }
+
+    // ── Round-1 review TA-I5: per-subcommand positional-rejection branches. Each helper
+    //    rejects positional args with a specific error message; one test per dispatch site. ──
+
+    [Fact]
+    public void Parse_Wifi_WithPositional_Rejected()
+    {
+        ArgParser.Result r = ArgParser.Parse(["wifi", "stray", "--ssid", "Net"]);
+        Assert.NotNull(r.Error);
+        Assert.Contains("wifi does not accept positional", r.Error!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Parse_Sms_WithPositional_Rejected()
+    {
+        ArgParser.Result r = ArgParser.Parse(["sms", "stray", "--number", "+1555"]);
+        Assert.NotNull(r.Error);
+        Assert.Contains("sms does not accept positional", r.Error!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Parse_Mailto_WithPositional_Rejected()
+    {
+        ArgParser.Result r = ArgParser.Parse(["mailto", "stray", "--to", "a@b.com"]);
+        Assert.NotNull(r.Error);
+        Assert.Contains("mailto does not accept positional", r.Error!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Parse_Geo_WithPositional_Rejected()
+    {
+        ArgParser.Result r = ArgParser.Parse(["geo", "stray", "--lat", "0", "--lon", "0"]);
+        Assert.NotNull(r.Error);
+        Assert.Contains("geo does not accept positional", r.Error!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Parse_Tel_WithPositional_Rejected()
+    {
+        ArgParser.Result r = ArgParser.Parse(["tel", "stray", "--number", "+1555"]);
+        Assert.NotNull(r.Error);
+        Assert.Contains("tel does not accept positional", r.Error!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Parse_Text_TooManyPositionals_Rejected()
+    {
+        ArgParser.Result r = ArgParser.Parse(["one", "two"]);
+        Assert.NotNull(r.Error);
+        Assert.Contains("unexpected positional", r.Error!, StringComparison.Ordinal);
+    }
+
+    // ── Round-1 review SFH-I2 (CLI surface): --force flag is registered and parses ──
+    [Fact]
+    public void Parse_ForceFlag_OnText_SetsForceOverwrite()
+    {
+        ArgParser.Result r = ArgParser.Parse(["hello", "--force"]);
+        Assert.NotNull(r.Options);
+        Assert.True(r.Options!.ForceOverwrite);
+    }
+
+    [Fact]
+    public void Parse_ForceFlag_OnHelper_SetsForceOverwrite()
+    {
+        ArgParser.Result r = ArgParser.Parse(["wifi", "--ssid", "Net", "--password", "pw", "--force"]);
+        Assert.NotNull(r.Options);
+        Assert.True(r.Options!.ForceOverwrite);
+    }
+
+    [Fact]
+    public void Parse_NoForceFlag_DefaultsFalse()
+    {
+        ArgParser.Result r = ArgParser.Parse(["hello"]);
+        Assert.NotNull(r.Options);
+        Assert.False(r.Options!.ForceOverwrite);
+    }
 }

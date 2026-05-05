@@ -36,4 +36,24 @@ public class SmsPayloadTests
     {
         Assert.Throws<ArgumentException>(() => SmsPayload.Build("", "Hi"));
     }
+
+    // ── Round-1 review SFH-I3: phone-number sanitisation (shared with TelPayload) ──
+
+    [Fact]
+    public void Build_NumberWithSpaces_Stripped()
+    {
+        Assert.Equal("sms:+15551234567?body=Hi", SmsPayload.Build("+1 555 1234567", "Hi"));
+    }
+
+    [Fact]
+    public void Build_NumberWithLetters_Throws()
+    {
+        Assert.Throws<ArgumentException>(() => SmsPayload.Build("+1555abc", "Hi"));
+    }
+
+    [Fact]
+    public void Build_ParamWithDisallowedChar_Throws()
+    {
+        Assert.Throws<ArgumentException>(() => SmsPayload.Build("+15551234567;ext=<script>", "Hi"));
+    }
 }
