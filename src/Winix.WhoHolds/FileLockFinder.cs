@@ -135,11 +135,18 @@ public static class FileLockFinder
         return results;
     }
 
+    // The C definition uses FILETIME — two DWORD fields, total 8 bytes, 4-byte aligned.
+    // Using `long` here would force 8-byte alignment on x64, inserting 4 bytes of padding
+    // after dwProcessId and shifting every subsequent field of RM_PROCESS_INFO by 4 bytes
+    // (= 2 wide chars). Result: the process name read from strAppName started 2 chars in,
+    // producing names like "ndows PowerShell" instead of "Windows PowerShell".
+    // Tier-2 baseline 2026-05-06 finding F1 — observed empirically before fix.
     [StructLayout(LayoutKind.Sequential)]
     private struct RM_UNIQUE_PROCESS
     {
         public uint dwProcessId;
-        public long ProcessStartTime;
+        public uint dwLowDateTime;
+        public uint dwHighDateTime;
     }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]

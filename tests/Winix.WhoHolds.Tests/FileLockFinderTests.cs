@@ -79,6 +79,57 @@ public sealed class FileLockFinderTests
         Assert.Empty(results);
     }
 
+    // ── Tier-2 baseline 2026-05-06 finding F1 — process name truncation regression ──
+    // Pre-fix: RM_UNIQUE_PROCESS used `long ProcessStartTime` which forced 8-byte
+    // alignment on x64, inserting 4 bytes of padding after dwProcessId. This shifted
+    // strAppName by 2 wide chars when the marshaller read it back. Post-fix: the struct
+    // uses two uint fields matching FILETIME's actual layout, so no padding inserts.
+    // This test fails (with a 2-char-shifted name) on the pre-fix struct layout.
+    [SkippableFact]
+    public void Find_LockedFile_ProcessNameIsNotTruncated()
+    {
+        Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only integration test");
+        if (!OperatingSystem.IsWindows()) { return; } // redundant, satisfies CA1416 analyzer
+
+        string filePath = Path.GetTempFileName();
+        try
+        {
+            using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                int currentPid = Process.GetCurrentProcess().Id;
+                List<LockInfo> results = WaitForLockToBeVisible(filePath, currentPid);
+                LockInfo? ours = results.FirstOrDefault(r => r.ProcessId == currentPid);
+                Assert.NotNull(ours);
+
+                // The pre-fix bug was: every name lost its first 2 chars due to struct
+                // padding misalignment. We don't pin the exact name (it depends on the
+                // test runner host — testhost / dotnet / similar), but we assert that
+                // (a) the name is non-empty, and (b) it does NOT have a 2-char-shifted
+                // suffix relationship with the actual current-process name (which is
+                // what the bug produced).
+                Assert.False(string.IsNullOrEmpty(ours!.ProcessName), "Process name must not be empty");
+
+                string expectedName = Process.GetCurrentProcess().ProcessName;
+                if (expectedName.Length >= 3)
+                {
+                    // Reject the specific corruption shape: "Truncated" should never equal
+                    // expectedName.Substring(2) (the post-shift form). If it does, the
+                    // padding bug has regressed.
+                    string corruptedShape = expectedName.Substring(2);
+                    Assert.False(
+                        ours.ProcessName.Equals(corruptedShape, StringComparison.OrdinalIgnoreCase),
+                        $"ProcessName '{ours.ProcessName}' matches the 2-char-shifted form of " +
+                        $"the current process name '{expectedName}' — indicates RM_UNIQUE_PROCESS " +
+                        $"struct-layout regression (F1).");
+                }
+            }
+        }
+        finally
+        {
+            File.Delete(filePath);
+        }
+    }
+
     [SkippableFact]
     public void Find_LockedFile_ResourceContainsFilePath()
     {
