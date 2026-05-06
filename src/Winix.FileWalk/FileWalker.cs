@@ -42,8 +42,19 @@ public sealed class FileWalker
 
     /// <summary>
     /// Walks one or more root directories and yields matching <see cref="FileEntry"/> records.
-    /// Roots are walked in the order provided. Each root is an independent walk with depth starting at 0.
+    /// Each root is yielded as a depth-0 entry (subject to hidden / type-filter checks),
+    /// followed by its contents at depth 1, 2, … up to <see cref="FileWalkerOptions.MaxDepth"/>.
     /// </summary>
+    /// <remarks>
+    /// Tier-2 baseline 2026-05-06 finding F1: pre-fix the search root was never yielded
+    /// and immediate children were at depth 0. That diverged from GNU find
+    /// (<c>find . -maxdepth 0</c> emits <c>.</c> itself; <c>-maxdepth N</c> includes up to
+    /// N levels deep) and from treex's post-F1 depth model. README documents files as a
+    /// "find replacement" so user muscle memory should carry across — that's the driving
+    /// constraint. After this fix: search root has depth 0, immediate children depth 1,
+    /// etc. Existing users running <c>files . --max-depth N</c> need to add 1 to their
+    /// depth values (deliberate breaking change).
+    /// </remarks>
     /// <param name="roots">The root directories to walk.</param>
     /// <returns>A lazy sequence of file entries matching the configured predicates.</returns>
     public IEnumerable<FileEntry> Walk(IReadOnlyList<string> roots)
@@ -64,11 +75,86 @@ public sealed class FileWalker
                     : StringComparer.Ordinal)
                 : null;
 
-            foreach (FileEntry entry in WalkDirectory(fullRoot, fullRoot, 0, visitedDirs))
+            // F1 fix: yield the search root as depth 0, then descend with depth=1.
+            FileEntry? rootEntry = TryMakeFilteredRootEntry(fullRoot);
+            if (rootEntry is not null)
+            {
+                yield return rootEntry;
+            }
+
+            // Skip recursion if the root is a symlink and --follow isn't set.
+            FileAttributes rootAttrs;
+            try { rootAttrs = File.GetAttributes(fullRoot); }
+            catch { continue; }
+            if ((rootAttrs & FileAttributes.ReparsePoint) != 0 && !_options.FollowSymlinks)
+            {
+                continue;
+            }
+
+            foreach (FileEntry entry in WalkDirectory(fullRoot, fullRoot, 1, visitedDirs))
             {
                 yield return entry;
             }
         }
+    }
+
+    /// <summary>
+    /// Builds the depth-0 search-root <see cref="FileEntry"/> if it passes the same
+    /// hidden + type filters that would apply to any directory entry yielded inside
+    /// <see cref="WalkDirectory"/>. Returns <see langword="null"/> when filtered out.
+    /// </summary>
+    /// <remarks>
+    /// Glob/regex/size/date/text-binary filters are not applied to the root — consistent
+    /// with how WalkDirectory treats interior directories (those filters are file-only).
+    /// </remarks>
+    private FileEntry? TryMakeFilteredRootEntry(string fullRoot)
+    {
+        FileAttributes attrs;
+        try
+        {
+            attrs = File.GetAttributes(fullRoot);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+        catch (FileNotFoundException)
+        {
+            return null;
+        }
+
+        string name = Path.GetFileName(fullRoot);
+        if (name.Length == 0)
+        {
+            // Drive roots (e.g. "C:\\") produce empty names from Path.GetFileName.
+            // Use the full path so the user sees something meaningful.
+            name = fullRoot;
+        }
+
+        bool isSymlink = (attrs & FileAttributes.ReparsePoint) != 0;
+        FileEntryType rootType = isSymlink ? FileEntryType.Symlink : FileEntryType.Directory;
+
+        if (!_options.IncludeHidden && FileSystemHelper.IsHidden(fullRoot, name, attrs))
+        {
+            return null;
+        }
+
+        if (!ShouldYieldDirectory(rootType))
+        {
+            return null;
+        }
+
+        // MaxDepth < 0 is defensive — Program.cs rejects negative values, but if one
+        // slipped through the root is at depth 0 and we should still skip it.
+        if (_options.MaxDepth is int max && max < 0)
+        {
+            return null;
+        }
+
+        // Relative path for the root is "." (matches the user's intuitive "the
+        // directory you asked about" notion). Absolute output is handled by
+        // MakeDirectoryEntry's AbsolutePaths branch.
+        return MakeDirectoryEntry(fullRoot, ".", name, rootType, depth: 0);
     }
 
     private IEnumerable<FileEntry> WalkDirectory(
@@ -77,6 +163,16 @@ public sealed class FileWalker
         int depth,
         HashSet<string>? visitedDirs)
     {
+        // Tier-2 baseline 2026-05-06 finding F1: skip entirely if entries that would
+        // be yielded in this call exceed MaxDepth. Pre-fix the recursion guard (further
+        // below) only prevented descending into the next level; entries at this level
+        // were always yielded. Now gate the entry yielding too so that --max-depth N
+        // filters depth ≤ N inclusive (matches GNU find's -maxdepth).
+        if (_options.MaxDepth is int max && depth > max)
+        {
+            yield break;
+        }
+
         // Track this directory for symlink cycle detection.
         // ResolveLinkTarget resolves symlinks to their real target so that a symlink
         // pointing to an ancestor directory is detected as a cycle. Path.GetFullPath

@@ -87,6 +87,11 @@ public class FileWalkerTests : IDisposable
             caseInsensitive);
     }
 
+    // Tier-2 baseline 2026-05-06 finding F1: search root is now yielded as a depth-0
+    // entry (was: not yielded; immediate children at depth 0). Tests asserting entry
+    // counts/depth values updated to reflect the new contract. See FileWalker.Walk
+    // xmldoc for full rationale.
+
     [Fact]
     public void Walk_NoFilters_ReturnsAllEntries()
     {
@@ -94,7 +99,7 @@ public class FileWalkerTests : IDisposable
         var results = walker.Walk(new[] { _root }).ToList();
 
         // All files: file1.cs, file2.txt, .hidden, binary.dat, file3.cs, file4.json, file5.cs = 7
-        // All dirs: sub, deep = 2
+        // All dirs: <root>, sub, deep = 3 (root now yielded post-F1)
         var names = results.Select(e => e.Name).ToList();
         Assert.Contains("file1.cs", names);
         Assert.Contains("file2.txt", names);
@@ -105,7 +110,7 @@ public class FileWalkerTests : IDisposable
         Assert.Contains("file5.cs", names);
         Assert.Contains("sub", names);
         Assert.Contains("deep", names);
-        Assert.Equal(9, results.Count);
+        Assert.Equal(10, results.Count);
     }
 
     [Fact]
@@ -114,14 +119,14 @@ public class FileWalkerTests : IDisposable
         var walker = new FileWalker(MakeOptions(globPatterns: new[] { "*.cs" }));
         var results = walker.Walk(new[] { _root }).ToList();
 
-        // Glob only applies to files, not directories. So we get 3 .cs files + 2 dirs.
+        // Glob only applies to files, not directories. So we get 3 .cs files + 3 dirs (root + sub + deep).
         var fileResults = results.Where(e => e.Type == FileEntryType.File).ToList();
         Assert.All(fileResults, e => Assert.EndsWith(".cs", e.Name));
         Assert.Equal(3, fileResults.Count);
 
-        // Directories still appear
+        // Directories still appear (root, sub, deep — 3 post-F1; was 2 pre-F1).
         var dirResults = results.Where(e => e.Type == FileEntryType.Directory).ToList();
-        Assert.Equal(2, dirResults.Count);
+        Assert.Equal(3, dirResults.Count);
     }
 
     [Fact]
@@ -141,22 +146,54 @@ public class FileWalkerTests : IDisposable
         var results = walker.Walk(new[] { _root }).ToList();
 
         Assert.All(results, e => Assert.Equal(FileEntryType.Directory, e.Type));
-        Assert.Equal(2, results.Count);
+        // root + sub + deep = 3 post-F1 (was 2 pre-F1).
+        Assert.Equal(3, results.Count);
     }
+
+    // Post-F1 depth model:
+    //   Depth 0: <root>
+    //   Depth 1: file1.cs, file2.txt, .hidden, binary.dat, sub
+    //   Depth 2: file3.cs, file4.json, deep
+    //   Depth 3: file5.cs
 
     [Fact]
     public void Walk_MaxDepth_LimitsRecursion()
     {
-        var walker = new FileWalker(MakeOptions(maxDepth: 1));
+        // maxDepth=2 includes depth ≤ 2 — root + immediate children + grandchildren
+        // (file3.cs/deep). file5.cs at depth 3 must NOT appear.
+        var walker = new FileWalker(MakeOptions(maxDepth: 2));
         var results = walker.Walk(new[] { _root }).ToList();
 
-        // Depth 0: file1.cs, file2.txt, .hidden, binary.dat, sub
-        // Depth 1: file3.cs, file4.json, deep
-        // file5.cs (depth 2) should NOT appear
         var names = results.Select(e => e.Name).ToList();
         Assert.DoesNotContain("file5.cs", names);
         Assert.Contains("file3.cs", names);
         Assert.Contains("deep", names);
+    }
+
+    [Fact]
+    public void Walk_MaxDepth0_OnlyRootEntry()
+    {
+        // F1: --max-depth 0 emits only the search root (matches GNU find -maxdepth 0).
+        var walker = new FileWalker(MakeOptions(maxDepth: 0));
+        var results = walker.Walk(new[] { _root }).ToList();
+
+        Assert.Single(results);
+        Assert.Equal(FileEntryType.Directory, results[0].Type);
+        Assert.Equal(0, results[0].Depth);
+    }
+
+    [Fact]
+    public void Walk_MaxDepth1_RootAndImmediateChildren()
+    {
+        // F1: --max-depth 1 emits root + immediate children, no grandchildren.
+        var walker = new FileWalker(MakeOptions(maxDepth: 1));
+        var results = walker.Walk(new[] { _root }).ToList();
+
+        var names = results.Select(e => e.Name).ToList();
+        Assert.Contains("file1.cs", names);
+        Assert.Contains("sub", names);
+        Assert.DoesNotContain("file3.cs", names);
+        Assert.DoesNotContain("deep", names);
     }
 
     [Fact]
@@ -180,9 +217,9 @@ public class FileWalkerTests : IDisposable
         Assert.Equal(3, fileResults.Count);
         Assert.All(fileResults, e => Assert.EndsWith(".cs", e.Name));
 
-        // Directories still appear
+        // Directories still appear (root, sub, deep — 3 post-F1; was 2 pre-F1).
         var dirResults = results.Where(e => e.Type == FileEntryType.Directory).ToList();
-        Assert.Equal(2, dirResults.Count);
+        Assert.Equal(3, dirResults.Count);
     }
 
     [Fact]
@@ -201,20 +238,78 @@ public class FileWalkerTests : IDisposable
     [Fact]
     public void Walk_DepthValues_AreCorrect()
     {
+        // Post-F1 depth model: root at depth 0, immediate children at depth 1,
+        // grandchildren at depth 2, etc. Pre-fix: root not emitted, immediate children
+        // at depth 0.
         var walker = new FileWalker(MakeOptions());
         var results = walker.Walk(new[] { _root }).ToList();
 
+        var rootEntry = results.Single(e => e.Type == FileEntryType.Directory && e.Depth == 0);
         var file1 = results.Single(e => e.Name == "file1.cs");
         var sub = results.Single(e => e.Name == "sub");
         var file3 = results.Single(e => e.Name == "file3.cs");
         var deep = results.Single(e => e.Name == "deep");
         var file5 = results.Single(e => e.Name == "file5.cs");
 
-        Assert.Equal(0, file1.Depth);
-        Assert.Equal(0, sub.Depth);
-        Assert.Equal(1, file3.Depth);
-        Assert.Equal(1, deep.Depth);
-        Assert.Equal(2, file5.Depth);
+        Assert.Equal(0, rootEntry.Depth);
+        Assert.Equal(1, file1.Depth);
+        Assert.Equal(1, sub.Depth);
+        Assert.Equal(2, file3.Depth);
+        Assert.Equal(2, deep.Depth);
+        Assert.Equal(3, file5.Depth);
+    }
+
+    [Fact]
+    public void Walk_RootEntry_FirstYielded()
+    {
+        // F1: the search root is the first entry yielded, with relative path "."
+        // (or absolute when --absolute is set).
+        var walker = new FileWalker(MakeOptions());
+        var results = walker.Walk(new[] { _root }).ToList();
+
+        Assert.NotEmpty(results);
+        FileEntry first = results[0];
+        Assert.Equal(0, first.Depth);
+        Assert.Equal(FileEntryType.Directory, first.Type);
+        Assert.Equal(".", first.Path);
+    }
+
+    [Fact]
+    public void Walk_RootEntry_TypeFilterFile_RootIsExcluded()
+    {
+        // --type f filters out the root directory (it's a directory, not a file).
+        // Same shape applies to any --type filter that doesn't match the root's type.
+        var walker = new FileWalker(MakeOptions(typeFilter: FileEntryType.File));
+        var results = walker.Walk(new[] { _root }).ToList();
+
+        Assert.All(results, e => Assert.Equal(FileEntryType.File, e.Type));
+        Assert.Equal(7, results.Count);  // unchanged from pre-F1 because root wasn't a file then either
+    }
+
+    [Fact]
+    public void Walk_RootEntry_NoHiddenAndHiddenRoot_RootExcluded()
+    {
+        // If --no-hidden is set and the root itself starts with '.', the root entry
+        // is filtered out (consistent with how WalkDirectory treats hidden subdirs).
+        string hiddenRoot = Path.Combine(_root, ".dot-root");
+        Directory.CreateDirectory(hiddenRoot);
+        File.WriteAllText(Path.Combine(hiddenRoot, "child.txt"), "x");
+
+        try
+        {
+            var walker = new FileWalker(MakeOptions(includeHidden: false));
+            var results = walker.Walk(new[] { hiddenRoot }).ToList();
+
+            // Root excluded because its name starts with '.'; children also excluded
+            // (they're under a hidden root, but treated independently by the walker —
+            // they could still appear if their own filters pass). For this test the
+            // critical assertion is that the root entry isn't yielded.
+            Assert.DoesNotContain(results, e => e.Depth == 0 && e.Type == FileEntryType.Directory);
+        }
+        finally
+        {
+            Directory.Delete(hiddenRoot, recursive: true);
+        }
     }
 
     [Fact]
