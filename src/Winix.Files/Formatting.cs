@@ -58,28 +58,53 @@ public static class Formatting
 
     /// <summary>
     /// Returns a single NDJSON line (no trailing newline) for <paramref name="entry"/>.
-    /// Includes the standard Winix envelope fields (tool, version, exit_code:0, exit_reason:"success")
-    /// plus all <see cref="FileEntry"/> fields. The <c>is_text</c> field is only present when non-null.
-    /// The <c>modified</c> field is ISO 8601 with offset.
+    /// Emits per-record fields only: path, name, type, size_bytes (null for directory
+    /// entries that don't carry a rolled-up size), modified (ISO 8601 with offset, or
+    /// null for entries without a populated mtime), depth, and is_text (only when non-null).
     /// </summary>
+    /// <remarks>
+    /// Tier-2 baseline 2026-05-06 finding F2: pre-fix this method emitted the standard
+    /// Winix envelope fields (tool, version, exit_code, exit_reason) on EVERY record.
+    /// Per NDJSON convention each line is a record, not a record-plus-envelope; stream-
+    /// level metadata belongs in the <c>--json</c> summary which files already provides.
+    /// Bandwidth cost on a 1000-file scan was ~80KB of redundant prefix.
+    ///
+    /// Tier-2 baseline 2026-05-06 finding F3: pre-fix directory entries serialised
+    /// <c>"size_bytes":-1</c> (the no-rollup sentinel) and
+    /// <c>"modified":"0001-01-01T00:00:00.0000000+00:00"</c> (DateTime.MinValue ToString
+    /// emitted as a real timestamp). Both are JSON anti-patterns — consumers parsing
+    /// these into typed values would get either a real negative number or a year-1
+    /// date. Now both emit <c>null</c> when unpopulated.
+    /// </remarks>
     /// <param name="entry">The file system entry to serialise.</param>
-    /// <param name="toolName">Value for the <c>tool</c> envelope field.</param>
-    /// <param name="version">Value for the <c>version</c> envelope field.</param>
-    public static string FormatNdjsonLine(FileEntry entry, string toolName, string version)
+    public static string FormatNdjsonLine(FileEntry entry)
     {
         var (writer, buffer) = JsonHelper.CreateWriter();
         using (writer)
         {
             writer.WriteStartObject();
-            writer.WriteString("tool", toolName);
-            writer.WriteString("version", version);
-            writer.WriteNumber("exit_code", 0);
-            writer.WriteString("exit_reason", "success");
             writer.WriteString("path", entry.Path);
             writer.WriteString("name", entry.Name);
             writer.WriteString("type", FormatTypeString(entry.Type));
-            writer.WriteNumber("size_bytes", entry.SizeBytes);
-            writer.WriteString("modified", entry.Modified.ToString("o", CultureInfo.InvariantCulture));
+
+            if (entry.SizeBytes < 0)
+            {
+                writer.WriteNull("size_bytes");
+            }
+            else
+            {
+                writer.WriteNumber("size_bytes", entry.SizeBytes);
+            }
+
+            if (entry.Modified == default)
+            {
+                writer.WriteNull("modified");
+            }
+            else
+            {
+                writer.WriteString("modified", entry.Modified.ToString("o", CultureInfo.InvariantCulture));
+            }
+
             writer.WriteNumber("depth", entry.Depth);
 
             if (entry.IsText.HasValue)

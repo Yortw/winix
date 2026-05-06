@@ -307,7 +307,7 @@ internal sealed class Program
                     {
                         if (ndjson)
                         {
-                            Console.Out.WriteLine(Formatting.FormatNdjsonLine(entry, "files", version));
+                            Console.Out.WriteLine(Formatting.FormatNdjsonLine(entry));
                         }
                         else if (longOutput)
                         {

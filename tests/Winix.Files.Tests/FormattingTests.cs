@@ -169,21 +169,27 @@ public class FormattingTests
 
     // --- FormatNdjsonLine ---
 
-    [Fact]
-    public void FormatNdjsonLine_ContainsStandardEnvelopeFields()
-    {
-        string line = Formatting.FormatNdjsonLine(SampleFile, ToolName, Version);
+    // Tier-2 baseline 2026-05-06 finding F2: NDJSON records previously duplicated the
+    // tool/version/exit_code/exit_reason envelope fields per record. Stream-level
+    // metadata now lives only in --json summary.
+    // Tier-2 baseline 2026-05-06 finding F3: directory entries with -1 sentinel
+    // size_bytes and DateTime.MinValue modified now emit `null` per JSON convention.
 
-        Assert.Contains("\"tool\":\"files\"", line);
-        Assert.Contains("\"version\":\"0.1.0\"", line);
-        Assert.Contains("\"exit_code\":0", line);
-        Assert.Contains("\"exit_reason\":\"success\"", line);
+    [Fact]
+    public void FormatNdjsonLine_DoesNotContainEnvelopeFields()
+    {
+        string line = Formatting.FormatNdjsonLine(SampleFile);
+
+        Assert.DoesNotContain("\"tool\"", line);
+        Assert.DoesNotContain("\"version\"", line);
+        Assert.DoesNotContain("\"exit_code\"", line);
+        Assert.DoesNotContain("\"exit_reason\"", line);
     }
 
     [Fact]
     public void FormatNdjsonLine_ContainsAllFileEntryFields()
     {
-        string line = Formatting.FormatNdjsonLine(SampleFile, ToolName, Version);
+        string line = Formatting.FormatNdjsonLine(SampleFile);
 
         Assert.Contains("\"path\":\"src/Program.cs\"", line);
         Assert.Contains("\"name\":\"Program.cs\"", line);
@@ -195,10 +201,44 @@ public class FormattingTests
     }
 
     [Fact]
+    public void FormatNdjsonLine_DirectoryWithoutRollup_EmitsNullSize()
+    {
+        // Per F3: directories with the no-rollup sentinel SizeBytes:-1 emit `null`
+        // rather than the raw sentinel.
+        string line = Formatting.FormatNdjsonLine(SampleDir);
+
+        Assert.Contains("\"size_bytes\":null", line);
+        Assert.DoesNotContain("\"size_bytes\":-1", line);
+    }
+
+    [Fact]
+    public void FormatNdjsonLine_DirectoryWithoutMtime_EmitsNullModified()
+    {
+        // Per F3: directories with DateTime.MinValue (zero value) emit `"modified":null`
+        // rather than the year-1 timestamp string.
+        var dirNoMtime = SampleDir with { Modified = default };
+        string line = Formatting.FormatNdjsonLine(dirNoMtime);
+
+        Assert.Contains("\"modified\":null", line);
+        Assert.DoesNotContain("0001-01-01", line);
+    }
+
+    [Fact]
+    public void FormatNdjsonLine_FileWithRealValues_EmitsNumbers()
+    {
+        // Sanity: real values still serialise as numbers / strings, not null.
+        string line = Formatting.FormatNdjsonLine(SampleFile);
+
+        Assert.Contains("\"size_bytes\":2340", line);
+        Assert.DoesNotContain("\"size_bytes\":null", line);
+        Assert.DoesNotContain("\"modified\":null", line);
+    }
+
+    [Fact]
     public void FormatNdjsonLine_IsTextOmittedWhenNull()
     {
         // SampleFile has IsText: null — field must not appear
-        string line = Formatting.FormatNdjsonLine(SampleFile, ToolName, Version);
+        string line = Formatting.FormatNdjsonLine(SampleFile);
 
         Assert.DoesNotContain("is_text", line);
     }
@@ -207,7 +247,7 @@ public class FormattingTests
     public void FormatNdjsonLine_IsTextPresentWhenSet()
     {
         var entry = SampleFile with { IsText = true };
-        string line = Formatting.FormatNdjsonLine(entry, ToolName, Version);
+        string line = Formatting.FormatNdjsonLine(entry);
 
         Assert.Contains("\"is_text\":true", line);
     }
@@ -215,7 +255,7 @@ public class FormattingTests
     [Fact]
     public void FormatNdjsonLine_IsValidJson()
     {
-        string line = Formatting.FormatNdjsonLine(SampleFile, ToolName, Version);
+        string line = Formatting.FormatNdjsonLine(SampleFile);
 
         // Will throw if invalid — that's the assertion
         JsonDocument.Parse(line);
@@ -224,7 +264,7 @@ public class FormattingTests
     [Fact]
     public void FormatNdjsonLine_ContainsNoInternalNewlines()
     {
-        string line = Formatting.FormatNdjsonLine(SampleFile, ToolName, Version);
+        string line = Formatting.FormatNdjsonLine(SampleFile);
 
         Assert.DoesNotContain('\n', line);
     }
@@ -233,7 +273,7 @@ public class FormattingTests
     public void FormatNdjsonLine_PathWithSpecialChars_EscapesCorrectly()
     {
         var entry = SampleFile with { Path = "src\\some\"file.cs" };
-        string line = Formatting.FormatNdjsonLine(entry, ToolName, Version);
+        string line = Formatting.FormatNdjsonLine(entry);
 
         // Must be valid JSON even with backslash and quote in the path
         JsonDocument.Parse(line);
