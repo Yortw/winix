@@ -93,7 +93,19 @@ internal sealed class Program
         string content;
         try
         {
-            using var reader = new StreamReader(Console.OpenStandardInput(), new UTF8Encoding(false, throwOnInvalidBytes: true));
+            // detectEncodingFromByteOrderMarks: false — the default true causes StreamReader
+            // to switch decoders when stdin starts with a UTF-16 LE/BE/UTF-8 BOM, bypassing
+            // the strict-UTF-8 throwOnInvalidBytes guard. Without this:
+            //   printf '\xff\xfe\xfd' | clip -c   silently produced U+FFFD on the clipboard
+            //   printf '\xff\xfeA\x00' | clip -c   silently decoded as UTF-16 LE → 'A'
+            //   printf '\xef\xbb\xbfhello' | clip -c   silently stripped the UTF-8 BOM
+            // README documents stdin/stdout as UTF-8 only; --help advertises exit 125 on
+            // invalid UTF-8 input. Disabling BOM detection restores both contracts.
+            // Tier-2 re-verification 2026-05-06 finding F1.
+            using var reader = new StreamReader(
+                Console.OpenStandardInput(),
+                new UTF8Encoding(false, throwOnInvalidBytes: true),
+                detectEncodingFromByteOrderMarks: false);
             content = reader.ReadToEnd();
         }
         catch (DecoderFallbackException)
