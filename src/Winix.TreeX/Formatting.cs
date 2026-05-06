@@ -10,15 +10,27 @@ public static class Formatting
 {
     /// <summary>
     /// Returns a single NDJSON line (no trailing newline) for <paramref name="node"/>.
-    /// Includes the standard Winix envelope fields (tool, version, exit_code:0, exit_reason:"success")
-    /// plus path (relative to root, forward-slash separated), name, type, size_bytes, modified (ISO 8601), and depth.
+    /// Emits per-record fields only: path (relative to root, forward-slash separated),
+    /// name, type, size_bytes (null for directories that have no rolled-up size),
+    /// modified (ISO 8601), and depth.
     /// </summary>
+    /// <remarks>
+    /// Tier-2 baseline 2026-05-06 finding F2: pre-fix this method emitted the standard
+    /// Winix envelope fields (tool, version, exit_code, exit_reason) on EVERY record.
+    /// Per NDJSON convention each line is a node, not a node-plus-envelope; stream-level
+    /// metadata belongs in the <c>--json</c> summary (which treex already provides). The
+    /// envelope-per-record produced ~35% bandwidth overhead on small trees and ~85KB of
+    /// duplicated prefixes on a 1000-record stream.
+    ///
+    /// Tier-2 baseline 2026-05-06 finding F3: pre-fix the <c>size_bytes</c> field used
+    /// the sentinel <c>-1</c> for directories without a rolled-up size. JSON convention
+    /// is <c>null</c> for absent values; <c>-1</c> could be misread as a real negative
+    /// number by a consumer that doesn't know about the sentinel. Now emits <c>null</c>.
+    /// </remarks>
     /// <param name="node">The tree node to serialise.</param>
     /// <param name="depth">Depth of this node relative to the tree root.</param>
     /// <param name="rootPath">Absolute path of the tree root, used to compute relative paths.</param>
-    /// <param name="toolName">Value for the <c>tool</c> envelope field.</param>
-    /// <param name="version">Value for the <c>version</c> envelope field.</param>
-    public static string FormatNdjsonLine(TreeNode node, int depth, string rootPath, string toolName, string version)
+    public static string FormatNdjsonLine(TreeNode node, int depth, string rootPath)
     {
         string relativePath = depth == 0
             ? "."
@@ -28,14 +40,17 @@ public static class Formatting
         using (writer)
         {
             writer.WriteStartObject();
-            writer.WriteString("tool", toolName);
-            writer.WriteString("version", version);
-            writer.WriteNumber("exit_code", 0);
-            writer.WriteString("exit_reason", "success");
             writer.WriteString("path", relativePath);
             writer.WriteString("name", node.Name);
             writer.WriteString("type", FormatTypeString(node.Type));
-            writer.WriteNumber("size_bytes", node.SizeBytes);
+            if (node.SizeBytes < 0)
+            {
+                writer.WriteNull("size_bytes");
+            }
+            else
+            {
+                writer.WriteNumber("size_bytes", node.SizeBytes);
+            }
             writer.WriteString("modified", node.Modified.ToString("o", CultureInfo.InvariantCulture));
             writer.WriteNumber("depth", depth);
             writer.WriteEndObject();

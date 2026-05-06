@@ -297,7 +297,7 @@ internal sealed class Program
                     {
                         int ndjsonDirs = 0;
                         int ndjsonFiles = 0;
-                        WriteNdjsonTree(tree, 0, tree.FullPath, "treex", version, dirsOnly, ref ndjsonDirs, ref ndjsonFiles);
+                        WriteNdjsonTree(tree, 0, tree.FullPath, dirsOnly, ref ndjsonDirs, ref ndjsonFiles);
                         totalDirs += ndjsonDirs;
                         totalFiles += ndjsonFiles;
                     }
@@ -353,17 +353,20 @@ internal sealed class Program
     /// Recursively walks a tree depth-first and writes one NDJSON line per node to stdout.
     /// Counts directories and files (excluding the root) for the summary line.
     /// </summary>
+    /// <remarks>
+    /// Tier-2 baseline 2026-05-06 finding F2: per-record envelope fields (tool, version,
+    /// exit_code, exit_reason) dropped from NDJSON. Stream-level metadata is now emitted
+    /// only via the <c>--json</c> summary on stderr.
+    /// </remarks>
     private static void WriteNdjsonTree(
         TreeNode node,
         int depth,
         string rootPath,
-        string toolName,
-        string version,
         bool dirsOnly,
         ref int dirCount,
         ref int fileCount)
     {
-        Console.Out.WriteLine(Formatting.FormatNdjsonLine(node, depth, rootPath, toolName, version));
+        Console.Out.WriteLine(Formatting.FormatNdjsonLine(node, depth, rootPath));
 
         foreach (TreeNode child in node.Children)
         {
@@ -377,7 +380,7 @@ internal sealed class Program
                 fileCount++;
             }
 
-            WriteNdjsonTree(child, depth + 1, rootPath, toolName, version, dirsOnly, ref dirCount, ref fileCount);
+            WriteNdjsonTree(child, depth + 1, rootPath, dirsOnly, ref dirCount, ref fileCount);
         }
     }
 
