@@ -141,20 +141,58 @@ public class TreeBuilderTests : IDisposable
         Assert.Contains(sub.Children, c => c.Name == "deep");
     }
 
+    // Tier-2 baseline 2026-05-06 finding F1 — option A — `--max-depth N` now means
+    // "include nodes with depth ≤ N", consistent with README and with the NDJSON
+    // `depth` field semantics. Pre-fix this test pinned the off-by-one behaviour
+    // (maxDepth=1 produced depth-2 entries); the contract has changed deliberately
+    // per user approval. See commit message for rationale.
+
     [Fact]
-    public void Build_MaxDepth_LimitsRecursion()
+    public void Build_MaxDepth0_RootOnly_NoChildren()
     {
+        // README: "0 = root only" — root TreeNode itself is returned but has no children.
+        var options = MakeOptions(maxDepth: 0, includeHidden: true);
+        var builder = new TreeBuilder(options);
+
+        TreeNode root = builder.Build(_root);
+
+        Assert.Empty(root.Children);
+    }
+
+    [Fact]
+    public void Build_MaxDepth1_RootAndImmediateChildren()
+    {
+        // maxDepth=1 includes the root (depth 0) and its immediate children (depth 1)
+        // but NOT grandchildren (depth 2).
         var options = MakeOptions(maxDepth: 1, includeHidden: true);
         var builder = new TreeBuilder(options);
 
         TreeNode root = builder.Build(_root);
 
-        // sub/ should be present but its children should not include deep/ content
         TreeNode sub = root.Children.First(c => c.Name == "sub");
+
+        // Pre-fix this test asserted gamma.cs (depth 2) AND deep (depth 2) were both in
+        // sub.Children. Post-fix, sub has no children at all because they would be at
+        // depth 2, exceeding maxDepth=1.
+        Assert.Empty(sub.Children);
+    }
+
+    [Fact]
+    public void Build_MaxDepth2_IncludesGrandchildren()
+    {
+        // maxDepth=2 includes nodes up to and including depth 2 (i.e. children-of-children).
+        var options = MakeOptions(maxDepth: 2, includeHidden: true);
+        var builder = new TreeBuilder(options);
+
+        TreeNode root = builder.Build(_root);
+
+        TreeNode sub = root.Children.First(c => c.Name == "sub");
+
+        // sub (depth 1) -> gamma.cs (depth 2) and deep (depth 2) both included.
         Assert.Contains(sub.Children, c => c.Name == "gamma.cs");
         Assert.Contains(sub.Children, c => c.Name == "deep");
 
-        // deep/ should have NO children (depth limit prevents recursion into depth=2)
+        // But deep (depth 2) does NOT include its own children (which would be at depth 3).
         TreeNode deep = sub.Children.First(c => c.Name == "deep");
         Assert.Empty(deep.Children);
     }

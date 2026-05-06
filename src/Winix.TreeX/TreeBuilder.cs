@@ -101,6 +101,21 @@ public sealed class TreeBuilder
 
     private void BuildChildren(TreeNode parentNode, string rootPath, string dirPath, int depth, HashSet<string> visitedDirs)
     {
+        // Tier-2 baseline 2026-05-06 finding F1: README documents `--max-depth N` as
+        // "include nodes with depth ≤ N" (specifically "0 = root only"). Pre-fix, the
+        // depth filter only gated RECURSION (line below: `depth < MaxDepth` for descending
+        // into a child dir), but children were ALWAYS added before the recursion check.
+        // That made `--max-depth 0` produce root + its immediate children — not "root
+        // only" as documented. The early return here fixes the semantics: when called
+        // with parent.depth = depth, the children we'd add live at depth+1, so skip
+        // entirely if depth >= MaxDepth. The inner recursion guard below now becomes
+        // a redundant defense-in-depth check (BuildChildren returns early on the next
+        // call anyway) but it's kept for clarity.
+        if (_options.MaxDepth != null && depth >= _options.MaxDepth)
+        {
+            return;
+        }
+
         IEnumerable<string> entries;
         try
         {
