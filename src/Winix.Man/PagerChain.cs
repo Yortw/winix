@@ -136,8 +136,9 @@ public sealed class PagerChain
     /// to its standard input.
     /// </summary>
     /// <param name="pagerCommand">
-    /// The pager executable path or command name. May be a bare name (resolved via PATH)
-    /// or an absolute path.
+    /// The pager executable path or command line. May be a bare name (e.g. <c>less</c>),
+    /// an absolute path, or a command line with arguments
+    /// (e.g. <c>less -R</c>, the canonical <c>$MANPAGER</c> on Linux/macOS).
     /// </param>
     /// <param name="content">The content to pipe into the pager's stdin.</param>
     /// <returns>
@@ -148,12 +149,7 @@ public sealed class PagerChain
     {
         try
         {
-            var psi = new ProcessStartInfo
-            {
-                FileName = pagerCommand,
-                UseShellExecute = false,
-                RedirectStandardInput = true,
-            };
+            ProcessStartInfo psi = BuildPagerProcessStartInfo(pagerCommand);
 
             using var process = Process.Start(psi);
             if (process is null)
@@ -168,12 +164,67 @@ public sealed class PagerChain
             process.WaitForExit();
             return true;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
             // Process.Start can throw if the executable is not found, access is denied,
-            // or the path is malformed — treat any failure as "pager unavailable".
+            // or the path is malformed. Pre-F5 (2026-05-07 baseline) we silently fell
+            // back to the built-in pager — surprising for users who set
+            // MANPAGER='less -R' and got the wrong pager with no warning. Surface a
+            // one-line diagnostic to stderr; the caller still falls back to the built-in.
+            Console.Error.WriteLine($"man: warning: pager '{pagerCommand}' failed to launch ({ex.GetType().Name}); using built-in pager");
             return false;
         }
+    }
+
+    /// <summary>
+    /// Builds the <see cref="ProcessStartInfo"/> used to spawn an external pager.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Real <c>man(1)</c> on Linux/macOS dispatches the pager via <c>/bin/sh -c "$MANPAGER"</c>
+    /// so users can set MANPAGER to a full shell command line — including arguments
+    /// (<c>less -R</c>), pipes (<c>less | tee log</c>), and quoted paths
+    /// (<c>"/Program Files/less/less.exe" -R</c>). To match POSIX behaviour Winix man
+    /// hands the value off to a shell rather than treating it as a literal executable
+    /// path: <c>cmd /c</c> on Windows, <c>/bin/sh -c</c> elsewhere.
+    /// </para>
+    /// <para>
+    /// Both shells are guaranteed to exist on their respective platforms (cmd.exe is
+    /// built into Windows; <c>/bin/sh</c> is POSIX-required) so this is not a new
+    /// runtime dependency.
+    /// </para>
+    /// <para>
+    /// Internal-visibility for unit tests; callers should use
+    /// <see cref="TryRunExternalPager"/>.
+    /// </para>
+    /// </remarks>
+    /// <param name="pagerCommand">The raw env-var value (or sibling/system fallback path).</param>
+    /// <returns>A <see cref="ProcessStartInfo"/> ready to pass to <see cref="Process.Start(ProcessStartInfo)"/>.</returns>
+    internal static ProcessStartInfo BuildPagerProcessStartInfo(string pagerCommand)
+    {
+        var psi = new ProcessStartInfo
+        {
+            UseShellExecute = false,
+            RedirectStandardInput = true,
+        };
+
+        if (OperatingSystem.IsWindows())
+        {
+            // cmd.exe /c "<command line>" — cmd does its own tokenization, handles
+            // quoted paths, pipes, redirects, etc.
+            psi.FileName = "cmd.exe";
+            psi.ArgumentList.Add("/c");
+            psi.ArgumentList.Add(pagerCommand);
+        }
+        else
+        {
+            // /bin/sh -c "<command line>" — same approach as real man-db.
+            psi.FileName = "/bin/sh";
+            psi.ArgumentList.Add("-c");
+            psi.ArgumentList.Add(pagerCommand);
+        }
+
+        return psi;
     }
 
     /// <summary>
