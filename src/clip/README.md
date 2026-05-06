@@ -75,17 +75,24 @@ clip > report-copy.txt
 > clip | xxd            # may appear shorter than 'clip -r | xxd'
 > ```
 
-## Git Bash on Windows (autodetect caveat)
+## Mode auto-detection
 
-Git Bash (MSYS/mingw) on Windows presents a non-TTY stdin to .NET processes even when run interactively. As a result, `clip` with no arguments in Git Bash may detect "stdin is redirected" and switch to copy mode — reading empty stdin and overwriting the clipboard with an empty string.
+`clip` decides between copy and paste based on **whether stdin actually contains content**:
 
-**Workaround:** use the explicit `-p` / `--paste` flag when pasting in Git Bash:
+- Bare `clip` with a terminal stdin → **paste**
+- Bare `clip` with redirected stdin that has content → **copy**
+- Bare `clip` with redirected stdin that is empty → **paste** (works correctly under Git Bash, MSYS, Cygwin, and any other shell that pipes stdin to interactive processes)
+
+Explicit `-c` / `-p` / `--clear` always override auto-detection.
+
+**Empty-copy edge case.** Because empty redirected stdin routes to paste, the only way to deliberately copy an empty string is the explicit `-c` flag:
 
 ```bash
-clip -p
+clip -c < /dev/null     # copy empty string to the clipboard
+clip --clear            # equivalent for "make the clipboard empty"
 ```
 
-`cmd.exe`, PowerShell, and Windows Terminal's native consoles do not have this quirk — bare `clip` pastes correctly there.
+`echo -n "" | clip` (without `-c`) will paste, not copy. This is rarely what users mean — `clip --clear` is the more idiomatic way to empty the clipboard.
 
 ## Unicode and `cmd.exe` on Windows
 

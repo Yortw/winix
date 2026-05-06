@@ -31,7 +31,7 @@ internal sealed class Program
                 replaces: new[] { "clip.exe", "pbcopy", "pbpaste", "xclip", "xsel", "wl-copy", "wl-paste" },
                 valueOnWindows: "Windows clip.exe is write-only — this adds paste and clear",
                 valueOnUnix: "Normalises xclip/xsel/wl-copy/pbcopy behaviour behind one command")
-            .StdinDescription("Content to copy when stdin is redirected or -c is passed")
+            .StdinDescription("Content to copy when stdin is redirected with content, or when -c is passed")
             .StdoutDescription("Clipboard contents on paste; nothing on copy or clear")
             .StderrDescription("Error messages only")
             .Example("clip", "Paste clipboard contents to stdout")
@@ -61,7 +61,31 @@ internal sealed class Program
             return result.WriteError(ex.Message, Console.Error);
         }
 
-        ClipMode mode = ModeResolver.Resolve(Console.IsInputRedirected, options);
+        // Tier-2 re-verification 2026-05-06 finding F2: previously this passed
+        // Console.IsInputRedirected directly to ModeResolver. Under Git Bash / MSYS,
+        // IsInputRedirected always reports true (MSYS pipes stdin even for interactive
+        // terminals), so bare `clip` auto-detected as copy mode, read empty stdin, and
+        // silently emptied the user's clipboard. Buffering stdin first turns the
+        // auto-detection predicate into "did the user actually send any bytes?" — accurate
+        // across native Windows shells, Git Bash, Linux, and macOS uniformly.
+        //
+        // Read stdin in two cases:
+        //  - explicit -c (always honour the user's request, even on a terminal — they get
+        //    the "type-then-Ctrl+D" interactive copy model);
+        //  - auto-detect with redirected stdin (need bytes to decide mode).
+        // ForcePaste / Clear / interactive-no-flag skip the read so we don't block on a
+        // terminal we don't intend to consume.
+        byte[] bufferedStdin = System.Array.Empty<byte>();
+        bool needsStdinRead = options.ForceCopy
+            || (!options.ForcePaste && !options.Clear && Console.IsInputRedirected);
+        if (needsStdinRead)
+        {
+            using var ms = new MemoryStream();
+            Console.OpenStandardInput().CopyTo(ms);
+            bufferedStdin = ms.ToArray();
+        }
+
+        ClipMode mode = ModeResolver.Resolve(bufferedStdin.Length > 0, options);
 
         IClipboardBackend? backend = ClipboardBackendFactory.Create(
             new DefaultPlatformProbe(), options.Primary, out string? factoryError);
@@ -75,7 +99,7 @@ internal sealed class Program
         {
             return mode switch
             {
-                ClipMode.Copy => DoCopy(backend),
+                ClipMode.Copy => DoCopy(backend, bufferedStdin),
                 ClipMode.Paste => DoPaste(backend, options.Raw),
                 ClipMode.Clear => DoClear(backend),
                 _ => result.WriteError($"internal error: unknown mode {mode}", Console.Error),
@@ -88,25 +112,20 @@ internal sealed class Program
         }
     }
 
-    private static int DoCopy(IClipboardBackend backend)
+    private static int DoCopy(IClipboardBackend backend, byte[] stdinBytes)
     {
+        // Strict UTF-8 decode of the buffered stdin bytes. We avoid StreamReader because
+        // its default `detectEncodingFromByteOrderMarks: true` would silently switch
+        // decoders on UTF-16 LE/BE / UTF-8 BOM and bypass the throwOnInvalidBytes guard
+        // (tier-2 re-verification 2026-05-06 finding F1 — superseded by this F2 refactor
+        // which removes the StreamReader entirely). GetString on a strict UTF8Encoding
+        // throws DecoderFallbackException on any non-UTF-8 byte sequence, exactly the
+        // contract README and --help advertise.
         string content;
         try
         {
-            // detectEncodingFromByteOrderMarks: false — the default true causes StreamReader
-            // to switch decoders when stdin starts with a UTF-16 LE/BE/UTF-8 BOM, bypassing
-            // the strict-UTF-8 throwOnInvalidBytes guard. Without this:
-            //   printf '\xff\xfe\xfd' | clip -c   silently produced U+FFFD on the clipboard
-            //   printf '\xff\xfeA\x00' | clip -c   silently decoded as UTF-16 LE → 'A'
-            //   printf '\xef\xbb\xbfhello' | clip -c   silently stripped the UTF-8 BOM
-            // README documents stdin/stdout as UTF-8 only; --help advertises exit 125 on
-            // invalid UTF-8 input. Disabling BOM detection restores both contracts.
-            // Tier-2 re-verification 2026-05-06 finding F1.
-            using var reader = new StreamReader(
-                Console.OpenStandardInput(),
-                new UTF8Encoding(false, throwOnInvalidBytes: true),
-                detectEncodingFromByteOrderMarks: false);
-            content = reader.ReadToEnd();
+            var encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+            content = encoding.GetString(stdinBytes);
         }
         catch (DecoderFallbackException)
         {

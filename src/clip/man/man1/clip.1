@@ -15,8 +15,9 @@ clip \- cross-platform clipboard bridge
 .B clip
 reads from and writes to the system clipboard with identical behaviour on Windows, macOS, and Linux.
 With no arguments and a terminal stdin, it pastes the clipboard to stdout.
-With stdin redirected, it copies stdin to the clipboard.
-Explicit \fB--copy\fR and \fB--paste\fR flags override autodetection.
+With stdin redirected and containing content, it copies stdin to the clipboard.
+Empty redirected stdin pastes (so bare \fBclip\fR works correctly under Git Bash / MSYS where stdin is technically redirected even for interactive use).
+Explicit \fB--copy\fR and \fB--paste\fR flags override autodetection; to deliberately copy an empty string use \fBclip --copy < /dev/null\fR or \fBclip --clear\fR.
 
 .SH OPTIONS
 .TP

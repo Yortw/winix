@@ -51,9 +51,17 @@ clip -r
 
 `clip` is asymmetric on newlines by default: copy preserves bytes exactly, paste strips one trailing `\n` or `\r\n` to match `$(...)` shell-substitution semantics. Use `--raw`/`-r` to disable the strip and get byte-exact paste output.
 
-## Git Bash on Windows
+## Mode auto-detection
 
-Git Bash presents non-TTY stdin to .NET, so `clip` with no args may autodetect as "copy" even when the user meant "paste". Workaround: use `clip -p` explicitly. Native Windows shells (cmd.exe, PowerShell, Windows Terminal) are not affected.
+`clip` decides between copy and paste based on **whether stdin actually contains content**:
+
+- Terminal stdin → paste
+- Redirected stdin with content → copy
+- Redirected stdin that is empty → paste (works correctly under Git Bash / MSYS where redirected-stdin reports true even for interactive terminals)
+
+Explicit `-c` / `-p` / `--clear` always override.
+
+**Empty-copy edge:** to deliberately copy an empty string use `clip -c < /dev/null`. `echo -n "" | clip` (no `-c`) pastes instead. `clip --clear` is usually what users mean for "empty the clipboard".
 
 ## Exit Codes
 
