@@ -118,10 +118,43 @@ public sealed class ArgumentParserTests
         }
     }
 
+    // ── Tier-2 baseline 2026-05-06 finding F2 ──
+    // Pre-fix: the parser existence-checked every non-colon-prefixed argument and rejected
+    // missing files with exit 125. This conflated "the user typo'd" with "the file doesn't
+    // exist" — but README §Usage explicitly documents path-with-separator as unambiguously
+    // a file path (no existence check needed for disambiguation). The fix lifts the
+    // existence check off path-with-separator and lets the missing-file case surface
+    // downstream as exit 1 ("Target not found or query error").
+
     [Fact]
-    public void Parse_NonExistentFile_ReturnsError()
+    public void Parse_NonExistentPathWithSeparator_ReturnsFile()
     {
+        // Path with separator is unambiguously a file path per README — accept it without
+        // existence check so the downstream query reports exit 1, not parse exit 125.
         var result = ArgumentParser.Parse("/no/such/file/ever.dll");
+
+        Assert.True(result.IsFile);
+        Assert.Equal("/no/such/file/ever.dll", result.FilePath);
+    }
+
+    [Fact]
+    public void Parse_NonExistentBackslashPath_ReturnsFile()
+    {
+        // Same contract as forward-slash separator on Windows.
+        var result = ArgumentParser.Parse(@"C:\no\such\file.dll");
+
+        Assert.True(result.IsFile);
+        Assert.Equal(@"C:\no\such\file.dll", result.FilePath);
+    }
+
+    [Fact]
+    public void Parse_NonExistentBareName_NotANumber_ReturnsError()
+    {
+        // Bare name with no separator, doesn't exist, isn't a number — no
+        // disambiguation possible. Reject as a usage error (this is the existing
+        // contract for genuinely ambiguous arguments — F2 only changed the
+        // path-with-separator branch).
+        var result = ArgumentParser.Parse("nonexistent-bare-name.dll");
 
         Assert.True(result.IsError);
         Assert.Contains("not found", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);

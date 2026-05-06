@@ -13,10 +13,20 @@ namespace Winix.WhoHolds;
 /// <list type="number">
 ///   <item>Empty or whitespace-only string → error.</item>
 ///   <item>Colon-prefixed (e.g. ":8080") → parse port; error if out of range or non-numeric.</item>
-///   <item><see cref="File.Exists"/> or <see cref="Directory.Exists"/> → file result.</item>
+///   <item>Argument containing a path separator (<c>/</c> or <c>\</c>) → file result
+///         unconditionally (no existence check — the disambiguation is unambiguous by shape;
+///         existence is checked downstream so a missing file is reported as "target not found"
+///         exit 1 rather than "usage error" exit 125, matching the documented contract).</item>
+///   <item>Bare argument that is also an existing file or directory → file result.</item>
 ///   <item>Bare integer that is a valid port number → port result.</item>
 ///   <item>Otherwise → "not found" error.</item>
 /// </list>
+/// Tier-2 baseline 2026-05-06 finding F2: rule 3 (path-with-separator) used to fall
+/// through to existence check (rule 4) and rejected as usage error 125 when the file
+/// didn't exist. README explicitly documents that "any argument containing a path
+/// separator" is a file path; so the parser should accept it unconditionally and let
+/// the lock query (or a downstream existence check) report the missing-file case as
+/// "target not found" with exit code 1.
 /// </remarks>
 public static class ArgumentParser
 {
@@ -43,6 +53,13 @@ public static class ArgumentParser
         if (argument.StartsWith(":", StringComparison.Ordinal))
         {
             return ParseColonPrefixedPort(argument.Substring(1));
+        }
+
+        // Path-with-separator is unambiguously a file path (per README §Usage). Don't
+        // existence-check here; let the missing-file case surface as exit 1 downstream.
+        if (argument.IndexOf('/') >= 0 || argument.IndexOf('\\') >= 0)
+        {
+            return ParsedArgument.ForFile(argument);
         }
 
         if (File.Exists(argument) || Directory.Exists(argument))

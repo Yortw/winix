@@ -1,6 +1,7 @@
 #nullable enable
 
 using System.Collections.Generic;
+using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using Winix.WhoHolds;
@@ -45,8 +46,8 @@ internal sealed class Program
             .JsonField("processes[].resource", "string", "Locked file path or port specifier")
             .ExitCodes(
                 (ExitCode.Success, "Success (includes no-results)"),
-                (1, "Error (API failure)"),
-                (ExitCode.UsageError, "Usage error"));
+                (1, "Target not found or query error (file/directory does not exist, or backend API failure)"),
+                (ExitCode.UsageError, "Usage error (bad flags, missing positional, invalid port number, or unrecognised argument shape)"));
 
         var result = parser.Parse(args);
         if (result.IsHandled) { return result.ExitCode; }
@@ -90,6 +91,19 @@ internal sealed class Program
         if (parsed.IsFile)
         {
             resource = parsed.FilePath!;
+
+            // Tier-2 baseline 2026-05-06 finding F2: when ArgumentParser accepts a path-with-
+            // separator unconditionally (without existence-checking), Program.cs is responsible
+            // for catching the missing-target case here and emitting exit 1 ("Target not found")
+            // per the README contract. Pre-fix, the parser rejected missing files at parse time
+            // with exit 125 (usage error), conflating "I called the tool wrong" with "the file
+            // I asked about doesn't exist." Per option A, the latter is now a query-side error.
+            if (!File.Exists(resource) && !Directory.Exists(resource))
+            {
+                Console.Error.WriteLine($"whoholds: target not found: '{resource}'");
+                return 1;
+            }
+
             locks = FindFileHolders(resource);
         }
         else
