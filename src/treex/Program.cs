@@ -223,14 +223,23 @@ internal sealed class Program
         {
             if (!Directory.Exists(root))
             {
+                // Tier-2 baseline 2026-05-06 finding F4: distinguish "path doesn't exist"
+                // from "path exists but is a file, not a directory." Pre-fix both cases
+                // emitted "path not found" — misleading for the file case where the path
+                // WAS found, just isn't traversable as a tree root.
+                bool isFile = File.Exists(root);
                 if (jsonSummary)
                 {
+                    string reason = isFile ? "not_a_directory" : "path_not_found";
                     Console.Error.WriteLine(
-                        Formatting.FormatJsonError(1, "path_not_found", "treex", version));
+                        Formatting.FormatJsonError(1, reason, "treex", version));
                 }
                 else
                 {
-                    Console.Error.WriteLine($"treex: path not found: {root}");
+                    string message = isFile
+                        ? $"treex: not a directory: {root}"
+                        : $"treex: path not found: {root}";
+                    Console.Error.WriteLine(message);
                 }
                 return 1;
             }
