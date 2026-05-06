@@ -41,6 +41,48 @@ public class ArgParserTests
         Assert.Contains("at most TITLE and BODY", r.Error);
     }
 
+    // -- Tier-2 re-verification 2026-05-06 finding F1 (option 1) --
+    // Empty title alone (or empty title + empty body) produces a useless notification
+    // and breaks ntfy's non-empty-body precondition. Reject as usage error.
+    // `notify "" "body text"` (body-only) still works.
+
+    [Fact]
+    public void Parse_EmptyTitleNoBody_Errors()
+    {
+        var r = ArgParser.Parse(new[] { "" });
+        Assert.False(r.Success);
+        Assert.Contains("TITLE or BODY must be non-empty", r.Error);
+    }
+
+    [Fact]
+    public void Parse_EmptyTitleEmptyBody_Errors()
+    {
+        var r = ArgParser.Parse(new[] { "", "" });
+        Assert.False(r.Success);
+        Assert.Contains("TITLE or BODY must be non-empty", r.Error);
+    }
+
+    [Fact]
+    public void Parse_EmptyTitleWithBody_Succeeds()
+    {
+        // Body-only notification is a reasonable use case (e.g. ntfy push with the
+        // body holding the full message); allow it explicitly.
+        var r = ArgParser.Parse(new[] { "", "the actual message" });
+        Assert.True(r.Success);
+        Assert.Equal("", r.Options!.Title);
+        Assert.Equal("the actual message", r.Options.Body);
+    }
+
+    [Fact]
+    public void Parse_NonEmptyTitleEmptyBody_Succeeds()
+    {
+        // Title-only with explicit empty body is fine — user opted in to no body.
+        var r = ArgParser.Parse(new[] { "Smoke", "" });
+        Assert.True(r.Success);
+        Assert.Equal("Smoke", r.Options!.Title);
+        Assert.Equal("", r.Options.Body);
+    }
+
     [Theory]
     [InlineData("low", Urgency.Low)]
     [InlineData("normal", Urgency.Normal)]

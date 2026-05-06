@@ -54,6 +54,18 @@ public static class ArgParser
         string title = positionals[0];
         string? body = positionals.Length >= 2 ? positionals[1] : null;
 
+        // Tier-2 re-verification 2026-05-06 finding F1 (option 1): reject empty title
+        // when no body is supplied. Empty title alone produces a notification with no
+        // visible content (the desktop toast is blank; ntfy rejects empty bodies — see
+        // NtfyBackend.cs comment "ntfy requires a non-empty body — when no body provided,
+        // send title as body"). Both backends have implicit non-empty preconditions that
+        // the arg parser previously failed to enforce. `notify "" "body text"` still
+        // works (empty title with explicit body is reasonable for body-only notifications).
+        if (string.IsNullOrEmpty(title) && string.IsNullOrEmpty(body))
+        {
+            return Fail("TITLE or BODY must be non-empty");
+        }
+
         // --- Urgency ---
         Urgency urgency = Urgency.Normal;
         if (parsed.Has("--urgency"))
