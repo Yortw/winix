@@ -247,14 +247,24 @@ internal sealed class Program
         {
             if (!Directory.Exists(root))
             {
+                // Tier-2 baseline 2026-05-06 finding F4: distinguish "path doesn't
+                // exist" from "path exists but is a file, not a directory." Pre-fix
+                // both cases emitted "path not found" — misleading for the file case
+                // where the path WAS found, just not traversable as a search root.
+                // Mirrors treex F4 fix (commit 34ae21b).
+                bool isFile = File.Exists(root);
                 if (jsonSummary)
                 {
+                    string reason = isFile ? "not_a_directory" : "path_not_found";
                     Console.Error.WriteLine(
-                        Formatting.FormatJsonError(1, "path_not_found", "files", version));
+                        Formatting.FormatJsonError(1, reason, "files", version));
                 }
                 else
                 {
-                    Console.Error.WriteLine($"files: path not found: {root}");
+                    string message = isFile
+                        ? $"files: not a directory: {root}"
+                        : $"files: path not found: {root}";
+                    Console.Error.WriteLine(message);
                 }
                 return 1;
             }
