@@ -138,4 +138,38 @@ public sealed class PageDiscoveryTests : IDisposable
         Assert.Contains(pathA, result);
         Assert.Contains(pathB, result);
     }
+
+    // Tier-2 baseline 2026-05-07 finding F1: pre-fix, BuildSearchPaths used <exeDir>/man as
+    // the bundled-pages base — but every Winix tool csproj uses Link="share\man\man1\<tool>.1"
+    // for its bundled man page, producing publish layout <exeDir>/share/man/man1/<tool>.1.
+    // The two paths never aligned, so a fresh-published man.exe could not find any bundled
+    // page (including its own). These tests pin the corrected path so the contract can't
+    // drift again without one of them failing first.
+
+    [Fact]
+    public void BuildSearchPaths_BundledEntry_UsesShareManSubdirectoryOfExeDir()
+    {
+        string exeDir = Path.Combine(_tempDir, "exe");
+        string bundled = Path.Combine(exeDir, "share", "man");
+        Directory.CreateDirectory(bundled);
+
+        IReadOnlyList<string> paths = PageDiscovery.BuildSearchPaths(exeDir, manpathEnv: null);
+
+        Assert.Contains(bundled, paths);
+    }
+
+    [Fact]
+    public void BuildSearchPaths_BundledEntry_DoesNotUsePlainManSubdirectory()
+    {
+        // The pre-F1 code looked at <exeDir>/man (no share/). Create that directory but NOT
+        // <exeDir>/share/man — if the discovery still works against the old path it'll show up
+        // here.
+        string exeDir = Path.Combine(_tempDir, "exe");
+        string oldPath = Path.Combine(exeDir, "man");
+        Directory.CreateDirectory(oldPath);
+
+        IReadOnlyList<string> paths = PageDiscovery.BuildSearchPaths(exeDir, manpathEnv: null);
+
+        Assert.DoesNotContain(oldPath, paths);
+    }
 }

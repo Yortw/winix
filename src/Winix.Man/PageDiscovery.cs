@@ -137,7 +137,12 @@ public sealed class PageDiscovery
         var paths = new List<string>();
 
         // 1. Bundled pages shipped alongside the binary take highest priority.
-        string bundled = Path.Combine(exeDirectory, "man");
+        // Path matches the POSIX <prefix>/share/man convention used by /usr/share/man,
+        // /usr/local/share/man, etc. — and matches the Link= path every Winix tool csproj
+        // uses for its bundled man page (`Link="share\man\man1\<tool>.1"`). The two MUST
+        // agree; the F1 finding (2026-05-07 baseline) was a path mismatch where the
+        // discovery used `<exeDir>/man` but every csproj published to `<exeDir>/share/man`.
+        string bundled = Path.Combine(exeDirectory, "share", "man");
         if (Directory.Exists(bundled))
         {
             paths.Add(bundled);
