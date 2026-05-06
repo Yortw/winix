@@ -83,6 +83,31 @@ public class UrlParserTests
         Assert.Contains("invalid URL", result.Error);
     }
 
+    // Regression tests for tier-2 re-verification 2026-05-06 finding F1: parse failures
+    // MUST NOT leak raw 'net_uri_*' SR resource keys to the user envelope. The qr round-2
+    // test pattern (Assert.DoesNotContain) is runtime-portable: under AOT-published
+    // InvariantGlobalization=true the runtime returns the SR key, under JIT it returns
+    // localised English. Both paths now flow through UriErrorMessage which maps SR keys
+    // explicitly and wraps unknown inputs in an "unrecognised URL format error" prefix.
+    // The SR-key→English mapping itself is pinned by UriErrorMessageTests against
+    // hand-fed inputs, so the AOT-only mapping is verified independently of the test
+    // runtime.
+
+    [Theory]
+    [InlineData("")]                                  // expect: net_uri_EmptyUri under AOT
+    [InlineData("https://example .com/")]             // expect: net_uri_BadHostName under AOT
+    [InlineData("http://example.com:99999/")]         // expect: net_uri_BadPort under AOT
+    [InlineData("no scheme at all")]                  // expect: net_uri_BadFormat under AOT
+    [InlineData("%XX://example.com/")]                // expect: net_uri_BadScheme under AOT
+    public void Parse_MalformedInput_DoesNotLeakSrKey(string input)
+    {
+        var result = UrlParser.Parse(input);
+        Assert.False(result.Success);
+        Assert.NotNull(result.Error);
+        Assert.Contains("invalid URL", result.Error);
+        Assert.DoesNotContain("net_uri_", result.Error, System.StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Parse_PercentDecodedQueryValues()
     {

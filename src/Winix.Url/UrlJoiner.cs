@@ -62,7 +62,9 @@ public static class UrlJoiner
         }
         catch (UriFormatException ex)
         {
-            return new Result(null, $"invalid URL: {ex.Message}");
+            // Under InvariantGlobalization=true, ex.Message is an SR resource key
+            // (net_uri_BadHostName etc.), not English — see UriErrorMessage.
+            return new Result(null, $"invalid URL: {UriErrorMessage.ToEnglish(ex.Message)}");
         }
     }
 

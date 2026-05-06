@@ -2,6 +2,11 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <IsTestProject>true</IsTestProject>
+    <!-- Tier-2 re-verification 2026-05-06: mirror url.csproj's InvariantGlobalization=true so the
+         test process exercises UriFormatException.Message under the same runtime config as the
+         shipped AOT binary. Without this, the SR-key leak (net_uri_BadHostName etc.) renders
+         as localised English in tests but as raw resource keys in production. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.*" />
