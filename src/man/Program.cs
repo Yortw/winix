@@ -37,11 +37,18 @@ internal sealed class Program
             .ExitCodes(
                 (ManExitCode.Success, "Page found and displayed"),
                 (ManExitCode.NotFound, "Page not found"),
-                (ManExitCode.UsageError, "Usage error (bad arguments)"));
+                (ManExitCode.UsageError, "Usage error (bad arguments)"),
+                (ManExitCode.InternalError, "Internal error (corrupt page or read failure)"));
 
         var result = parser.Parse(args);
         if (result.IsHandled) { return result.ExitCode; }
-        if (result.HasErrors) { return result.WriteErrors(Console.Error); }
+        if (result.HasErrors)
+        {
+            // ShellKit returns its own usage-error code (suite-wide 125), but man documents the
+            // POSIX-traditional 2 for usage errors. Emit the messages, override the exit code.
+            result.WriteErrors(Console.Error);
+            return ManExitCode.UsageError;
+        }
 
         // --- Resolve output options ---
         bool useColor = result.ResolveColor();

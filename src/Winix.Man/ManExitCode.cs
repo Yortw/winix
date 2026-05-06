@@ -13,4 +13,7 @@ public static class ManExitCode
 
     /// <summary>Usage error (bad arguments).</summary>
     public const int UsageError = 2;
+
+    /// <summary>Internal error: man page existed but could not be read or decoded (e.g. corrupt gzip).</summary>
+    public const int InternalError = 125;
 }
