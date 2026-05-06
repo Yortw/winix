@@ -130,6 +130,34 @@ public class ArgParserTests
         Assert.Equal(expected, ArgParser.IsSha3Available());
     }
 
+    // -- Tier-2 re-verification 2026-05-06 finding F1: the binary's --describe and
+    //    --help exit-code descriptions used to be narrower than README/man — they only
+    //    said "Usage error: bad flags, unknown value, or flag conflict" for code 125,
+    //    even though the binary returns 125 for missing files (ArgParser.cs Fail at
+    //    line 215) and empty HMAC keys (KeyResolver). README.md and man1/digest.1
+    //    correctly enumerated those cases. AI agents reading --describe couldn't
+    //    discover the 125 vs 126 boundary for the common "file not found" case.
+    [Fact]
+    public void Describe_ExitCode125_EnumeratesMissingFileAndEmptyHmacKey()
+    {
+        using var sw = new StringWriter();
+        var originalOut = Console.Out;
+        Console.SetOut(sw);
+        try
+        {
+            var r = ArgParser.Parse(new[] { "--describe" });
+            Assert.True(r.IsHandled);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+        }
+
+        string output = sw.ToString();
+        Assert.Contains("missing file", output, StringComparison.Ordinal);
+        Assert.Contains("empty HMAC key", output, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Describe_AdvertisesSha3OnlyWhenAvailable()
     {
@@ -148,18 +176,21 @@ public class ArgParserTests
         }
 
         string output = sw.ToString();
-        // Pre-existing test bug surfaced on Linux CI where SHA-3 IS available: the bare
-        // "SHA-3 unavailable" substring also matches the exit-code description
-        // ("Runtime error (file read failure, SHA-3 unavailable)") which is always present
-        // regardless of platform. Use the more specific description-only phrasing.
+        // The bare "SHA-3 unavailable on this platform" substring matches BOTH the
+        // tool-description block (only when SHA-3 isn't available) AND the exit-code
+        // description (always, after tier-2 re-verification finding F1 expanded the
+        // 126-description to enumerate "SHA-3 unavailable on this platform, file read
+        // failure, ..."). Use the unique description-only fragment that includes the
+        // surrounding hash-list to disambiguate.
+        const string descriptionOnlyFragment = "SHA-2/BLAKE2b (SHA-3 unavailable on this platform)";
         if (ArgParser.IsSha3Available())
         {
             Assert.Contains("SHA-3", output, StringComparison.Ordinal);
-            Assert.DoesNotContain("SHA-3 unavailable on this platform", output, StringComparison.Ordinal);
+            Assert.DoesNotContain(descriptionOnlyFragment, output, StringComparison.Ordinal);
         }
         else
         {
-            Assert.Contains("SHA-3 unavailable on this platform", output, StringComparison.Ordinal);
+            Assert.Contains(descriptionOnlyFragment, output, StringComparison.Ordinal);
         }
     }
 

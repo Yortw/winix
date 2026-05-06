@@ -376,9 +376,9 @@ public static class ArgParser
                 valueOnUnix: "Consistent flag surface across sha256sum / md5sum variants, plus built-in HMAC, base64/base32 output, and --describe metadata.")
             .ExitCodes(
                 (0, "Success"),
-                (ExitCode.UsageError, "Usage error: bad flags, unknown value, or flag conflict"),
+                (ExitCode.UsageError, "Usage error: bad flags, unknown value, flag conflict, missing file, empty HMAC key, or key file too large"),
                 (1, "Verification failed (digest --verify mismatch)"),
-                (ExitCode.NotExecutable, "Runtime error (file read failure, SHA-3 unavailable)"))
+                (ExitCode.NotExecutable, "Runtime error: SHA-3 unavailable on this platform, file read failure, key file read failure, or generic catch-all"))
             .StdinDescription("Payload to hash (default when no positional files), or key with --key-stdin")
             .StdoutDescription("Hash (plain single line, sha256sum-compatible multi-file lines, or JSON)")
             .StderrDescription("Warnings (legacy algorithms, insecure --key literal, group-readable key files) and errors")
