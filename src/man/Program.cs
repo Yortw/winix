@@ -136,11 +136,36 @@ internal sealed class Program
         }
 
         // --- Read, lex, expand ---
-        string source = ManPageFileReader.Read(filePath);
-        var lexer = new GroffLexer();
-        IEnumerable<GroffToken> tokens = lexer.Tokenise(source);
-        var expander = new ManMacroExpander();
-        IReadOnlyList<DocumentBlock> blocks = expander.Expand(tokens);
+        // Tier-2 baseline 2026-05-07 finding F2: a corrupt or truncated .gz man page
+        // previously escaped here as an unhandled exception, dumping a stack trace and
+        // exiting with .NET's default 127. Wrap the read+pipeline so corruption produces
+        // a human-readable error and the documented internal-error exit code.
+        string source;
+        IReadOnlyList<DocumentBlock> blocks;
+        try
+        {
+            source = ManPageFileReader.Read(filePath);
+            var lexer = new GroffLexer();
+            IEnumerable<GroffToken> tokens = lexer.Tokenise(source);
+            var expander = new ManMacroExpander();
+            blocks = expander.Expand(tokens);
+        }
+        catch (System.IO.InvalidDataException)
+        {
+            // GZipStream throws InvalidDataException for malformed gzip data. The exception
+            // message is framework-controlled (an SR resource key under InvariantGlobalization)
+            // so we don't pipe it to the user — emit our own English message instead.
+            Console.Error.WriteLine($"man: failed to decompress {filePath} (corrupt gzip data)");
+            return ManExitCode.InternalError;
+        }
+        catch (System.IO.IOException ex)
+        {
+            // File-read failures (permissions, locked file, disk error). ex.Message is
+            // English on Windows desktop runtime but may be an SR key under InvariantGlobalization
+            // — emit our own message and hint at the underlying type.
+            Console.Error.WriteLine($"man: failed to read {filePath} ({ex.GetType().Name})");
+            return ManExitCode.InternalError;
+        }
 
         // --- Handle --json (metadata + description from NAME section) ---
         if (jsonOutput)
