@@ -100,6 +100,42 @@ public class CliTests
         Assert.Contains("timeit:", r.stderr, StringComparison.Ordinal);
     }
 
+    // ── Tier-2 re-verification 2026-05-06 finding F1 ──
+    // `timeit ""` (single empty-string positional) used to fall through to Process.Start,
+    // which threw InvalidOperationException with .Message == "FileNameMissing" under
+    // InvariantGlobalization=true. The exception caught at exit code 126 (NotExecutable)
+    // both leaked the SR resource key AND misclassified the case (it's a usage error,
+    // not "the binary is corrupt"). Fixed by validating the empty-positional case at the
+    // Cli layer before reaching CommandRunner.
+
+    [Fact]
+    public void Run_EmptyCommandPositional_ReturnsUsageError()
+    {
+        var r = RunCli("");
+        Assert.Equal(ExitCode.UsageError, r.exit);
+        Assert.Contains("no command specified", r.stderr, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Run_EmptyCommandPositional_StderrDoesNotLeakResourceKey()
+    {
+        // Negative invariant per the qr round-2 / url F1 pattern: regardless of runtime,
+        // the user envelope must not contain raw SR resource keys.
+        var r = RunCli("");
+        Assert.DoesNotContain("FileNameMissing", r.stderr, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Run_EmptyCommandPositional_WithStdoutFlag_ErrorMustGoToStderr()
+    {
+        // Same stderr-only invariant the round-2 SFH-R2-I1 fix established for the
+        // length-zero case applies to the empty-string case.
+        var r = RunCli("--stdout", "");
+        Assert.Equal(ExitCode.UsageError, r.exit);
+        Assert.Empty(r.stdout);
+        Assert.Contains("no command specified", r.stderr, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Run_CommandNotFound_JsonError_GoesToStderrEvenWithStdout()
     {

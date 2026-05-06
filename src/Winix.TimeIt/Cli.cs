@@ -59,6 +59,19 @@ public static class Cli
         string command = result.Command[0];
         string[] commandArgs = result.Command.Skip(1).ToArray();
 
+        if (string.IsNullOrEmpty(command))
+        {
+            // Tier-2 re-verification 2026-05-06 finding F1: an empty-string positional
+            // (e.g. `timeit ""`) previously fell through to Process.Start, which threw
+            // InvalidOperationException with .Message == "FileNameMissing" under
+            // InvariantGlobalization=true (the AOT default), leaking the SR resource key
+            // to user output. Wrong exit code too — 126 (NotExecutable) classified an
+            // empty-command argument as "the binary is corrupt", confusing scripts.
+            // Validate here so the empty case is a clean 125 (UsageError) with controlled
+            // English, matching the "no command at all" branch above.
+            return result.WriteError("no command specified (empty argument). Run 'timeit --help' for usage.", stderr);
+        }
+
         TimeItResult timeResult;
         try
         {
@@ -89,20 +102,27 @@ public static class Cli
             }
             return ExitCode.NotFound;
         }
-        catch (InvalidOperationException ex)
+        catch (InvalidOperationException)
         {
             // Round-1 review SFH-Minor-2 — bad EXE format / unexpected process-start failure
             // is an environment failure (the binary is corrupt or the OS refused to load it),
             // NOT a usage error. POSIX precedent: this maps to exit 126 (NotExecutable), not
             // 125 (UsageError). The previous mapping silently confused "I called timeit
             // wrong" with "the binary is corrupt" for scripts dispatching on exit code.
+            //
+            // Tier-2 re-verification 2026-05-06 finding F1: do NOT bind ex.Message here —
+            // under InvariantGlobalization=true, framework-thrown InvalidOperationException
+            // can return raw SR resource keys (e.g. "FileNameMissing"). The empty-command
+            // case is now intercepted earlier as a usage error; this catch only fires for
+            // genuine process-start failures (bad EXE format, etc.) which are best summarised
+            // by project-controlled English given the user's exit-code dispatch needs.
             if (jsonOutput)
             {
                 stderr.WriteLine(Formatting.FormatJsonError(ExitCode.NotExecutable, "start_error", "timeit", version));
             }
             else
             {
-                stderr.WriteLine($"timeit: {ex.Message}");
+                stderr.WriteLine($"timeit: failed to start command — the binary is corrupt or in an unsupported format.");
             }
             return ExitCode.NotExecutable;
         }
