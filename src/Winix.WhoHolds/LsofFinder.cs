@@ -101,10 +101,13 @@ public static class LsofFinder
 
     /// <summary>
     /// Parses raw lsof output into a deduplicated list of <see cref="LockInfo"/> records.
+    /// Internal so the parser can be fixture-tested on Windows without spawning a real
+    /// lsof binary — the actual lsof invocation lives in <see cref="RunProcess"/>, which
+    /// is gated by platform availability and not directly testable cross-platform.
     /// </summary>
     /// <param name="output">Raw stdout from an lsof invocation.</param>
     /// <param name="resource">Resource label to attach to each result.</param>
-    private static List<LockInfo> ParseLsofOutput(string output, string resource)
+    internal static List<LockInfo> ParseLsofOutput(string output, string resource)
     {
         var results = new List<LockInfo>();
         var seenPids = new HashSet<int>();
