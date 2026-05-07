@@ -168,7 +168,8 @@ public static class Cli
             .Example("echo hello | clip", "Copy 'hello' to the clipboard (trailing newline preserved in copy)")
             .Example("clip --clear", "Empty the clipboard")
             .Example("clip -r > out.txt", "Paste without stripping trailing newline")
-            .Example("clip --primary", "Paste the Linux PRIMARY selection (middle-click)")
+            .Example("clip --primary", "Paste from the Linux PRIMARY selection (middle-click buffer)")
+            .Example("echo hi | clip --primary", "Copy to the Linux PRIMARY selection (applies to copy and clear too)")
             .ComposesWith("ids", "ids | clip", "Generate an ID and copy it to the clipboard")
             .ComposesWith("digest", "digest report.txt | clip", "Copy a file hash to the clipboard (sha256 default)")
             .ComposesWith("qr", "qr \"https://example.com\" --format svg | clip", "Copy an SVG-encoded QR payload to the clipboard");

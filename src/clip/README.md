@@ -125,7 +125,7 @@ Copying via Ctrl+C from any GUI app (browser, Word, VS Code) into `clip` via pas
 | `-p`, `--paste` | Force paste mode (read clipboard to stdout), overriding autodetect. |
 | `--clear` | Empty the clipboard, overriding autodetect. |
 | `-r`, `--raw` | Do not strip trailing newline on paste. |
-| `--primary` | Target X11/Wayland PRIMARY selection (Linux only; ignored elsewhere). The PRIMARY selection is the X11 middle-click buffer. |
+| `--primary` | Target X11/Wayland PRIMARY selection (Linux only; ignored elsewhere). The PRIMARY selection is the X11 middle-click buffer. Applies to copy, paste, and clear — `cat foo | clip --primary` copies to PRIMARY, `clip --primary` pastes from it, `clip --primary --clear` clears it. |
 | `--color`, `--no-color` | Respect `NO_COLOR`. `clip` has no coloured output of its own; flags are accepted for suite consistency. |
 | `--json` | Accepted for suite consistency. `clip` emits no records, so `--json` is a no-op. |
 | `--describe` | Emit structured JSON for AI discoverability. |

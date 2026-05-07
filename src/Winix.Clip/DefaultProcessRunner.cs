@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Text;
 
 namespace Winix.Clip;
 
@@ -9,6 +10,14 @@ public sealed class DefaultProcessRunner : IProcessRunner
     /// <inheritdoc />
     public ProcessRunResult Run(string fileName, IReadOnlyList<string> arguments, string? stdin)
     {
+        // Pin UTF-8 explicitly on every redirected stream so the parent's
+        // Console.InputEncoding / OutputEncoding state cannot influence the helper
+        // round-trip. UseUtf8Streams sets those on Console but swallows IOException
+        // silently — relying on its success to define our child's encoding leaves
+        // a non-ASCII round-trip lossy on hosts where the Console setter throws.
+        // No BOM emitted; helpers (xclip / xsel / wl-copy / pbcopy) all expect raw
+        // UTF-8 bytes without a leading BOM.
+        var utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
         var psi = new ProcessStartInfo
         {
             FileName = fileName,
@@ -16,6 +25,9 @@ public sealed class DefaultProcessRunner : IProcessRunner
             RedirectStandardInput = stdin is not null,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            StandardInputEncoding = stdin is not null ? utf8NoBom : null,
+            StandardOutputEncoding = utf8NoBom,
+            StandardErrorEncoding = utf8NoBom,
         };
 
         foreach (string arg in arguments)

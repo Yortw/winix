@@ -36,7 +36,7 @@ Empty the clipboard, overriding autodetect.
 Do not strip the trailing newline on paste.
 .TP
 .B \-\-primary
-Target X11/Wayland PRIMARY selection (Linux only; ignored elsewhere). The PRIMARY selection is the X11 middle-click buffer.
+Target X11/Wayland PRIMARY selection (Linux only; ignored elsewhere). The PRIMARY selection is the X11 middle-click buffer. Applies to copy, paste, and clear: \fBcat foo | clip --primary\fR copies to PRIMARY, \fBclip --primary\fR pastes from it, \fBclip --primary --clear\fR clears it.
 .TP
 .BR \-\-color ", " \-\-no\-color
 Respect \fBNO_COLOR\fR. \fBclip\fR has no coloured output of its own; flags are accepted for suite consistency.
