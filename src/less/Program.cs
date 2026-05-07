@@ -12,6 +12,33 @@ internal sealed class Program
         ConsoleEnv.UseUtf8Streams();
         string version = GetVersion();
 
+        // Tier-2 baseline 2026-05-07 finding F4: POSIX convention treats a bare "-" argument
+        // as an explicit stdin marker (e.g. `less -`, `cat file -`). ShellKit's CommandLineParser
+        // would consume "-" as an unknown short option and fail with exit 125. Strip it from
+        // args[] up front and remember it as an explicit-stdin signal that bypasses the usual
+        // "stdin used iff IsInputRedirected" rule.
+        //
+        // Long-term, ShellKit should expose this as a parser option (e.g.
+        // .AllowDashAsStdinMarker()) so other Winix tools that want POSIX-style stdin marker
+        // semantics don't each hand-roll the same intercept. Tracked for v0.5+.
+        bool useStdinFromDash = false;
+        if (args.Length > 0)
+        {
+            var filteredArgs = new List<string>(args.Length);
+            foreach (string a in args)
+            {
+                if (a == "-")
+                {
+                    useStdinFromDash = true;
+                }
+                else
+                {
+                    filteredArgs.Add(a);
+                }
+            }
+            args = filteredArgs.ToArray();
+        }
+
         var parser = new CommandLineParser("less", version)
             .Description("Display file contents one screen at a time with scrolling, search, and ANSI colour passthrough.")
             .StandardFlags()
@@ -112,7 +139,14 @@ internal sealed class Program
         InputSource source;
         try
         {
-            if (filePath is not null)
+            if (useStdinFromDash)
+            {
+                // F4: explicit "-" marker forces stdin even when a file argument is also given;
+                // matches POSIX convention. (When both `-` AND a file are given, `-` wins per
+                // tradition. If users want to concatenate, they should pipe through cat.)
+                source = InputSource.FromStdin();
+            }
+            else if (filePath is not null)
             {
                 source = InputSource.FromFile(filePath);
             }
