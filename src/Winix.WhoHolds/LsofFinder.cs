@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 
@@ -21,6 +22,43 @@ public static class LsofFinder
     private const int LsofTimeoutMs = 2000;
 
     /// <summary>
+    /// Outcome of a single lsof invocation — captures stdout, stderr, and any failure
+    /// signals so <see cref="InterpretLsofRun"/> can map distinct failure modes
+    /// (start failure, timeout, mid-read exception) to <see cref="FindResult.Failed"/>
+    /// without losing diagnostic detail.
+    /// </summary>
+    /// <param name="ExitCode">
+    /// Process exit code, or <c>-1</c> sentinel when the process did not run to
+    /// completion (start failure or timeout). Use <see cref="TimedOut"/> /
+    /// <see cref="StartError"/> to disambiguate.
+    /// </param>
+    /// <param name="Output">Captured stdout. Empty when <see cref="TimedOut"/> or process never started.</param>
+    /// <param name="Error">Captured stderr. Empty when timed out or process never started.</param>
+    /// <param name="TimedOut"><see langword="true"/> when WaitForExit hit the configured timeout and the process was force-killed.</param>
+    /// <param name="StartError">Non-null when <see cref="Process.Start(ProcessStartInfo)"/> threw or returned <see langword="null"/>.</param>
+    /// <param name="ReadError">
+    /// Non-null when stdout or stderr capture threw an unexpected exception
+    /// (e.g. <see cref="ObjectDisposedException"/> if the streams were torn down racily).
+    /// SFH F3 fresh-eyes finding 2026-05-08: pre-fix this was an empty catch and silently
+    /// produced an empty-stdout success-empty result, re-introducing the SFH defect class.
+    /// </param>
+    internal readonly record struct LsofRun(
+        int ExitCode,
+        string Output,
+        string Error,
+        bool TimedOut,
+        string? StartError,
+        string? ReadError);
+
+    /// <summary>
+    /// Test seam for the underlying process runner. Production code uses
+    /// <see cref="DefaultRunProcess"/>; tests substitute a fake to exercise timeout,
+    /// start-failure, stderr-on-nonzero, and stream-read-exception paths without spawning
+    /// an actual lsof binary. Round-1 fresh-eyes 2026-05-08 test-analyzer C1-C3.
+    /// </summary>
+    internal static Func<string, string[], LsofRun> ProcessRunner { get; set; } = DefaultRunProcess;
+
+    /// <summary>
     /// Returns processes holding an open handle on <paramref name="filePath"/>.
     /// Uses <c>lsof &lt;filePath&gt;</c>.
     /// Returns a successful empty result when lsof reports no holders, and
@@ -31,7 +69,7 @@ public static class LsofFinder
     /// <param name="filePath">Absolute path to the file to query.</param>
     public static FindResult FindFile(string filePath)
     {
-        var run = RunProcess("lsof", new[] { filePath });
+        var run = ProcessRunner("lsof", new[] { filePath });
         return InterpretLsofRun(run, filePath);
     }
 
@@ -46,7 +84,7 @@ public static class LsofFinder
     public static FindResult FindPort(int port)
     {
         string portArg = ":" + port.ToString(CultureInfo.InvariantCulture);
-        var run = RunProcess("lsof", new[] { "-i", portArg });
+        var run = ProcessRunner("lsof", new[] { "-i", portArg });
         return InterpretLsofRun(run, "TCP :" + port.ToString(CultureInfo.InvariantCulture));
     }
 
@@ -58,10 +96,10 @@ public static class LsofFinder
     /// </summary>
     public static bool IsAvailable()
     {
-        var run = RunProcess("lsof", new[] { "-v" });
+        var run = ProcessRunner("lsof", new[] { "-v" });
         // exitCode == -1 means the process could not start (lsof not on PATH).
         // TimedOut means the binary is wedged — treat as unavailable rather than hang.
-        return run.ExitCode != -1 && !run.TimedOut;
+        return run.StartError is null && !run.TimedOut;
     }
 
     /// <summary>
@@ -69,19 +107,26 @@ public static class LsofFinder
     /// the "exit 1 with no output = no matches = success-empty" rule so file and port
     /// queries behave identically.
     /// </summary>
-    private static FindResult InterpretLsofRun(LsofRun run, string resource)
+    internal static FindResult InterpretLsofRun(LsofRun run, string resource)
     {
         if (run.TimedOut)
         {
             return FindResult.Failed(
                 "lsof timed out after " + LsofTimeoutMs.ToString(CultureInfo.InvariantCulture) + "ms.");
         }
-        if (run.ExitCode == -1)
+        if (run.StartError is not null)
         {
             // Process couldn't be started after IsAvailable() returned true — race or
             // PATH change mid-run. Surface as a real failure.
-            string detail = string.IsNullOrWhiteSpace(run.StartError) ? "Process.Start failed" : run.StartError;
-            return FindResult.Failed("lsof failed to start: " + detail + ".");
+            return FindResult.Failed("lsof failed to start: " + run.StartError + ".");
+        }
+        if (run.ReadError is not null)
+        {
+            // Stream capture threw mid-read (e.g. ObjectDisposedException on a racing
+            // teardown). SFH F3 fresh-eyes: pre-fix, the bare catch silently produced
+            // an empty-stdout success-empty here. Surface explicitly so the failure
+            // doesn't masquerade as "no holders found".
+            return FindResult.Failed("lsof output capture failed: " + run.ReadError + ".");
         }
 
         if (string.IsNullOrWhiteSpace(run.Output))
@@ -102,8 +147,8 @@ public static class LsofFinder
     /// <summary>
     /// Parses raw lsof output into a deduplicated list of <see cref="LockInfo"/> records.
     /// Internal so the parser can be fixture-tested on Windows without spawning a real
-    /// lsof binary — the actual lsof invocation lives in <see cref="RunProcess"/>, which
-    /// is gated by platform availability and not directly testable cross-platform.
+    /// lsof binary — the actual lsof invocation lives in <see cref="DefaultRunProcess"/>,
+    /// which is gated by platform availability and not directly testable cross-platform.
     /// </summary>
     /// <param name="output">Raw stdout from an lsof invocation.</param>
     /// <param name="resource">Resource label to attach to each result.</param>
@@ -157,24 +202,12 @@ public static class LsofFinder
     }
 
     /// <summary>
-    /// Outcome of a single lsof invocation — captures both stdout and stderr so the
-    /// caller can distinguish "no matches" from "lsof itself errored" without losing
-    /// diagnostic detail.
+    /// Production process runner. Spawns <paramref name="command"/> under the configured
+    /// timeout, captures both stdout and stderr asynchronously, and reports timeouts /
+    /// start failures / stream-read exceptions via the structured <see cref="LsofRun"/>
+    /// fields rather than empty catches.
     /// </summary>
-    private readonly record struct LsofRun(int ExitCode, string Output, string Error, bool TimedOut, string? StartError);
-
-    /// <summary>
-    /// Runs an external process under a fixed timeout, capturing stdout and stderr.
-    /// </summary>
-    /// <param name="command">Executable name or path.</param>
-    /// <param name="arguments">Arguments passed via <see cref="ProcessStartInfo.ArgumentList"/>.</param>
-    /// <returns>
-    /// An <see cref="LsofRun"/> with <c>ExitCode == -1</c> when the process could not be
-    /// started (capturing the exception text into <c>StartError</c>), or
-    /// <c>TimedOut == true</c> when the process did not exit within
-    /// <see cref="LsofTimeoutMs"/>.
-    /// </returns>
-    private static LsofRun RunProcess(string command, string[] arguments)
+    private static LsofRun DefaultRunProcess(string command, string[] arguments)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -190,10 +223,34 @@ public static class LsofFinder
             startInfo.ArgumentList.Add(arg);
         }
 
+        Process? process;
         try
         {
-            using var process = Process.Start(startInfo)!;
+            process = Process.Start(startInfo);
+        }
+        catch (Win32Exception ex)
+        {
+            return new LsofRun(-1, string.Empty, string.Empty, TimedOut: false, StartError: ex.Message, ReadError: null);
+        }
+        catch (System.IO.FileNotFoundException ex)
+        {
+            return new LsofRun(-1, string.Empty, string.Empty, TimedOut: false, StartError: ex.Message, ReadError: null);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return new LsofRun(-1, string.Empty, string.Empty, TimedOut: false, StartError: ex.Message, ReadError: null);
+        }
 
+        if (process is null)
+        {
+            // Process.Start(ProcessStartInfo) is documented as nullable when no new process
+            // was started because an existing one was reused — surface that as a start
+            // failure rather than NRE under the `!` suppression.
+            return new LsofRun(-1, string.Empty, string.Empty, TimedOut: false, StartError: "Process.Start returned null.", ReadError: null);
+        }
+
+        using (process)
+        {
             // Begin async reads BEFORE WaitForExit to avoid a deadlock if either pipe
             // fills its buffer (~64 KB on Windows). lsof's normal output is well under
             // that, but a wedged or chatty binary could still block.
@@ -206,33 +263,70 @@ public static class LsofFinder
                 {
                     process.Kill(entireProcessTree: true);
                 }
-                catch
+                catch (InvalidOperationException)
                 {
-                    // Best-effort kill — if the kill itself fails the process is wedged
-                    // beyond our recovery; surfaced as TimedOut to the caller.
+                    // Process exited between WaitForExit-returns-false and Kill — race.
+                    // No remediation needed; we still report the timeout.
                 }
-                return new LsofRun(-1, string.Empty, string.Empty, TimedOut: true, StartError: null);
+                catch (Win32Exception)
+                {
+                    // OS refused the kill (rare; e.g. permission denied on a kernel-managed
+                    // process). Best-effort kill; surface as TimedOut so the caller routes
+                    // to FindResult.Failed.
+                }
+
+                // CR W3 fresh-eyes: give the read tasks a brief window to observe the
+                // kill before we dispose the streams. Without this, ObjectDisposedException
+                // is raised on disposal and we lose any partial captures.
+                try
+                {
+                    System.Threading.Tasks.Task.WaitAll(new[] { stdoutTask, stderrTask }, 100);
+                }
+                catch (AggregateException)
+                {
+                    // Stream-read exceptions on the timeout path are expected; the killed
+                    // process tears down the streams. No structured capture needed — the
+                    // user-visible result is "timed out", which is what we report.
+                }
+
+                return new LsofRun(-1, string.Empty, string.Empty, TimedOut: true, StartError: null, ReadError: null);
             }
 
-            // Process has exited; the read tasks should complete promptly. Use a small
-            // grace-period wait so we don't return partial captures if the runtime hasn't
-            // yet pumped the final buffer.
+            // Process has exited; the read tasks should complete promptly. Wait with a
+            // bounded budget so a stuck stream cannot extend our timeout indefinitely.
+            // Capture exceptions explicitly per SFH F3: if a read fails we surface that
+            // via ReadError instead of silently substituting empty strings.
+            string output = string.Empty;
+            string error = string.Empty;
+            string? readError = null;
             try
             {
                 System.Threading.Tasks.Task.WaitAll(new[] { stdoutTask, stderrTask }, LsofTimeoutMs);
             }
-            catch
+            catch (AggregateException ex)
             {
-                // Stream read exceptions are unusual after WaitForExit; surface what we got.
+                readError = ex.GetType().Name + ": " + ex.InnerException?.Message;
             }
 
-            string output = stdoutTask.IsCompletedSuccessfully ? stdoutTask.Result : string.Empty;
-            string error  = stderrTask.IsCompletedSuccessfully ? stderrTask.Result : string.Empty;
-            return new LsofRun(process.ExitCode, output, error, TimedOut: false, StartError: null);
-        }
-        catch (Exception ex)
-        {
-            return new LsofRun(-1, string.Empty, string.Empty, TimedOut: false, StartError: ex.Message);
+            if (stdoutTask.IsCompletedSuccessfully)
+            {
+                output = stdoutTask.Result;
+            }
+            else if (readError is null && stdoutTask.IsFaulted)
+            {
+                readError = "stdout read faulted: " + stdoutTask.Exception?.GetBaseException().Message;
+            }
+
+            if (stderrTask.IsCompletedSuccessfully)
+            {
+                error = stderrTask.Result;
+            }
+            else if (readError is null && stderrTask.IsFaulted)
+            {
+                readError = "stderr read faulted: " + stderrTask.Exception?.GetBaseException().Message;
+            }
+
+            return new LsofRun(process.ExitCode, output, error, TimedOut: false, StartError: null, ReadError: readError);
         }
     }
 }
