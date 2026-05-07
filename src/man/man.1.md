@@ -79,7 +79,7 @@ Use **man --manpath** to inspect the effective search path.
 # ENVIRONMENT
 
 **MANPATH**
-:   Colon-separated list of directories to search for man pages, prepended to auto-detected locations.
+:   Platform-separated list of directories to search for man pages, prepended to auto-detected locations. The separator is **:** (colon) on Linux/macOS and **;** (semicolon) on Windows, matching the platform's <c>PATH</c> separator.
 
 **NO_COLOR**
 :   If set, disables coloured output and clickable hyperlinks (no-color.org).
