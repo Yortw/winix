@@ -155,4 +155,37 @@ public class LessOptionsTests
 
         Assert.True(opts.ForceIgnoreCase);
     }
+
+    // 13. Tier-2 baseline 2026-05-07 finding F2: stripAnsi parameter wires through to the
+    // resolved StripAnsi field. Caller passes !useColor after consulting NO_COLOR / --color
+    // / --no-color via ShellKit's ResolveColor.
+    [Fact]
+    public void StripAnsi_DefaultsFalse()
+    {
+        var opts = LessOptions.Resolve([], null);
+
+        Assert.False(opts.StripAnsi);
+    }
+
+    [Fact]
+    public void StripAnsi_TruePropagatesToResolvedOptions()
+    {
+        var opts = LessOptions.Resolve([], null, stripAnsi: true);
+
+        Assert.True(opts.StripAnsi);
+    }
+
+    [Fact]
+    public void StripAnsi_IndependentOfRawAnsi()
+    {
+        // -R (RawAnsi) and StripAnsi cover different concerns. -R is the existing less flag
+        // controlling whether the pager interprets vs displays escape sequences. StripAnsi is
+        // F2's new flag for "the user wants no colour, period — strip codes before output."
+        // Both can be true simultaneously without contradiction in the resolved struct (the
+        // strip path just removes codes that -R would otherwise pass through).
+        var opts = LessOptions.Resolve([], "R", stripAnsi: true);
+
+        Assert.True(opts.RawAnsi);
+        Assert.True(opts.StripAnsi);
+    }
 }

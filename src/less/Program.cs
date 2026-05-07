@@ -121,9 +121,16 @@ internal sealed class Program
             }
         }
 
+        // Tier-2 baseline 2026-05-07 finding F2: pre-fix, less ignored --color, --no-color, and
+        // NO_COLOR entirely — ANSI codes always passed through. Now consult ShellKit's standard
+        // colour resolution and pass !useColor as stripAnsi to LessOptions, so a user who set
+        // NO_COLOR=1 (or passed --no-color) actually sees clean text output instead of unwanted
+        // colour. Per CLAUDE.md "Respect NO_COLOR env var (no-color.org)".
+        bool useColor = result.ResolveColor();
+
         // Resolve options: CLI flags > LESS env > defaults
         string? lessEnv = Environment.GetEnvironmentVariable("LESS");
-        var options = LessOptions.Resolve(lessFlags.ToArray(), lessEnv);
+        var options = LessOptions.Resolve(lessFlags.ToArray(), lessEnv, stripAnsi: !useColor);
 
         // Load input. Tier-2 baseline 2026-05-07 finding F7: pre-fix only FileNotFoundException
         // was caught — IOException (e.g. our "Is a directory" from F6, or genuine read errors)

@@ -109,6 +109,15 @@ internal sealed class Screen : IDisposable
         for (int sourceIndex = topLine; sourceIndex < lines.Count && rowsWritten < ViewHeight; sourceIndex++)
         {
             string line = lines[sourceIndex];
+
+            // Tier-2 baseline 2026-05-07 finding F2: when StripAnsi is set (NO_COLOR /
+            // --no-color / --color resolved off), remove SGR sequences before wrap/chop so
+            // line-numbers gutter, wrap math, and final terminal output all see clean text.
+            if (_options.StripAnsi)
+            {
+                line = AnsiText.StripAnsi(line);
+            }
+
             IReadOnlyList<string> displayRows;
 
             if (_options.ChopLongLines)

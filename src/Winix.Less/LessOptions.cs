@@ -69,6 +69,16 @@ public sealed record LessOptions
     public string? InitialSearch { get; init; }
 
     /// <summary>
+    /// When <see langword="true"/>, ANSI SGR escape sequences are stripped from output (using
+    /// <see cref="AnsiText.StripAnsi(string)"/>) instead of being passed through to the terminal.
+    /// Set when the user requests no-colour mode via <c>--no-color</c>, the <c>NO_COLOR</c>
+    /// environment variable, or when <c>--color</c> resolution returns false.
+    /// Independent of <see cref="RawAnsi"/> (-R) so that real <c>less</c>'s -R semantics still
+    /// apply when colour IS allowed but the user passed <c>-r</c> equivalent.
+    /// </summary>
+    public bool StripAnsi { get; init; }
+
+    /// <summary>
     /// Resolves a <see cref="LessOptions"/> instance from the optional <c>LESS</c> environment variable
     /// and any CLI flags provided to the tool.
     /// </summary>
@@ -77,8 +87,16 @@ public sealed record LessOptions
     /// Unknown flags are silently ignored.
     /// </param>
     /// <param name="lessEnvVar">
-    /// The value of the <c>LESS</c> environment variable, or <see langword="null"/> / empty to use
-    /// modern defaults (<c>-F -R -X</c>).
+    /// The value of the <c>LESS</c> environment variable, or <see langword="null"/> if the
+    /// variable is not set in the environment. An empty string explicitly disables defaults
+    /// (post-F8 contract); <see langword="null"/> applies the modern defaults.
+    /// </param>
+    /// <param name="stripAnsi">
+    /// When <see langword="true"/>, the resolved <see cref="StripAnsi"/> field is forced on,
+    /// causing ANSI SGR sequences to be removed from output. Set by the caller after consulting
+    /// <c>NO_COLOR</c>, <c>--no-color</c>, and <c>--color</c> via ShellKit's
+    /// <c>ResolveColor()</c>. Defaults to <see langword="false"/> for backwards compatibility
+    /// with callers that haven't been updated to consult colour state.
     /// </param>
     /// <returns>A fully resolved <see cref="LessOptions"/>.</returns>
     /// <remarks>
@@ -95,7 +113,7 @@ public sealed record LessOptions
     /// (<see cref="string.IsNullOrEmpty(string)"/> conflated both).
     /// </para>
     /// </remarks>
-    public static LessOptions Resolve(string[] cliFlags, string? lessEnvVar)
+    public static LessOptions Resolve(string[] cliFlags, string? lessEnvVar, bool stripAnsi = false)
     {
         // Start from the appropriate baseline.
         bool quitIfOneScreen;
@@ -184,6 +202,7 @@ public sealed record LessOptions
             FollowOnStart = followOnStart,
             StartAtEnd = startAtEnd,
             InitialSearch = initialSearch,
+            StripAnsi = stripAnsi,
         };
     }
 }
