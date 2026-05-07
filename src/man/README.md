@@ -102,6 +102,18 @@ Use `man --manpath` to inspect the effective search path.
 | 2 | Usage error (bad arguments) |
 | 125 | Internal error |
 
+## Environment Variables
+
+| Variable | Effect |
+|----------|--------|
+| `MANPATH` | Extra search directories for man pages, prepended to auto-detected locations. Separator: `:` on Linux/macOS, `;` on Windows. |
+| `MANWIDTH` | Render width when `--width` is not given (must be ≥ 10). Otherwise the default is terminal width capped at 80 columns. |
+| `MANPAGER` | Pager command to invoke. May be a bare executable (`less`) or a shell command line with arguments (`less -R`); value is passed to `sh -c` (Unix) or `cmd /c` (Windows). |
+| `PAGER` | Fallback pager command consulted when `MANPAGER` is unset. Same parsing rules as `MANPAGER`. |
+| `NO_COLOR` | Disables coloured output and clickable hyperlinks ([no-color.org](https://no-color.org)). Overridden by `--color`. |
+
+Pager resolution order: `$MANPAGER` → `$PAGER` → sibling `less`/`less.exe` in the same directory as `man` → `less` found on `PATH` → built-in minimal pager.
+
 ## Colour
 
 - Automatic: colour when outputting to a terminal, plain when piped

@@ -81,6 +81,15 @@ Use **man --manpath** to inspect the effective search path.
 **MANPATH**
 :   Platform-separated list of directories to search for man pages, prepended to auto-detected locations. The separator is **:** (colon) on Linux/macOS and **;** (semicolon) on Windows, matching the platform's <c>PATH</c> separator.
 
+**MANWIDTH**
+:   When set to a positive integer ≥ 10 and **--width** is not given, used as the rendering width. Otherwise the default applies (terminal width, capped at 80).
+
+**MANPAGER**
+:   The pager command to invoke for displaying rendered output. May be a bare executable (**less**) or a full command line with arguments (**less -R**, **less -R --ignore-case**); the value is passed to **/bin/sh -c** on Linux/macOS and **cmd /c** on Windows so any shell-syntax is honoured. Takes priority over **PAGER**.
+
+**PAGER**
+:   Fallback pager command, consulted when **MANPAGER** is unset. Same parsing rules as **MANPAGER**. If neither variable is set, man falls back (in order) to a sibling **less** binary in the same directory, the **less** found on **PATH**, or a built-in minimal pager.
+
 **NO_COLOR**
 :   If set, disables coloured output and clickable hyperlinks (no-color.org).
 
