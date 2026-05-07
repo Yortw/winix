@@ -216,6 +216,18 @@ jobs:
       - name: Publish schedule
         run: dotnet publish src/schedule/schedule.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
 
+      - name: Stamp release version into bundled winix manifest
+        shell: bash
+        run: |
+          # The checked-in src/winix/winix-manifest.json carries a placeholder dev version
+          # ("0.1.0"). At release time the published binary should ship a manifest whose
+          # version field matches the actual release version, so winix --describe and any
+          # tool that introspects manifest.version see the correct value. This step
+          # rewrites the file in-place before the publish step copies it into share/winix/.
+          VERSION="${{ needs.resolve-version.outputs.version }}"
+          jq --arg version "$VERSION" '.version = $version' src/winix/winix-manifest.json > src/winix/winix-manifest.json.tmp
+          mv src/winix/winix-manifest.json.tmp src/winix/winix-manifest.json
+
       - name: Publish winix
         run: dotnet publish src/winix/winix.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
 
@@ -404,38 +416,16 @@ jobs:
           name: aot-osx-arm64
           path: aot
 
-      - name: Generate winix-manifest.json
+      - name: Stage winix-manifest.json with release version
         run: |
+          # The checked-in src/winix/winix-manifest.json is the single source of truth
+          # for the suite's tool list. We stamp the actual release version into a copy
+          # at the workflow root so 'gh release create' uploads it as a release asset.
+          # The publish-aot job applies the same in-place stamp before bundling the
+          # file into the winix binary, so the asset uploaded here and the bundled
+          # copy inside the binary have identical content.
           VERSION="${{ needs.resolve-version.outputs.version }}"
-          jq -n \
-            --arg version "$VERSION" \
-            '{
-              version: $version,
-              tools: {
-                timeit:  { description: "Time a command \u2014 wall clock, CPU time, peak memory, exit code.",                                      packages: { winget: "Winix.TimeIt",  scoop: "timeit",  brew: "timeit",  dotnet: "Winix.TimeIt"  } },
-                squeeze: { description: "Compress and decompress files using gzip, brotli, or zstd.",                                              packages: { winget: "Winix.Squeeze", scoop: "squeeze", brew: "squeeze", dotnet: "Winix.Squeeze" } },
-                peep:    { description: "Run a command repeatedly and display output on a refreshing screen.",                                      packages: { winget: "Winix.Peep",    scoop: "peep",    brew: "peep",    dotnet: "Winix.Peep"    } },
-                wargs:   { description: "Cross-platform xargs replacement with sane defaults.",                                                    packages: { winget: "Winix.Wargs",   scoop: "wargs",   brew: "wargs",   dotnet: "Winix.Wargs"   } },
-                files:   { description: "Find files by name, size, date, type, and content.",                                                      packages: { winget: "Winix.Files",   scoop: "files",   brew: "files",   dotnet: "Winix.Files"   } },
-                treex:   { description: "Enhanced directory tree with colour, filtering, size rollups, and clickable hyperlinks.",                  packages: { winget: "Winix.TreeX",   scoop: "treex",   brew: "treex",   dotnet: "Winix.TreeX"   } },
-                man:     { description: "Cross-platform man page viewer with colour, hyperlinks, and pager support.",                                packages: { winget: "Winix.Man",     scoop: "man",     brew: "man",     dotnet: "Winix.Man"     } },
-                less:     { description: "Native terminal pager with ANSI colour, search, follow mode, and modern defaults.",                              packages: { winget: "Winix.Less",     scoop: "less",     brew: "less",     dotnet: "Winix.Less"     } },
-                whoholds: { description: "Find which processes are holding a file lock or binding a network port.",                                         packages: { winget: "Winix.WhoHolds", scoop: "whoholds", brew: "whoholds", dotnet: "Winix.WhoHolds" } },
-                schedule: { description: "Cross-platform task scheduler with cron expressions.",                                                             packages: { winget: "Winix.Schedule", scoop: "schedule", brew: "schedule", dotnet: "Winix.Schedule" } },
-                nc:       { description: "Cross-platform netcat \u2014 TCP/UDP send/receive, port checks, TLS clients.",                                     packages: { winget: "Winix.NetCat",   scoop: "nc",       brew: "nc",       dotnet: "Winix.NetCat"   } },
-                retry:    { description: "Run a command with automatic retries, backoff, and exit-code filtering.",                                    packages: { winget: "Winix.Retry",    scoop: "retry",    brew: "retry",    dotnet: "Winix.Retry"    } },
-                when:     { description: "Convert timestamps between formats, apply time arithmetic, and calculate durations.",                         packages: { winget: "Winix.When",     scoop: "when",     brew: "when",     dotnet: "Winix.When"     } },
-                clip:    { description: "Cross-platform clipboard bridge \u2014 copy from stdin, paste to stdout, clear.",                                 packages: { winget: "Winix.Clip",     scoop: "clip",     brew: "clip",     dotnet: "Winix.Clip"     } },
-                ids:     { description: "Cross-platform identifier generator \u2014 UUID v4, UUID v7, ULID, NanoID.",                                        packages: { winget: "Winix.Ids",      scoop: "ids",      brew: "ids",      dotnet: "Winix.Ids"      } },
-                digest:  { description: "Cryptographic hashing and HMAC \u2014 SHA-2/SHA-3/BLAKE2b, HMAC on Windows.",                                         packages: { winget: "Winix.Digest",   scoop: "digest",   brew: "digest",   dotnet: "Winix.Digest"   } },
-                notify:  { description: "Cross-platform desktop notifications + ntfy.sh push.",                                                                packages: { winget: "Winix.Notify",   scoop: "notify",   brew: "notify",   dotnet: "Winix.Notify"   } },
-                url:     { description: "Cross-platform URL encode/decode/parse/build/join/query-edit.",                                                       packages: { winget: "Winix.Url",      scoop: "url",      brew: "url",      dotnet: "Winix.Url"      } },
-                qr:        { description: "Cross-platform QR code generator with Wi-Fi, SMS, mailto, geo, and tel helpers.",                                   packages: { winget: "Winix.Qr",        scoop: "qr",        brew: "qr",        dotnet: "Winix.Qr"        } },
-                protect:   { description: "Cross-platform encrypt-at-rest CLI using OS-native key stores (DPAPI on Windows, Keychain on macOS, libsecret on Linux).", packages: { winget: "Winix.Protect",   scoop: "protect",   brew: "protect",   dotnet: "Winix.Protect"   } },
-                unprotect: { description: "Companion tool to protect — decrypts files that protect encrypted, using the same native OS key-storage primitives.", packages: { winget: "Winix.Unprotect", scoop: "unprotect", brew: "unprotect", dotnet: "Winix.Unprotect" } },
-                envvault:  { description: "Cross-platform keychain-backed env-var manager; envchain-compatible with a Windows backend.", packages: { winget: "Winix.EnvVault", scoop: "envvault", brew: "envvault", dotnet: "Winix.EnvVault" } }
-              }
-            }' > winix-manifest.json
+          jq --arg version "$VERSION" '.version = $version' src/winix/winix-manifest.json > winix-manifest.json
 
       - name: Create GitHub Release
         env:
