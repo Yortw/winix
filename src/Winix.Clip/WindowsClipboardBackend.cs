@@ -10,14 +10,6 @@ namespace Winix.Clip;
 /// </summary>
 public sealed class WindowsClipboardBackend : IClipboardBackend
 {
-    // Windows clipboard is commonly held briefly by another process (Office, Chromium).
-    // We retry OpenClipboard for up to 250 ms total before surfacing "busy".
-    // Clipboard is a single-owner Windows resource. Clipboard managers (Windows clipboard history,
-    // Ditto, etc.) poll it aggressively — the original 5×50ms budget lost races routinely. 20×50ms
-    // gives a full second of retry, which tolerates normal polling without adding perceptible latency.
-    private const int OpenAttempts = 20;
-    private const int OpenRetryDelayMs = 50;
-
     // ReSharper disable InconsistentNaming
     private const uint CF_UNICODETEXT = 13;
     private const uint GMEM_MOVEABLE = 0x0002;
@@ -29,14 +21,12 @@ public sealed class WindowsClipboardBackend : IClipboardBackend
         EnsureWindows();
         ArgumentNullException.ThrowIfNull(text);
 
-        using var scope = OpenScope();
-
-        if (!EmptyClipboard())
-        {
-            throw new ClipboardException("EmptyClipboard failed", LastWin32());
-        }
-
-        // Null-terminated UTF-16LE payload. CF_UNICODETEXT requires a trailing 0 WCHAR.
+        // Pre-allocate and populate the unmanaged buffer BEFORE touching the clipboard.
+        // The previous order (OpenClipboard → EmptyClipboard → GlobalAlloc → ...) meant
+        // that an alloc failure on a memory-pressured host left the user's clipboard
+        // truly empty (EmptyClipboard had already succeeded) with nothing replacing it.
+        // Now alloc happens first; if it fails the clipboard is untouched.
+        // Null-terminated UTF-16LE payload — CF_UNICODETEXT requires a trailing 0 WCHAR.
         int byteCount = (text.Length + 1) * sizeof(char);
         IntPtr hMem = GlobalAlloc(GMEM_MOVEABLE, (UIntPtr)byteCount);
         if (hMem == IntPtr.Zero)
@@ -63,12 +53,27 @@ public sealed class WindowsClipboardBackend : IClipboardBackend
                 GlobalUnlock(hMem);
             }
 
-            // Ownership transfers to the system on success — do not GlobalFree.
-            if (SetClipboardData(CF_UNICODETEXT, hMem) == IntPtr.Zero)
+            // Buffer is fully populated. NOW open + claim ownership + transfer.
+            using var scope = OpenScope();
+
+            if (!EmptyClipboard())
             {
-                throw new ClipboardException("SetClipboardData failed", LastWin32());
+                // Open succeeded but EmptyClipboard failed — the prior owner still
+                // owns; clipboard is untouched. Free our buffer in the outer finally.
+                throw new ClipboardException("EmptyClipboard failed", LastWin32());
             }
 
+            // After this point the user's previous clipboard contents are gone. If
+            // SetClipboardData fails, we cannot restore them — annotate the error
+            // so the operator knows the destructive side-effect already landed.
+            if (SetClipboardData(CF_UNICODETEXT, hMem) == IntPtr.Zero)
+            {
+                throw new ClipboardException(
+                    "SetClipboardData failed (clipboard was emptied; previous contents are lost)",
+                    LastWin32());
+            }
+
+            // Ownership transferred to the system — do not GlobalFree on success.
             hMem = IntPtr.Zero;
         }
         finally
@@ -135,14 +140,12 @@ public sealed class WindowsClipboardBackend : IClipboardBackend
 
     private static ClipboardScope OpenScope()
     {
-        for (int attempt = 0; attempt < OpenAttempts; attempt++)
+        if (ClipboardRetryPolicy.TryOpenWithRetry(
+            tryOpen: () => OpenClipboard(IntPtr.Zero),
+            sleep: Thread.Sleep,
+            attemptsMade: out _))
         {
-            if (OpenClipboard(IntPtr.Zero))
-            {
-                return new ClipboardScope();
-            }
-
-            Thread.Sleep(OpenRetryDelayMs);
+            return new ClipboardScope();
         }
 
         throw new ClipboardException(
