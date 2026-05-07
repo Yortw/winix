@@ -2,6 +2,11 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <IsTestProject>true</IsTestProject>
+    <!-- Match the runtime InvariantGlobalization=true setting in the production csproj.
+         Without this, framework ex.Message may produce localised text in tests that the
+         shipped binary would not produce, hiding resource-key leak bugs. See
+         feedback_invariant_globalization_resource_keys.md. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.*" />
