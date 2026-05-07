@@ -149,7 +149,7 @@ public static class Cli
             .StandardFlags()
             .Flag("--copy", "-c", "Force copy mode (read stdin to clipboard), overriding autodetect")
             .Flag("--paste", "-p", "Force paste mode (read clipboard to stdout), overriding autodetect")
-            .Flag("--clear", null, "Empty the clipboard")
+            .Flag("--clear", null, "Empty the clipboard, overriding autodetect")
             .Flag("--raw", "-r", "Do not strip trailing newline on paste")
             .Flag("--primary", null, "Target X11/Wayland PRIMARY selection (Linux only; ignored elsewhere)")
             .ExitCodes(
@@ -170,7 +170,8 @@ public static class Cli
             .Example("clip -r > out.txt", "Paste without stripping trailing newline")
             .Example("clip --primary", "Paste the Linux PRIMARY selection (middle-click)")
             .ComposesWith("ids", "ids | clip", "Generate an ID and copy it to the clipboard")
-            .ComposesWith("digest", "digest sha256 file | clip", "Copy a file hash to the clipboard");
+            .ComposesWith("digest", "digest sha256 file | clip", "Copy a file hash to the clipboard")
+            .ComposesWith("qr", "qr text \"hello\" | clip", "Copy a QR-encoded payload to the clipboard");
     }
 
     private static int DoCopy(IClipboardBackend backend, byte[] stdinBytes, TextWriter stderr)

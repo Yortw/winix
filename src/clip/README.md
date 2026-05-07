@@ -123,7 +123,7 @@ Copying via Ctrl+C from any GUI app (browser, Word, VS Code) into `clip` via pas
 |---|---|
 | `-c`, `--copy` | Force copy mode (read stdin to clipboard), overriding autodetect. |
 | `-p`, `--paste` | Force paste mode (read clipboard to stdout), overriding autodetect. |
-| `--clear` | Empty the clipboard. |
+| `--clear` | Empty the clipboard, overriding autodetect. |
 | `-r`, `--raw` | Do not strip trailing newline on paste. |
 | `--primary` | Target X11/Wayland PRIMARY selection (Linux only; ignored elsewhere). The PRIMARY selection is the X11 middle-click buffer. |
 | `--color`, `--no-color` | Respect `NO_COLOR`. `clip` has no coloured output of its own; flags are accepted for suite consistency. |
