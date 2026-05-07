@@ -158,8 +158,12 @@ public sealed class SuiteManager
 
             if (owningAdapter is null || packageId is null)
             {
-                output(Formatting.FormatToolResult(toolName, "?", success: false, error: "not installed", useColor));
-                failures++;
+                // Idempotent uninstall: a tool that was never installed is treated as a
+                // successful no-op rather than a failure. CI workflows that call
+                // 'winix uninstall' for cleanup should succeed even when the tool was
+                // never installed, matching apt's "nothing to do" behaviour. The ○
+                // glyph distinguishes "no action needed" from the ✗ used for real errors.
+                output(Formatting.FormatNoOpResult(toolName, "not installed", useColor));
                 continue;
             }
 

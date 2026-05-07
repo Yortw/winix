@@ -129,6 +129,36 @@ public class SuiteManagerTests
     }
 
     [Fact]
+    public async Task UninstallAll_NothingInstalled_ReturnsZeroWithNoOpSymbol()
+    {
+        // Idempotent contract (F5): uninstalling tools that aren't installed is a successful
+        // no-op, not a failure. Each affected tool gets a ○ result instead of ✗, and the
+        // overall exit code is 0 so CI cleanup workflows don't erroneously fail.
+        var wingetAdapter = new FullFakeAdapter("winget", available: true, installExitCode: 0,
+            installedPackages: new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+        var scoopAdapter = new FullFakeAdapter("scoop", available: false, installExitCode: 0);
+        var dotnetAdapter = new FullFakeAdapter("dotnet", available: false, installExitCode: 0);
+
+        var adapters = new Dictionary<string, IPackageManagerAdapter>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "winget", wingetAdapter },
+            { "scoop", scoopAdapter },
+            { "dotnet", dotnetAdapter },
+        };
+
+        var manager = new SuiteManager(CreateTestManifest(), adapters, PlatformId.Windows);
+
+        var results = new List<string>();
+        int exitCode = await manager.UninstallAsync(null, dryRun: false, useColor: false, output: results.Add);
+
+        Assert.Equal(WinixExitCode.Success, exitCode);
+        Assert.Equal(2, results.Count);
+        Assert.All(results, r => Assert.Contains("○", r));
+        Assert.All(results, r => Assert.Contains("not installed", r));
+        Assert.All(results, r => Assert.DoesNotContain("✗", r));
+    }
+
+    [Fact]
     public async Task UninstallAll_AllSucceed_ReturnsZero()
     {
         var installedPackages = new HashSet<string>(StringComparer.OrdinalIgnoreCase)

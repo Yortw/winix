@@ -77,6 +77,21 @@ public static class Formatting
     }
 
     /// <summary>
+    /// Formats a "no action needed" line for cases like uninstalling a tool that is not
+    /// installed. Distinguishes idempotent no-ops from real failures by using the
+    /// <c>○</c> glyph (an empty circle, neither green tick nor red cross) and a neutral
+    /// reason rather than the failure-coded <c>✗</c>.
+    /// </summary>
+    /// <param name="toolName">Short tool name.</param>
+    /// <param name="reason">Why no action was needed (e.g. <c>"not installed"</c>).</param>
+    /// <param name="useColor">Whether to emit ANSI colour escape sequences.</param>
+    /// <returns><c>○ {toolName} — {reason} (no action)</c>, with a dim/yellow glyph when colour enabled.</returns>
+    public static string FormatNoOpResult(string toolName, string reason, bool useColor)
+    {
+        return $"{AnsiColor.Yellow(useColor)}○{AnsiColor.Reset(useColor)} {toolName} — {reason} (no action)";
+    }
+
+    /// <summary>
     /// Formats a one-line status summary such as
     /// <c>"4 of 6 tools installed (3 via winget, 1 via dotnet)"</c>.
     /// </summary>
