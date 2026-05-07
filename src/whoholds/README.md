@@ -89,12 +89,12 @@ whoholds --describe
 
 ## Elevation Warning
 
-`whoholds` always prints a warning to stderr when it is not running as administrator. This is deliberate: without elevation, the Restart Manager API (Windows) and `lsof` (Linux/macOS) may only see processes belonging to the current user. A file held by a system service or another user's process will not appear in the results.
+`whoholds` always prints a warning to stderr when it is not running elevated (administrator on Windows, root on Linux/macOS). This is deliberate: without elevation, the Restart Manager API (Windows) and `lsof` (Linux/macOS) may only see processes belonging to the current user. A file held by a system service or another user's process will not appear in the results.
 
 The warning reads:
 
 ```
-Warning: not running as administrator — results may be incomplete.
+Warning: Not elevated — only showing current user's processes.
 ```
 
 This prevents the frustrating "it says nothing is holding the file, but I still can't delete it" scenario. If you see no holders but the problem persists, re-run elevated.

@@ -87,10 +87,10 @@ The `:` prefix is the most reliable way to query a port when you don't want to r
 
 ## Elevation Warning
 
-`whoholds` always prints a warning to stderr when not running as administrator:
+`whoholds` always prints a warning to stderr when not running elevated:
 
 ```
-Warning: not running as administrator — results may be incomplete.
+Warning: Not elevated — only showing current user's processes.
 ```
 
 Without elevation, the Restart Manager API only sees current-user processes. A file locked by a system service or another user won't appear. If you see zero holders but the error persists, re-run elevated.
