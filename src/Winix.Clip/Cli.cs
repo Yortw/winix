@@ -170,8 +170,8 @@ public static class Cli
             .Example("clip -r > out.txt", "Paste without stripping trailing newline")
             .Example("clip --primary", "Paste the Linux PRIMARY selection (middle-click)")
             .ComposesWith("ids", "ids | clip", "Generate an ID and copy it to the clipboard")
-            .ComposesWith("digest", "digest sha256 file | clip", "Copy a file hash to the clipboard")
-            .ComposesWith("qr", "qr text \"hello\" | clip", "Copy a QR-encoded payload to the clipboard");
+            .ComposesWith("digest", "digest report.txt | clip", "Copy a file hash to the clipboard (sha256 default)")
+            .ComposesWith("qr", "qr \"https://example.com\" --format svg | clip", "Copy an SVG-encoded QR payload to the clipboard");
     }
 
     private static int DoCopy(IClipboardBackend backend, byte[] stdinBytes, TextWriter stderr)

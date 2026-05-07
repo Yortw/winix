@@ -315,6 +315,14 @@ public class CliRunTests
     public void Run_UnknownFlag_ReturnsUsageErrorWithStderrMessage()
     {
         // Round-2 TA I2: parser-error route via result.HasErrors → result.WriteErrors.
+        // Round-3 tightening: assert the user-supplied flag name appears in the error
+        // output. NotEmpty alone is satisfied by any stderr write — including a stack
+        // trace, a help banner accidentally printed, or an unrelated future message.
+        // The flag name is the lowest-friction stable pin (user input echoed back),
+        // not a localisable English phrase. Use 3-arg StringComparison.Ordinal per
+        // feedback_xunit_assert_culture_aware.md so byte-precise matching applies
+        // (the default culture-aware comparison treats some Unicode points as
+        // ignorable, which can mask real diff failures).
         var stderr = new StringWriter();
 
         int exit = Cli.Run(
@@ -327,7 +335,7 @@ public class CliRunTests
                 "backend factory must not be invoked on parser error"));
 
         Assert.Equal(ExitCode.UsageError, exit);
-        Assert.NotEmpty(stderr.ToString());
+        Assert.Contains("--frobnicate", stderr.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]

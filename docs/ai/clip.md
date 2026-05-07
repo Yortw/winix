@@ -82,8 +82,8 @@ producer | clip --paste    # always pastes, ignoring stdin entirely
 ## Composability
 
 - `ids | clip` — copy a generated ID
-- `digest sha256 file | clip` — copy a hash
-- `qr ... | clip` — copy a QR payload
+- `digest report.txt | clip` — copy a file's sha256 hash
+- `qr "https://example.com" --format svg | clip` — copy an SVG QR payload
 - Round-trip: `cat file | clip && clip > copy.txt`
 
 ## Flags
