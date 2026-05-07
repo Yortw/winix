@@ -103,7 +103,7 @@ The explicit flag is the escape hatch — it bypasses the autodetect entirely. U
 Legacy `cmd.exe` defaults to an OEM code page (usually 437 or 850). In that mode:
 
 - **Copy via pipe:** `echo 🌏 | clip` does **not** work — `echo` itself replaces the emoji with `?` **before** the bytes reach `clip`. Confirm with `echo 🌏 > test.txt; type test.txt` (no clip involved).
-- **Paste to terminal:** `clip` writes UTF-8 bytes to stdout; `clip` also asks the console to switch to code page 65001 so those bytes render correctly. Older tooling that hasn't followed this may still mojibake, but the clipboard is correct.
+- **Paste to terminal:** `clip` writes UTF-8 bytes to stdout and sets its own stdio encoding to UTF-8 (code page 65001) for the duration of the call. This does **not** change the parent shell's persistent code page — the clipboard contents are correct, but rendering depends on whether the terminal itself is in UTF-8. If you're seeing mojibake after `clip`, run `chcp 65001` once in your `cmd.exe` session to switch the terminal to UTF-8.
 
 **Fixes for cmd.exe emoji round-trip:**
 

@@ -102,6 +102,12 @@ On Linux, if set, clip prefers \fBwl-copy\fR/\fBwl-paste\fR over X11 helpers.
 .B NO_COLOR
 Disables colour output (clip has no colour itself; flag accepted for suite consistency).
 
+.SH NOTES
+.SS Git Bash / MSYS / Cygwin on Windows
+On MSYS-derived shells (Git Bash, MSYS2, Cygwin), pipes always present stdin as redirected to the child process even when the user typed \fBclip\fR interactively at the prompt. \fBclip\fR handles this by inspecting the actual byte content of stdin rather than relying on \fBisatty()\fR / Console.IsInputRedirected. Empty redirected stdin is treated as paste, so \fBclip\fR with no flags always pastes — matching user expectation regardless of shell. Use \fBclip --copy < /dev/null\fR if you specifically need to copy an empty string.
+.SS Unicode on cmd.exe
+\fBclip\fR sets its own stdio encoding to UTF-8 (code page 65001) for the duration of each call, but does not change the parent shell's persistent code page. If \fBcmd.exe\fR is in a legacy OEM code page, the producer in \fBecho \U0001F30D | clip\fR will replace the emoji with \fB?\fR before the bytes reach \fBclip\fR. Run \fBchcp 65001\fR once in your \fBcmd.exe\fR session, or use PowerShell 7+, Windows Terminal, or Git Bash, all of which default to UTF-8.
+
 .SH SEE ALSO
 .BR pbcopy (1),
 .BR pbpaste (1),
