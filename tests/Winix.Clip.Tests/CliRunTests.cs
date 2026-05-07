@@ -114,7 +114,7 @@ public class CliRunTests
 
         Assert.Equal(ExitCode.UsageError, exit);
         Assert.Empty(fake.CopiedTexts);
-        Assert.Contains("invalid UTF-8", stderr.ToString());
+        Assert.Contains("invalid UTF-8", stderr.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -140,8 +140,8 @@ public class CliRunTests
             stderr: stderr);
 
         Assert.Equal(ExitCode.NotExecutable, exit);
-        Assert.Contains("clip:", stderr.ToString());
-        Assert.Contains("clipboard busy", stderr.ToString());
+        Assert.Contains("clip:", stderr.ToString(), StringComparison.Ordinal);
+        Assert.Contains("clipboard busy", stderr.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -161,7 +161,7 @@ public class CliRunTests
             stderr: stderr);
 
         Assert.Equal(ExitCode.NotExecutable, exit);
-        Assert.Contains("GlobalLock failed", stderr.ToString());
+        Assert.Contains("GlobalLock failed", stderr.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -183,8 +183,8 @@ public class CliRunTests
             backendFactory: _ => new BackendResolution(fake, null));
 
         Assert.Equal(ExitCode.NotExecutable, exit);
-        Assert.Contains("clip:", stderr.ToString());
-        Assert.Contains("failed to read stdin", stderr.ToString());
+        Assert.Contains("clip:", stderr.ToString(), StringComparison.Ordinal);
+        Assert.Contains("failed to read stdin", stderr.ToString(), StringComparison.Ordinal);
         // Backend never reached — no clipboard mutation on a stdin failure.
         Assert.Empty(fake.CopiedTexts);
         Assert.Equal(0, fake.PasteCalls);
@@ -205,7 +205,7 @@ public class CliRunTests
             backendFactory: _ => new BackendResolution(null, "clip: install xclip or wl-clipboard"));
 
         Assert.Equal(ExitCode.NotFound, exit);
-        Assert.Contains("install xclip", stderr.ToString());
+        Assert.Contains("install xclip", stderr.ToString(), StringComparison.Ordinal);
     }
 
     // ---- Fresh-eyes round (post-r4) TA I1: --raw end-to-end coverage -----------
@@ -279,6 +279,84 @@ public class CliRunTests
         Assert.Equal("foo", stdout.ToString());
     }
 
+    // ---- Round-7 TA I2: --describe shape regression pin -------------------------
+
+    [Fact]
+    public void Run_Describe_EmitsStableJsonShapeWithExpectedReplacesAndComposesWith()
+    {
+        // Round-7 fresh-eyes test-analyzer I2: the --describe JSON output is the
+        // AI-discoverability contract. Round-3 caught two broken composes_with
+        // patterns (digest sha256 file, qr text "hello") that had been wrong since
+        // round-1. Round-7 docs-auditor caught the --primary example was framed
+        // narrowly (paste-only) when the flag is mode-independent. Both classes
+        // would have been caught by a regression test against the JSON shape —
+        // this test pins the load-bearing keys so future changes are deliberate
+        // rather than accidental.
+        //
+        // We don't pin the entire JSON byte-for-byte (that would require touching
+        // this test on every legitimate description tweak). Instead, pin:
+        //   - tool name and the structural top-level keys
+        //   - replaces[] contains the canonical helper-set tools (clip.exe pbcopy
+        //     pbpaste xclip xsel wl-copy wl-paste)
+        //   - composes_with[] has at least the three documented entries
+        //     (ids, digest, qr) — catches accidental removal
+        //   - exit_codes[] has all four documented codes (0, 125, 126, 127)
+        // ShellKit handles --describe inside parser.Parse(args), writing directly to
+        // Console.Out (not the passed stdout TextWriter). To assert on JSON content
+        // we capture Console.Out for the duration of the call.
+        TextWriter savedConsoleOut = Console.Out;
+        var stdout = new StringWriter();
+        Console.SetOut(stdout);
+        int exit;
+        try
+        {
+            exit = Cli.Run(
+                args: new[] { "--describe" },
+                payloadStdin: new MemoryStream(),
+                isStdinRedirected: false,
+                stdout: stdout,
+                stderr: new StringWriter(),
+                backendFactory: _ => throw new System.InvalidOperationException(
+                    "backend factory must not be invoked for --describe"));
+        }
+        finally
+        {
+            Console.SetOut(savedConsoleOut);
+        }
+
+        Assert.Equal(0, exit);
+
+        string json = stdout.ToString();
+        // Tool identity
+        Assert.Contains("\"tool\":\"clip\"", json, StringComparison.Ordinal);
+
+        // Replaces array — load-bearing for the AI-agent "is this the right tool?"
+        // decision tree. Removing any of these silently steers agents to the wrong
+        // tool when they should have picked clip.
+        Assert.Contains("clip.exe", json, StringComparison.Ordinal);
+        Assert.Contains("pbcopy", json, StringComparison.Ordinal);
+        Assert.Contains("pbpaste", json, StringComparison.Ordinal);
+        Assert.Contains("xclip", json, StringComparison.Ordinal);
+        Assert.Contains("xsel", json, StringComparison.Ordinal);
+        Assert.Contains("wl-copy", json, StringComparison.Ordinal);
+        Assert.Contains("wl-paste", json, StringComparison.Ordinal);
+
+        // Composes-with — the patterns themselves are verified at the parser-grammar
+        // level by the docs-auditor reviewer; this test only confirms they're
+        // present in the JSON surface.
+        Assert.Contains("\"tool\":\"ids\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"tool\":\"digest\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"tool\":\"qr\"", json, StringComparison.Ordinal);
+
+        // Exit codes — all four documented codes must be enumerated. README and
+        // man.1 both list 0 / 125 / 126 / 127; --describe is the third source of
+        // truth for this contract.
+        Assert.Contains("\"code\":0", json, StringComparison.Ordinal);
+        Assert.Contains("\"code\":125", json, StringComparison.Ordinal);
+        Assert.Contains("\"code\":126", json, StringComparison.Ordinal);
+        Assert.Contains("\"code\":127", json, StringComparison.Ordinal);
+    }
+
     // ---- Round-2 TA I1: Clear dispatch path coverage ----------------------------
 
     [Fact]
@@ -328,8 +406,8 @@ public class CliRunTests
             backendFactory: _ => new BackendResolution(fake, null));
 
         Assert.Equal(ExitCode.NotExecutable, exit);
-        Assert.Contains("clip:", stderr.ToString());
-        Assert.Contains("EmptyClipboard failed", stderr.ToString());
+        Assert.Contains("clip:", stderr.ToString(), StringComparison.Ordinal);
+        Assert.Contains("EmptyClipboard failed", stderr.ToString(), StringComparison.Ordinal);
     }
 
     // ---- Round-2 TA I2: parser early-return paths -------------------------------
@@ -427,7 +505,7 @@ public class CliRunTests
                 "backend factory must not be invoked when ClipOptions rejects"));
 
         Assert.Equal(ExitCode.UsageError, exit);
-        Assert.Contains("cannot be combined", stderr.ToString());
+        Assert.Contains("cannot be combined", stderr.ToString(), StringComparison.Ordinal);
     }
 
     // --- Helpers ---

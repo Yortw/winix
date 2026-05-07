@@ -32,8 +32,8 @@ public class DefaultProcessRunnerTests
         ClipboardException ex = Assert.Throws<ClipboardException>(() =>
             runner.Run("winix-definitely-not-a-real-binary-9999", new List<string>(), stdin: null));
 
-        Assert.Contains("failed to launch", ex.Message);
-        Assert.Contains("winix-definitely-not-a-real-binary-9999", ex.Message);
+        Assert.Contains("failed to launch", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("winix-definitely-not-a-real-binary-9999", ex.Message, StringComparison.Ordinal);
         // Inner exception preserved so diagnostics aren't lost.
         Assert.NotNull(ex.InnerException);
     }

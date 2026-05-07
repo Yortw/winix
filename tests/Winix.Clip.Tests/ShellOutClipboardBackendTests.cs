@@ -128,7 +128,7 @@ public class ShellOutClipboardBackendTests
         var backend = new ShellOutClipboardBackend(HelperSets.XClip, runner);
 
         var ex = Assert.Throws<ClipboardException>(() => backend.PasteText());
-        Assert.Contains("xclip", ex.Message);
-        Assert.Contains("Can't open display", ex.Message);
+        Assert.Contains("xclip", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("Can't open display", ex.Message, StringComparison.Ordinal);
     }
 }

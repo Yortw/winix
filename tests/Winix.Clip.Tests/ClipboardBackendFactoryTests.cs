@@ -110,9 +110,9 @@ public class ClipboardBackendFactoryTests
 
         Assert.Null(backend);
         Assert.NotNull(error);
-        Assert.Contains("wl-clipboard", error);
-        Assert.Contains("xclip", error);
-        Assert.Contains("xsel", error);
+        Assert.Contains("wl-clipboard", error, StringComparison.Ordinal);
+        Assert.Contains("xclip", error, StringComparison.Ordinal);
+        Assert.Contains("xsel", error, StringComparison.Ordinal);
     }
 
     [Fact]
