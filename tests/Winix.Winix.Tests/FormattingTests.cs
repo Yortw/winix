@@ -203,6 +203,20 @@ public class FormattingTests
     }
 
     [Fact]
+    public void FormatToolError_OmitsViaAnnotation()
+    {
+        // F10: when a tool isn't in the manifest at all, there's no PM to attribute the
+        // error to — the previous shape "✗ X (via winget) — not in manifest" was
+        // misleading. The new helper keeps the ✗ + reason pair without the (via X) part.
+        string result = Formatting.FormatToolError("nonexistent-tool", "not in manifest", useColor: false);
+
+        Assert.Contains("✗", result);
+        Assert.Contains("nonexistent-tool", result);
+        Assert.Contains("not in manifest", result);
+        Assert.DoesNotContain("via", result);
+    }
+
+    [Fact]
     public void FormatListJson_PlatformLinux_EmitsLowercaseLiteral()
     {
         var statuses = new List<ToolStatus>();

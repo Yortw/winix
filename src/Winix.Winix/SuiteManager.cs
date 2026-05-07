@@ -120,7 +120,9 @@ public sealed class SuiteManager
         {
             if (!_manifest.Tools.TryGetValue(toolName, out ToolEntry? entry))
             {
-                output(Formatting.FormatToolResult(toolName, "?", success: false, error: "not in manifest", useColor));
+                // No adapter to attribute — this is a user-input error (typo or wrong
+                // tool name), not a per-PM failure. Emit without "(via X)".
+                output(Formatting.FormatToolError(toolName, "not in manifest", useColor));
                 failures++;
                 continue;
             }
@@ -297,7 +299,9 @@ public sealed class SuiteManager
         {
             if (!_manifest.Tools.TryGetValue(toolName, out ToolEntry? entry))
             {
-                output(Formatting.FormatToolResult(toolName, adapter.Name, success: false, error: "not in manifest", useColor));
+                // Tool name isn't in the manifest — user-input error rather than
+                // per-PM failure. Emit without the misleading "(via X)" annotation.
+                output(Formatting.FormatToolError(toolName, "not in manifest", useColor));
                 failures++;
                 continue;
             }

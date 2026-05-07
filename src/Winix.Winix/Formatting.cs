@@ -77,6 +77,22 @@ public static class Formatting
     }
 
     /// <summary>
+    /// Formats a tool-level error line for cases that have no associated package manager
+    /// — typically a user-supplied tool name that isn't in the suite manifest at all.
+    /// Omits the <c>(via X)</c> annotation that <see cref="FormatToolResult"/> attaches,
+    /// since saying "via winget" for a tool that was never matched against any adapter is
+    /// confusing.
+    /// </summary>
+    /// <param name="toolName">Short tool name (or whatever the user typed).</param>
+    /// <param name="error">Error message describing why the operation could not proceed.</param>
+    /// <param name="useColor">Whether to emit ANSI colour escape sequences.</param>
+    /// <returns><c>✗ {toolName} — {error}</c>, with a red glyph when colour enabled.</returns>
+    public static string FormatToolError(string toolName, string error, bool useColor)
+    {
+        return $"{AnsiColor.Red(useColor)}✗{AnsiColor.Reset(useColor)} {toolName} — {error}";
+    }
+
+    /// <summary>
     /// Formats a "no action needed" line for cases like uninstalling a tool that is not
     /// installed. Distinguishes idempotent no-ops from real failures by using the
     /// <c>○</c> glyph (an empty circle, neither green tick nor red cross) and a neutral
