@@ -87,7 +87,17 @@ internal sealed class Program
         string? lessEnv = Environment.GetEnvironmentVariable("LESS");
         var options = LessOptions.Resolve(lessFlags.ToArray(), lessEnv);
 
-        // Load input
+        // Load input. Tier-2 baseline 2026-05-07 finding F7: pre-fix only FileNotFoundException
+        // was caught — IOException (e.g. our "Is a directory" from F6, or genuine read errors)
+        // and UnauthorizedAccessException (Windows ACL, locked-for-write files) escaped as
+        // unhandled and crashed the process with a stack trace. Broaden the catch to cover
+        // those classes too.
+        //
+        // Don't pipe ex.Message for IOException/UnauthorizedAccessException — under
+        // InvariantGlobalization (default for AOT csprojs) framework messages return SR resource
+        // keys instead of English, per feedback_invariant_globalization_resource_keys.md. Use
+        // the exception type name as a diagnostic hint instead. FileNotFoundException is safe
+        // because InputSource.FromFile throws it with our own English text.
         InputSource source;
         try
         {
@@ -107,7 +117,25 @@ internal sealed class Program
         }
         catch (FileNotFoundException ex)
         {
+            // ex.Message here is our project-controlled "File not found: ..." string.
             Console.Error.WriteLine($"less: {ex.Message}");
+            return 1;
+        }
+        catch (IOException ex)
+        {
+            // Covers our "Is a directory" (from F6) plus genuine read errors. The "Is a directory"
+            // message is project-controlled English; the framework-thrown subclasses (e.g.
+            // PathTooLongException, DirectoryNotFoundException) may carry SR-key messages under
+            // InvariantGlobalization, but we still surface the message here because the
+            // user-facing "less:" prefix plus our path context is more useful than just the type.
+            Console.Error.WriteLine($"less: {ex.Message}");
+            return 1;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Permissions failure (Windows ACL, locked-for-exclusive-write file). ex.Message is
+            // framework-generated and may leak SR keys — emit our own message + path.
+            Console.Error.WriteLine($"less: cannot read {filePath ?? "(stdin)"} (access denied)");
             return 1;
         }
 
