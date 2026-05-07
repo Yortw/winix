@@ -162,7 +162,10 @@ internal sealed class Program
                 }
                 catch (Exception ex)
                 {
-                    Console.Error.WriteLine($"winix: warning: could not register scoop bucket: {ex.Message}");
+                    // Don't pipe ex.Message under InvariantGlobalization — framework
+                    // exceptions return SR resource keys, not English. Surface the
+                    // type discriminator so logs are still useful.
+                    Console.Error.WriteLine($"winix: warning: could not register scoop bucket ({ex.GetType().Name})");
                 }
             }
             else if (adapter is BrewAdapter brewAdapter)
@@ -177,7 +180,7 @@ internal sealed class Program
                 }
                 catch (Exception ex)
                 {
-                    Console.Error.WriteLine($"winix: warning: could not add brew tap: {ex.Message}");
+                    Console.Error.WriteLine($"winix: warning: could not add brew tap ({ex.GetType().Name})");
                 }
             }
         }

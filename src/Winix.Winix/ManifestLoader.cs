@@ -274,8 +274,13 @@ public static class ManifestLoader
         }
         catch (System.Net.Http.HttpRequestException ex)
         {
+            // Don't pipe ex.Message — under InvariantGlobalization (AOT default) it
+            // returns SR resource keys rather than localized English. Surface the
+            // exception type so a user looking at logs has a discriminator without
+            // exposing them to a raw resource key. See
+            // feedback_invariant_globalization_resource_keys.md for the class context.
             throw new ManifestParseException(
-                $"Failed to download manifest from '{url}': {ex.Message}", ex);
+                $"Failed to download manifest from '{url}' ({ex.GetType().Name}).", ex);
         }
         catch (TaskCanceledException ex)
         {
