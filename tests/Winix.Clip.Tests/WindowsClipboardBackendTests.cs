@@ -13,23 +13,46 @@ public class WindowsClipboardBackendTests
 
     public WindowsClipboardBackendTests(ITestOutputHelper output) { _output = output; }
 
-    // The Windows clipboard is a single-owner resource. If another process (clipboard manager,
-    // remote-desktop redirection, browser extension, IDE tooling) holds it continuously, no
-    // amount of retry will succeed — the production code retries for ~1s before giving up.
-    // That is an environmental constraint, not a code regression, so we treat it as a skip.
+    // The Windows clipboard is a single-owner resource. Brief contention from clipboard
+    // managers (Windows Clipboard History, Ditto), CI VM cold-start resource spikes, or
+    // other monitoring tooling is normal and transient. Persistent contention is
+    // environmental and the test should fail loudly to surface it — silent Skip would
+    // hide the fact that 'clip' itself can't reliably run in this environment.
     //
-    // Round-5 fresh-eyes SFH I1: previously this catch swallowed the busy ClipboardException
-    // and let the test fall through with no assertion run — xUnit reported the test as
-    // PASSED rather than SKIPPED. CI dashboards then could not distinguish "tested green"
-    // from "couldn't test because the clipboard was held". Now we throw via Skip.If(true, ...)
-    // so the test reports as Skipped, which is the truthful CI signal.
-    private void RunOrSkipIfBusy(Action body)
+    // Round-5 fresh-eyes SFH I1 + Round-6 follow-up: rather than Skip-on-busy (which
+    // hides flakes silently) or Fail-on-first-busy (which over-flakes on cold CI VMs
+    // with transient spikes), retry the full operation up to maxAttempts times. Each
+    // attempt gets a fresh production retry budget (20×50ms = 1s). Every attempt is
+    // logged loudly to ITestOutputHelper so CI maintainers see flake patterns even when
+    // tests eventually pass. Final failure is XunitException (proper test failure) with
+    // a message that explicitly attributes the cause to environment, so investigation
+    // starts with the runner not the code.
+    private void RunOrFailAfterRetries(Action body, int maxAttempts = 3)
     {
-        try { body(); }
-        catch (ClipboardException ex) when (ex.Message.Contains("busy", StringComparison.Ordinal))
+        for (int attempt = 1; attempt <= maxAttempts; attempt++)
         {
-            _output.WriteLine($"[skip] Clipboard held by external process throughout retry budget: {ex.Message}");
-            Skip.If(true, $"clipboard busy: {ex.Message}");
+            try
+            {
+                body();
+                if (attempt > 1)
+                {
+                    _output.WriteLine($"[succeeded on attempt {attempt}/{maxAttempts}]");
+                }
+                return;
+            }
+            catch (ClipboardException ex) when (ex.Message.Contains("busy", StringComparison.Ordinal))
+            {
+                _output.WriteLine($"[attempt {attempt}/{maxAttempts}] clipboard busy: {ex.Message}");
+                if (attempt == maxAttempts)
+                {
+                    throw new Xunit.Sdk.XunitException(
+                        $"Clipboard remained busy across {maxAttempts} attempts " +
+                        $"(production retry budget {ClipboardRetryPolicy.OpenAttempts}×{ClipboardRetryPolicy.OpenRetryDelayMs}ms each, " +
+                        $"~{maxAttempts * ClipboardRetryPolicy.OpenAttempts * ClipboardRetryPolicy.OpenRetryDelayMs / 1000}s total). " +
+                        $"Likely environmental: a clipboard manager (Ditto, Windows Clipboard History), " +
+                        $"remote-desktop redirection, or another tool is holding the resource. Last error: {ex.Message}");
+                }
+            }
         }
     }
 
@@ -39,7 +62,7 @@ public class WindowsClipboardBackendTests
         Skip.IfNot(IsWindows, "Windows-only — exercises Windows clipboard backend.");
         if (!IsWindows) { return; } // redundant, satisfies CA1416 analyzer
 
-        RunOrSkipIfBusy(() =>
+        RunOrFailAfterRetries(() =>
         {
             var backend = new WindowsClipboardBackend();
             backend.CopyText("hello clipboard");
@@ -55,7 +78,7 @@ public class WindowsClipboardBackendTests
         Skip.IfNot(IsWindows, "Windows-only — exercises Windows clipboard backend.");
         if (!IsWindows) { return; } // redundant, satisfies CA1416 analyzer
 
-        RunOrSkipIfBusy(() =>
+        RunOrFailAfterRetries(() =>
         {
             var backend = new WindowsClipboardBackend();
             backend.CopyText("こんにちは 🌏 naïve café");
@@ -71,7 +94,7 @@ public class WindowsClipboardBackendTests
         Skip.IfNot(IsWindows, "Windows-only — exercises Windows clipboard backend.");
         if (!IsWindows) { return; } // redundant, satisfies CA1416 analyzer
 
-        RunOrSkipIfBusy(() =>
+        RunOrFailAfterRetries(() =>
         {
             var backend = new WindowsClipboardBackend();
             backend.CopyText("to be cleared");
@@ -88,7 +111,7 @@ public class WindowsClipboardBackendTests
         Skip.IfNot(IsWindows, "Windows-only — exercises Windows clipboard backend.");
         if (!IsWindows) { return; } // redundant, satisfies CA1416 analyzer
 
-        RunOrSkipIfBusy(() =>
+        RunOrFailAfterRetries(() =>
         {
             var backend = new WindowsClipboardBackend();
             backend.CopyText(string.Empty);
