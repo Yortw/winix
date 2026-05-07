@@ -84,10 +84,16 @@ public sealed record LessOptions
     /// <remarks>
     /// Resolution order (lowest → highest priority):
     /// <list type="number">
-    ///   <item>Modern defaults (<c>F=true, R=true, X=true</c>) — applied only when <paramref name="lessEnvVar"/> is null or empty.</item>
-    ///   <item><c>LESS</c> env var flags — when non-empty, replaces defaults entirely (all-false baseline first).</item>
+    ///   <item>Modern defaults (<c>F=true, R=true, X=true</c>) — applied only when <paramref name="lessEnvVar"/> is <see langword="null"/> (env var not set).</item>
+    ///   <item><c>LESS</c> env var flags — when non-null (set, even if empty), replaces defaults entirely with an all-false baseline; non-empty values then have each char parsed as a flag.</item>
     ///   <item>CLI flags — always applied last, overriding whatever the env var produced.</item>
     /// </list>
+    /// <para>
+    /// The null-vs-empty distinction matches the documented contract: <c>LESS=</c> (empty
+    /// string in the environment) explicitly disables all defaults, while leaving <c>LESS</c>
+    /// unset triggers the modern defaults. Pre-fix this distinction was lost
+    /// (<see cref="string.IsNullOrEmpty(string)"/> conflated both).
+    /// </para>
     /// </remarks>
     public static LessOptions Resolve(string[] cliFlags, string? lessEnvVar)
     {
@@ -100,9 +106,9 @@ public sealed record LessOptions
         bool ignoreCase;
         bool forceIgnoreCase;
 
-        if (string.IsNullOrEmpty(lessEnvVar))
+        if (lessEnvVar is null)
         {
-            // Null/empty env → modern defaults: -F -R -X on, everything else off.
+            // Env var not set → modern defaults: -F -R -X on, everything else off.
             quitIfOneScreen = true;
             rawAnsi = true;
             noClearOnExit = true;

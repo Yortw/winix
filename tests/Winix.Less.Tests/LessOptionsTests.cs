@@ -25,17 +25,27 @@ public class LessOptionsTests
         Assert.Null(opts.InitialSearch);
     }
 
-    // 2. Empty env string behaves the same as unset (null)
+    // 2. Empty env string ("LESS=" set explicitly) disables all defaults.
+    //
+    // Tier-2 baseline 2026-05-07 finding F8 (deliberate contract change):
+    // Pre-fix this test pinned "empty == unset" — both produced modern defaults via
+    // string.IsNullOrEmpty. README and traditional-less behaviour both say:
+    // "Set LESS= explicitly to an empty string to disable all defaults." This test now
+    // asserts that contract: the env var being SET (even to empty) replaces defaults
+    // with an all-false baseline. The previous test name (Defaults_EmptyEnvVar_SameAsUnset)
+    // expressed the BUG. The new name expresses the FIX.
     [Fact]
-    public void Defaults_EmptyEnvVar_SameAsUnset()
+    public void EmptyEnvVar_DisablesDefaults()
     {
         var opts = LessOptions.Resolve([], "");
 
-        Assert.True(opts.QuitIfOneScreen);
-        Assert.True(opts.RawAnsi);
-        Assert.True(opts.NoClearOnExit);
+        Assert.False(opts.QuitIfOneScreen);
+        Assert.False(opts.RawAnsi);
+        Assert.False(opts.NoClearOnExit);
         Assert.False(opts.ShowLineNumbers);
         Assert.False(opts.ChopLongLines);
+        Assert.False(opts.IgnoreCase);
+        Assert.False(opts.ForceIgnoreCase);
     }
 
     // 3. Non-empty env replaces defaults entirely (all-false baseline, then parsed flags applied)
