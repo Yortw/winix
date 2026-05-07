@@ -64,9 +64,9 @@ whoholds --describe
 whoholds myapp.dll --pid-only | wargs taskkill /PID {} /F
 ```
 
-**whoholds + jq** — filter JSON output:
+**whoholds + jq** — filter JSON output (note the `processes[]` wrapper):
 ```bash
-whoholds :8080 --json | jq '.[].name'
+whoholds :8080 --json | jq '.processes[].name'
 ```
 
 **whoholds + timeit** — measure how long a file stays locked:
@@ -112,11 +112,24 @@ myapp.dll is held by:
 
 **`--json`:**
 ```json
-[
-  { "pid": 1234, "name": "Visual Studio", "owner": "DESKTOP\\troy", "target": "C:\\path\\myapp.dll" },
-  { "pid": 5678, "name": "MsBuild.exe",   "owner": "DESKTOP\\troy", "target": "C:\\path\\myapp.dll" }
-]
+{
+  "tool": "whoholds",
+  "version": "0.4.0",
+  "exit_code": 0,
+  "exit_reason": "success",
+  "processes": [
+    { "pid": 1234, "name": "Visual Studio", "path": "C:\\Program Files\\Microsoft Visual Studio\\...\\devenv.exe", "state": "", "resource": "C:\\path\\myapp.dll" },
+    { "pid": 5678, "name": "MsBuild.exe",   "path": "",                                                              "state": "", "resource": "C:\\path\\myapp.dll" }
+  ]
+}
 ```
+
+Field notes:
+
+- The top-level shape is the standard Winix envelope (`tool`, `version`, `exit_code`, `exit_reason`) with a `processes` array — not a bare array.
+- `path` is empty when the executable path could not be resolved (system process, denied access, exited race).
+- `state` is the TCP connection state string (`LISTEN`, `ESTABLISHED`, etc.) for port queries; empty for file queries and UDP rows.
+- `resource` is the queried file path or a `TCP :port` / `UDP :port` specifier.
 
 ## Gotchas
 

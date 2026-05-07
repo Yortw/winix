@@ -72,7 +72,7 @@ whoholds --describe
 |--------|-------------|
 | `--pid-only` | Output only PIDs (one per line). Suitable for piping to `wargs` or `kill`. |
 | `--full-path`, `-l` | Show the full executable path instead of just the process name. Requires elevation for system processes. |
-| `--json` | Output results as a JSON object. Each process entry includes `pid`, `name`, `path`, `state`, and `resource`. |
+| `--json` | Output results as a JSON object with envelope fields (`tool`, `version`, `exit_code`, `exit_reason`) and a `processes` array. Each process entry includes `pid`, `name`, `path`, `state`, and `resource`. |
 | `--describe` | Output structured tool metadata as JSON (flags, examples, composability). |
 | `--color` | Force coloured output (overrides `NO_COLOR`). |
 | `--no-color` | Disable coloured output. |
