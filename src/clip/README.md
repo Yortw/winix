@@ -83,7 +83,7 @@ The unified rule: **with no input, `clip` pastes; with content on stdin, `clip` 
 - Bare `clip` with redirected stdin that has content → **copy**
 - Bare `clip` with redirected stdin that is empty → **paste**
 
-Explicit `-c` / `-p` / `--clear` always override auto-detection.
+Explicit `-c` / `-p` / `--clear` always override auto-detection. Modes are mutually exclusive: at most one of `--copy`, `--paste`, `--clear`. `--raw` only applies to paste — `--raw` combined with `--copy` or `--clear` is rejected with exit 125.
 
 ### Scripting tip
 

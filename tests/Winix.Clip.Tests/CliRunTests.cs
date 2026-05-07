@@ -306,6 +306,7 @@ public class CliRunTests
         // we capture Console.Out for the duration of the call.
         TextWriter savedConsoleOut = Console.Out;
         var stdout = new StringWriter();
+        var stderr = new StringWriter();
         Console.SetOut(stdout);
         int exit;
         try
@@ -315,7 +316,7 @@ public class CliRunTests
                 payloadStdin: new MemoryStream(),
                 isStdinRedirected: false,
                 stdout: stdout,
-                stderr: new StringWriter(),
+                stderr: stderr,
                 backendFactory: _ => throw new System.InvalidOperationException(
                     "backend factory must not be invoked for --describe"));
         }
@@ -325,6 +326,13 @@ public class CliRunTests
         }
 
         Assert.Equal(0, exit);
+
+        // Round-8 fresh-eyes TA I3: pin stdout-only emission of --describe JSON.
+        // A future ShellKit refactor accidentally routing the JSON to stderr would
+        // be the same defect class as man-F12 ("--json output to stderr"). The
+        // assertion below catches that — agents and integrators run
+        // `clip --describe | jq .` and expect JSON on stdout.
+        Assert.Equal(string.Empty, stderr.ToString());
 
         string json = stdout.ToString();
         // Tool identity

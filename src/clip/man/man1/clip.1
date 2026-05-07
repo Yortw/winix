@@ -20,6 +20,8 @@ pastes; with content on stdin,
 .B clip
 copies. This holds across every supported environment including interactive TTY, redirected pipe with content, redirected pipe with no content (Git Bash / MSYS / Cygwin where stdin reports redirected even interactively, or an explicit empty pipe like \fB: | clip\fR).
 Explicit \fB--copy\fR and \fB--paste\fR flags override autodetection; in scripts where the producer may pipe empty content, use \fB--copy\fR explicitly for deterministic copy behaviour. Use \fBclip --copy < /dev/null\fR to copy an empty string, or \fBclip --clear\fR to empty the clipboard.
+.PP
+Modes are mutually exclusive: at most one of \fB--copy\fR, \fB--paste\fR, \fB--clear\fR. \fB--raw\fR only applies to paste; combining \fB--raw\fR with \fB--copy\fR or \fB--clear\fR is rejected with exit 125.
 
 .SH OPTIONS
 .TP
