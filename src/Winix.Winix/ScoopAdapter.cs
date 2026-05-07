@@ -110,10 +110,16 @@ public sealed class ScoopAdapter : IPackageManagerAdapter
     /// <summary>
     /// Ensures the <c>winix</c> scoop bucket is registered on this machine.
     /// If the bucket is already present in <c>scoop bucket list</c>, this method
-    /// returns without making any further calls. Otherwise it runs
-    /// <c>scoop bucket add winix https://github.com/Yortw/winix</c>.
+    /// returns <see langword="false"/> without making any further calls. Otherwise it
+    /// runs <c>scoop bucket add winix https://github.com/Yortw/winix</c> and returns
+    /// <see langword="true"/> so callers can surface a "now registered" notice on
+    /// the first call only and stay quiet on subsequent ones.
     /// </summary>
-    public async Task EnsureBucket()
+    /// <returns>
+    /// <see langword="true"/> when the bucket was just registered by this call;
+    /// <see langword="false"/> when it was already present.
+    /// </returns>
+    public async Task<bool> EnsureBucket()
     {
         ProcessResult listResult = await _runAsync(
             "scoop",
@@ -125,13 +131,14 @@ public sealed class ScoopAdapter : IPackageManagerAdapter
         {
             if (line.Trim().Equals(BucketName, StringComparison.OrdinalIgnoreCase))
             {
-                return;
+                return false;
             }
         }
 
         await _runAsync(
             "scoop",
             new[] { "bucket", "add", BucketName, BucketUrl }).ConfigureAwait(false);
+        return true;
     }
 
     /// <summary>

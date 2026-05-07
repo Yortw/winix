@@ -114,7 +114,7 @@ public class BrewAdapterTests
 
         var adapter = new BrewAdapter(FakeRun);
 
-        await adapter.EnsureTap();
+        bool added = await adapter.EnsureTap();
 
         // Should have called tap (list) and then tap yortw/winix (add).
         Assert.Equal(2, calls.Count);
@@ -122,6 +122,8 @@ public class BrewAdapterTests
         Assert.Equal(new[] { "tap" }, calls[0].Args);
         Assert.Equal("brew", calls[1].Command);
         Assert.Equal(new[] { "tap", "yortw/winix" }, calls[1].Args);
+        // F7 contract: return true so the CLI can emit the one-time first-run notice.
+        Assert.True(added);
     }
 
     [Fact]
@@ -137,11 +139,13 @@ public class BrewAdapterTests
 
         var adapter = new BrewAdapter(FakeRun);
 
-        await adapter.EnsureTap();
+        bool added = await adapter.EnsureTap();
 
         // Should only have called tap (list) — no tap add.
         (string Command, string[] Args) onlyCall = Assert.Single(calls);
         Assert.Equal("brew", onlyCall.Command);
         Assert.Equal(new[] { "tap" }, onlyCall.Args);
+        // F7 contract: return false so the CLI stays quiet when nothing changed.
+        Assert.False(added);
     }
 }

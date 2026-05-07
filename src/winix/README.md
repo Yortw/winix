@@ -92,6 +92,20 @@ winix --describe
 | `--version` | Show version |
 | `-h`, `--help` | Show help |
 
+## Side Effects on First `install`
+
+The first time `winix install` runs against Scoop or Homebrew on a given machine,
+`winix` automatically registers the `winix` bucket (Scoop) or the `yortw/winix`
+tap (Homebrew) so the suite's tools are discoverable to the package manager. A
+one-line notice is written to stderr on the registration call only:
+
+```
+winix: registered scoop bucket 'winix' (https://github.com/Yortw/winix)
+```
+
+Subsequent invocations stay silent because the bucket/tap is already present.
+`--dry-run` never registers anything.
+
 ## Exit Codes
 
 | Code | Meaning |

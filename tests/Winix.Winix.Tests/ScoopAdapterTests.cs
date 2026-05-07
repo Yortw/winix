@@ -127,7 +127,7 @@ public class ScoopAdapterTests
 
         var adapter = new ScoopAdapter(FakeRun);
 
-        await adapter.EnsureBucket();
+        bool added = await adapter.EnsureBucket();
 
         // Should have called bucket list and then bucket add.
         Assert.Equal(2, calls.Count);
@@ -135,6 +135,8 @@ public class ScoopAdapterTests
         Assert.Equal(new[] { "bucket", "list" }, calls[0].Args);
         Assert.Equal("scoop", calls[1].Command);
         Assert.Equal(new[] { "bucket", "add", "winix", "https://github.com/Yortw/winix" }, calls[1].Args);
+        // F7 contract: return true so the CLI can emit the one-time first-run notice.
+        Assert.True(added);
     }
 
     [Fact]
@@ -150,11 +152,13 @@ public class ScoopAdapterTests
 
         var adapter = new ScoopAdapter(FakeRun);
 
-        await adapter.EnsureBucket();
+        bool added = await adapter.EnsureBucket();
 
         // Should only have called bucket list — no bucket add.
         (string Command, string[] Args) onlyCall = Assert.Single(calls);
         Assert.Equal("scoop", onlyCall.Command);
         Assert.Equal(new[] { "bucket", "list" }, onlyCall.Args);
+        // F7 contract: return false so the CLI stays quiet when nothing changed.
+        Assert.False(added);
     }
 }

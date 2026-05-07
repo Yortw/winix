@@ -124,10 +124,15 @@ public sealed class BrewAdapter : IPackageManagerAdapter
     /// <summary>
     /// Ensures the <c>yortw/winix</c> Homebrew tap is registered on this machine.
     /// Runs <c>brew tap</c> to list current taps; if <c>yortw/winix</c> is not present,
-    /// runs <c>brew tap yortw/winix</c> to add it. If the tap already exists this
-    /// method returns without making any further calls.
+    /// runs <c>brew tap yortw/winix</c> to add it and returns <see langword="true"/>.
+    /// If the tap already exists this method returns <see langword="false"/> without
+    /// making any further calls so callers can surface a one-time notice.
     /// </summary>
-    public async Task EnsureTap()
+    /// <returns>
+    /// <see langword="true"/> when the tap was just registered by this call;
+    /// <see langword="false"/> when it was already present.
+    /// </returns>
+    public async Task<bool> EnsureTap()
     {
         ProcessResult listResult = await _runAsync(
             "brew",
@@ -139,12 +144,13 @@ public sealed class BrewAdapter : IPackageManagerAdapter
         {
             if (line.Trim().Equals(TapName, StringComparison.OrdinalIgnoreCase))
             {
-                return;
+                return false;
             }
         }
 
         await _runAsync(
             "brew",
             new[] { "tap", TapName }).ConfigureAwait(false);
+        return true;
     }
 }

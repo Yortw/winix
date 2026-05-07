@@ -144,14 +144,21 @@ internal sealed class Program
         }
 
         // On install, auto-setup the scoop bucket or brew tap so packages are
-        // discoverable even when the user has not previously added them.
+        // discoverable even when the user has not previously added them. Both
+        // helpers return true only when they actually registered something, so we
+        // emit the one-time stderr notice on first install and stay silent on
+        // subsequent runs — opaque side effects are bad UX.
         if (command == "install" && !dryRun)
         {
             if (adapter is ScoopAdapter scoopAdapter)
             {
                 try
                 {
-                    await scoopAdapter.EnsureBucket().ConfigureAwait(false);
+                    bool added = await scoopAdapter.EnsureBucket().ConfigureAwait(false);
+                    if (added)
+                    {
+                        Console.Error.WriteLine("winix: registered scoop bucket 'winix' (https://github.com/Yortw/winix)");
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -162,7 +169,11 @@ internal sealed class Program
             {
                 try
                 {
-                    await brewAdapter.EnsureTap().ConfigureAwait(false);
+                    bool added = await brewAdapter.EnsureTap().ConfigureAwait(false);
+                    if (added)
+                    {
+                        Console.Error.WriteLine("winix: registered brew tap 'yortw/winix'");
+                    }
                 }
                 catch (Exception ex)
                 {
