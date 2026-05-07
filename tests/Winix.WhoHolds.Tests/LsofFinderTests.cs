@@ -15,6 +15,16 @@ namespace Winix.WhoHolds.Tests;
 /// binary. Substituting <see cref="LsofFinder.ProcessRunner"/> with a fake makes
 /// each branch deterministically reachable.
 /// </summary>
+/// <remarks>
+/// <c>[Collection("LsofFinder.ProcessRunner")]</c> serialises this class with any
+/// future test class that touches <see cref="LsofFinder.FindFile"/>,
+/// <see cref="LsofFinder.FindPort"/>, or <see cref="LsofFinder.IsAvailable"/>. xUnit
+/// runs different test classes in parallel by default; without the collection lock,
+/// the process-wide static <see cref="LsofFinder.ProcessRunner"/> seam would race
+/// across classes. Round-2 fresh-eyes 2026-05-08 — three reviewers (SFH R2-2, CR W4,
+/// TA I2) converged on this risk.
+/// </remarks>
+[Collection("LsofFinder.ProcessRunner")]
 public sealed class LsofFinderTests
 {
     /// <summary>

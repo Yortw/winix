@@ -56,6 +56,15 @@ public static class LsofFinder
     /// start-failure, stderr-on-nonzero, and stream-read-exception paths without spawning
     /// an actual lsof binary. Round-1 fresh-eyes 2026-05-08 test-analyzer C1-C3.
     /// </summary>
+    /// <remarks>
+    /// <strong>Process-wide static.</strong> xUnit runs different test classes in parallel
+    /// by default; any test class that touches <see cref="FindFile"/>, <see cref="FindPort"/>,
+    /// or <see cref="IsAvailable"/> MUST join the <c>"LsofFinder.ProcessRunner"</c> xUnit
+    /// collection (e.g. <c>[Collection("LsofFinder.ProcessRunner")]</c>) so the seam
+    /// substitution is serialised. Round-2 fresh-eyes 2026-05-08 — three reviewers
+    /// (silent-failure-hunter R2-2, code-reviewer W4, test-analyzer I2) converged on this
+    /// risk; <c>LsofFinderTests</c> is the only current consumer and joins the collection.
+    /// </remarks>
     internal static Func<string, string[], LsofRun> ProcessRunner { get; set; } = DefaultRunProcess;
 
     /// <summary>
@@ -182,7 +191,25 @@ public static class LsofFinder
                 continue;
             }
 
-            if (!int.TryParse(cols[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int pid))
+            // Round-2 fresh-eyes 2026-05-08 test-analyzer I1: anchor on the first numeric
+            // column rather than assuming cols[1] is the PID. macOS lsof can emit
+            // multi-word command names (e.g. "Google Chrome 1234 troy 19u IPv4 ..."),
+            // which would push the PID into cols[2] and previously cause int.TryParse to
+            // fail on cols[1] = "Chrome", silently dropping the entire row. The fix
+            // tolerates any number of leading command-name tokens up to the first
+            // numeric column.
+            int pid = 0;
+            int pidColIndex = -1;
+            for (int i = 1; i < cols.Length; i++)
+            {
+                if (int.TryParse(cols[i], NumberStyles.Integer, CultureInfo.InvariantCulture, out pid))
+                {
+                    pidColIndex = i;
+                    break;
+                }
+            }
+
+            if (pidColIndex < 0)
             {
                 continue;
             }
@@ -194,7 +221,9 @@ public static class LsofFinder
                 continue;
             }
 
-            string command = cols[0];
+            string command = pidColIndex == 1
+                ? cols[0]
+                : string.Join(' ', cols, 0, pidColIndex);
             results.Add(new LockInfo(pid, command, resource));
         }
 
@@ -299,13 +328,30 @@ public static class LsofFinder
             string output = string.Empty;
             string error = string.Empty;
             string? readError = null;
+            bool allCompleted;
             try
             {
-                System.Threading.Tasks.Task.WaitAll(new[] { stdoutTask, stderrTask }, LsofTimeoutMs);
+                allCompleted = System.Threading.Tasks.Task.WaitAll(new[] { stdoutTask, stderrTask }, LsofTimeoutMs);
             }
             catch (AggregateException ex)
             {
+                allCompleted = stdoutTask.IsCompleted && stderrTask.IsCompleted;
                 readError = ex.GetType().Name + ": " + ex.InnerException?.Message;
+            }
+
+            // Round-2 fresh-eyes 2026-05-08 silent-failure-hunter R2-1: defensive guard for
+            // the edge case where the lsof child forks a subprocess inheriting its stdout/
+            // stderr file descriptors. WaitForExit returns when the lsof main exits, but the
+            // ReadToEndAsync tasks remain running because the inherited descriptors keep the
+            // pipes open. WaitAll then returns false (no exception), tasks stay in
+            // WaitingForActivation, and the previous code would substitute empty captures —
+            // re-introducing the SFH defect class. Surface as ReadError so InterpretLsofRun
+            // routes to FindResult.Failed instead of producing a silent success-empty.
+            if (!allCompleted && readError is null)
+            {
+                readError = "lsof read did not complete within "
+                    + LsofTimeoutMs.ToString(CultureInfo.InvariantCulture)
+                    + "ms (stream may be held open by a forked subprocess).";
             }
 
             if (stdoutTask.IsCompletedSuccessfully)

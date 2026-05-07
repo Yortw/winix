@@ -52,21 +52,64 @@ public sealed class LsofParserTests
     [Fact]
     public void ParseLsofOutput_SkipsMalformedLines()
     {
-        // Defensive: blank lines, lines with too few columns, and lines whose PID column
-        // is non-numeric must be skipped without throwing. Pin three concrete malformed
+        // Defensive: blank lines, lines with too few columns, and lines with NO numeric
+        // column at all must be skipped without throwing. Pin three concrete malformed
         // forms because each goes through a different early-continue branch.
+        //
+        // Round-2 contract update 2026-05-08: post-multi-word-command fix (TA I1) the
+        // parser scans for the first numeric column rather than anchoring on cols[1].
+        // The original test row "noisy notanumber troy 4r REG 8,1 1024 12345 /tmp"
+        // contained "1024" and "12345" as legitimate numeric columns, so the new
+        // parser would extract PID=1024 from it. The replacement row below contains no
+        // numeric tokens anywhere, exercising the "no PID column found" skip branch.
         const string output =
             "COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME\n" +
-            "\n" +                                  // blank line — skipped
-            "onecol\n" +                            // <2 columns — skipped
-            "noisy notanumber troy 4r REG 8,1 1024 12345 /tmp\n" +  // PID not numeric — skipped
-            "good 9999 troy 7u REG 8,1 1024 12345 /tmp/file.txt";
+            "\n" +                                                  // blank line — skipped
+            "onecol\n" +                                            // <2 columns — skipped
+            "alpha beta gamma delta epsilon zeta eta theta\n" +     // no numeric column — skipped
+            "good 9999 troy 7u REG x,y abcd ef /tmp/file.txt";
 
         var results = LsofFinder.ParseLsofOutput(output, "/tmp/file.txt");
 
         Assert.Single(results);
         Assert.Equal(9999, results[0].ProcessId);
         Assert.Equal("good", results[0].ProcessName);
+    }
+
+    [Fact]
+    public void ParseLsofOutput_MultiWordCommandName_PreservesFullName()
+    {
+        // Round-2 fresh-eyes 2026-05-08 test-analyzer I1: macOS lsof can emit multi-word
+        // command names like "Google Chrome" — they push the PID column index past 1.
+        // Pre-fix the parser anchored on cols[1] for the PID, so int.TryParse failed on
+        // "Chrome" and the row was silently dropped — producing an empty results list
+        // for any browser/IDE/launchd-managed process holding a file. The fix anchors
+        // on the first numeric column and joins everything before it as the command.
+        const string output =
+            "COMMAND   PID USER FD TYPE DEVICE SIZE/OFF NODE NAME\n" +
+            "Google Chrome 4242 troy 19u IPv4 0t0 TCP localhost:8080 (LISTEN)";
+
+        var results = LsofFinder.ParseLsofOutput(output, "TCP :8080");
+
+        Assert.Single(results);
+        Assert.Equal(4242, results[0].ProcessId);
+        Assert.Equal("Google Chrome", results[0].ProcessName);
+    }
+
+    [Fact]
+    public void ParseLsofOutput_ThreeWordCommandName_PreservesFullName()
+    {
+        // Defensive: arbitrary leading-token count. Pin an extreme case so a future
+        // regression to cols[2] anchoring would also fail this test.
+        const string output =
+            "COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME\n" +
+            "Microsoft SQL Server 7777 sql 4u REG 8,1 1024 12345 /tmp/db.lock";
+
+        var results = LsofFinder.ParseLsofOutput(output, "/tmp/db.lock");
+
+        Assert.Single(results);
+        Assert.Equal(7777, results[0].ProcessId);
+        Assert.Equal("Microsoft SQL Server", results[0].ProcessName);
     }
 
     [Fact]
