@@ -3,16 +3,26 @@
 namespace Winix.Winix;
 
 /// <summary>
-/// Resolves and parses the Winix suite manifest. Prefers a manifest bundled next to the
-/// running binary; falls back to a network fetch when no bundle is present (typical of
-/// dev <c>dotnet run</c> builds where the publish-output layout is absent).
+/// Resolves and parses the Winix suite manifest. Reads from a per-user cache file or a
+/// manifest bundled next to the running binary — whichever is freshest by file mtime —
+/// and falls back to a network fetch only when neither local source is available
+/// (typical of dev <c>dotnet run</c> builds where the publish-output layout is absent).
 /// </summary>
 /// <remarks>
-/// The bundled-first strategy keeps <c>winix list</c> instant and offline-safe, and ensures
-/// the user always sees the canonical tool set that shipped with their installed binary —
-/// preventing the "stale GitHub release manifest" failure mode where the published asset
-/// lists fewer tools than the binary was built for. Network fetch is preserved as the
-/// fallback so dev workflows (where the bundle is absent) keep working.
+/// <para>
+/// The local-first strategy keeps <c>winix list</c>, <c>status</c>, and <c>uninstall</c>
+/// instant and offline-safe. The bundle is the floor: every released binary ships with
+/// a current manifest so a user with no network and no cache still sees the canonical
+/// tool set. The cache layers on top: when an explicit refresh has succeeded since the
+/// release, the cache holds a newer view than the bundle, and that view is preferred.
+/// </para>
+/// <para>
+/// "Whichever is newer by mtime" obviates a TTL: a stale cache from years ago will lose
+/// to a fresh bundle from a recent release, and a recent refresh will beat the bundle of
+/// a release the user is still on. Network refreshes only happen when an explicit
+/// <see cref="RefreshFromNetworkAsync"/> caller drives them — never as a side effect of
+/// <see cref="LoadAsync"/>, which is read-only and quick.
+/// </para>
 /// </remarks>
 public static class ManifestLoader
 {
@@ -30,51 +40,163 @@ public static class ManifestLoader
     internal const string BundledRelativePath = "share/winix/winix-manifest.json";
 
     /// <summary>
-    /// Loads and parses the Winix suite manifest. Tries the bundled file first; falls back
-    /// to a network fetch when no bundled manifest is found beside the binary.
+    /// The manifest filename used in the per-user cache directory.
+    /// </summary>
+    internal const string CacheFileName = "winix-manifest.json";
+
+    /// <summary>
+    /// Loads and parses the Winix suite manifest. Picks the freshest available source —
+    /// the cache and the bundle are compared by file mtime, and whichever is newer wins.
+    /// Network fetch is reserved for environments with no local source (dev builds).
     /// </summary>
     /// <param name="url">
-    /// The URL to download the manifest from when no bundled copy is available. Defaults
-    /// to <see cref="DefaultUrl"/> when <see langword="null"/>. Tests can pass an override.
+    /// The URL to download the manifest from when no local source is available. Defaults
+    /// to <see cref="DefaultUrl"/> when <see langword="null"/>.
     /// </param>
     /// <param name="bundledPath">
-    /// Override for the bundled manifest path. Tests pass this to inject a fixture; production
-    /// code leaves it <see langword="null"/> so the path is computed relative to the binary.
+    /// Override for the bundled manifest path. Tests pass this to inject a fixture;
+    /// production code leaves it <see langword="null"/>.
+    /// </param>
+    /// <param name="cachePath">
+    /// Override for the cache file path. Tests pass this to inject a fixture; production
+    /// code leaves it <see langword="null"/>.
     /// </param>
     /// <returns>The parsed <see cref="ToolManifest"/>.</returns>
     /// <exception cref="ManifestParseException">
-    /// Thrown when the bundled manifest is invalid, or — if no bundled manifest is present —
-    /// when the network request fails, times out, or returns content that cannot be parsed.
+    /// Thrown when the chosen local source is invalid (cache or bundle), or — when no
+    /// local source is present — when the network request fails or returns invalid content.
     /// </exception>
-    public static async Task<ToolManifest> LoadAsync(string? url = null, string? bundledPath = null)
+    public static async Task<ToolManifest> LoadAsync(
+        string? url = null,
+        string? bundledPath = null,
+        string? cachePath = null)
     {
         string resolvedBundlePath = bundledPath ?? DefaultBundledPath();
-        if (System.IO.File.Exists(resolvedBundlePath))
+        string resolvedCachePath = cachePath ?? DefaultCachePath();
+
+        string? chosenPath = SelectFreshestLocalSource(resolvedCachePath, resolvedBundlePath);
+        if (chosenPath != null)
         {
-            // The bundled copy is canonical when present. We surface parse failures
-            // immediately rather than masking them by falling through to the network —
-            // a corrupt bundle is an internal-error condition the operator must see.
-            string bundledJson;
+            // Bundled and cached parses both surface immediately on failure rather than
+            // silently falling to the network — a corrupt local manifest is an
+            // internal-error condition the operator must see.
+            string json;
             try
             {
-                bundledJson = await System.IO.File.ReadAllTextAsync(resolvedBundlePath).ConfigureAwait(false);
+                json = await System.IO.File.ReadAllTextAsync(chosenPath).ConfigureAwait(false);
             }
             catch (System.IO.IOException ex)
             {
                 throw new ManifestParseException(
-                    $"Failed to read bundled manifest at '{resolvedBundlePath}' ({ex.GetType().Name}).", ex);
+                    $"Failed to read manifest at '{chosenPath}' ({ex.GetType().Name}).", ex);
             }
 
-            return ToolManifest.Parse(bundledJson);
+            return ToolManifest.Parse(json);
         }
 
         return await LoadFromUrlAsync(url ?? DefaultUrl).ConfigureAwait(false);
     }
 
     /// <summary>
+    /// Fetches the manifest from the network and writes it to the per-user cache so future
+    /// <see cref="LoadAsync"/> calls see the fresher view. Callers should treat this as a
+    /// best-effort refresh: any network failure surfaces as <see cref="ManifestParseException"/>
+    /// and the existing cache (if any) is left untouched.
+    /// </summary>
+    /// <param name="url">
+    /// The URL to fetch the manifest from. Defaults to <see cref="DefaultUrl"/> when
+    /// <see langword="null"/>.
+    /// </param>
+    /// <param name="cachePath">
+    /// Override for the cache file path. Production code passes <see langword="null"/>;
+    /// tests pass a temp path.
+    /// </param>
+    /// <returns>The parsed <see cref="ToolManifest"/> as fetched from the network.</returns>
+    /// <exception cref="ManifestParseException">
+    /// Thrown when the request fails, times out, returns invalid JSON, or when the cache
+    /// write itself fails (the latter being unusual but worth surfacing — a refresh that
+    /// can't persist defeats the whole point of caching).
+    /// </exception>
+    public static async Task<ToolManifest> RefreshFromNetworkAsync(
+        string? url = null,
+        string? cachePath = null)
+    {
+        string resolvedUrl = url ?? DefaultUrl;
+        string resolvedCachePath = cachePath ?? DefaultCachePath();
+
+        // Fetch raw bytes once; parse to validate; then persist. We never overwrite the
+        // cache before parse succeeds — server-returned junk (HTML error page, truncated
+        // body) shouldn't replace a good cached copy.
+        string raw = await FetchRawAsync(resolvedUrl).ConfigureAwait(false);
+        ToolManifest manifest = ToolManifest.Parse(raw);
+
+        if (string.IsNullOrEmpty(resolvedCachePath))
+        {
+            // No usable cache root on this machine. The refresh still parses and returns
+            // the fresh manifest; persistence is silently skipped.
+            return manifest;
+        }
+
+        try
+        {
+            string? cacheDir = System.IO.Path.GetDirectoryName(resolvedCachePath);
+            if (!string.IsNullOrEmpty(cacheDir))
+            {
+                System.IO.Directory.CreateDirectory(cacheDir);
+            }
+            await System.IO.File.WriteAllTextAsync(resolvedCachePath, raw).ConfigureAwait(false);
+        }
+        catch (System.IO.IOException ex)
+        {
+            throw new ManifestParseException(
+                $"Failed to write manifest cache at '{resolvedCachePath}' ({ex.GetType().Name}).", ex);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            throw new ManifestParseException(
+                $"Permission denied writing manifest cache at '{resolvedCachePath}'.", ex);
+        }
+
+        return manifest;
+    }
+
+    /// <summary>
+    /// Returns the absolute cache path for the current user, or <see langword="null"/>
+    /// when no suitable cache root can be derived (e.g. minimal sandbox without
+    /// <c>LOCALAPPDATA</c> or a HOME variable). Public so tests and tooling can introspect
+    /// the location without having to mirror the resolution logic.
+    /// </summary>
+    public static string? GetDefaultCachePath()
+    {
+        return DefaultCachePath();
+    }
+
+    /// <summary>
+    /// Compares the cache and bundle by mtime and returns whichever exists with the
+    /// later mtime, or the only one that exists, or <see langword="null"/> when neither
+    /// is present. Treats a missing path as "infinitely old" so a present file always
+    /// wins against an absent one.
+    /// </summary>
+    private static string? SelectFreshestLocalSource(string cachePath, string bundlePath)
+    {
+        bool cacheExists = System.IO.File.Exists(cachePath);
+        bool bundleExists = System.IO.File.Exists(bundlePath);
+
+        if (cacheExists && bundleExists)
+        {
+            DateTime cacheTime = System.IO.File.GetLastWriteTimeUtc(cachePath);
+            DateTime bundleTime = System.IO.File.GetLastWriteTimeUtc(bundlePath);
+            return cacheTime >= bundleTime ? cachePath : bundlePath;
+        }
+
+        if (cacheExists) { return cachePath; }
+        if (bundleExists) { return bundlePath; }
+        return null;
+    }
+
+    /// <summary>
     /// Computes the absolute path to the bundled manifest based on the running binary's
-    /// directory. Layout matches the man tool's bundled-pages convention so a single
-    /// <c>share/</c> tree under the binary's directory hosts all bundled assets.
+    /// directory.
     /// </summary>
     private static string DefaultBundledPath()
     {
@@ -82,9 +204,46 @@ public static class ManifestLoader
     }
 
     /// <summary>
+    /// Computes the absolute path to the per-user cache file. Returns
+    /// <see cref="string.Empty"/> when no suitable cache root is available, so callers
+    /// using this internally can compare with <see cref="System.IO.File.Exists(string)"/>
+    /// (which returns <see langword="false"/> for empty strings) without further guards.
+    /// </summary>
+    private static string DefaultCachePath()
+    {
+        string root;
+        if (OperatingSystem.IsWindows())
+        {
+            root = Environment.GetEnvironmentVariable("LOCALAPPDATA") ?? string.Empty;
+        }
+        else
+        {
+            string? xdg = Environment.GetEnvironmentVariable("XDG_CACHE_HOME");
+            if (!string.IsNullOrEmpty(xdg))
+            {
+                root = xdg;
+            }
+            else
+            {
+                string? home = Environment.GetEnvironmentVariable("HOME") ?? Environment.GetEnvironmentVariable("USERPROFILE");
+                root = string.IsNullOrEmpty(home) ? string.Empty : System.IO.Path.Combine(home, ".cache");
+            }
+        }
+
+        if (string.IsNullOrEmpty(root))
+        {
+            // No usable cache root — return an empty string so File.Exists returns false
+            // and the resolution falls through to the bundle (or, ultimately, the network).
+            return string.Empty;
+        }
+
+        return System.IO.Path.Combine(root, "winix", CacheFileName);
+    }
+
+    /// <summary>
     /// Downloads the manifest from the given URL and parses it. Used as the fallback path
-    /// when no bundled manifest is present, and exposed publicly so tests and future
-    /// refresh logic can drive the network path directly.
+    /// when no local source is present, and exposed publicly so tests and the refresh path
+    /// can drive the network call directly.
     /// </summary>
     /// <param name="url">The URL to fetch the manifest from.</param>
     /// <exception cref="ManifestParseException">
@@ -92,15 +251,26 @@ public static class ManifestLoader
     /// </exception>
     public static async Task<ToolManifest> LoadFromUrlAsync(string url)
     {
+        string json = await FetchRawAsync(url).ConfigureAwait(false);
+        return ToolManifest.Parse(json);
+    }
+
+    /// <summary>
+    /// Fetches the raw JSON body from the given URL, wrapping framework exceptions in
+    /// <see cref="ManifestParseException"/> with project-controlled messages. The 30-second
+    /// timeout matches the cross-platform TLS-handshake-plus-redirect-chain budget for
+    /// GitHub-hosted release assets.
+    /// </summary>
+    private static async Task<string> FetchRawAsync(string url)
+    {
         using var client = new System.Net.Http.HttpClient
         {
             Timeout = TimeSpan.FromSeconds(30),
         };
 
-        string json;
         try
         {
-            json = await client.GetStringAsync(url).ConfigureAwait(false);
+            return await client.GetStringAsync(url).ConfigureAwait(false);
         }
         catch (System.Net.Http.HttpRequestException ex)
         {
@@ -112,7 +282,5 @@ public static class ManifestLoader
             throw new ManifestParseException(
                 $"Timed out downloading manifest from '{url}'.", ex);
         }
-
-        return ToolManifest.Parse(json);
     }
 }

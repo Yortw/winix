@@ -78,4 +78,87 @@ public class ManifestLoaderTests
             File.Delete(tempPath);
         }
     }
+
+    [Fact]
+    public async Task LoadAsync_CacheNewerThanBundle_PrefersCache()
+    {
+        string bundlePath = Path.Combine(Path.GetTempPath(), $"winix-bundle-{Guid.NewGuid():N}.json");
+        string cachePath = Path.Combine(Path.GetTempPath(), $"winix-cache-{Guid.NewGuid():N}.json");
+
+        // Bundle has version 0.1, cache has version 0.4 — we expect 0.4 because cache is fresher.
+        string bundleJson = ValidJson.Replace("0.4.0", "0.1.0");
+        await File.WriteAllTextAsync(bundlePath, bundleJson);
+        File.SetLastWriteTimeUtc(bundlePath, DateTime.UtcNow.AddDays(-30));
+
+        await File.WriteAllTextAsync(cachePath, ValidJson);
+        File.SetLastWriteTimeUtc(cachePath, DateTime.UtcNow);
+
+        try
+        {
+            ToolManifest manifest = await ManifestLoader.LoadAsync(
+                bundledPath: bundlePath,
+                cachePath: cachePath);
+
+            Assert.Equal("0.4.0", manifest.Version);
+        }
+        finally
+        {
+            File.Delete(bundlePath);
+            File.Delete(cachePath);
+        }
+    }
+
+    [Fact]
+    public async Task LoadAsync_BundleNewerThanCache_PrefersBundle()
+    {
+        string bundlePath = Path.Combine(Path.GetTempPath(), $"winix-bundle-{Guid.NewGuid():N}.json");
+        string cachePath = Path.Combine(Path.GetTempPath(), $"winix-cache-{Guid.NewGuid():N}.json");
+
+        // Cache has stale version 0.1, bundle has version 0.4 (a recent release shipped).
+        string staleCacheJson = ValidJson.Replace("0.4.0", "0.1.0");
+        await File.WriteAllTextAsync(cachePath, staleCacheJson);
+        File.SetLastWriteTimeUtc(cachePath, DateTime.UtcNow.AddDays(-30));
+
+        await File.WriteAllTextAsync(bundlePath, ValidJson);
+        File.SetLastWriteTimeUtc(bundlePath, DateTime.UtcNow);
+
+        try
+        {
+            ToolManifest manifest = await ManifestLoader.LoadAsync(
+                bundledPath: bundlePath,
+                cachePath: cachePath);
+
+            Assert.Equal("0.4.0", manifest.Version);
+        }
+        finally
+        {
+            File.Delete(bundlePath);
+            File.Delete(cachePath);
+        }
+    }
+
+    [Fact]
+    public async Task RefreshFromNetworkAsync_NetworkUnreachable_DoesNotOverwriteCache()
+    {
+        string cachePath = Path.Combine(Path.GetTempPath(), $"winix-cache-{Guid.NewGuid():N}.json");
+        string original = ValidJson.Replace("0.4.0", "0.3.0");
+        await File.WriteAllTextAsync(cachePath, original);
+
+        try
+        {
+            // The network call fails — RefreshFromNetworkAsync must surface the failure
+            // and leave the existing cache file unchanged.
+            await Assert.ThrowsAsync<ManifestParseException>(
+                () => ManifestLoader.RefreshFromNetworkAsync(
+                    url: "http://localhost:1/unreachable",
+                    cachePath: cachePath));
+
+            string after = await File.ReadAllTextAsync(cachePath);
+            Assert.Equal(original, after);
+        }
+        finally
+        {
+            File.Delete(cachePath);
+        }
+    }
 }
