@@ -53,15 +53,22 @@ clip -r
 
 ## Mode auto-detection
 
-`clip` decides between copy and paste based on **whether stdin actually contains content**:
+The unified rule: **with no input, `clip` pastes; with content on stdin, `clip` copies.** This holds across every supported environment — interactive TTY, redirected pipe with content, redirected pipe with no content (Git Bash / MSYS / Cygwin where stdin reports redirected even interactively, or an explicit empty pipe like `: | clip`):
 
 - Terminal stdin → paste
 - Redirected stdin with content → copy
-- Redirected stdin that is empty → paste (works correctly under Git Bash / MSYS where redirected-stdin reports true even for interactive terminals)
+- Redirected stdin that is empty → paste
 
 Explicit `-c` / `-p` / `--clear` always override.
 
-**Empty-copy edge:** to deliberately copy an empty string use `clip -c < /dev/null`. `echo -n "" | clip` (no `-c`) pastes instead. `clip --clear` is usually what users mean for "empty the clipboard".
+**Scripting determinism.** When a producer command may or may not output content and you want guaranteed copy behaviour, use `clip --copy` (or `-c`) explicitly:
+
+```bash
+producer | clip --copy     # always copies, even if 'producer' outputs nothing
+producer | clip --paste    # always pastes, ignoring stdin entirely
+```
+
+**Empty-copy edge:** to deliberately copy an empty string use `clip --copy < /dev/null`. `echo -n "" | clip` (no `--copy`) pastes instead. `clip --clear` is usually what users mean for "empty the clipboard".
 
 ## Exit Codes
 

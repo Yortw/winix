@@ -1,4 +1,4 @@
-.TH CLIP 1 "2026-04-17" "Winix" "User Commands"
+.TH CLIP 1 "2026-05-08" "Winix" "User Commands"
 .SH NAME
 clip \- cross-platform clipboard bridge
 
@@ -14,30 +14,35 @@ clip \- cross-platform clipboard bridge
 .SH DESCRIPTION
 .B clip
 reads from and writes to the system clipboard with identical behaviour on Windows, macOS, and Linux.
-With no arguments and a terminal stdin, it pastes the clipboard to stdout.
-With stdin redirected and containing content, it copies stdin to the clipboard.
-Empty redirected stdin pastes (so bare \fBclip\fR works correctly under Git Bash / MSYS where stdin is technically redirected even for interactive use).
-Explicit \fB--copy\fR and \fB--paste\fR flags override autodetection; to deliberately copy an empty string use \fBclip --copy < /dev/null\fR or \fBclip --clear\fR.
+The unified autodetect rule: with no input,
+.B clip
+pastes; with content on stdin,
+.B clip
+copies. This holds across every supported environment including interactive TTY, redirected pipe with content, redirected pipe with no content (Git Bash / MSYS / Cygwin where stdin reports redirected even interactively, or an explicit empty pipe like \fB: | clip\fR).
+Explicit \fB--copy\fR and \fB--paste\fR flags override autodetection; in scripts where the producer may pipe empty content, use \fB--copy\fR explicitly for deterministic copy behaviour. Use \fBclip --copy < /dev/null\fR to copy an empty string, or \fBclip --clear\fR to empty the clipboard.
 
 .SH OPTIONS
 .TP
 .BR \-c ", " \-\-copy
-Force copy mode regardless of stdin state.
+Force copy mode (read stdin to clipboard), overriding autodetect.
 .TP
 .BR \-p ", " \-\-paste
-Force paste mode regardless of stdin state.
+Force paste mode (read clipboard to stdout), overriding autodetect.
 .TP
 .B \-\-clear
-Empty the clipboard and exit.
+Empty the clipboard.
 .TP
 .BR \-r ", " \-\-raw
 Do not strip the trailing newline on paste.
 .TP
 .B \-\-primary
-Target the X11/Wayland PRIMARY selection on Linux. Silently ignored elsewhere.
+Target X11/Wayland PRIMARY selection (Linux only; ignored elsewhere). The PRIMARY selection is the X11 middle-click buffer.
 .TP
-.B \-\-color " " \fIWHEN\fR
-\fBauto\fR, \fBalways\fR, or \fBnever\fR. Respects \fBNO_COLOR\fR.
+.BR \-\-color ", " \-\-no\-color
+Respect \fBNO_COLOR\fR. \fBclip\fR has no coloured output of its own; flags are accepted for suite consistency.
+.TP
+.B \-\-json
+Accepted for suite consistency. \fBclip\fR emits no records, so \fB--json\fR is a no-op.
 .TP
 .B \-\-describe
 Emit structured JSON for AI discoverability.

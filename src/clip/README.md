@@ -77,22 +77,24 @@ clip > report-copy.txt
 
 ## Mode auto-detection
 
-`clip` decides between copy and paste based on **whether stdin actually contains content**:
+The unified rule: **with no input, `clip` pastes; with content on stdin, `clip` copies.** This holds across every supported environment — interactive TTY, redirected pipe with content, redirected pipe with no content (e.g. Git Bash / MSYS / Cygwin where stdin reports redirected even interactively, or an explicit empty pipe like `: | clip`):
 
 - Bare `clip` with a terminal stdin → **paste**
 - Bare `clip` with redirected stdin that has content → **copy**
-- Bare `clip` with redirected stdin that is empty → **paste** (works correctly under Git Bash, MSYS, Cygwin, and any other shell that pipes stdin to interactive processes)
+- Bare `clip` with redirected stdin that is empty → **paste**
 
 Explicit `-c` / `-p` / `--clear` always override auto-detection.
 
-**Empty-copy edge case.** Because empty redirected stdin routes to paste, the only way to deliberately copy an empty string is the explicit `-c` flag:
+### Scripting tip
+
+The autodetect "no content = paste" rule is friendly for interactive use but ambiguous in scripts where a producer command may or may not output content. If your pipeline can produce empty output and you want **deterministic copy** behaviour:
 
 ```bash
-clip -c < /dev/null     # copy empty string to the clipboard
-clip --clear            # equivalent for "make the clipboard empty"
+producer | clip --copy     # always copies, even if 'producer' outputs nothing
+producer | clip --paste    # always pastes, ignoring stdin entirely
 ```
 
-`echo -n "" | clip` (without `-c`) will paste, not copy. This is rarely what users mean — `clip --clear` is the more idiomatic way to empty the clipboard.
+The explicit flag is the escape hatch — it bypasses the autodetect entirely. Use `clip --copy < /dev/null` (or `clip -c < /dev/null`) when you specifically want to copy an empty string. `clip --clear` is the more idiomatic way to empty the clipboard.
 
 ## Unicode and `cmd.exe` on Windows
 
@@ -111,7 +113,7 @@ echo 🌏 | clip.exe
 clip.exe
 ```
 
-Or use PowerShell 7+, Windows Terminal, or Git Bash — all three default to UTF-8. (Git Bash has a separate stdin quirk — see above.)
+Or use PowerShell 7+, Windows Terminal, or Git Bash — all three default to UTF-8. (Git Bash's stdin auto-detection is described in the **Mode auto-detection** section above.)
 
 Copying via Ctrl+C from any GUI app (browser, Word, VS Code) into `clip` via paste always works — no shell is involved.
 
@@ -119,14 +121,15 @@ Copying via Ctrl+C from any GUI app (browser, Word, VS Code) into `clip` via pas
 
 | Option | Description |
 |---|---|
-| `-c`, `--copy` | Force copy mode regardless of stdin state. |
-| `-p`, `--paste` | Force paste mode regardless of stdin state. |
-| `--clear` | Empty the clipboard and exit. |
+| `-c`, `--copy` | Force copy mode (read stdin to clipboard), overriding autodetect. |
+| `-p`, `--paste` | Force paste mode (read clipboard to stdout), overriding autodetect. |
+| `--clear` | Empty the clipboard. |
 | `-r`, `--raw` | Do not strip trailing newline on paste. |
-| `--primary` | Target the X11/Wayland PRIMARY selection (middle-click on Linux). Silently ignored on Windows and macOS. |
-| `--color WHEN` | `auto`, `always`, or `never`. Respects `NO_COLOR`. |
+| `--primary` | Target X11/Wayland PRIMARY selection (Linux only; ignored elsewhere). The PRIMARY selection is the X11 middle-click buffer. |
+| `--color`, `--no-color` | Respect `NO_COLOR`. `clip` has no coloured output of its own; flags are accepted for suite consistency. |
+| `--json` | Accepted for suite consistency. `clip` emits no records, so `--json` is a no-op. |
 | `--describe` | Emit structured JSON for AI discoverability. |
-| `--help` | Show help. |
+| `-h`, `--help` | Show help. |
 | `--version` | Show version. |
 
 ## Exit codes
