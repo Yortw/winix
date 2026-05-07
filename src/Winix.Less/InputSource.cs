@@ -42,11 +42,25 @@ public sealed class InputSource
     /// </summary>
     /// <param name="filePath">Absolute or relative path to the file to read.</param>
     /// <returns>An <see cref="InputSource"/> whose <see cref="Lines"/> reflect the file contents.</returns>
-    /// <exception cref="FileNotFoundException">Thrown when <paramref name="filePath"/> does not exist.</exception>
+    /// <exception cref="FileNotFoundException">Thrown when <paramref name="filePath"/> does not exist on disk.</exception>
+    /// <exception cref="IOException">
+    /// Thrown when <paramref name="filePath"/> exists but refers to a directory rather than a regular
+    /// file. The exception message reads "Is a directory: {filePath}" — distinguished from the
+    /// not-found case for the caller's benefit (see Tier-2 baseline finding F6).
+    /// </exception>
     public static InputSource FromFile(string filePath)
     {
         if (!File.Exists(filePath))
         {
+            // Distinguish "exists but is a directory" from "does not exist". File.Exists returns
+            // false for both — Directory.Exists splits them. POSIX `less` says "Is a directory"
+            // for the first; we match that wording. Throwing IOException (not
+            // UnauthorizedAccessException) because directory-as-stream is an IO domain error,
+            // not a permissions error.
+            if (Directory.Exists(filePath))
+            {
+                throw new IOException($"Is a directory: {filePath}");
+            }
             throw new FileNotFoundException($"File not found: {filePath}", filePath);
         }
 

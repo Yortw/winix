@@ -102,6 +102,40 @@ public class InputSourceTests : IDisposable
         Assert.Throws<FileNotFoundException>(() => InputSource.FromFile(path));
     }
 
+    // 6b. Tier-2 baseline 2026-05-07 finding F6: directory paths previously threw
+    // FileNotFoundException with the misleading "File not found" message because File.Exists
+    // returns false for directories AND missing paths. Now distinguished via Directory.Exists
+    // probe — directory case throws IOException with the POSIX-aligned "Is a directory" text.
+    [Fact]
+    public void FromFile_DirectoryPath_ThrowsIOExceptionWithIsADirectoryMessage()
+    {
+        // _tempDir is a directory created in the constructor; pass it as the input path.
+        var ex = Assert.Throws<IOException>(() => InputSource.FromFile(_tempDir));
+
+        Assert.Contains("Is a directory", ex.Message, StringComparison.Ordinal);
+        Assert.Contains(_tempDir, ex.Message, StringComparison.Ordinal);
+    }
+
+    // 6c. The directory case is NOT a FileNotFoundException — guards against the old
+    // pre-F6 conflation drifting back in.
+    [Fact]
+    public void FromFile_DirectoryPath_DoesNotThrowFileNotFoundException()
+    {
+        try
+        {
+            InputSource.FromFile(_tempDir);
+            Assert.Fail("Expected an exception, got none");
+        }
+        catch (FileNotFoundException)
+        {
+            Assert.Fail("Directory path must NOT produce FileNotFoundException — F6 contract change");
+        }
+        catch (IOException)
+        {
+            // expected
+        }
+    }
+
     // 7. PollForNewContent returns true and exposes the new line when the file has grown
     [Fact]
     public void PollForNewContent_FileGrew_ReturnsTrue()
