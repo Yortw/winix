@@ -27,7 +27,7 @@ internal sealed class Program
                 "Windows has no built-in man; renders groff pages natively without groff installed",
                 "Colour output, hyperlinks, built-in pager — no system groff or nroff required")
             .StdinDescription("Not used")
-            .StdoutDescription("Rendered man page text (with --no-pager or piped output)")
+            .StdoutDescription("Rendered man page text (with --no-pager or piped output), or JSON metadata with --json")
             .StderrDescription("Errors")
             .Example("man ls", "Display the manual page for ls")
             .Example("man 3 printf", "Display section 3 of the printf manual page")
@@ -168,11 +168,14 @@ internal sealed class Program
         }
 
         // --- Handle --json (metadata + description from NAME section) ---
+        // JSON goes to stdout — this is the suite-wide convention (digest, url, qr, files,
+        // treex, when all do the same), and it's the only way `man --json X | jq` works in a
+        // pipeline. Stderr remains for diagnostics so the two streams compose cleanly.
         if (jsonOutput)
         {
             string description = ExtractDescription(blocks);
             string json = FormatJson(pageName, pageSection, filePath, description, version);
-            Console.Error.WriteLine(json);
+            Console.Out.WriteLine(json);
             return ManExitCode.Success;
         }
 

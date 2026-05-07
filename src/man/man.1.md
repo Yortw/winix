@@ -51,7 +51,7 @@ Use **man --manpath** to inspect the effective search path.
 :   Print the list of man page search directories and exit.
 
 **--json**
-:   Write a JSON summary to stderr on exit.
+:   Write a JSON summary of the page metadata to stdout and exit.
 
 **--describe**
 :   Print machine-readable metadata and exit.

@@ -76,7 +76,7 @@ man --describe
 | `-w`, `--path` | Print the path to the man page file and exit (do not render) |
 | `--where` | Alias for `--path` |
 | `--manpath` | Print the list of man page search directories and exit |
-| `--json` | Write a JSON summary to stderr on exit |
+| `--json` | Write a JSON summary of the page metadata to stdout and exit |
 | `--describe` | Print machine-readable metadata (flags, examples, composability) and exit |
 | `--version` | Show version |
 | `-h`, `--help` | Show help |
