@@ -183,7 +183,7 @@ public sealed class SuiteManager
             }
         }
 
-        return failures > 0 ? 1 : 0;
+        return failures > 0 ? WinixExitCode.ToolFailure : WinixExitCode.Success;
     }
 
     /// <summary>
@@ -285,7 +285,7 @@ public sealed class SuiteManager
                 output(Formatting.FormatToolResult(toolName, "?", success: false, error: "no package manager available", useColor));
             }
 
-            return 1;
+            return WinixExitCode.NoPackageManager;
         }
 
         int failures = 0;
@@ -329,7 +329,7 @@ public sealed class SuiteManager
             }
         }
 
-        return failures > 0 ? 1 : 0;
+        return failures > 0 ? WinixExitCode.ToolFailure : WinixExitCode.Success;
     }
 
     /// <summary>

@@ -40,9 +40,11 @@ internal sealed class Program
             .Example("winix status", "Show a summary of installed tools")
             .Example("winix install --dry-run", "Preview what would be installed")
             .ExitCodes(
-                (0, "Success"),
-                (1, "Runtime error or one or more tools failed"),
-                (ExitCode.UsageError, "Usage error"));
+                (WinixExitCode.Success, "Success"),
+                (WinixExitCode.ToolFailure, "One or more tools failed"),
+                (WinixExitCode.UsageError, "Usage error (bad command or argument)"),
+                (WinixExitCode.NoPackageManager, "No supported package manager found"),
+                (WinixExitCode.InternalError, "Internal error (manifest fetch/parse failure)"));
 
         var result = parser.Parse(args);
         if (result.IsHandled) { return result.ExitCode; }
@@ -103,7 +105,7 @@ internal sealed class Program
         catch (ManifestParseException ex)
         {
             Console.Error.WriteLine($"winix: {ex.Message}");
-            return 1;
+            return WinixExitCode.InternalError;
         }
 
         // Dispatch to the appropriate command.
@@ -136,7 +138,7 @@ internal sealed class Program
                 Console.Error.WriteLine("winix: no supported package manager found on this machine");
             }
 
-            return 1;
+            return WinixExitCode.NoPackageManager;
         }
 
         // On install, auto-setup the scoop bucket or brew tap so packages are
