@@ -2,6 +2,11 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <IsTestProject>true</IsTestProject>
+    <!-- Match the runtime csproj (src/clip/clip.csproj) so framework ex.Message strings
+         return SR resource keys here too. Without this, tests render English on a
+         non-Invariant test host while the AOT binary renders SR keys in production —
+         masking the InvariantGlobalization-resource-key class of defects locally. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.*" />
