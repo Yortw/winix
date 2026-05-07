@@ -208,6 +208,149 @@ public class CliRunTests
         Assert.Contains("install xclip", stderr.ToString());
     }
 
+    // ---- Round-2 TA I1: Clear dispatch path coverage ----------------------------
+
+    [Fact]
+    public void Run_ClearMode_InvokesBackendClearAndDoesNotConsumeStdin()
+    {
+        // Round-2 TA I1: pre-fix CliRunTests covered Copy and Paste dispatch but not
+        // the third arm. A refactor that broke Clear's stdin-skip predicate (the
+        // `!options.Clear` part of needsStdinRead) would silently consume stdin and
+        // could throw — uncaught from the integration tests.
+        var fake = new FakeBackend();
+        byte[] sentinelBytes = System.Text.Encoding.UTF8.GetBytes("not-consumed-by-clear");
+        var stdinStream = new MemoryStream(sentinelBytes);
+
+        int exit = Cli.Run(
+            args: new[] { "--clear" },
+            payloadStdin: stdinStream,
+            isStdinRedirected: true,
+            stdout: new StringWriter(),
+            stderr: new StringWriter(),
+            backendFactory: _ => new BackendResolution(fake, null));
+
+        Assert.Equal(0, exit);
+        Assert.Equal(1, fake.ClearCalls);
+        Assert.Empty(fake.CopiedTexts);
+        Assert.Equal(0, fake.PasteCalls);
+        // Stdin bytes never consumed — predicate correctly skipped the read for Clear.
+        Assert.Equal(0, stdinStream.Position);
+    }
+
+    [Fact]
+    public void Run_ClearThrowsClipboardException_ReturnsNotExecutable()
+    {
+        var fake = new FakeBackend
+        {
+            ClearThrows = new ClipboardException(
+                "test: EmptyClipboard failed",
+                new System.ComponentModel.Win32Exception(5)),
+        };
+        var stderr = new StringWriter();
+
+        int exit = Cli.Run(
+            args: new[] { "--clear" },
+            payloadStdin: new MemoryStream(),
+            isStdinRedirected: false,
+            stdout: new StringWriter(),
+            stderr: stderr,
+            backendFactory: _ => new BackendResolution(fake, null));
+
+        Assert.Equal(ExitCode.NotExecutable, exit);
+        Assert.Contains("clip:", stderr.ToString());
+        Assert.Contains("EmptyClipboard failed", stderr.ToString());
+    }
+
+    // ---- Round-2 TA I2: parser early-return paths -------------------------------
+
+    [Fact]
+    public void Run_HelpFlag_ReturnsZeroWithoutInvokingBackend()
+    {
+        // Round-2 TA I2: the parser's IsHandled short-circuit was untested at the
+        // Cli.Run integration layer. A backend factory that throws when called
+        // proves the short-circuit fires before backend resolution.
+        int exit = Cli.Run(
+            args: new[] { "--help" },
+            payloadStdin: new MemoryStream(),
+            isStdinRedirected: false,
+            stdout: new StringWriter(),
+            stderr: new StringWriter(),
+            backendFactory: _ => throw new System.InvalidOperationException(
+                "backend factory must not be invoked for --help"));
+
+        Assert.Equal(0, exit);
+    }
+
+    [Fact]
+    public void Run_DescribeFlag_ReturnsZeroWithoutInvokingBackend()
+    {
+        int exit = Cli.Run(
+            args: new[] { "--describe" },
+            payloadStdin: new MemoryStream(),
+            isStdinRedirected: false,
+            stdout: new StringWriter(),
+            stderr: new StringWriter(),
+            backendFactory: _ => throw new System.InvalidOperationException(
+                "backend factory must not be invoked for --describe"));
+
+        Assert.Equal(0, exit);
+    }
+
+    [Fact]
+    public void Run_VersionFlag_ReturnsZeroWithoutInvokingBackend()
+    {
+        int exit = Cli.Run(
+            args: new[] { "--version" },
+            payloadStdin: new MemoryStream(),
+            isStdinRedirected: false,
+            stdout: new StringWriter(),
+            stderr: new StringWriter(),
+            backendFactory: _ => throw new System.InvalidOperationException(
+                "backend factory must not be invoked for --version"));
+
+        Assert.Equal(0, exit);
+    }
+
+    [Fact]
+    public void Run_UnknownFlag_ReturnsUsageErrorWithStderrMessage()
+    {
+        // Round-2 TA I2: parser-error route via result.HasErrors → result.WriteErrors.
+        var stderr = new StringWriter();
+
+        int exit = Cli.Run(
+            args: new[] { "--frobnicate" },
+            payloadStdin: new MemoryStream(),
+            isStdinRedirected: false,
+            stdout: new StringWriter(),
+            stderr: stderr,
+            backendFactory: _ => throw new System.InvalidOperationException(
+                "backend factory must not be invoked on parser error"));
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.NotEmpty(stderr.ToString());
+    }
+
+    [Fact]
+    public void Run_ConflictingModeFlags_ReturnsUsageErrorViaArgumentExceptionRoute()
+    {
+        // Round-2 TA I2: ClipOptions ArgumentException route via result.WriteError.
+        // Pre-fix the catch was untested at the Cli.Run integration layer; only the
+        // ClipOptions ctor itself was covered by ClipOptionsTests.
+        var stderr = new StringWriter();
+
+        int exit = Cli.Run(
+            args: new[] { "-c", "-p" },
+            payloadStdin: new MemoryStream(),
+            isStdinRedirected: false,
+            stdout: new StringWriter(),
+            stderr: stderr,
+            backendFactory: _ => throw new System.InvalidOperationException(
+                "backend factory must not be invoked when ClipOptions rejects"));
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains("cannot be combined", stderr.ToString());
+    }
+
     // --- Helpers ---
 
     private static int RunCli(
