@@ -22,5 +22,6 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="man\man1\winix.1" CopyToPublishDirectory="PreserveNewest" Link="share\man\man1\winix.1" />
+    <Content Include="winix-manifest.json" CopyToPublishDirectory="PreserveNewest" Link="share\winix\winix-manifest.json" />
   </ItemGroup>
 </Project>
