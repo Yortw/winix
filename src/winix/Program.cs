@@ -29,7 +29,7 @@ internal sealed class Program
                 "No cross-platform suite installer exists",
                 "Manages all Winix tools with a single command across Windows and macOS")
             .StdinDescription("Not used")
-            .StdoutDescription("Not used")
+            .StdoutDescription("JSON metadata when --json is set, otherwise unused")
             .StderrDescription("Progress and result lines, one per tool.")
             .Example("winix install", "Install all Winix tools using the default package manager")
             .Example("winix install timeit squeeze", "Install specific tools")
@@ -108,11 +108,13 @@ internal sealed class Program
             return WinixExitCode.InternalError;
         }
 
+        bool jsonOutput = result.Has("--json");
+
         // Dispatch to the appropriate command.
         if (command == "list" || command == "status")
         {
             return await RunListOrStatusAsync(
-                command, manifest, allAdapters, platform, useColor).ConfigureAwait(false);
+                command, manifest, allAdapters, platform, useColor, jsonOutput, version).ConfigureAwait(false);
         }
 
         if (command == "uninstall")
@@ -195,15 +197,29 @@ internal sealed class Program
         ToolManifest manifest,
         IDictionary<string, IPackageManagerAdapter> adapters,
         PlatformId platform,
-        bool useColor)
+        bool useColor,
+        bool jsonOutput,
+        string winixVersion)
     {
         var manager = new SuiteManager(manifest, adapters, platform);
         List<ToolStatus> statuses = await manager.ListAsync().ConfigureAwait(false);
 
+        if (jsonOutput)
+        {
+            // JSON goes to stdout per the suite-wide convention so 'winix list --json | jq'
+            // works in pipelines. Errors and progress lines remain on stderr (none here for
+            // the read-only list/status paths once we've successfully resolved statuses).
+            string json = command == "status"
+                ? Formatting.FormatStatusJson(statuses, manifest.Tools.Count, winixVersion, platform)
+                : Formatting.FormatListJson(statuses, winixVersion, platform);
+            Console.Out.WriteLine(json);
+            return WinixExitCode.Success;
+        }
+
         if (command == "status")
         {
             Console.Error.WriteLine(Formatting.FormatStatusSummary(statuses, manifest.Tools.Count));
-            return 0;
+            return WinixExitCode.Success;
         }
 
         // list: show table and hint when nothing is installed.
@@ -230,7 +246,7 @@ internal sealed class Program
             Console.Error.WriteLine(Formatting.FormatNoToolsHint());
         }
 
-        return 0;
+        return WinixExitCode.Success;
     }
 
     /// <summary>

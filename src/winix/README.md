@@ -66,6 +66,9 @@ winix list
 # Show install status and versions
 winix status
 
+# Get machine-readable list output (pipeable to jq, scripts, agents)
+winix list --json
+
 # Install via a specific package manager
 winix install --via scoop
 
@@ -82,7 +85,9 @@ winix --describe
 |--------|-------------|
 | `--via PM` | Force a specific package manager: `scoop`, `winget`, `dotnet`, `brew` |
 | `--dry-run` | Print what would be done without executing any changes |
+| `--json` | Emit machine-readable JSON to stdout (supported on `list` and `status`) |
 | `--describe` | Print machine-readable metadata (flags, examples, composability) and exit |
+| `--color` | Force coloured output (overrides `NO_COLOR`) |
 | `--no-color` | Disable colored output |
 | `--version` | Show version |
 | `-h`, `--help` | Show help |

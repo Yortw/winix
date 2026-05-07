@@ -1,9 +1,11 @@
 #nullable enable
 
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 using Yort.ShellKit;
 
 namespace Winix.Winix;
@@ -268,5 +270,118 @@ public static class Formatting
     public static string FormatNoToolsHint()
     {
         return "No Winix tools installed. Run 'winix install' to install all tools.";
+    }
+
+    /// <summary>
+    /// Formats the suite tool status list as JSON suitable for piping into <c>jq</c> or
+    /// consuming from automation. The shape is stable: top-level metadata under
+    /// <c>tool</c>, <c>command</c>, <c>version</c>, <c>platform</c>, plus a <c>tools</c>
+    /// array with one entry per manifest tool.
+    /// </summary>
+    /// <param name="statuses">Per-tool status records.</param>
+    /// <param name="winixVersion">The version string of this winix binary.</param>
+    /// <param name="platform">The current platform identifier.</param>
+    /// <returns>A single JSON object serialised to a string (no trailing newline).</returns>
+    public static string FormatListJson(
+        IReadOnlyList<ToolStatus> statuses,
+        string winixVersion,
+        PlatformId platform)
+    {
+        (Utf8JsonWriter writer, ArrayBufferWriter<byte> buffer) = JsonHelper.CreateWriter();
+
+        using (writer)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("tool", "winix");
+            writer.WriteString("command", "list");
+            writer.WriteString("version", winixVersion);
+            writer.WriteString("platform", PlatformIdToString(platform));
+
+            writer.WriteStartArray("tools");
+            foreach (ToolStatus status in statuses)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("name", status.Name);
+                writer.WriteBoolean("installed", status.IsInstalled);
+
+                if (status.Version != null) { writer.WriteString("version", status.Version); }
+                else { writer.WriteNull("version"); }
+
+                if (status.PackageManager != null) { writer.WriteString("via", status.PackageManager); }
+                else { writer.WriteNull("via"); }
+
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+
+            writer.WriteEndObject();
+        }
+
+        return JsonHelper.GetString(buffer);
+    }
+
+    /// <summary>
+    /// Formats the suite status summary as JSON. Includes installed/total counts and
+    /// a per-package-manager breakdown so consumers can see which managers contributed
+    /// without having to walk the full per-tool list.
+    /// </summary>
+    /// <param name="statuses">Per-tool status records.</param>
+    /// <param name="totalTools">Total number of tools in the manifest.</param>
+    /// <param name="winixVersion">The version string of this winix binary.</param>
+    /// <param name="platform">The current platform identifier.</param>
+    /// <returns>A single JSON object serialised to a string.</returns>
+    public static string FormatStatusJson(
+        IReadOnlyList<ToolStatus> statuses,
+        int totalTools,
+        string winixVersion,
+        PlatformId platform)
+    {
+        int installedCount = 0;
+        var pmCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (ToolStatus status in statuses)
+        {
+            if (!status.IsInstalled) { continue; }
+            installedCount++;
+            if (status.PackageManager != null)
+            {
+                pmCounts.TryGetValue(status.PackageManager, out int existing);
+                pmCounts[status.PackageManager] = existing + 1;
+            }
+        }
+
+        (Utf8JsonWriter writer, ArrayBufferWriter<byte> buffer) = JsonHelper.CreateWriter();
+
+        using (writer)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("tool", "winix");
+            writer.WriteString("command", "status");
+            writer.WriteString("version", winixVersion);
+            writer.WriteString("platform", PlatformIdToString(platform));
+            writer.WriteNumber("installed", installedCount);
+            writer.WriteNumber("total", totalTools);
+
+            writer.WriteStartObject("by_pm");
+            foreach (KeyValuePair<string, int> pm in pmCounts.OrderByDescending(kvp => kvp.Value))
+            {
+                writer.WriteNumber(pm.Key, pm.Value);
+            }
+            writer.WriteEndObject();
+
+            writer.WriteEndObject();
+        }
+
+        return JsonHelper.GetString(buffer);
+    }
+
+    private static string PlatformIdToString(PlatformId platform)
+    {
+        return platform switch
+        {
+            PlatformId.Windows => "windows",
+            PlatformId.MacOS => "macos",
+            _ => "linux",
+        };
     }
 }
