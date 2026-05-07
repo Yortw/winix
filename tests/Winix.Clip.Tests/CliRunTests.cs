@@ -208,6 +208,77 @@ public class CliRunTests
         Assert.Contains("install xclip", stderr.ToString());
     }
 
+    // ---- Fresh-eyes round (post-r4) TA I1: --raw end-to-end coverage -----------
+
+    [Fact]
+    public void Run_PasteWithRaw_PreservesTrailingNewline()
+    {
+        // Fresh-eyes test-analyzer caught that --raw / -r had no end-to-end pin
+        // through Cli.Run. The README's flagship "Newline handling" contract says
+        // paste strips one trailing \n by default, but --raw disables stripping.
+        // NewlineStripping is unit-tested in isolation, but a refactor that dropped
+        // the `if (!raw)` guard in DoPaste would silently break the documented
+        // flag without breaking any prior test. The paired-test design below pins
+        // the difference between the two modes against the same backend payload.
+        var fake = new FakeBackend { PasteResult = "foo\n" };
+        var stdout = new StringWriter();
+
+        int exit = Cli.Run(
+            args: new[] { "-p", "-r" },
+            payloadStdin: new MemoryStream(),
+            isStdinRedirected: false,
+            stdout: stdout,
+            stderr: new StringWriter(),
+            backendFactory: _ => new BackendResolution(fake, null));
+
+        Assert.Equal(0, exit);
+        // --raw: byte-exact paste, trailing \n preserved.
+        Assert.Equal("foo\n", stdout.ToString());
+    }
+
+    [Fact]
+    public void Run_PasteWithoutRaw_StripsTrailingNewline()
+    {
+        // Sibling of Run_PasteWithRaw — same backend payload "foo\n", different
+        // flag, asserts the strip happens. Together they pin the contract that
+        // --raw is the ON/OFF lever for trailing-newline behaviour.
+        var fake = new FakeBackend { PasteResult = "foo\n" };
+        var stdout = new StringWriter();
+
+        int exit = Cli.Run(
+            args: new[] { "-p" },
+            payloadStdin: new MemoryStream(),
+            isStdinRedirected: false,
+            stdout: stdout,
+            stderr: new StringWriter(),
+            backendFactory: _ => new BackendResolution(fake, null));
+
+        Assert.Equal(0, exit);
+        // No --raw: trailing newline stripped per $(...)-shell-substitution semantics.
+        Assert.Equal("foo", stdout.ToString());
+    }
+
+    [Fact]
+    public void Run_PasteWithoutRaw_StripsCrlfTrailing()
+    {
+        // CRLF case — README explicitly mentions that paste strips one trailing
+        // \n OR \r\n. Without this row, a refactor that only handled \n would
+        // pass Run_PasteWithoutRaw_StripsTrailingNewline.
+        var fake = new FakeBackend { PasteResult = "foo\r\n" };
+        var stdout = new StringWriter();
+
+        int exit = Cli.Run(
+            args: new[] { "-p" },
+            payloadStdin: new MemoryStream(),
+            isStdinRedirected: false,
+            stdout: stdout,
+            stderr: new StringWriter(),
+            backendFactory: _ => new BackendResolution(fake, null));
+
+        Assert.Equal(0, exit);
+        Assert.Equal("foo", stdout.ToString());
+    }
+
     // ---- Round-2 TA I1: Clear dispatch path coverage ----------------------------
 
     [Fact]

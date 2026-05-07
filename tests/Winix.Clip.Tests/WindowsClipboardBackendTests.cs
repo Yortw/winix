@@ -17,12 +17,19 @@ public class WindowsClipboardBackendTests
     // remote-desktop redirection, browser extension, IDE tooling) holds it continuously, no
     // amount of retry will succeed — the production code retries for ~1s before giving up.
     // That is an environmental constraint, not a code regression, so we treat it as a skip.
+    //
+    // Round-5 fresh-eyes SFH I1: previously this catch swallowed the busy ClipboardException
+    // and let the test fall through with no assertion run — xUnit reported the test as
+    // PASSED rather than SKIPPED. CI dashboards then could not distinguish "tested green"
+    // from "couldn't test because the clipboard was held". Now we throw via Skip.If(true, ...)
+    // so the test reports as Skipped, which is the truthful CI signal.
     private void RunOrSkipIfBusy(Action body)
     {
         try { body(); }
         catch (ClipboardException ex) when (ex.Message.Contains("busy", StringComparison.Ordinal))
         {
             _output.WriteLine($"[skip] Clipboard held by external process throughout retry budget: {ex.Message}");
+            Skip.If(true, $"clipboard busy: {ex.Message}");
         }
     }
 
