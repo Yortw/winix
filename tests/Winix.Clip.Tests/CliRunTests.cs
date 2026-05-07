@@ -165,6 +165,32 @@ public class CliRunTests
     }
 
     [Fact]
+    public void Run_StdinReadThrowsIoException_ReturnsNotExecutableWithClipPrefix()
+    {
+        // Round-2 SFH I2 regression: a producer that dies mid-stream raises IOException
+        // out of Stream.CopyTo. Pre-fix that escaped Cli.Run unhandled and surfaced as
+        // a runtime stack trace on stderr. Post-fix it exits 126 with the documented
+        // "clip: ..." prefix.
+        var fake = new FakeBackend();
+        var stderr = new StringWriter();
+
+        int exit = Cli.Run(
+            args: System.Array.Empty<string>(),
+            payloadStdin: new ThrowingStream(),
+            isStdinRedirected: true,
+            stdout: new StringWriter(),
+            stderr: stderr,
+            backendFactory: _ => new BackendResolution(fake, null));
+
+        Assert.Equal(ExitCode.NotExecutable, exit);
+        Assert.Contains("clip:", stderr.ToString());
+        Assert.Contains("failed to read stdin", stderr.ToString());
+        // Backend never reached — no clipboard mutation on a stdin failure.
+        Assert.Empty(fake.CopiedTexts);
+        Assert.Equal(0, fake.PasteCalls);
+    }
+
+    [Fact]
     public void Run_BackendFactoryReturnsNull_ReturnsNotFoundWithError()
     {
         // Linux helper-not-installed path: factory returns (null, "install xclip / xsel...").
@@ -199,6 +225,34 @@ public class CliRunTests
             stdout: stdout ?? new StringWriter(),
             stderr: stderr ?? new StringWriter(),
             backendFactory: _ => new BackendResolution(backend, null));
+    }
+
+    /// <summary>
+    /// Test-only Stream that always throws <see cref="IOException"/> on read. Models a
+    /// producer process whose pipe broke mid-stream (e.g. SIGPIPE from a killed
+    /// upstream command) so we can exercise <see cref="Cli.Run"/>'s stdin-failure path
+    /// deterministically without spawning a real broken pipe.
+    /// </summary>
+    private sealed class ThrowingStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new System.NotSupportedException();
+        public override long Position
+        {
+            get => throw new System.NotSupportedException();
+            set => throw new System.NotSupportedException();
+        }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count)
+            => throw new IOException("test: simulated broken pipe");
+        public override long Seek(long offset, SeekOrigin origin)
+            => throw new System.NotSupportedException();
+        public override void SetLength(long value)
+            => throw new System.NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count)
+            => throw new System.NotSupportedException();
     }
 
     private sealed class FakeBackend : IClipboardBackend

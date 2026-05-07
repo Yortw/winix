@@ -90,9 +90,24 @@ public static class Cli
             || (!options.ForcePaste && !options.Clear && isStdinRedirected);
         if (needsStdinRead)
         {
-            using var ms = new MemoryStream();
-            payloadStdin.CopyTo(ms);
-            bufferedStdin = ms.ToArray();
+            try
+            {
+                using var ms = new MemoryStream();
+                payloadStdin.CopyTo(ms);
+                bufferedStdin = ms.ToArray();
+            }
+            catch (IOException ex)
+            {
+                // Producer process died mid-stream, broken pipe, or other transient
+                // stdin failure. Surface a friendly diagnostic rather than letting the
+                // runtime print a raw stack trace. Don't pipe ex.Message under
+                // InvariantGlobalization — emit the exception type as a stable
+                // English discriminator. Exit code matches the ClipboardException
+                // path (NotExecutable / 126) since this is a runtime failure
+                // preventing the operation, not a usage error.
+                stderr.WriteLine($"clip: failed to read stdin ({ex.GetType().Name})");
+                return ExitCode.NotExecutable;
+            }
         }
 
         ClipMode mode = ModeResolver.Resolve(bufferedStdin.Length > 0, options);
