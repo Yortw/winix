@@ -43,7 +43,13 @@ internal sealed class Program
 
         var result = parser.Parse(args);
         if (result.IsHandled) { return result.ExitCode; }
-        if (result.HasErrors) { return result.WriteErrors(Console.Error); }
+        if (result.HasErrors)
+        {
+            // ShellKit returns its own usage-error code (suite-wide 125), but less documents
+            // the POSIX-traditional 2 for usage errors. Emit the messages, override exit code.
+            result.WriteErrors(Console.Error);
+            return 2;
+        }
 
         // Collect less-specific CLI flags for LessOptions
         var lessFlags = new List<string>();
