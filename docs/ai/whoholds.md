@@ -12,7 +12,7 @@ Cross-platform, but the Windows story is the primary value. On **Windows**, no b
 
 - A deployment fails because a DLL or config file is locked: `whoholds myapp.dll`
 - A server won't start because a port is already bound: `whoholds :8080`
-- An automated script needs to kill all holders before replacing a file: `whoholds myfile --pid-only | wargs kill -f {}`
+- An automated script needs to kill all holders before replacing a file: `whoholds myfile --pid-only | wargs taskkill /PID {} /F`
 - A pipeline needs structured output for further processing: `whoholds :443 --json`
 
 ## Common Patterns
@@ -44,7 +44,7 @@ whoholds myapp.dll --pid-only
 
 **Kill all lock holders:**
 ```bash
-whoholds myapp.dll --pid-only | wargs kill -f {}
+whoholds myapp.dll --pid-only | wargs taskkill /PID {} /F
 ```
 
 **Machine-readable JSON:**

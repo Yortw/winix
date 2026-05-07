@@ -57,7 +57,7 @@ whoholds 8080
 whoholds myapp.dll --pid-only
 
 # Kill everything holding the file (pipe PIDs to wargs)
-whoholds myapp.dll --pid-only | wargs kill -f {}
+whoholds myapp.dll --pid-only | wargs taskkill /PID {} /F
 
 # Machine-readable output for scripting
 whoholds :8080 --json
