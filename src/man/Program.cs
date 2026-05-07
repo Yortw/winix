@@ -272,9 +272,15 @@ internal sealed class Program
     }
 
     /// <summary>
-    /// Escapes a string value for embedding in a JSON document.
-    /// Handles the characters required by the JSON specification.
+    /// Escapes a string value for embedding in a JSON document per RFC 8259 §7.
     /// </summary>
+    /// <remarks>
+    /// Handles the standard short escapes (<c>\"</c>, <c>\\</c>, <c>\b</c>, <c>\f</c>,
+    /// <c>\n</c>, <c>\r</c>, <c>\t</c>) and emits <c>\uXXXX</c> for any other character below
+    /// 0x20. RFC 8259 §7 forbids unescaped control characters in JSON string content; without
+    /// this, a NAME-section description containing a stray control byte (e.g. 0x07 BEL) would
+    /// produce invalid JSON output (Tier-2 baseline 2026-05-07 finding F4).
+    /// </remarks>
     private static string Escape(string value)
     {
         if (value is null)
@@ -294,6 +300,14 @@ internal sealed class Program
             {
                 sb.Append("\\\\");
             }
+            else if (ch == '\b')
+            {
+                sb.Append("\\b");
+            }
+            else if (ch == '\f')
+            {
+                sb.Append("\\f");
+            }
             else if (ch == '\n')
             {
                 sb.Append("\\n");
@@ -305,6 +319,12 @@ internal sealed class Program
             else if (ch == '\t')
             {
                 sb.Append("\\t");
+            }
+            else if (ch < 0x20)
+            {
+                // Any other C0 control byte must be \uXXXX-escaped per RFC 8259 §7.
+                sb.Append("\\u");
+                sb.Append(((int)ch).ToString("X4", System.Globalization.CultureInfo.InvariantCulture));
             }
             else
             {
