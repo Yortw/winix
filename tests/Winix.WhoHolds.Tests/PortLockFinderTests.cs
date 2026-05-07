@@ -108,14 +108,14 @@ public sealed class PortLockFinderTests
 
     /// <summary>
     /// On non-Windows platforms PortLockFinder has no backend; success-empty (not QueryFailed).
+    /// Uses <see cref="SkippableFact"/> rather than plain <see cref="Fact"/> so the test is
+    /// reported Skipped on Windows hosts instead of pass-by-default. See sibling test in
+    /// <see cref="FileLockFinderTests.Find_OnNonWindows_ReturnsSuccessEmpty"/>.
     /// </summary>
-    [Fact]
+    [SkippableFact]
     public void Find_OnNonWindows_ReturnsSuccessEmpty()
     {
-        if (OperatingSystem.IsWindows())
-        {
-            return; // The branch only applies off-Windows.
-        }
+        Skip.If(OperatingSystem.IsWindows(), "Off-Windows-only branch — Windows uses IP Helper backend");
 
         FindResult result = PortLockFinder.Find(8080);
         Assert.False(result.QueryFailed);

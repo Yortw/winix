@@ -85,15 +85,15 @@ public sealed class FileLockFinderTests
     /// <summary>
     /// On non-Windows platforms FileLockFinder has no backend; the contract is success-empty
     /// (not QueryFailed). The "no backend installed" case is a static, user-known condition
-    /// distinct from a runtime backend error.
+    /// distinct from a runtime backend error. Uses <see cref="SkippableFact"/> rather than
+    /// plain <see cref="Fact"/> so the test is reported Skipped on Windows hosts (the primary
+    /// CI target) instead of pass-by-default — the early-return + [Fact] pattern would have
+    /// reported Passed without running any assertions.
     /// </summary>
-    [Fact]
+    [SkippableFact]
     public void Find_OnNonWindows_ReturnsSuccessEmpty()
     {
-        if (OperatingSystem.IsWindows())
-        {
-            return; // The branch only applies off-Windows.
-        }
+        Skip.If(OperatingSystem.IsWindows(), "Off-Windows-only branch — Windows uses Restart Manager backend");
 
         FindResult result = FileLockFinder.Find("/tmp/nonexistent");
         Assert.False(result.QueryFailed);
