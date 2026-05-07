@@ -12,7 +12,7 @@ less - terminal pager with ANSI colour passthrough, search, and follow mode
 
 # DESCRIPTION
 
-Displays file content (or stdin) one screen at a time. When no file is given, reads from stdin. Multiple files are paged in sequence.
+Displays file content (or stdin) one screen at a time. When no file is given, reads from stdin. At most one file argument is currently accepted; for concatenated paging of multiple files, use **cat file1 file2 \| less**. Multi-file paging with **:n** / **:p** navigation is tracked for a future release.
 
 ANSI escape codes are passed through unchanged by default, so coloured output from tools like **man**, **files**, and **treex** renders correctly.
 

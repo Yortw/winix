@@ -61,7 +61,13 @@ internal sealed class Program
         if (result.Has("-i")) { lessFlags.Add("-i"); }
         if (result.Has("-I")) { lessFlags.Add("-I"); }
 
-        // Positionals may contain +F, +G, +/pattern, or file path
+        // Positionals may contain +F, +G, +/pattern, or file path.
+        //
+        // Tier-2 baseline 2026-05-07 finding F5: pre-fix, every non-+command positional was
+        // assigned to filePath, silently overwriting earlier ones. README claimed
+        // "Multiple files are paged in sequence" but the implementation only ever opened the
+        // last positional. Fail with a clear usage error if more than one file is passed.
+        // True multi-file paging (with :n / :p navigation) is tracked as a v0.5+ feature.
         string? filePath = null;
         foreach (string pos in result.Positionals)
         {
@@ -77,9 +83,14 @@ internal sealed class Program
             {
                 lessFlags.Add(pos);
             }
-            else
+            else if (filePath is null)
             {
                 filePath = pos;
+            }
+            else
+            {
+                Console.Error.WriteLine($"less: too many file arguments (expected at most one, got '{filePath}' and '{pos}'). Multi-file paging is not yet implemented; pipe through 'cat' for concatenated input.");
+                return 2;
             }
         }
 
