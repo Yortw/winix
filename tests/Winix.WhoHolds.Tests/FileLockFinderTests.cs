@@ -40,7 +40,7 @@ public sealed class FileLockFinderTests
             using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
             {
                 int currentPid = Process.GetCurrentProcess().Id;
-                List<LockInfo> results = WaitForLockToBeVisible(filePath, currentPid);
+                IReadOnlyList<LockInfo> results = WaitForLockToBeVisible(filePath, currentPid);
                 Assert.Contains(results, r => r.ProcessId == currentPid);
             }
         }
@@ -51,7 +51,7 @@ public sealed class FileLockFinderTests
     }
 
     [SkippableFact]
-    public void Find_UnlockedFile_ReturnsEmpty()
+    public void Find_UnlockedFile_ReturnsSuccessEmpty()
     {
         Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only integration test");
         if (!OperatingSystem.IsWindows()) { return; } // redundant, satisfies CA1416 analyzer
@@ -59,8 +59,10 @@ public sealed class FileLockFinderTests
         string filePath = Path.GetTempFileName();
         try
         {
-            var results = FileLockFinder.Find(filePath);
-            Assert.Empty(results);
+            FindResult result = FileLockFinder.Find(filePath);
+            Assert.False(result.QueryFailed);
+            Assert.Null(result.Reason);
+            Assert.Empty(result.Results);
         }
         finally
         {
@@ -69,14 +71,33 @@ public sealed class FileLockFinderTests
     }
 
     [SkippableFact]
-    public void Find_NonExistentFile_ReturnsEmpty()
+    public void Find_NonExistentFile_ReturnsSuccessEmpty()
     {
         Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only integration test");
         if (!OperatingSystem.IsWindows()) { return; } // redundant, satisfies CA1416 analyzer
 
         string filePath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".tmp");
-        var results = FileLockFinder.Find(filePath);
-        Assert.Empty(results);
+        FindResult result = FileLockFinder.Find(filePath);
+        Assert.False(result.QueryFailed);
+        Assert.Empty(result.Results);
+    }
+
+    /// <summary>
+    /// On non-Windows platforms FileLockFinder has no backend; the contract is success-empty
+    /// (not QueryFailed). The "no backend installed" case is a static, user-known condition
+    /// distinct from a runtime backend error.
+    /// </summary>
+    [Fact]
+    public void Find_OnNonWindows_ReturnsSuccessEmpty()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return; // The branch only applies off-Windows.
+        }
+
+        FindResult result = FileLockFinder.Find("/tmp/nonexistent");
+        Assert.False(result.QueryFailed);
+        Assert.Empty(result.Results);
     }
 
     // ── Tier-2 baseline 2026-05-06 finding F1 — process name truncation regression ──
@@ -97,7 +118,7 @@ public sealed class FileLockFinderTests
             using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
             {
                 int currentPid = Process.GetCurrentProcess().Id;
-                List<LockInfo> results = WaitForLockToBeVisible(filePath, currentPid);
+                IReadOnlyList<LockInfo> results = WaitForLockToBeVisible(filePath, currentPid);
                 LockInfo? ours = results.FirstOrDefault(r => r.ProcessId == currentPid);
                 Assert.NotNull(ours);
 
@@ -142,7 +163,7 @@ public sealed class FileLockFinderTests
             using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
             {
                 int currentPid = Process.GetCurrentProcess().Id;
-                List<LockInfo> results = WaitForLockToBeVisible(filePath, currentPid);
+                IReadOnlyList<LockInfo> results = WaitForLockToBeVisible(filePath, currentPid);
                 var ours = results.FirstOrDefault(r => r.ProcessId == currentPid);
                 Assert.NotNull(ours);
                 Assert.Equal(filePath, ours!.Resource);
@@ -159,24 +180,29 @@ public sealed class FileLockFinderTests
     /// the result set or <see cref="LockVisibilityTimeoutMs"/> elapses. Returns the most
     /// recent result list either way, so a still-empty result on timeout produces a
     /// natural <c>Assert.NotNull</c>/<c>Assert.Contains</c> failure with the assertion's
-    /// own diagnostic — no need for a custom timeout exception.
+    /// own diagnostic — no need for a custom timeout exception. Asserts that no poll
+    /// surfaces a backend failure: the post-FindResult contract is that QueryFailed must
+    /// fail the test rather than be hidden inside an empty-results retry.
     /// </summary>
-    private static List<LockInfo> WaitForLockToBeVisible(string filePath, int currentPid)
+    private static IReadOnlyList<LockInfo> WaitForLockToBeVisible(string filePath, int currentPid)
     {
         var deadline = DateTimeOffset.UtcNow.AddMilliseconds(LockVisibilityTimeoutMs);
-        List<LockInfo> results;
+        FindResult result;
         do
         {
-            results = FileLockFinder.Find(filePath);
-            if (results.Any(r => r.ProcessId == currentPid))
+            result = FileLockFinder.Find(filePath);
+            Assert.False(result.QueryFailed, $"FileLockFinder.Find returned QueryFailed: {result.Reason}");
+            if (result.Results.Any(r => r.ProcessId == currentPid))
             {
-                return results;
+                return result.Results;
             }
             Thread.Sleep(LockVisibilityPollIntervalMs);
         } while (DateTimeOffset.UtcNow < deadline);
 
         // Final attempt for diagnostic — caller's assertion fires on this if nothing was
         // found, which produces a clearer failure than swallowing the empty list silently.
-        return FileLockFinder.Find(filePath);
+        FindResult finalAttempt = FileLockFinder.Find(filePath);
+        Assert.False(finalAttempt.QueryFailed, $"FileLockFinder.Find returned QueryFailed: {finalAttempt.Reason}");
+        return finalAttempt.Results;
     }
 }

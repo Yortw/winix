@@ -85,7 +85,7 @@ internal sealed class Program
         }
 
         // --- Find lock holders ---
-        List<LockInfo> locks;
+        FindResult findResult;
         string resource;
 
         if (parsed.IsFile)
@@ -104,13 +104,27 @@ internal sealed class Program
                 return 1;
             }
 
-            locks = FindFileHolders(resource);
+            findResult = FindFileHolders(resource);
         }
         else
         {
             resource = $":{parsed.Port}";
-            locks = FindPortHolders(parsed.Port);
+            findResult = FindPortHolders(parsed.Port);
         }
+
+        // SFH I1+I2+I3 (round-1 review 2026-05-08): a backend API failure surfaces here as
+        // QueryFailed=true with a human-readable Reason. Pre-FindResult, finder methods
+        // returned an empty list for both "no holders" and "API errored" — the documented
+        // exit-1 path was unreachable from any code path. Now backend failures route to
+        // exit 1 per the README contract.
+        if (findResult.QueryFailed)
+        {
+            string reason = findResult.Reason ?? "backend query failed";
+            Console.Error.WriteLine($"whoholds: query failed for '{resource}': {reason}");
+            return 1;
+        }
+
+        IReadOnlyList<LockInfo> locks = findResult.Results;
 
         // --- Output ---
         if (jsonOutput)
@@ -141,9 +155,10 @@ internal sealed class Program
     /// <summary>
     /// Finds processes holding a lock on <paramref name="filePath"/>.
     /// On Windows uses the Restart Manager API; on other platforms delegates to lsof if available.
-    /// Returns an empty list when no tool is available for the current platform.
+    /// Returns <see cref="FindResult.Empty"/> when no backend is available for the current platform
+    /// (this is a static, user-known condition — distinct from a runtime backend failure).
     /// </summary>
-    private static List<LockInfo> FindFileHolders(string filePath)
+    private static FindResult FindFileHolders(string filePath)
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
@@ -155,15 +170,15 @@ internal sealed class Program
             return LsofFinder.FindFile(filePath);
         }
 
-        return new List<LockInfo>();
+        return FindResult.Empty;
     }
 
     /// <summary>
     /// Finds processes bound to <paramref name="port"/>.
     /// On Windows uses the IP Helper API; on other platforms delegates to lsof if available.
-    /// Returns an empty list when no tool is available for the current platform.
+    /// Returns <see cref="FindResult.Empty"/> when no backend is available for the current platform.
     /// </summary>
-    private static List<LockInfo> FindPortHolders(int port)
+    private static FindResult FindPortHolders(int port)
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
@@ -175,7 +190,7 @@ internal sealed class Program
             return LsofFinder.FindPort(port);
         }
 
-        return new List<LockInfo>();
+        return FindResult.Empty;
     }
 
     /// <summary>

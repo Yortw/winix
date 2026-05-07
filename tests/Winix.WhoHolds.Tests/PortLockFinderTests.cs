@@ -25,9 +25,10 @@ public sealed class PortLockFinderTests
             int port = ((IPEndPoint)listener.LocalEndpoint).Port;
             int currentPid = Process.GetCurrentProcess().Id;
 
-            var results = PortLockFinder.Find(port);
+            FindResult result = PortLockFinder.Find(port);
 
-            Assert.Contains(results, r => r.ProcessId == currentPid);
+            Assert.False(result.QueryFailed, $"Find should not have failed: {result.Reason}");
+            Assert.Contains(result.Results, r => r.ProcessId == currentPid);
         }
         finally
         {
@@ -48,12 +49,13 @@ public sealed class PortLockFinderTests
             int port = ((IPEndPoint)listener.LocalEndpoint).Port;
             int currentPid = Process.GetCurrentProcess().Id;
 
-            var results = PortLockFinder.Find(port);
+            FindResult result = PortLockFinder.Find(port);
 
-            var ours = results.FirstOrDefault(r => r.ProcessId == currentPid);
+            Assert.False(result.QueryFailed);
+            var ours = result.Results.FirstOrDefault(r => r.ProcessId == currentPid);
             Assert.NotNull(ours);
             Assert.Contains("TCP", ours!.Resource, StringComparison.OrdinalIgnoreCase);
-            Assert.Contains($":{port}", ours.Resource);
+            Assert.Contains($":{port}", ours.Resource, StringComparison.Ordinal);
         }
         finally
         {
@@ -73,9 +75,10 @@ public sealed class PortLockFinderTests
             int port = ((IPEndPoint)udpClient.Client.LocalEndPoint!).Port;
             int currentPid = Process.GetCurrentProcess().Id;
 
-            var results = PortLockFinder.Find(port);
+            FindResult result = PortLockFinder.Find(port);
 
-            Assert.Contains(results, r => r.ProcessId == currentPid);
+            Assert.False(result.QueryFailed, $"Find should not have failed: {result.Reason}");
+            Assert.Contains(result.Results, r => r.ProcessId == currentPid);
         }
         finally
         {
@@ -84,7 +87,7 @@ public sealed class PortLockFinderTests
     }
 
     [SkippableFact]
-    public void Find_UnusedPort_ReturnsEmpty()
+    public void Find_UnusedPort_ReturnsSuccessEmpty()
     {
         Skip.IfNot(OperatingSystem.IsWindows(), "Windows-only integration test");
         if (!OperatingSystem.IsWindows()) { return; } // redundant, satisfies CA1416 analyzer
@@ -97,8 +100,25 @@ public sealed class PortLockFinderTests
 
         int currentPid = Process.GetCurrentProcess().Id;
 
-        var results = PortLockFinder.Find(port);
+        FindResult result = PortLockFinder.Find(port);
 
-        Assert.DoesNotContain(results, r => r.ProcessId == currentPid);
+        Assert.False(result.QueryFailed);
+        Assert.DoesNotContain(result.Results, r => r.ProcessId == currentPid);
+    }
+
+    /// <summary>
+    /// On non-Windows platforms PortLockFinder has no backend; success-empty (not QueryFailed).
+    /// </summary>
+    [Fact]
+    public void Find_OnNonWindows_ReturnsSuccessEmpty()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return; // The branch only applies off-Windows.
+        }
+
+        FindResult result = PortLockFinder.Find(8080);
+        Assert.False(result.QueryFailed);
+        Assert.Empty(result.Results);
     }
 }

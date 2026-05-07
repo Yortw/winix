@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.Runtime.InteropServices;
 
 namespace Winix.WhoHolds;
@@ -11,7 +12,7 @@ namespace Winix.WhoHolds;
 /// Finds processes that hold a lock on a given file path using the Windows Restart Manager API.
 /// Does not require elevated privileges — Restart Manager was designed for this use case.
 /// Only sees processes belonging to the current user session.
-/// Returns an empty list on non-Windows platforms or when the API is unavailable.
+/// Returns an empty success result on non-Windows platforms.
 /// </summary>
 public static class FileLockFinder
 {
@@ -27,37 +28,42 @@ public static class FileLockFinder
     private const int FindRetryDelayMs = 50;
 
     /// <summary>
-    /// Returns a list of processes currently holding a lock on <paramref name="filePath"/>.
-    /// Returns an empty list if the file is not locked, does not exist, or if this method
-    /// is called on a non-Windows platform.
-    /// Never throws — API failures are silently swallowed and an empty list is returned.
+    /// Returns the lock-query outcome for <paramref name="filePath"/>.
+    /// On non-Windows platforms returns <see cref="FindResult.Empty"/> (success-empty) —
+    /// this method has no backend off-Windows. On Windows, returns a successful result
+    /// with the processes (possibly empty) when the Restart Manager API path completed,
+    /// or <see cref="FindResult.Failed"/> when an RM call returned a non-zero hr or an
+    /// unexpected exception was thrown.
     /// </summary>
     /// <param name="filePath">Absolute path to the file to query.</param>
-    public static List<LockInfo> Find(string filePath)
+    public static FindResult Find(string filePath)
     {
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            return new List<LockInfo>();
+            return FindResult.Empty;
         }
 
         // Bounded retry around the RM probe: under high concurrent load (or for a file
         // opened immediately before this call), RmGetList can return success-with-zero
         // entries even when a handle does exist in the kernel table. Each attempt opens
         // a fresh RM session — there is no API for "wait for consistency."
+        // Retry only on empty success; backend failures surface immediately because they
+        // are not transient consistency artefacts.
+        FindResult last = FindResult.Empty;
         for (int attempt = 0; attempt < MaxFindAttempts; attempt++)
         {
-            var results = TryFind(filePath);
-            if (results.Count > 0 || attempt == MaxFindAttempts - 1)
+            last = TryFind(filePath);
+            if (last.QueryFailed || last.Results.Count > 0 || attempt == MaxFindAttempts - 1)
             {
-                return results;
+                return last;
             }
             System.Threading.Thread.Sleep(FindRetryDelayMs);
         }
 
-        return new List<LockInfo>();
+        return last;
     }
 
-    private static List<LockInfo> TryFind(string filePath)
+    private static FindResult TryFind(string filePath)
     {
         var results = new List<LockInfo>();
         uint sessionHandle = 0;
@@ -67,13 +73,13 @@ public static class FileLockFinder
             int hr = RmStartSession(out sessionHandle, 0, Guid.NewGuid().ToString());
             if (hr != 0)
             {
-                return results;
+                return FindResult.Failed(FormatHrFailure("RmStartSession", hr));
             }
 
             hr = RmRegisterResources(sessionHandle, 1, new[] { filePath }, 0, null, 0, null);
             if (hr != 0)
             {
-                return results;
+                return FindResult.Failed(FormatHrFailure("RmRegisterResources", hr));
             }
 
             uint needed = 0;
@@ -83,9 +89,21 @@ public static class FileLockFinder
             // First call: retrieve the required array size. ERROR_MORE_DATA (234) is the
             // expected return when the output array is null — it signals how many entries are needed.
             hr = RmGetList(sessionHandle, out needed, ref count, null, ref rebootReasons);
-            if (hr != ErrorMoreData || needed == 0)
+            if (hr == 0 && needed == 0)
             {
-                return results;
+                // RM reports zero handles cleanly — success-empty.
+                return FindResult.Success(results);
+            }
+            if (hr != ErrorMoreData)
+            {
+                return FindResult.Failed(FormatHrFailure("RmGetList (probe)", hr));
+            }
+            if (needed == 0)
+            {
+                // ERROR_MORE_DATA with needed==0 is a contradiction in the documented
+                // contract; defensive — surface as success-empty rather than spinning a
+                // zero-length call.
+                return FindResult.Success(results);
             }
 
             var processInfo = new RM_PROCESS_INFO[needed];
@@ -93,7 +111,7 @@ public static class FileLockFinder
             hr = RmGetList(sessionHandle, out needed, ref count, processInfo, ref rebootReasons);
             if (hr != 0)
             {
-                return results;
+                return FindResult.Failed(FormatHrFailure("RmGetList (fetch)", hr));
             }
 
             for (uint i = 0; i < count; i++)
@@ -105,7 +123,8 @@ public static class FileLockFinder
                 try
                 {
                     // MainModule requires same-user or elevated access; failures are expected
-                    // for system processes and are intentionally swallowed.
+                    // for system processes and are intentionally swallowed here — the lookup
+                    // is a best-effort enrichment, not part of the find contract.
                     processPath = Process.GetProcessById(pid).MainModule?.FileName ?? string.Empty;
                 }
                 catch
@@ -119,10 +138,14 @@ public static class FileLockFinder
                     filePath,
                     processPath));
             }
+
+            return FindResult.Success(results);
         }
-        catch
+        catch (Exception ex)
         {
-            // Swallow all exceptions — callers should never crash because of a lock query.
+            // Any unexpected exception from the marshaller / RM DLLs surfaces as a failed
+            // query — not an "empty list" lie. Swallowing was the SFH I1 silent-failure bug.
+            return FindResult.Failed($"Restart Manager query crashed: {ex.GetType().Name}: {ex.Message}");
         }
         finally
         {
@@ -131,8 +154,16 @@ public static class FileLockFinder
                 RmEndSession(sessionHandle);
             }
         }
+    }
 
-        return results;
+    private static string FormatHrFailure(string apiName, int hr)
+    {
+        return string.Format(
+            CultureInfo.InvariantCulture,
+            "Restart Manager API {0} failed: hr=0x{1:X8} ({2}).",
+            apiName,
+            hr,
+            hr);
     }
 
     // The C definition uses FILETIME — two DWORD fields, total 8 bytes, 4-byte aligned.
