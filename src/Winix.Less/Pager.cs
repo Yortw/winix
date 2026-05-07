@@ -56,33 +56,19 @@ public sealed class Pager
         if (termWidth <= 0) { termWidth = 80; }
 
         int viewHeight = termHeight - 1;
+        int displayRows = LineWrapper.CalculateDisplayRows(lines, termWidth);
 
-        // Quit-if-one-screen: if all content fits, just print it and exit.
-        if (_options.QuitIfOneScreen)
+        // Tier-2 baseline 2026-05-07 finding F1: pre-fix, any path that entered the interactive
+        // pager loop with redirected stdout crashed with "The handle is invalid" because Screen
+        // calls Console.SetCursorPosition / SetBufferSize on a non-tty handle. Real GNU less
+        // detects this and dumps content direct to stdout (`less file > out.txt` writes the
+        // file's content to out.txt without paging — that's what users expect from cmdline pipes).
+        // Match that.
+        bool dumpAllAndExit = SelectDumpStrategy(_options, Console.IsOutputRedirected, displayRows, viewHeight);
+        if (dumpAllAndExit)
         {
-            int displayRows = LineWrapper.CalculateDisplayRows(lines, termWidth);
-            if (displayRows <= viewHeight)
-            {
-                // Write lines without a trailing newline on the last line —
-                // Console.WriteLine on the final line would scroll the screen
-                // when content exactly fills the terminal height.
-                // F2: when StripAnsi is set (NO_COLOR / --no-color), remove SGR sequences
-                // from each line before output.
-                for (int i = 0; i < lines.Count; i++)
-                {
-                    string line = _options.StripAnsi ? AnsiText.StripAnsi(lines[i]) : lines[i];
-                    if (i < lines.Count - 1)
-                    {
-                        Console.WriteLine(line);
-                    }
-                    else
-                    {
-                        Console.Write(line);
-                    }
-                }
-
-                return 0;
-            }
+            DumpAllLines(lines);
+            return 0;
         }
 
         var searchEngine = new SearchEngine
@@ -115,6 +101,12 @@ public sealed class Pager
             isFollowing = true;
         }
 
+        // F1 belt-and-braces: even with the up-front IsOutputRedirected check, a console handle
+        // can become invalid mid-loop (e.g. user closed the terminal, or some pty edge case).
+        // Catch IOException, fall back to dumping remaining content to stdout so the user at
+        // least gets the data they were trying to view.
+        try
+        {
         using (var screen = new Screen(_options))
         {
             while (true)
@@ -192,6 +184,80 @@ public sealed class Pager
                 {
                     return result;
                 }
+            }
+        }
+        }
+        catch (IOException)
+        {
+            // Console handle became invalid mid-loop. Dump remaining content from the current
+            // viewport top to stdout (user at least gets their data) and exit cleanly.
+            DumpAllLines(lines);
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// Decides whether to dump all content directly to stdout and exit instead of running the
+    /// interactive pager. Pure function for unit testing — Pager.Run wires the inputs from
+    /// <see cref="Console.IsOutputRedirected"/> and <see cref="LineWrapper.CalculateDisplayRows"/>.
+    /// </summary>
+    /// <param name="options">The resolved options (controls <c>QuitIfOneScreen</c>).</param>
+    /// <param name="isOutputRedirected">
+    /// <see langword="true"/> when stdout is not a terminal (piped, redirected to file, etc.).
+    /// </param>
+    /// <param name="displayRows">Total visual rows the content occupies after wrapping.</param>
+    /// <param name="viewHeight">Height of the interactive pager viewport (terminal height − 1).</param>
+    /// <returns>
+    /// <see langword="true"/> if the caller should dump all content via <see cref="DumpAllLines"/>
+    /// and exit; <see langword="false"/> if the interactive pager should run.
+    /// </returns>
+    /// <remarks>
+    /// Two reasons to dump-and-exit:
+    /// <list type="number">
+    ///   <item>Quit-if-one-screen (-F): all content fits in the viewport already.</item>
+    ///   <item>F1: stdout is redirected, so interactive paging is meaningless and would crash
+    ///         when Screen calls Console.SetCursorPosition on the non-tty handle. Dumping
+    ///         direct matches GNU less's behaviour for the same case.</item>
+    /// </list>
+    /// </remarks>
+    internal static bool SelectDumpStrategy(LessOptions options, bool isOutputRedirected, int displayRows, int viewHeight)
+    {
+        if (options.QuitIfOneScreen && displayRows <= viewHeight)
+        {
+            return true;
+        }
+
+        if (isOutputRedirected)
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Writes every line in <paramref name="lines"/> to stdout. Used by the F1 dump-and-exit
+    /// path and the IOException belt-and-braces fallback.
+    /// </summary>
+    /// <param name="lines">The content to dump. Must not be <see langword="null"/>.</param>
+    /// <remarks>
+    /// When <see cref="LessOptions.StripAnsi"/> is set on this Pager's options, ANSI SGR
+    /// sequences are removed per-line via <see cref="AnsiText.StripAnsi(string)"/> before output.
+    /// The final line is written without a trailing newline so that content exactly filling the
+    /// terminal height does not scroll.
+    /// </remarks>
+    private void DumpAllLines(IReadOnlyList<string> lines)
+    {
+        for (int i = 0; i < lines.Count; i++)
+        {
+            string line = _options.StripAnsi ? AnsiText.StripAnsi(lines[i]) : lines[i];
+            if (i < lines.Count - 1)
+            {
+                Console.WriteLine(line);
+            }
+            else
+            {
+                Console.Write(line);
             }
         }
     }
