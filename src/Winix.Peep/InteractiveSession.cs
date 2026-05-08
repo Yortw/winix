@@ -202,10 +202,26 @@ public sealed class InteractiveSession
                 }, ct);
             }
 
+            // Console.KeyAvailable throws InvalidOperationException with the SR-key
+            // 'InvalidOperation_ConsoleKeyAvailableOnFile' when stdin is redirected
+            // (pipe, /dev/null, file). Watch-mode invocations from CI / pipelines /
+            // scripts that don't allocate a tty would otherwise crash on the second
+            // loop iteration with an unhandled exception + raw resource key. Probe
+            // once at loop entry so the per-tick check is a cheap field read.
+            //
+            // Tier-1 smoke verification 2026-05-09 (Critical, with reproducer at
+            // tmp/peepprobe/): peep was built assuming an interactive terminal but
+            // the watch-mode contract doesn't require one — refresh-on-interval is
+            // useful even when stdin has nothing for it. Skip the keyboard branch
+            // when stdin is redirected; the loop continues to refresh on interval
+            // and to react to file-change signals; SIGINT (Ctrl-C) still terminates
+            // via cts because that's signal-driven, not key-driven.
+            bool keyboardAvailable = !Console.IsInputRedirected;
+
             while (!ct.IsCancellationRequested)
             {
-                // Check for key presses (non-blocking)
-                while (Console.KeyAvailable)
+                // Check for key presses (non-blocking) — only when stdin is a tty.
+                while (keyboardAvailable && Console.KeyAvailable)
                 {
                     var key = Console.ReadKey(intercept: true);
 

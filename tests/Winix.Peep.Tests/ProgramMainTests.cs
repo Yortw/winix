@@ -381,4 +381,88 @@ public class ProgramMainTests
         Assert.DoesNotContain("\u001b", lastOutputStr, StringComparison.Ordinal);
         Assert.DoesNotContain("[31m", lastOutputStr, StringComparison.Ordinal);
     }
+
+    // ── Tier-1 smoke verification 2026-05-09 (Critical, with reproducer) ──
+    //
+    // Pre-fix peep's watch-mode loop called Console.KeyAvailable on every tick
+    // without checking if stdin was a tty. When stdin was redirected (pipe,
+    // /dev/null, file, or any non-interactive context like CI), KeyAvailable
+    // throws InvalidOperationException with the SR-key message
+    // 'InvalidOperation_ConsoleKeyAvailableOnFile' — both an unhandled
+    // exception (crashing the watch loop with a stack trace) AND a raw
+    // resource key leaked to the user under InvariantGlobalization (per
+    // feedback_invariant_globalization_resource_keys.md).
+    //
+    // Reproducer:  peep -- bash -c "echo tick" < /dev/null
+    // Pre-fix:     first tick rendered, then "Unhandled exception. ...
+    //              InvalidOperation_ConsoleKeyAvailableOnFile" + stack trace.
+    // Post-fix:    InteractiveSession.cs detects Console.IsInputRedirected at
+    //              loop entry and skips the keyboard branch on every tick. The
+    //              watch loop continues running on interval-only — no SR-key
+    //              in stderr, no stack trace.
+
+    [Fact]
+    public void WatchMode_StdinRedirected_DoesNotCrashWithSRKey()
+    {
+        string peepDll = LocatePeepDll();
+        if (!File.Exists(peepDll))
+        {
+            throw new System.InvalidOperationException(
+                $"peep.dll not built at '{peepDll}'");
+        }
+
+        ProcessStartInfo psi = new()
+        {
+            FileName = "dotnet",
+            UseShellExecute = false,
+            RedirectStandardInput = true,   // critical: simulates pipe / /dev/null
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        psi.ArgumentList.Add(peepDll);
+        psi.ArgumentList.Add("--");
+        if (OperatingSystem.IsWindows())
+        {
+            psi.ArgumentList.Add("cmd");
+            psi.ArgumentList.Add("/c");
+            psi.ArgumentList.Add("echo");
+            psi.ArgumentList.Add("tick");
+        }
+        else
+        {
+            psi.ArgumentList.Add("sh");
+            psi.ArgumentList.Add("-c");
+            psi.ArgumentList.Add("echo tick");
+        }
+
+        using Process p = Process.Start(psi)
+            ?? throw new System.InvalidOperationException("failed to start dotnet");
+
+        // Close stdin immediately to force the redirected-but-empty case.
+        p.StandardInput.Close();
+
+        // Run for ~3 seconds — long enough for at least one full tick + key
+        // poll cycle. Pre-fix the crash fired in the first post-render
+        // iteration (well within 3s).
+        bool exitedNaturally = p.WaitForExit(3_000);
+
+        if (!exitedNaturally)
+        {
+            // Watch mode runs forever on interval-only — kill it and check the
+            // captured stderr.
+            p.Kill(entireProcessTree: true);
+            p.WaitForExit(5_000);
+        }
+
+        string stderr = p.StandardError.ReadToEnd();
+
+        // No SR-key leak — the pre-fix crash emitted the literal resource-key
+        // string under InvariantGlobalization.
+        Assert.DoesNotContain("InvalidOperation_ConsoleKeyAvailableOnFile", stderr,
+            StringComparison.Ordinal);
+        // No unhandled exception stack trace either.
+        Assert.DoesNotContain("Unhandled exception", stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain("System.InvalidOperationException", stderr,
+            StringComparison.Ordinal);
+    }
 }
