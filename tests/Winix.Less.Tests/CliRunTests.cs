@@ -314,6 +314,40 @@ public sealed class CliRunTests : IDisposable
         Assert.NotNull(_capturedOptions);
     }
 
+    // ── Stdin-redirected → implicit pager dispatch (round-2 I-R2-1) ──────────────
+
+    [Fact]
+    public void Run_StdinRedirected_NoArgs_DispatchesToPager()
+    {
+        // Round-2 fresh-eyes 2026-05-09 test-analyzer I-R2-1: existing tests all pass
+        // isStdinRedirected:false. The "stdin piped, no file argument" path
+        // (`dmesg | less`) was unverified at the seam. A regression that flipped the
+        // dispatch condition (e.g. accidentally wired F4's useStdinFromDash flag into
+        // the wrong branch) would only surface in manual smoke. Pin the contract.
+        var (stdout, stderr) = Sinks();
+
+        var savedIn = Console.In;
+        Console.SetIn(new StringReader("piped line 1\npiped line 2\n"));
+        try
+        {
+            int exit = Cli.Run(
+                Array.Empty<string>(),
+                stdout, stderr,
+                isStdoutRedirected: true,
+                isStdinRedirected: true,
+                pagerRunner: CapturingPagerRunner());
+
+            Assert.Equal(0, exit);
+            Assert.NotNull(_capturedOptions);
+            // No usage error — stdin path was dispatched, not refused.
+            Assert.DoesNotContain("missing filename", stderr.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Console.SetIn(savedIn);
+        }
+    }
+
     // ── Pager returns the user's exit code unchanged ──────────────────────────────
 
     [Fact]

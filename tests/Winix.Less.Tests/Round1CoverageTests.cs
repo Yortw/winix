@@ -288,6 +288,34 @@ public sealed class Round1CoverageTests : IDisposable
     }
 
     [Fact]
+    public void PollForNewContent_AppendPartialLineNoTrailingNewline_AddsAsFinalLine()
+    {
+        // Round-2 fresh-eyes 2026-05-09 test-analyzer I-R2-3: the no-trailing-newline
+        // partial-line tail was not pinned. InputSource.cs:167-179 explicitly handles
+        // this branch (final token is "partial line"). A regression that silently
+        // dropped or duplicated the partial-line tail would corrupt tail -f output for
+        // the common case of a writer mid-line.
+        //
+        // Pinning current contract: appending "partial" (no newline) to a file with
+        // existing line "a\n" yields Lines = ["a", "partial"] (count == 2). Whether
+        // a subsequent newline-terminated append should merge into that partial is a
+        // separate Watch follow-up; this test guards the first half of the contract.
+        string path = Path.Combine(_tempDir, "partial.log");
+        File.WriteAllText(path, "a\n");
+
+        var source = InputSource.FromFile(path);
+        Assert.Single(source.Lines);
+
+        File.AppendAllText(path, "partial");  // no trailing newline
+        bool grew = source.PollForNewContent();
+
+        Assert.True(grew);
+        Assert.Equal(2, source.Lines.Count);
+        Assert.Equal("a", source.Lines[0]);
+        Assert.Equal("partial", source.Lines[1]);
+    }
+
+    [Fact]
     public void PollForNewContent_AppendMultipleLines_AllAdded()
     {
         string path = Path.Combine(_tempDir, "multi.log");
