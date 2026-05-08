@@ -18,7 +18,7 @@ Man pages are searched in the following order:
 
 1. **Bundled** pages shipped with Winix tools (always available, cross-platform).
 2. **MANPATH** — directories listed in the **MANPATH** environment variable.
-3. **Auto-detected** system locations (**\/usr\/share\/man**, **\/usr\/local\/share\/man**, etc. on Linux/macOS; no system locations on Windows).
+3. **Auto-detected** system locations (`/usr/share/man`, `/usr/local/share/man`, etc. on Linux/macOS; no system locations on Windows).
 
 Use **man --manpath** to inspect the effective search path.
 
@@ -34,12 +34,7 @@ Use **man --manpath** to inspect the effective search path.
 :   Disable coloured output.
 
 **--width** *N*
-:   Override output width in columns. *N* must be at least 10. When
-    omitted, width is taken from **$MANWIDTH** if set, otherwise from
-    the terminal width capped at 80 columns. The 80-column cap matches
-    the effective behaviour of GNU **man-db** (which delegates rendering
-    to **groff**, whose default width is 80) — set **$MANWIDTH** or pass
-    **--width** explicitly to render wider.
+:   Override output width in columns. *N* must be at least 10. When omitted, width is taken from MANWIDTH if set, otherwise from the terminal width capped at 80 columns. The 80-column cap matches the effective behaviour of GNU man-db (which delegates rendering to groff, whose default width is 80) — set MANWIDTH or pass **--width** explicitly to render wider.
 
 **-w**, **--path**
 :   Print the path to the man page file and exit (do not render).

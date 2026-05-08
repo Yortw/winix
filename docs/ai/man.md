@@ -45,7 +45,7 @@ man --no-pager timeit
 
 **Get JSON metadata about the page lookup:**
 ```bash
-man --json timeit 2>meta.json
+man --json timeit > meta.json
 ```
 
 ## Composing with Other Tools
@@ -73,22 +73,22 @@ files /usr/share/man --ext 1 --ext 3
 
 **--no-pager is required for piping.** When stdout is a terminal, `man` opens a pager (e.g. `less`). When stdout is redirected (pipe or file), paging is skipped automatically. If you are constructing a command to run non-interactively, pass `--no-pager` explicitly to avoid relying on pipe detection.
 
-**MANPATH overrides auto-detection.** When `MANPATH` is set, auto-detected system directories are not searched. This matches the behaviour of traditional `man` implementations. If you need both, include system paths explicitly in `MANPATH`.
+**MANPATH augments — does not replace — auto-detected system directories.** Search order is: bundled pages first, then MANPATH entries, then platform-detected well-known locations (`/usr/share/man`, `/usr/local/share/man`, etc. on Linux/macOS). MANPATH adds extra search roots but doesn't suppress system roots. To shadow a system page, ensure your MANPATH entry contains a same-named page in the same section — the first match wins.
 
 **Bundled pages are read-only.** Pages bundled with Winix are embedded in the binary and cannot be updated or removed without reinstalling. They always document the installed version of the tool.
 
-**Width defaults to terminal width.** When stdout is not a terminal (pipe, redirect), width defaults to 80 columns. Pass `--width N` to override in scripts that expect a specific line length.
+**Width defaults to `min(terminal, 80)`.** Width resolution is: `--width N` (explicit) > `MANWIDTH` env > `min(terminal_width, 80)`. The 80-column cap matches GNU man-db's effective behaviour (groff's default is 80). Pass `--width N` or set `MANWIDTH=N` to render wider in scripts that need it.
 
 ## Getting Structured Data
 
 `man` supports two machine-readable output modes:
 
-**JSON summary (to stderr)** — page lookup result and metadata after the render completes:
+**JSON summary (to stdout)** — page metadata in lieu of rendering. `--json` does not render the page; it emits the lookup result and exits.
 ```bash
-man --json timeit 2>meta.json
+man --json timeit > meta.json
 ```
 
-Fields include: `tool`, `version`, `exit_code`, `exit_reason`, `name`, `section`, `path`, `title`.
+Fields emitted: `tool`, `version`, `name`, `section`, `path`, `description`. Output is line-terminated JSON to stdout, exit 0 on hit, exit 1 on not-found, exit 125 on internal error (e.g. corrupt gzip).
 
 **--describe** — machine-readable flag reference and metadata (flags, types, defaults, examples, composability):
 ```bash
