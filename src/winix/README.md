@@ -111,7 +111,7 @@ Subsequent invocations stay silent because the bucket/tap is already present.
 `winix` resolves the suite manifest (the catalogue of tools and their per-package-manager identifiers) from up to three sources, in precedence order:
 
 1. **Per-user cache** (`%LOCALAPPDATA%\winix\winix-manifest.json` on Windows; `$XDG_CACHE_HOME/winix/winix-manifest.json` or `$HOME/.cache/winix/winix-manifest.json` elsewhere) — populated by an explicit refresh; used when newer than the bundle.
-2. **Bundled manifest** (`<install-dir>/share/winix/winix-manifest.json`) — every released binary ships with a current manifest, so `winix list` / `status` / `uninstall` work offline immediately after install.
+2. **Bundled manifest** (`<install-dir>/share/winix/winix-manifest.json`) — every released binary ships with a current manifest, so the catalogue-lookup commands (`winix list`, `winix status`) work offline immediately after install. `winix uninstall` also resolves tool names from this manifest, but it mutates installed state by shelling to the package manager — not a query-safe command.
 3. **Network fallback** — only consulted when neither local source is available (typical of dev `dotnet run` builds where the publish-output layout is absent).
 
 Whichever local source has the later mtime wins, with one safeguard: a cache file stamped more than 5 minutes in the future of the current time is treated as untrustworthy and the bundle wins instead. This protects against a clock-skewed laptop or a restored backup pinning the user to last release's tool list indefinitely.
