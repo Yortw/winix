@@ -59,25 +59,12 @@ internal sealed class Program
         bool jsonOutput = result.Has("--json");
 
         // --- Resolve render width ---
-        // Priority: --width flag → $MANWIDTH env var → terminal width capped at 80
-        int width;
-        if (result.Has("--width"))
-        {
-            width = result.GetInt("--width");
-        }
-        else
-        {
-            string? manWidthEnv = Environment.GetEnvironmentVariable("MANWIDTH");
-            if (!string.IsNullOrWhiteSpace(manWidthEnv) && int.TryParse(manWidthEnv, out int envWidth) && envWidth >= 10)
-            {
-                width = envWidth;
-            }
-            else
-            {
-                // Cap at 80 columns — matches the TerminalRenderer's MaxWidth default.
-                width = Math.Min(ConsoleEnv.GetTerminalWidth(), 80);
-            }
-        }
+        // Pure-function helper so the priority chain is unit-tested directly. See
+        // tests/Winix.Man.Tests/HelpersTests.cs for contract pins.
+        int width = Helpers.ResolveWidth(
+            widthFlag: result.Has("--width") ? result.GetInt("--width") : (int?)null,
+            manWidthEnv: Environment.GetEnvironmentVariable("MANWIDTH"),
+            terminalWidth: ConsoleEnv.GetTerminalWidth());
 
         // --- Build search paths ---
         string exeDir = AppContext.BaseDirectory;
@@ -272,78 +259,16 @@ internal sealed class Program
             ? section.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)
             : "null";
 
+        // F4 RFC 8259 §7 control-char escape lives at Winix.Man.Helpers.EscapeJsonString
+        // (see tests/Winix.Man.Tests/HelpersTests.cs for the byte-precise pins).
         return "{"
             + $"\"tool\":\"man\","
-            + $"\"version\":{Escape(version)},"
-            + $"\"name\":{Escape(name)},"
+            + $"\"version\":{Helpers.EscapeJsonString(version)},"
+            + $"\"name\":{Helpers.EscapeJsonString(name)},"
             + $"\"section\":{sectionValue},"
-            + $"\"path\":{Escape(filePath)},"
-            + $"\"description\":{Escape(description)}"
+            + $"\"path\":{Helpers.EscapeJsonString(filePath)},"
+            + $"\"description\":{Helpers.EscapeJsonString(description)}"
             + "}";
-    }
-
-    /// <summary>
-    /// Escapes a string value for embedding in a JSON document per RFC 8259 §7.
-    /// </summary>
-    /// <remarks>
-    /// Handles the standard short escapes (<c>\"</c>, <c>\\</c>, <c>\b</c>, <c>\f</c>,
-    /// <c>\n</c>, <c>\r</c>, <c>\t</c>) and emits <c>\uXXXX</c> for any other character below
-    /// 0x20. RFC 8259 §7 forbids unescaped control characters in JSON string content; without
-    /// this, a NAME-section description containing a stray control byte (e.g. 0x07 BEL) would
-    /// produce invalid JSON output (Tier-2 baseline 2026-05-07 finding F4).
-    /// </remarks>
-    private static string Escape(string value)
-    {
-        if (value is null)
-        {
-            return "null";
-        }
-
-        var sb = new System.Text.StringBuilder();
-        sb.Append('"');
-        foreach (char ch in value)
-        {
-            if (ch == '"')
-            {
-                sb.Append("\\\"");
-            }
-            else if (ch == '\\')
-            {
-                sb.Append("\\\\");
-            }
-            else if (ch == '\b')
-            {
-                sb.Append("\\b");
-            }
-            else if (ch == '\f')
-            {
-                sb.Append("\\f");
-            }
-            else if (ch == '\n')
-            {
-                sb.Append("\\n");
-            }
-            else if (ch == '\r')
-            {
-                sb.Append("\\r");
-            }
-            else if (ch == '\t')
-            {
-                sb.Append("\\t");
-            }
-            else if (ch < 0x20)
-            {
-                // Any other C0 control byte must be \uXXXX-escaped per RFC 8259 §7.
-                sb.Append("\\u");
-                sb.Append(((int)ch).ToString("X4", System.Globalization.CultureInfo.InvariantCulture));
-            }
-            else
-            {
-                sb.Append(ch);
-            }
-        }
-        sb.Append('"');
-        return sb.ToString();
     }
 
     /// <summary>

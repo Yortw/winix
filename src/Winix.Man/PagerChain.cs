@@ -95,35 +95,59 @@ public sealed class PagerChain
     /// </returns>
     private string? ResolveExternalPager()
     {
+        return ResolveExternalPager(
+            Environment.GetEnvironmentVariable("MANPAGER"),
+            Environment.GetEnvironmentVariable("PAGER"),
+            _exeDirectory,
+            siblingExists: File.Exists,
+            isOnPath: IsOnPath);
+    }
+
+    /// <summary>
+    /// Pure-function variant of <see cref="ResolveExternalPager()"/> with all environment
+    /// inputs supplied as parameters. Lives at internal visibility so tests can pin the
+    /// priority chain without manipulating real environment variables or filesystem state.
+    /// </summary>
+    /// <param name="manPagerEnv">The value of <c>$MANPAGER</c>, or <see langword="null"/>.</param>
+    /// <param name="pagerEnv">The value of <c>$PAGER</c>, or <see langword="null"/>.</param>
+    /// <param name="exeDirectory">Directory holding the running binary.</param>
+    /// <param name="siblingExists">Predicate that reports whether a candidate sibling pager file exists.</param>
+    /// <param name="isOnPath">Predicate that reports whether a command is reachable via <c>PATH</c>.</param>
+    /// <returns>The resolved pager command, or <see langword="null"/> if none is available.</returns>
+    internal static string? ResolveExternalPager(
+        string? manPagerEnv,
+        string? pagerEnv,
+        string exeDirectory,
+        Func<string, bool> siblingExists,
+        Func<string, bool> isOnPath)
+    {
         // 1. $MANPAGER takes highest precedence (man-specific override).
-        string? manPager = Environment.GetEnvironmentVariable("MANPAGER");
-        if (!string.IsNullOrWhiteSpace(manPager))
+        if (!string.IsNullOrWhiteSpace(manPagerEnv))
         {
-            return manPager;
+            return manPagerEnv;
         }
 
         // 2. $PAGER — general pager preference.
-        string? pager = Environment.GetEnvironmentVariable("PAGER");
-        if (!string.IsNullOrWhiteSpace(pager))
+        if (!string.IsNullOrWhiteSpace(pagerEnv))
         {
-            return pager;
+            return pagerEnv;
         }
 
         // 3. Sibling less/less.exe in the same directory as the man binary.
-        string siblingLess = Path.Combine(_exeDirectory, "less");
-        if (File.Exists(siblingLess))
+        string siblingLess = Path.Combine(exeDirectory, "less");
+        if (siblingExists(siblingLess))
         {
             return siblingLess;
         }
 
-        string siblingLessExe = Path.Combine(_exeDirectory, "less.exe");
-        if (File.Exists(siblingLessExe))
+        string siblingLessExe = Path.Combine(exeDirectory, "less.exe");
+        if (siblingExists(siblingLessExe))
         {
             return siblingLessExe;
         }
 
         // 4. System less on PATH.
-        if (IsOnPath("less"))
+        if (isOnPath("less"))
         {
             return "less";
         }
