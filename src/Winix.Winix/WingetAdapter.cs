@@ -114,17 +114,38 @@ public sealed class WingetAdapter : IPackageManagerAdapter
     /// </summary>
     /// <param name="stdout">
     /// The stdout text from <c>winget list --id &lt;packageId&gt; --exact</c>.
-    /// Expected format: a header line, a dashes separator, then rows of
-    /// <c>Name   Id   Version</c> columns separated by whitespace.
+    /// Expected format: a header line, a dashes separator, then rows whose
+    /// columns are <c>Name Id Version [Available [Source]]</c> separated by
+    /// whitespace. The Available and Source columns are present whenever an
+    /// upgrade is pending — i.e. on any installed-but-out-of-date package.
     /// </param>
     /// <param name="packageId">
     /// The package ID to locate in the output. Matched case-insensitively.
     /// </param>
     /// <returns>
-    /// The version string (last whitespace-separated token on the matching row),
-    /// or <see langword="null"/> when no matching row is found or the row has
-    /// fewer than 3 tokens.
+    /// The installed version string (the token immediately after the Id column),
+    /// or <see langword="null"/> when no matching row is found.
     /// </returns>
+    /// <remarks>
+    /// <para>
+    /// Round-1 fresh-eyes 2026-05-09 SFH-C1 closure: pre-fix this method returned
+    /// <c>parts[parts.Length - 1]</c> — the LAST whitespace-separated token on
+    /// the matching row. That was correct only for the 3-column shape (<c>Name
+    /// Id Version</c>); whenever <c>winget list</c> emitted the 5-column shape
+    /// for an installed-but-upgradable package (<c>Name Id Version Available
+    /// Source</c>) the last token was the source name (<c>"winix"</c>) or the
+    /// available version, not the installed version. The bug shipped silently
+    /// through both <c>winix list</c>'s human-readable table AND the
+    /// <c>winix list --json</c> output's <c>version</c> field.
+    /// </para>
+    /// <para>
+    /// The fix anchors on the Id column instead of the row-end: scanning the
+    /// row right-to-left for a token that case-insensitively equals the package
+    /// id, and returning the next token. This is robust against multi-word
+    /// Names (e.g. <c>"Visual Studio"</c>), the optional Available/Source
+    /// columns, and any future column additions winget makes after Source.
+    /// </para>
+    /// </remarks>
     internal static string? ParseVersionFromListOutput(string stdout, string packageId)
     {
         string[] lines = stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries);
@@ -140,11 +161,29 @@ public sealed class WingetAdapter : IPackageManagerAdapter
 
             string[] parts = trimmed.Split(' ', StringSplitOptions.RemoveEmptyEntries);
 
-            if (parts.Length >= 3)
+            // Find the LAST token that case-insensitively equals packageId. This
+            // anchors on the Id column — which is at index 1 by default but
+            // shifts right when Name has embedded spaces. Scanning right-to-left
+            // finds Id even when Name happens to equal Id (the common case for
+            // Winix's own tools where Name and Id are both "Winix.TimeIt"); in
+            // that case we want the second occurrence (the Id column), not the
+            // first (the Name column).
+            int idColIndex = -1;
+            for (int i = parts.Length - 1; i >= 0; i--)
             {
-                // Version is the last whitespace-separated token on the data row.
-                return parts[parts.Length - 1];
+                if (string.Equals(parts[i], packageId, StringComparison.OrdinalIgnoreCase))
+                {
+                    idColIndex = i;
+                    break;
+                }
             }
+
+            if (idColIndex < 0 || idColIndex + 1 >= parts.Length)
+            {
+                return null;
+            }
+
+            return parts[idColIndex + 1];
         }
 
         return null;

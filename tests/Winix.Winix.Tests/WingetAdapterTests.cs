@@ -146,4 +146,69 @@ public class WingetAdapterTests
 
         Assert.Null(version);
     }
+
+    // Round-1 fresh-eyes 2026-05-09 SFH-C1 closure: pre-fix the parser returned
+    // parts[parts.Length - 1] which became the source name or available version
+    // when winget emitted the 5-column "upgrade-pending" shape. The 3-column
+    // happy-path test above passed because the version IS the last token in the
+    // 3-column shape. These two new tests exercise the broken shapes.
+
+    [Fact]
+    public async Task GetInstalledVersion_UpgradePendingWithSource_ReturnsInstalledVersionNotSourceName()
+    {
+        // The exact shape SFH's reproducer hit: 5 columns, last token is "winix"
+        // (the source name). Pre-fix this returned "winix" as the version,
+        // which silently shipped to `winix list` and `winix list --json`.
+        const string upgradePendingOutput =
+            "Name           Id              Version  Available  Source\r\n" +
+            "------------------------------------------------------------\r\n" +
+            "Winix.TimeIt   Winix.TimeIt    0.3.0    0.4.0      winix";
+        var recorder = new ProcessRecorder(new ProcessResult(0, upgradePendingOutput, ""));
+        var adapter = new WingetAdapter(recorder.RunAsync);
+
+        string? version = await adapter.GetInstalledVersion("Winix.TimeIt");
+
+        Assert.Equal("0.3.0", version);
+        // Must not be confused with the source name or the available version.
+        Assert.NotEqual("winix", version);
+        Assert.NotEqual("0.4.0", version);
+    }
+
+    [Fact]
+    public async Task GetInstalledVersion_UpgradePendingWithoutSource_ReturnsInstalledVersionNotAvailableVersion()
+    {
+        // 4 columns: Name Id Version Available (no Source). Pre-fix the parser
+        // returned the available version, silently misrepresenting the user's
+        // current state.
+        const string upgradePendingNoSource =
+            "Name           Id              Version  Available\r\n" +
+            "----------------------------------------------------\r\n" +
+            "Winix.TimeIt   Winix.TimeIt    0.3.0    0.4.0";
+        var recorder = new ProcessRecorder(new ProcessResult(0, upgradePendingNoSource, ""));
+        var adapter = new WingetAdapter(recorder.RunAsync);
+
+        string? version = await adapter.GetInstalledVersion("Winix.TimeIt");
+
+        Assert.Equal("0.3.0", version);
+        Assert.NotEqual("0.4.0", version);
+    }
+
+    [Fact]
+    public async Task GetInstalledVersion_MultiWordName_AnchorsOnIdColumn()
+    {
+        // Defensive: a package whose Name contains spaces (e.g. "Visual Studio")
+        // would have shifted the version to a different column index than the
+        // Winix-tool case where Name == Id. The Id-anchored scan handles this
+        // correctly because Id has no spaces.
+        const string multiWordName =
+            "Name             Id                       Version\r\n" +
+            "------------------------------------------------------\r\n" +
+            "Visual Studio    Microsoft.VisualStudio   17.0.0";
+        var recorder = new ProcessRecorder(new ProcessResult(0, multiWordName, ""));
+        var adapter = new WingetAdapter(recorder.RunAsync);
+
+        string? version = await adapter.GetInstalledVersion("Microsoft.VisualStudio");
+
+        Assert.Equal("17.0.0", version);
+    }
 }
