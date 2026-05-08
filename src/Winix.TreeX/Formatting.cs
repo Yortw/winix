@@ -61,21 +61,33 @@ public static class Formatting
 
     /// <summary>
     /// Returns a JSON summary object for a completed treex invocation.
-    /// Standard envelope fields plus <c>directories</c>, <c>files</c>, and optionally <c>total_size_bytes</c>.
-    /// The <c>total_size_bytes</c> field is omitted when <see cref="TreeStats.TotalSizeBytes"/> is negative
-    /// (indicating sizes were not computed).
+    /// Standard envelope fields plus <c>directories</c>, <c>files</c>, optionally
+    /// <c>total_size_bytes</c>, and a <c>walk_errors</c> array enumerating any
+    /// directories or files that could not be read.
+    /// The <c>total_size_bytes</c> field is omitted when <see cref="TreeStats.TotalSizeBytes"/>
+    /// is negative (indicating sizes were not computed).
     /// </summary>
     /// <param name="stats">Aggregated tree statistics.</param>
     /// <param name="exitCode">Process exit code.</param>
     /// <param name="exitReason">Machine-readable exit reason string.</param>
     /// <param name="toolName">Value for the <c>tool</c> envelope field.</param>
     /// <param name="version">Value for the <c>version</c> envelope field.</param>
+    /// <param name="walkErrors">
+    /// Walk errors aggregated across all roots. Always emitted (empty array on success)
+    /// so machine consumers can use a single shape regardless of outcome. Round-2
+    /// fresh-eyes 2026-05-09 silent-failure-hunter F4: pre-fix, the JSON envelope set
+    /// <c>exit_reason="walk_error_partial"</c> on partial walks but didn't enumerate
+    /// which paths failed -- NDJSON consumers piping <c>treex --json | jq</c> saw the
+    /// machine code with no detail, replicating the SFH defect class for the JSON-
+    /// envelope channel that <c>walk_error_partial</c> was meant to close.
+    /// </param>
     public static string FormatJsonSummary(
         TreeStats stats,
         int exitCode,
         string exitReason,
         string toolName,
-        string version)
+        string version,
+        IReadOnlyList<WalkError>? walkErrors = null)
     {
         var (writer, buffer) = JsonHelper.CreateWriter();
         using (writer)
@@ -92,6 +104,19 @@ public static class Formatting
             {
                 writer.WriteNumber("total_size_bytes", stats.TotalSizeBytes);
             }
+
+            writer.WriteStartArray("walk_errors");
+            if (walkErrors is not null)
+            {
+                foreach (WalkError walkError in walkErrors)
+                {
+                    writer.WriteStartObject();
+                    writer.WriteString("path", walkError.Path);
+                    writer.WriteString("reason", walkError.Reason);
+                    writer.WriteEndObject();
+                }
+            }
+            writer.WriteEndArray();
 
             writer.WriteEndObject();
         }

@@ -114,7 +114,13 @@ Records do NOT carry envelope fields (`tool`, `version`, etc.) — stream-level 
 treex --json | jq .
 ```
 
-Success envelope fields: `tool`, `version`, `exit_code`, `exit_reason`, `directories`, `files`, and (when `--size` is on) `total_size_bytes`.
+Success envelope fields: `tool`, `version`, `exit_code`, `exit_reason`, `directories`, `files`, and (when `--size` is on) `total_size_bytes`, plus a `walk_errors` array (empty on success).
+
+`walk_errors[]` enumerates directories or files that could not be read during the walk (permission denied, vanished, I/O error). Each entry is `{"path": "...", "reason": "..."}`. On a partial walk this triggers `exit_code: 1` with `exit_reason: "walk_error_partial"` and the array is non-empty. On success the array is `[]`. Always present so consumers can use a single shape:
+
+```bash
+treex --json /some/dir | jq '.walk_errors[] | "\(.path): \(.reason)"'
+```
 
 Error envelope (exit 1) carries the same shape plus an `error` field with the human-readable failure detail:
 ```json

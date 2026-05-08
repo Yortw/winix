@@ -133,10 +133,12 @@ directories without \f[B]\(ensize\f[R] rollup), \f[B]modified\f[R]
 .PP
 \f[B]\(enjson\f[R] emits a single envelope after the walk:
 \f[B]tool\f[R], \f[B]version\f[R], \f[B]exit_code\f[R],
-\f[B]exit_reason\f[R], \f[B]directories\f[R], \f[B]files\f[R], and
-(when \f[B]\(ensize\f[R] is on) \f[B]total_size_bytes\f[R].
-Error envelopes additionally carry \f[B]error\f[R] (human\-readable
-detail).
+\f[B]exit_reason\f[R], \f[B]directories\f[R], \f[B]files\f[R],
+\f[B]walk_errors\f[R] (array of \f[B]{path, reason}\f[R] for unreadable
+paths; empty on success), and (when \f[B]\(ensize\f[R] is on)
+\f[B]total_size_bytes\f[R].
+Pre\-walk error envelopes (path_not_found, not_a_directory)
+additionally carry \f[B]error\f[R] (human\-readable detail).
 .PP
 The \f[B]exit_reason\f[R] values are: \f[B]success\f[R],
 \f[B]walk_error_partial\f[R], \f[B]path_not_found\f[R],

@@ -177,10 +177,30 @@ public sealed class WalkErrorTests : IDisposable
         int exit = Cli.Run(new[] { "--json", _tempDir }, stdout, stderr, isStdoutRedirected: true);
 
         Assert.Equal(1, exit);
-        Assert.Contains("\"exit_code\":1", stdout.ToString(), StringComparison.Ordinal);
-        Assert.Contains("\"exit_reason\":\"walk_error_partial\"", stdout.ToString(), StringComparison.Ordinal);
+        string outText = stdout.ToString();
+        Assert.Contains("\"exit_code\":1", outText, StringComparison.Ordinal);
+        Assert.Contains("\"exit_reason\":\"walk_error_partial\"", outText, StringComparison.Ordinal);
+        // Round-2 fresh-eyes 2026-05-09 SFH F4: machine consumers must see WHICH paths
+        // failed, not just the machine code. walk_errors[] enumerates them.
+        Assert.Contains("\"walk_errors\":[", outText, StringComparison.Ordinal);
+        Assert.Contains("\"path\":", outText, StringComparison.Ordinal);
+        Assert.Contains("\"reason\":", outText, StringComparison.Ordinal);
+        Assert.Contains("locked", outText, StringComparison.Ordinal);
         // Plain-text per-error diagnostics still go to stderr — JSON envelope summarises.
         Assert.Contains("permission denied", stderr.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Cli_NoErrors_WithJson_EmitsEmptyWalkErrorsArray()
+    {
+        // Schema stability: walk_errors is always emitted (empty array on success) so
+        // jq consumers can use the same shape regardless of outcome.
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        int exit = Cli.Run(new[] { "--json", _tempDir }, stdout, stderr, isStdoutRedirected: true);
+
+        Assert.Equal(0, exit);
+        Assert.Contains("\"walk_errors\":[]", stdout.ToString(), StringComparison.Ordinal);
     }
 
     private static TreeBuilderOptions MakeOptions()

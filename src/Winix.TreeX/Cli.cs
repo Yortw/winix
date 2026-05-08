@@ -275,7 +275,9 @@ public static class Cli
                 ShowDate: showDate,
                 DirsOnly: dirsOnly);
 
-            int totalWalkErrors = 0;
+            // Round-2 fresh-eyes 2026-05-09 SFH F4: aggregate walk errors across all roots
+            // so the --json envelope can enumerate which paths failed (not just exit_reason).
+            var allWalkErrors = new List<WalkError>();
             try
             {
                 for (int i = 0; i < roots.Length; i++)
@@ -331,8 +333,8 @@ public static class Cli
                     foreach (WalkError walkError in builder.WalkErrors)
                     {
                         stderr.WriteLine($"treex: {walkError.Path}: {walkError.Reason}");
+                        allWalkErrors.Add(walkError);
                     }
-                    totalWalkErrors += builder.WalkErrors.Count;
                 }
             }
             catch (ArgumentException ex) when (ex is System.Text.RegularExpressions.RegexParseException)
@@ -351,7 +353,7 @@ public static class Cli
             // SFH C1 round-1: a partial walk (some directories unreadable) is exit 1.
             // Apply only when we'd otherwise have returned 0; never demote a higher exit
             // code (e.g. 125 usage error) just because a walk error was also collected.
-            if (totalWalkErrors > 0 && exitCode == 0)
+            if (allWalkErrors.Count > 0 && exitCode == 0)
             {
                 exitCode = 1;
                 exitReason = "walk_error_partial";
@@ -365,7 +367,7 @@ public static class Cli
             if (jsonSummary)
             {
                 stdout.WriteLine(
-                    Formatting.FormatJsonSummary(combinedStats, exitCode, exitReason, "treex", version));
+                    Formatting.FormatJsonSummary(combinedStats, exitCode, exitReason, "treex", version, allWalkErrors));
             }
 
             return exitCode;

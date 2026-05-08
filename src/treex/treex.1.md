@@ -120,7 +120,7 @@ Both **--ndjson** and **--json** write to **stdout** per suite convention.
 
 **--ndjson** emits one JSON object per node with fields **path** (relative to root, forward-slash separated), **name**, **type** (**file** | **dir** | **link**), **size_bytes** (integer, or **null** for directories without **--size** rollup), **modified** (ISO 8601), and **depth** (integer; **0** = root).
 
-**--json** emits a single envelope after the walk: **tool**, **version**, **exit_code**, **exit_reason**, **directories**, **files**, and (when **--size** is on) **total_size_bytes**. Error envelopes additionally carry **error** (human-readable detail).
+**--json** emits a single envelope after the walk: **tool**, **version**, **exit_code**, **exit_reason**, **directories**, **files**, **walk_errors** (array of `{path, reason}` for unreadable paths; empty on success), and (when **--size** is on) **total_size_bytes**. Pre-walk error envelopes (path_not_found, not_a_directory) additionally carry **error** (human-readable detail).
 
 The **exit_reason** values are: **success**, **walk_error_partial**, **path_not_found**, **not_a_directory**, **usage_error**, **runtime_error**.
 

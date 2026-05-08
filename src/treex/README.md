@@ -156,7 +156,8 @@ When a walk encounters unreadable directories (e.g. a chmod-denied subdirectory)
 | `directories` | int | Number of directories walked (excluding root) |
 | `files` | int | Number of files walked |
 | `total_size_bytes` | int | Sum of file sizes (only present when `--size` is on) |
-| `error` | string | Human-readable failure reason (only present on error envelopes) |
+| `walk_errors` | array | Paths that could not be read during the walk; each entry has `path` and `reason`. Always present (empty array on success). |
+| `error` | string | Human-readable failure reason (only present on pre-walk error envelopes — path_not_found, not_a_directory) |
 
 ## Colour
 
