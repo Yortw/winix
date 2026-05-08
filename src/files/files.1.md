@@ -14,7 +14,7 @@ files - find files by name, size, date, type, and content
 
 Walks one or more directories (default: **.** ) and prints matching file paths to stdout, one per line. Supports glob and regex name matching, type filtering, size and date ranges, text/binary detection, and structured output.
 
-Results are printed to stdout; the **--json** summary goes to stderr so it does not pollute piped output.
+Results are printed to stdout; the **--json** envelope is also emitted to stdout (suite convention) and is structured so it composes cleanly with **jq**.
 
 # OPTIONS
 

@@ -120,7 +120,15 @@ Records do NOT carry envelope fields (`tool`, `version`, etc.) — stream-level 
 files . --ext cs --json | jq .count
 ```
 
-Success envelope fields: `tool`, `version`, `exit_code`, `exit_reason`, `count`, `searched_roots`, plus a `walk_errors` array.
+Success envelope fields:
+
+- `tool` — `"files"`
+- `version` — tool version
+- `exit_code` — process exit code (0 on success)
+- `exit_reason` — machine-readable reason
+- `count` — number of entries emitted
+- `searched_roots` — array of root paths walked
+- `walk_errors` — array of `{path, reason}` objects for paths that could not be read; **always present** (empty `[]` on success, populated on `walk_error_partial`)
 
 `walk_errors[]` enumerates directories or files that could not be read during the walk (permission denied, vanished, I/O error). Each entry is `{"path": "...", "reason": "..."}`. On a partial walk this triggers `exit_code: 1` with `exit_reason: "walk_error_partial"` and the array is non-empty. On success the array is `[]`. Always present so consumers can use a single shape:
 
