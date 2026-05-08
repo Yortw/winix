@@ -10,7 +10,10 @@ mode
 .SH DESCRIPTION
 Displays file content (or stdin) one screen at a time.
 When no file is given, reads from stdin.
-Multiple files are paged in sequence.
+At most one file argument is currently accepted; for concatenated
+paging of multiple files, use \f[B]cat file1 file2 | less\f[R].
+Multi\-file paging with \f[B]:n\f[R] / \f[B]:p\f[R] navigation is
+tracked for a future release.
 .PP
 ANSI escape codes are passed through unchanged by default, so coloured
 output from tools like \f[B]man\f[R], \f[B]files\f[R], and
@@ -118,12 +121,13 @@ Usage error (bad arguments).
 .SH ENVIRONMENT
 .TP
 \f[B]LESS\f[R]
-Controls default options.
-When unset or empty, Winix \f[B]less\f[R] uses modern defaults:
-\f[B]FRX\f[R] (quit\-if\-one\-screen, raw colour, no\-init).
-When set to a non\-empty value, replaces the defaults entirely.
-Set \f[B]LESS=\f[R] explicitly to an empty string to disable all
-defaults.
+Controls default options. Three states distinguished:
+when unset, Winix \f[B]less\f[R] uses modern defaults
+\f[B]FRX\f[R] (quit\-if\-one\-screen, raw colour, no\-init);
+when set to a non\-empty value, replaces the defaults entirely
+(parsed as list of options, unknown flags ignored);
+when set to an empty string (\f[B]LESS=\f[R]), disables all defaults
+so every option must come from CLI flags.
 .TP
 \f[B]NO_COLOR\f[R]
 If set, disables ANSI colour passthrough (no\-color.org).

@@ -85,7 +85,7 @@ timeit some-command 2>&1 | less
 
 **`-F` quit-if-one-screen is on by default.** If output fits on a single screen, `less` exits without waiting for a keypress. This is part of the default `FRX` settings. Pass `-F-` (or set `LESS=RX`) to disable this if you always want interactive paging.
 
-**Multiple files are paged in sequence.** When invoked with multiple file arguments, `less` shows them one after another. The `:n` and `:p` bindings navigate between files (next/previous).
+**At most one file argument is currently accepted.** Passing two or more file arguments exits with usage error 2 and a message naming both files (`less: too many file arguments...`). For concatenated paging, pipe through `cat`: `cat file1 file2 | less`. Multi-file paging with `:n` / `:p` navigation is tracked for a future v0.5+ release; the bindings do not exist in v0.4.0.
 
 **stdin is consumed on first open.** When reading from stdin, the content is buffered in memory. Very large stdin streams may cause high memory usage. For large file viewing, prefer passing the file path directly.
 

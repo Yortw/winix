@@ -118,7 +118,7 @@ End / **G**
 # ENVIRONMENT
 
 **LESS**
-:   Controls default options. When unset or empty, Winix **less** uses modern defaults: **FRX** (quit-if-one-screen, raw colour, no-init). When set to a non-empty value, replaces the defaults entirely. Set **LESS=** explicitly to an empty string to disable all defaults.
+:   Controls default options. Three states distinguished: when **unset**, Winix **less** uses modern defaults **FRX** (quit-if-one-screen, raw colour, no-init); when **set to a non-empty value**, replaces the defaults entirely (parsed as list of options, unknown flags ignored); when **set to an empty string** (**LESS=**), disables all defaults so every option must come from CLI flags.
 
 **NO_COLOR**
 :   If set, disables ANSI colour passthrough (no-color.org).
