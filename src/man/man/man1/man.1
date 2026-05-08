@@ -45,6 +45,11 @@ MANWIDTH or pass \f[B]\(enwidth\f[R] explicitly to render wider.
 .TP
 \f[B]\-w\f[R], \f[B]\(enpath\f[R]
 Print the path to the man page file and exit (do not render).
+The path is reported on the first match that passes a
+structural\-validity check; the file is not opened for full read, so a
+path that resolves successfully here may still fail to render with
+\f[B]\(enno\-pager\f[R] if the content is corrupt later in the read
+pipeline.
 .TP
 \f[B]\(enwhere\f[R]
 Alias for \f[B]\(enpath\f[R].

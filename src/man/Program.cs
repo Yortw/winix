@@ -160,10 +160,18 @@ internal sealed class Program
         }
         catch (System.IO.IOException ex)
         {
-            // File-read failures (permissions, locked file, disk error). ex.Message is
+            // File-read failures (locked file, disk error). ex.Message is
             // English on Windows desktop runtime but may be an SR key under InvariantGlobalization
             // — emit our own message and hint at the underlying type.
             Console.Error.WriteLine($"man: failed to read {filePath} ({ex.GetType().Name})");
+            return ManExitCode.InternalError;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Permission denied (NTFS Deny-Read ACL on Windows; chmod 000 on Linux).
+            // UnauthorizedAccessException is NOT an IOException, so the catch above missed
+            // it pre-fix and the user got a stack trace + framework SR-key message.
+            Console.Error.WriteLine($"man: permission denied: {filePath}");
             return ManExitCode.InternalError;
         }
 

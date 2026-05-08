@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 
 namespace Winix.Man;
 
@@ -100,19 +101,68 @@ public sealed class PageDiscovery
 
             // Prefer plain text over compressed when both are present.
             string plain = Path.Combine(sectionDir, $"{name}.{section}");
-            if (File.Exists(plain))
+            if (File.Exists(plain) && LooksLikeManPage(plain))
             {
                 return plain;
             }
 
             string gz = Path.Combine(sectionDir, $"{name}.{section}.gz");
-            if (File.Exists(gz))
+            if (File.Exists(gz) && LooksLikeManPage(gz))
             {
                 return gz;
             }
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Performs a cheap structural-validity check so a corrupt or non-groff file in a
+    /// higher-priority search root (e.g. a truncated bundled page) does not silently
+    /// shadow a valid copy further down the search path.
+    /// </summary>
+    /// <param name="filePath">The candidate man page path.</param>
+    /// <returns>
+    /// <see langword="true"/> if the file appears to contain at least one groff macro
+    /// directive (a line starting with <c>.</c> or <c>'</c>) within the first 64 lines.
+    /// <see langword="true"/> on any read error — a real read failure should surface
+    /// from the actual page-read path with the F2-class English diagnostic, not be
+    /// hidden behind a structural skip.
+    /// </returns>
+    private static bool LooksLikeManPage(string filePath)
+    {
+        try
+        {
+            using Stream raw = File.OpenRead(filePath);
+            using Stream stream = filePath.EndsWith(".gz", StringComparison.OrdinalIgnoreCase)
+                ? (Stream)new GZipStream(raw, CompressionMode.Decompress)
+                : raw;
+            using var reader = new StreamReader(stream);
+
+            for (int i = 0; i < 64; i++)
+            {
+                string? line = reader.ReadLine();
+                if (line is null)
+                {
+                    return false;
+                }
+
+                // groff macro lines begin with '.' or '\'' in column 1. Comment lines
+                // (`.\"`) start with '.', so they count — empty pages with only comments
+                // are unusual but not invalid.
+                if (line.Length > 0 && (line[0] == '.' || line[0] == '\''))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+        catch
+        {
+            // Defer to the page-read path for diagnostics — don't shadow.
+            return true;
+        }
     }
 
     /// <summary>

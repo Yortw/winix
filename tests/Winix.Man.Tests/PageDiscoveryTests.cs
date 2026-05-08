@@ -172,4 +172,84 @@ public sealed class PageDiscoveryTests : IDisposable
 
         Assert.DoesNotContain(oldPath, paths);
     }
+
+    // Round-1 fresh-eyes 2026-05-09 SFH I2: PageDiscovery returned the first existing path
+    // by priority order without any structural-validity check. A corrupt or non-groff file
+    // in a higher-priority root (truncated bundled install, antivirus quarantine stub) would
+    // silently shadow a valid copy further down the search path. The user got garbage rendered
+    // as plain text, exit 0, no warning.
+    //
+    // LooksLikeManPage now skips files that contain no groff macro line in the first 64
+    // lines, so the search falls through to the next root.
+
+    [Fact]
+    public void FindPage_FirstRootHasNonGroffFile_FallsThroughToValidNextRoot()
+    {
+        string firstRoot = Path.Combine(_tempDir, "first");
+        string secondRoot = Path.Combine(_tempDir, "second");
+        Directory.CreateDirectory(Path.Combine(firstRoot, "man1"));
+        Directory.CreateDirectory(Path.Combine(secondRoot, "man1"));
+
+        // First root has a non-groff file (bare text — the SFH I2 reproducer at tmp/manprobe2/).
+        File.WriteAllText(Path.Combine(firstRoot, "man1", "probe.1"),
+            "this is not groff at all\nrandom garbage\n");
+        // Second root has a real man page.
+        CreateManPage(secondRoot, "probe", 1);
+
+        var discovery = new PageDiscovery(new[] { firstRoot, secondRoot });
+        string? result = discovery.FindPage("probe");
+
+        Assert.NotNull(result);
+        Assert.Contains("second", result, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FindPage_FirstRootHasGroffFile_StillReturnsFirstMatch()
+    {
+        // Negative case: when the first match IS a valid groff file, the priority order is
+        // preserved (don't accidentally fall through valid pages).
+        string firstRoot = Path.Combine(_tempDir, "first");
+        string secondRoot = Path.Combine(_tempDir, "second");
+        Directory.CreateDirectory(firstRoot);
+        Directory.CreateDirectory(secondRoot);
+        CreateManPage(firstRoot, "probe", 1);
+        CreateManPage(secondRoot, "probe", 1);
+
+        var discovery = new PageDiscovery(new[] { firstRoot, secondRoot });
+        string? result = discovery.FindPage("probe");
+
+        Assert.NotNull(result);
+        Assert.Contains("first", result, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FindPage_OnlyRootHasNonGroffFile_ReturnsNull()
+    {
+        // Edge case: when the only match is structurally invalid AND there's no fallback,
+        // FindPage returns null rather than the corrupt path. The caller handles "not found"
+        // with the documented exit-1 path.
+        Directory.CreateDirectory(Path.Combine(_tempDir, "man1"));
+        File.WriteAllText(Path.Combine(_tempDir, "man1", "garbage.1"),
+            "not a man page at all\n");
+
+        var discovery = new PageDiscovery(new[] { _tempDir });
+        string? result = discovery.FindPage("garbage");
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void FindPage_ApostropheStartedFile_AcceptedAsManPage()
+    {
+        // Defensive: groff macro lines can begin with `'` (no-break) instead of `.`. Ensure
+        // LooksLikeManPage doesn't reject these as non-groff.
+        Directory.CreateDirectory(Path.Combine(_tempDir, "man1"));
+        File.WriteAllText(Path.Combine(_tempDir, "man1", "alt.1"),
+            "'TH ALT 1\n'SH NAME\nalt - alternative macro form\n");
+
+        var discovery = new PageDiscovery(new[] { _tempDir });
+        string? result = discovery.FindPage("alt");
+
+        Assert.NotNull(result);
+    }
 }

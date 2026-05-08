@@ -37,7 +37,7 @@ Use **man --manpath** to inspect the effective search path.
 :   Override output width in columns. *N* must be at least 10. When omitted, width is taken from MANWIDTH if set, otherwise from the terminal width capped at 80 columns. The 80-column cap matches the effective behaviour of GNU man-db (which delegates rendering to groff, whose default width is 80) — set MANWIDTH or pass **--width** explicitly to render wider.
 
 **-w**, **--path**
-:   Print the path to the man page file and exit (do not render).
+:   Print the path to the man page file and exit (do not render). The path is reported on the first match that passes a structural-validity check; the file is not opened for full read, so a path that resolves successfully here may still fail to render with **--no-pager** if the content is corrupt later in the read pipeline.
 
 **--where**
 :   Alias for **--path**.

@@ -145,7 +145,7 @@ public sealed class PagerChain
     /// <see langword="true"/> if the pager process started and exited normally;
     /// <see langword="false"/> if the process could not be started.
     /// </returns>
-    private static bool TryRunExternalPager(string pagerCommand, string content)
+    internal static bool TryRunExternalPager(string pagerCommand, string content)
     {
         try
         {
@@ -162,6 +162,21 @@ public sealed class PagerChain
             process.StandardInput.Close();
 
             process.WaitForExit();
+
+            // Round-1 fresh-eyes 2026-05-09 SFH I1: when the shell-dispatched MANPAGER
+            // resolves to a missing binary (e.g. MANPAGER=this_binary_does_not_exist),
+            // cmd.exe / sh start successfully and return command-not-found exit codes
+            // (9009 on cmd.exe, 127 on sh). Process.Start does NOT throw, so the
+            // catch below never fires; pre-fix the user got the shell's "not
+            // recognized" diagnostic + an empty page + man exit 0, with the built-in
+            // pager fallback skipped. Treat any non-zero exit other than 130 (SIGINT)
+            // as launch failure so the caller falls back. 130 = user-quit, normal.
+            if (process.ExitCode != 0 && process.ExitCode != 130)
+            {
+                Console.Error.WriteLine($"man: warning: pager '{pagerCommand}' exited with code {process.ExitCode}; using built-in pager");
+                return false;
+            }
+
             return true;
         }
         catch (Exception ex)
