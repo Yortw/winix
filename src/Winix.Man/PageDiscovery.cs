@@ -31,6 +31,7 @@ public sealed class PageDiscovery
     private static readonly int[] SectionSearchOrder = { 1, 8, 6, 2, 3, 4, 5, 7 };
 
     private readonly IReadOnlyList<string> _searchPaths;
+    private readonly List<string> _lastRejectedPaths = new();
 
     /// <summary>
     /// Initialises a new <see cref="PageDiscovery"/> instance with the given search paths.
@@ -45,6 +46,23 @@ public sealed class PageDiscovery
     }
 
     /// <summary>
+    /// Paths that <see cref="FindPage(string, int?)"/> visited during its most recent call
+    /// and rejected because <see cref="LooksLikeManPage"/> returned <see langword="false"/>
+    /// (the file did not contain a groff macro line within its first 64 source lines).
+    /// </summary>
+    /// <remarks>
+    /// Round-2 fresh-eyes 2026-05-09 SFH-H4 closure: when <see cref="FindPage"/> returns
+    /// <see langword="null"/>, callers can check this list to distinguish "no candidate
+    /// file existed at all" (empty list → emit standard "no manual entry") from
+    /// "candidate files were found but every one was rejected as malformed" (non-empty
+    /// list → emit a more useful "found but appears corrupt" diagnostic). Without this,
+    /// a corrupt-but-decompressible bundled <c>.gz</c> page would be silently shadowed
+    /// out of discovery and the user would see a misleading "no manual entry" error.
+    /// The list is reset at the start of every <see cref="FindPage"/> call.
+    /// </remarks>
+    public IReadOnlyList<string> LastRejectedPaths => _lastRejectedPaths;
+
+    /// <summary>
     /// Searches for a man page by name, optionally restricting the search to a specific section.
     /// </summary>
     /// <param name="name">The page name to search for (e.g. <c>"ls"</c>).</param>
@@ -57,6 +75,8 @@ public sealed class PageDiscovery
     /// </returns>
     public string? FindPage(string name, int? section = null)
     {
+        _lastRejectedPaths.Clear();
+
         if (section.HasValue)
         {
             return FindInSection(name, section.Value);
@@ -101,15 +121,23 @@ public sealed class PageDiscovery
 
             // Prefer plain text over compressed when both are present.
             string plain = Path.Combine(sectionDir, $"{name}.{section}");
-            if (File.Exists(plain) && LooksLikeManPage(plain))
+            if (File.Exists(plain))
             {
-                return plain;
+                if (LooksLikeManPage(plain))
+                {
+                    return plain;
+                }
+                _lastRejectedPaths.Add(plain);
             }
 
             string gz = Path.Combine(sectionDir, $"{name}.{section}.gz");
-            if (File.Exists(gz) && LooksLikeManPage(gz))
+            if (File.Exists(gz))
             {
-                return gz;
+                if (LooksLikeManPage(gz))
+                {
+                    return gz;
+                }
+                _lastRejectedPaths.Add(gz);
             }
         }
 

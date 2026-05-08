@@ -152,6 +152,23 @@ public static class Cli
         if (filePath is null)
         {
             string sectionSuffix = pageSection.HasValue ? $"({pageSection})" : "";
+
+            // Round-2 fresh-eyes 2026-05-09 SFH-H4 closure: differentiate "no candidate
+            // file existed" from "every candidate was rejected as malformed". A corrupt
+            // bundled .gz that decompresses to non-groff content (or a plain .1 file
+            // with no macros) was previously silent — user saw "no manual entry" and
+            // gave up, while the file was actually present. Now emit a specific
+            // diagnostic so the user knows files were found-but-rejected.
+            if (discovery.LastRejectedPaths.Count > 0)
+            {
+                stderr.WriteLine($"man: found {discovery.LastRejectedPaths.Count} candidate file(s) for {pageName}{sectionSuffix} but none appear to be valid groff man pages (corrupt or wrong format):");
+                foreach (string rejected in discovery.LastRejectedPaths)
+                {
+                    stderr.WriteLine($"  {rejected}");
+                }
+                return ManExitCode.InternalError;
+            }
+
             stderr.WriteLine($"man: no manual entry for {pageName}{sectionSuffix}");
             return ManExitCode.NotFound;
         }
