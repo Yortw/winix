@@ -161,4 +161,31 @@ public class ScoopAdapterTests
         // F7 contract: return false so the CLI stays quiet when nothing changed.
         Assert.False(added);
     }
+
+    [Fact]
+    public async Task EnsureBucket_WhenAddFails_ThrowsInsteadOfClaimingSuccess()
+    {
+        // Round-1 fresh-eyes 2026-05-09 SFH-I3 + CR-I2 closure: pre-fix the
+        // result of `scoop bucket add` was discarded and EnsureBucket
+        // unconditionally returned true. The caller emitted "registered scoop
+        // bucket 'winix'" on stderr even when network/git/permissions made the
+        // add fail. Now the non-zero exit code is captured and surfaces as an
+        // exception, so the caller's existing catch produces a "could not
+        // register" warning instead.
+        Task<ProcessResult> FakeRun(string command, string[] args)
+        {
+            if (args.Length >= 2 && args[0] == "bucket" && args[1] == "list")
+            {
+                return Task.FromResult(new ProcessResult(0, BucketListWithoutWinix, ""));
+            }
+            // bucket add fails: simulate network unreachable / git missing.
+            return Task.FromResult(new ProcessResult(1, "", "fatal: unable to access github.com: connection timed out"));
+        }
+
+        var adapter = new ScoopAdapter(FakeRun);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => adapter.EnsureBucket());
+        Assert.Contains("scoop bucket add", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("exit code 1", ex.Message, StringComparison.Ordinal);
+    }
 }

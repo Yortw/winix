@@ -148,4 +148,30 @@ public class BrewAdapterTests
         // F7 contract: return false so the CLI stays quiet when nothing changed.
         Assert.False(added);
     }
+
+    [Fact]
+    public async Task EnsureTap_WhenAddFails_ThrowsInsteadOfClaimingSuccess()
+    {
+        // Round-1 fresh-eyes 2026-05-09 SFH-I3 + CR-I2 closure: same defect
+        // class as ScoopAdapter.EnsureBucket — pre-fix the `brew tap` exit
+        // code was discarded; EnsureTap returned true unconditionally. Now
+        // non-zero exit surfaces as an exception so the caller's existing
+        // catch produces a "could not add brew tap" warning instead of a
+        // misleading positive notice.
+        Task<ProcessResult> FakeRun(string command, string[] args)
+        {
+            if (args.Length == 1 && args[0] == "tap")
+            {
+                return Task.FromResult(new ProcessResult(0, TapListWithoutWinix, ""));
+            }
+            // tap add fails: simulate network unreachable.
+            return Task.FromResult(new ProcessResult(1, "", "Error: Failure while executing; `git clone`"));
+        }
+
+        var adapter = new BrewAdapter(FakeRun);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => adapter.EnsureTap());
+        Assert.Contains("brew tap", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("exit code 1", ex.Message, StringComparison.Ordinal);
+    }
 }

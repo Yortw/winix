@@ -148,9 +148,23 @@ public sealed class BrewAdapter : IPackageManagerAdapter
             }
         }
 
-        await _runAsync(
+        ProcessResult addResult = await _runAsync(
             "brew",
             new[] { "tap", TapName }).ConfigureAwait(false);
+
+        // Round-1 fresh-eyes 2026-05-09 SFH-I3 + CR-I2 closure: same defect
+        // class as ScoopAdapter.EnsureBucket — the result was discarded and
+        // EnsureTap unconditionally returned true. The caller emitted
+        // "registered brew tap 'yortw/winix'" on stderr even when the
+        // underlying `brew tap` failed (network down, github unreachable).
+        // Throw on non-zero so the caller's existing catch surfaces a
+        // "could not add brew tap" warning instead.
+        if (addResult.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"brew tap returned exit code {addResult.ExitCode}");
+        }
+
         return true;
     }
 }

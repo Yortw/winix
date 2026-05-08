@@ -135,9 +135,25 @@ public sealed class ScoopAdapter : IPackageManagerAdapter
             }
         }
 
-        await _runAsync(
+        ProcessResult addResult = await _runAsync(
             "scoop",
             new[] { "bucket", "add", BucketName, BucketUrl }).ConfigureAwait(false);
+
+        // Round-1 fresh-eyes 2026-05-09 SFH-I3 + CR-I2 closure: pre-fix the
+        // result was discarded and EnsureBucket unconditionally returned true.
+        // The caller emitted "registered scoop bucket 'winix'" on stderr even
+        // when the underlying `scoop bucket add` failed (network down, git
+        // missing from PATH, repo unreachable from this machine). The user
+        // got a misleading positive notice, then the subsequent `scoop install
+        // <tool>` produced confusing "couldn't find manifest" errors with no
+        // pointer to the real cause. Throw on non-zero so the caller's
+        // existing catch surfaces a "could not register" warning instead.
+        if (addResult.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"scoop bucket add returned exit code {addResult.ExitCode}");
+        }
+
         return true;
     }
 
