@@ -103,8 +103,15 @@ public sealed class Pager
 
         // F1 belt-and-braces: even with the up-front IsOutputRedirected check, a console handle
         // can become invalid mid-loop (e.g. user closed the terminal, or some pty edge case).
-        // Catch IOException, fall back to dumping remaining content to stdout so the user at
-        // least gets the data they were trying to view.
+        // Catch IOException AND InvalidOperationException, fall back to dumping remaining
+        // content to stdout so the user at least gets the data they were trying to view.
+        //
+        // Round-1 fresh-eyes 2026-05-09 (CR C2 + SFH C03): Console.ReadKey throws
+        // InvalidOperationException (NOT IOException) when stdin is redirected and
+        // ConsoleInput.ReattachIfRedirected didn't fully take (best-effort on Linux/macOS
+        // per ConsoleInput.ReattachUnix comment). Reachable on `git diff | less +F` style
+        // pipelines. Pre-fix the only-IOException catch let it escape as an unhandled
+        // exception with a raw stack trace.
         try
         {
         using (var screen = new Screen(_options))
@@ -189,9 +196,21 @@ public sealed class Pager
         }
         catch (IOException)
         {
-            // Console handle became invalid mid-loop. Dump remaining content from the current
-            // viewport top to stdout (user at least gets their data) and exit cleanly.
-            DumpAllLines(lines);
+            // Console handle became invalid mid-loop (broken pipe, terminal closed, pty edge).
+            // Dump remaining content from the user's current viewport-top position so they get
+            // the part they hadn't scrolled past yet. Round-1 fresh-eyes 2026-05-09 CR I3:
+            // pre-fix DumpAllLines was called with no viewport context and dumped from line 0,
+            // re-emitting content the user had already scrolled past — flooded the terminal
+            // with redundant content on a multi-megabyte log.
+            DumpFromViewport(lines, topLine);
+            return 0;
+        }
+        catch (InvalidOperationException)
+        {
+            // Console.ReadKey was called when console-input was redirected and reattach
+            // failed to reattach — see ConsoleInput.ReattachUnix's best-effort note.
+            // Same fallback shape as IOException.
+            DumpFromViewport(lines, topLine);
             return 0;
         }
     }
@@ -246,9 +265,26 @@ public sealed class Pager
     /// The final line is written without a trailing newline so that content exactly filling the
     /// terminal height does not scroll.
     /// </remarks>
-    private void DumpAllLines(IReadOnlyList<string> lines)
+    internal void DumpAllLines(IReadOnlyList<string> lines)
     {
-        for (int i = 0; i < lines.Count; i++)
+        DumpFromViewport(lines, 0);
+    }
+
+    /// <summary>
+    /// Dumps lines from <paramref name="startIndex"/> to the end. Used by the
+    /// crash-fallback path to preserve the user's current viewport position rather than
+    /// re-emit content they already scrolled past. Round-1 fresh-eyes 2026-05-09 CR I3:
+    /// the original DumpAllLines comment promised "from current viewport" but the code
+    /// dumped from line 0 — comment-vs-code mismatch made worse by multi-megabyte logs.
+    /// </summary>
+    /// <param name="lines">All available lines.</param>
+    /// <param name="startIndex">First line index to emit (clamped to [0, lines.Count]).</param>
+    internal void DumpFromViewport(IReadOnlyList<string> lines, int startIndex)
+    {
+        if (startIndex < 0) { startIndex = 0; }
+        if (startIndex > lines.Count) { startIndex = lines.Count; }
+
+        for (int i = startIndex; i < lines.Count; i++)
         {
             string line = _options.StripAnsi ? AnsiText.StripAnsi(lines[i]) : lines[i];
             if (i < lines.Count - 1)
