@@ -25,6 +25,11 @@ public sealed class CliRunTests : IDisposable
     // returns 0 (success). Tests assert against captured state to verify orchestration
     // delivered the right inputs to the pager — without entering the interactive loop.
     private LessOptions? _capturedOptions;
+    // Round-3 fresh-eyes 2026-05-09 test-analyzer I-R3-1: capture the source too so
+    // tests can distinguish "ran with stdin" from "ran with a file" — the bare-dash
+    // precedence test was passing whether dash or file won, because the file existed
+    // and either branch dispatched the pager successfully.
+    private InputSource? _capturedSource;
 
     public CliRunTests()
     {
@@ -54,9 +59,10 @@ public sealed class CliRunTests : IDisposable
 
     private Func<LessOptions, InputSource, int> CapturingPagerRunner(int exitCode = 0)
     {
-        return (options, _) =>
+        return (options, source) =>
         {
             _capturedOptions = options;
+            _capturedSource = source;
             return exitCode;
         };
     }
@@ -181,19 +187,38 @@ public sealed class CliRunTests : IDisposable
     {
         // POSIX precedence: explicit `-` beats a file argument. Documented in Cli.cs
         // "When both `-` AND a file are given, `-` wins per tradition."
+        //
+        // Round-3 fresh-eyes 2026-05-09 test-analyzer I-R3-1: pre-fix this test only
+        // asserted exit==0 + pager dispatched, which would also hold if the file path
+        // won (file exists, FromFile succeeds, pager runs). The contract that needs
+        // pinning is "stdin source dispatched" — InputSource.Name is "(stdin)" for the
+        // stdin path and the file path for the file path, so capturing the source
+        // distinguishes the two branches.
         var (stdout, stderr) = Sinks();
         string file = Path.Combine(_tempDir, "ignored.txt");
         File.WriteAllText(file, "would-be-content");
 
-        int exit = Cli.Run(
-            new[] { "-", file },
-            stdout, stderr,
-            isStdoutRedirected: true,
-            isStdinRedirected: false,
-            pagerRunner: CapturingPagerRunner());
+        var savedIn = Console.In;
+        Console.SetIn(new StringReader("dash-wins content"));
+        try
+        {
+            int exit = Cli.Run(
+                new[] { "-", file },
+                stdout, stderr,
+                isStdoutRedirected: true,
+                isStdinRedirected: false,
+                pagerRunner: CapturingPagerRunner());
 
-        Assert.Equal(0, exit);
-        Assert.NotNull(_capturedOptions);
+            Assert.Equal(0, exit);
+            Assert.NotNull(_capturedOptions);
+            Assert.NotNull(_capturedSource);
+            // The dash wins: pager receives the stdin source, not the file source.
+            Assert.Equal("(stdin)", _capturedSource!.Name);
+        }
+        finally
+        {
+            Console.SetIn(savedIn);
+        }
     }
 
     // ── ShellKit usage error → POSIX exit 2 (deliberate suite divergence) ────────

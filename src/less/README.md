@@ -32,7 +32,7 @@ Download native binaries from [GitHub Releases](https://github.com/Yortw/winix/r
 ## Usage
 
 ```
-less [options] [+command] [file ...]
+less [options] [+command] [file]
 ```
 
 Displays file content (or stdin) one screen at a time. When no file is given, reads from stdin. Currently accepts at most one file argument — for concatenated paging of multiple files, use `cat file1 file2 | less`. Multi-file paging with `:n` / `:p` navigation is tracked for a future release.
