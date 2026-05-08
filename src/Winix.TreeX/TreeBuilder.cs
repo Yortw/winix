@@ -443,20 +443,37 @@ public sealed class TreeBuilder
 
     private bool MatchesAnyRegex(string fileName)
     {
-        foreach (Regex regex in _regexes)
+        return IsMatchSafe(_regexes, fileName);
+    }
+
+    /// <summary>
+    /// Returns <c>true</c> when at least one of <paramref name="regexes"/> matches
+    /// <paramref name="input"/>. Swallows <see cref="RegexMatchTimeoutException"/> per
+    /// pattern so a single pathological pattern cannot wedge the walk; treats timeout
+    /// as a non-match for that pattern. Only standard-engine patterns can time out;
+    /// <see cref="RegexOptions.NonBacktracking"/> patterns have linear-time guarantees.
+    /// </summary>
+    /// <remarks>
+    /// Internal so tests can call directly with a regex configured with a 1-tick timeout
+    /// to deterministically exercise the timeout-catch path. Round-2 fresh-eyes 2026-05-09
+    /// test-analyzer I7: prior to this extraction, the swallow path was unreachable from
+    /// any unit test because <see cref="MatchesAnyRegex"/> was instance-private and the
+    /// regexes were SafeRegex-created with a 2-second timeout.
+    /// </remarks>
+    internal static bool IsMatchSafe(Regex[] regexes, string input)
+    {
+        foreach (Regex regex in regexes)
         {
             try
             {
-                if (regex.IsMatch(fileName))
+                if (regex.IsMatch(input))
                 {
                     return true;
                 }
             }
             catch (RegexMatchTimeoutException)
             {
-                // Pattern timed out on this filename — treat as non-match rather than
-                // hanging the process. Only fires for patterns that fell back to the
-                // standard engine (NonBacktracking never times out).
+                // Pattern timed out on this input — treat as non-match for this pattern.
             }
         }
 
