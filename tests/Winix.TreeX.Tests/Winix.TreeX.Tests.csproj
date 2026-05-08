@@ -2,11 +2,20 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <IsTestProject>true</IsTestProject>
+    <!-- Match the runtime InvariantGlobalization=true setting on the production csproj.
+         Per feedback_invariant_globalization_resource_keys.md, framework ex.Message
+         under InvariantGlobalization returns SR keys not English; this property keeps
+         tests aligned with shipped runtime behaviour. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.*" />
     <PackageReference Include="xunit" Version="2.*" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.*" />
+    <!-- Xunit.SkippableFact replaces silent early-return in platform-gated tests with a
+         proper 'Skipped' status. Required for the SFH C1 chmod-based permission-denial
+         tests (POSIX-only) per the project's "no pass-by-default on wrong platform" rule. -->
+    <PackageReference Include="Xunit.SkippableFact" Version="1.*" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Winix.TreeX\Winix.TreeX.csproj" />

@@ -274,6 +274,7 @@ public static class Cli
                 ShowDate: showDate,
                 DirsOnly: dirsOnly);
 
+            int totalWalkErrors = 0;
             try
             {
                 for (int i = 0; i < roots.Length; i++)
@@ -321,6 +322,16 @@ public static class Cli
                             totalSize += stats.TotalSizeBytes > 0 ? stats.TotalSizeBytes : 0;
                         }
                     }
+
+                    // Round-1 fresh-eyes 2026-05-09 SFH C1: surface walk errors per the
+                    // README contract (exit 1 for "permission denied, invalid path"). Each
+                    // error gets a one-line stderr diagnostic; exit code is bumped to 1 at
+                    // the loop end if any errors were collected across all roots.
+                    foreach (WalkError walkError in builder.WalkErrors)
+                    {
+                        stderr.WriteLine($"treex: {walkError.Path}: {walkError.Reason}");
+                    }
+                    totalWalkErrors += builder.WalkErrors.Count;
                 }
             }
             catch (ArgumentException ex) when (ex is System.Text.RegularExpressions.RegexParseException)
@@ -334,6 +345,15 @@ public static class Cli
                 stderr.WriteLine($"treex: {ex.Message}");
                 exitCode = 1;
                 exitReason = "runtime_error";
+            }
+
+            // SFH C1 round-1: a partial walk (some directories unreadable) is exit 1.
+            // Apply only when we'd otherwise have returned 0; never demote a higher exit
+            // code (e.g. 125 usage error) just because a walk error was also collected.
+            if (totalWalkErrors > 0 && exitCode == 0)
+            {
+                exitCode = 1;
+                exitReason = "walk_error_partial";
             }
 
             // --- Summary line to stderr (always) ---

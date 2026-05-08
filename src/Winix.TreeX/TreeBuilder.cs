@@ -15,6 +15,23 @@ public sealed class TreeBuilder
     private readonly GlobMatcher _globMatcher;
     private readonly Regex[] _regexes;
     private readonly bool _hasFileFilters;
+    private readonly List<WalkError> _walkErrors = new();
+
+    /// <summary>
+    /// Errors encountered during the most recent <see cref="Build"/> call: directories
+    /// that could not be enumerated (typically <see cref="UnauthorizedAccessException"/>
+    /// or <see cref="DirectoryNotFoundException"/> from a vanishing path) and individual
+    /// files that disappeared between enumeration and stat.
+    /// </summary>
+    /// <remarks>
+    /// Round-1 fresh-eyes 2026-05-09 silent-failure-hunter C1: pre-fix, the catch sites
+    /// silently <c>return</c>'d / <c>continue</c>'d, producing a partial tree with no
+    /// indication. The README documents exit code 1 as "Runtime error (permission
+    /// denied, invalid path)" but the binary never returned 1 mid-walk. Real
+    /// <c>tree(1)</c> prints <c>[error opening dir]</c> per inaccessible node. We collect
+    /// here and let the CLI layer surface to stderr + set exit 1.
+    /// </remarks>
+    public IReadOnlyList<WalkError> WalkErrors => _walkErrors;
 
     private static readonly HashSet<string> WindowsExecutableExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -62,6 +79,10 @@ public sealed class TreeBuilder
     /// <returns>The root <see cref="TreeNode"/> with populated children.</returns>
     public TreeNode Build(string rootPath)
     {
+        // Reset walk-error log so successive Build calls don't accumulate. Each Build
+        // exposes the errors hit during ITS walk only.
+        _walkErrors.Clear();
+
         string fullRoot = Path.GetFullPath(rootPath);
 
         // Track visited real paths for symlink cycle detection. Without this,
@@ -121,12 +142,26 @@ public sealed class TreeBuilder
         {
             entries = Directory.EnumerateFileSystemEntries(dirPath);
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException ex)
         {
+            // SFH C1 round-1 2026-05-09: surface as walk error so CLI exits 1 + diagnoses.
+            _walkErrors.Add(new WalkError(dirPath, "permission denied: " + ex.Message));
+            parentNode.IsUnreadable = true;
             return;
         }
-        catch (DirectoryNotFoundException)
+        catch (DirectoryNotFoundException ex)
         {
+            // Race: directory existed at the parent's enumeration moment but vanished
+            // before we descended. Surface as a non-permission walk error.
+            _walkErrors.Add(new WalkError(dirPath, "directory not found (removed during walk?): " + ex.Message));
+            return;
+        }
+        catch (IOException ex)
+        {
+            // Catch-all for transient filesystem failures (network share dropped,
+            // file-system reset). Surface; do not pretend the directory was empty.
+            _walkErrors.Add(new WalkError(dirPath, "I/O error: " + ex.Message));
+            parentNode.IsUnreadable = true;
             return;
         }
 
@@ -140,12 +175,16 @@ public sealed class TreeBuilder
             {
                 attrs = File.GetAttributes(fullPath);
             }
-            catch (UnauthorizedAccessException)
+            catch (UnauthorizedAccessException ex)
             {
+                _walkErrors.Add(new WalkError(fullPath, "permission denied (attributes): " + ex.Message));
                 continue;
             }
             catch (FileNotFoundException)
             {
+                // File was enumerated but vanished before GetAttributes — common during
+                // active builds. Mid-walk volatility is not a contract violation; do not
+                // surface as a walk error.
                 continue;
             }
 
@@ -238,12 +277,15 @@ public sealed class TreeBuilder
                     fileSize = info.Length;
                     modified = new DateTimeOffset(info.LastWriteTimeUtc, TimeSpan.Zero);
                 }
-                catch (UnauthorizedAccessException)
+                catch (UnauthorizedAccessException ex)
                 {
+                    _walkErrors.Add(new WalkError(fullPath, "permission denied (stat): " + ex.Message));
                     continue;
                 }
                 catch (FileNotFoundException)
                 {
+                    // File vanished between enumeration and stat; same race rationale as
+                    // GetAttributes above. Do not surface.
                     continue;
                 }
 

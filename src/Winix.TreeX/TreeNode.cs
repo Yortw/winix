@@ -38,4 +38,13 @@ public sealed class TreeNode
 
     /// <summary>Child nodes. Empty for files. Sorted by TreeBuilder.</summary>
     public List<TreeNode> Children { get; } = new();
+
+    /// <summary>
+    /// True when this directory could not be enumerated (permission denied, vanished,
+    /// I/O error). Used by the renderer to print <c>[error opening dir]</c> per
+    /// <c>tree(1)</c> precedent. Round-1 fresh-eyes 2026-05-09 silent-failure-hunter C1
+    /// fix: pre-fix the silent-return on enumeration failure produced an apparently-empty
+    /// directory, indistinguishable from a legitimately-empty one.
+    /// </summary>
+    public bool IsUnreadable { get; set; }
 }
