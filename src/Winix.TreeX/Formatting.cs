@@ -155,6 +155,14 @@ public static class Formatting
             {
                 writer.WriteString("error", errorDetail);
             }
+            // Round-3 fresh-eyes 2026-05-09 silent-failure-hunter F5: emit walk_errors as
+            // an empty array even on pre-walk errors so machine consumers querying
+            // .walk_errors[] see the same shape on every envelope. README + man +
+            // agent-guide all document the field as "always present (empty array on
+            // success)" -- this commit makes the code match that promise. No walk
+            // happened on this path, so the array is always empty.
+            writer.WriteStartArray("walk_errors");
+            writer.WriteEndArray();
             writer.WriteEndObject();
         }
 

@@ -70,12 +70,23 @@ public sealed class Round2CoverageTests : IDisposable
     {
         // Even when one regex times out, a subsequent regex that matches still wins.
         // Pin that the swallow does not short-circuit the loop.
+        //
+        // Round-3 fresh-eyes 2026-05-09 test-analyzer #1: prior input "hello world" did
+        // not actually trigger pathological's timeout (no 'a's at end → quick non-match),
+        // so the test passed via "loop continues past non-match" rather than the intended
+        // "loop continues past timeout." Switch to an input that DOES catastrophically
+        // backtrack on the pathological pattern AND matches the simple pattern, so the
+        // simple match is reachable ONLY via the catch-and-continue path.
         var pathological = new Regex("(a+)+$", RegexOptions.None, TimeSpan.FromTicks(1));
-        var simple = new Regex("hello", RegexOptions.None);
+        var simple = new Regex("^a", RegexOptions.None);
+
+        // Long 'a' sequence + non-matching terminator triggers catastrophic backtracking
+        // on pathological; simple matches the leading 'a' regardless.
+        string input = new string('a', 30) + "!";
 
         bool result = TreeBuilder.IsMatchSafe(
             new[] { pathological, simple },
-            "hello world");
+            input);
 
         Assert.True(result);
     }

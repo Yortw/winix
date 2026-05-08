@@ -89,6 +89,11 @@ public sealed class CliRunTests : IDisposable
         // this field, JSON consumers see only the machine code with no detail — defeats
         // the purpose of having both.
         Assert.Contains("\"error\":\"treex: path not found:", outText, StringComparison.Ordinal);
+        // Round-3 fresh-eyes 2026-05-09 silent-failure-hunter F5: walk_errors[] is
+        // documented as "always present (empty array on success)" across README, man,
+        // and agent-guide. Pre-walk error envelopes must honour the same shape so
+        // `jq '.walk_errors[]'` works uniformly across all envelope types.
+        Assert.Contains("\"walk_errors\":[]", outText, StringComparison.Ordinal);
         // Plain-text "treex: path not found" must NOT appear on stderr when --json is requested.
         Assert.DoesNotContain("treex: path not found", stderr.ToString(), StringComparison.Ordinal);
     }
@@ -108,6 +113,9 @@ public sealed class CliRunTests : IDisposable
         // Round-2 fresh-eyes 2026-05-09 code-reviewer I1: error field present on this
         // envelope too, with the canonical "treex: not a directory:" prefix.
         Assert.Contains("\"error\":\"treex: not a directory:", outText, StringComparison.Ordinal);
+        // Round-3 fresh-eyes 2026-05-09 silent-failure-hunter F5: schema parity with
+        // path_not_found envelope.
+        Assert.Contains("\"walk_errors\":[]", outText, StringComparison.Ordinal);
     }
 
     // ── --json success envelope routing (suite convention) ────────────────────────
