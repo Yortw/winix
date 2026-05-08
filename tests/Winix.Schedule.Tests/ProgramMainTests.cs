@@ -235,14 +235,26 @@ public class ProgramMainTests
     }
 
     [Fact]
-    public void NextSubcommand_JsonHappyPath_EmitsValidJsonEnvelope()
+    public void NextSubcommand_JsonHappyPath_EmitsValidJsonEnvelopeToStdout()
     {
+        // Tier-1 smoke verification 2026-05-09 closure (Important — suite-convention
+        // violation): pre-fix this test asserted JSON envelope on STDERR and stdout
+        // empty, which contradicted the suite-wide --json-to-stdout convention used
+        // by digest, files, treex, whoholds, less, man, winix, etc. The man F12
+        // closure (1618f97) canonicalised "--json envelopes go to stdout so
+        // `tool --json X | jq` works in pipelines"; schedule's review predated
+        // that convention and never re-aligned.
+        //
+        // Test deliberately edited per feedback_test_modification_signals_contract_
+        // change.md: the contract has changed (stderr → stdout for the success-
+        // path JSON envelope). Old test name was JsonHappyPath_EmitsValidJson
+        // Envelope; renamed to make the routing target explicit.
         var r = RunSchedule("next", "0 2 * * *", "--count", "2", "--json");
         Assert.Equal(0, r.ExitCode);
-        Assert.Empty(r.Stdout);
-        // Strip leading/trailing whitespace; JsonDocument.Parse rejects leading whitespace
-        // on some implementations (it doesn't, but just to be safe).
-        using var doc = JsonDocument.Parse(r.Stderr);
+        // Stderr should NOT contain the JSON envelope (it lived there pre-fix).
+        Assert.DoesNotContain("\"tool\":\"schedule\"", r.Stderr);
+        // Stdout now carries the JSON envelope.
+        using var doc = JsonDocument.Parse(r.Stdout);
         Assert.Equal("schedule", doc.RootElement.GetProperty("tool").GetString());
         Assert.Equal(0, doc.RootElement.GetProperty("exit_code").GetInt32());
         Assert.Equal("0 2 * * *", doc.RootElement.GetProperty("cron").GetString());

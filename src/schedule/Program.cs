@@ -196,7 +196,7 @@ internal sealed class Program
         int exitCode = scheduleResult.Success ? 0 : ExitCode.NotExecutable;
         if (json)
         {
-            SafeWriteLine(Formatting.FormatActionJson(
+            SafeWriteLineToStdout(Formatting.FormatActionJson(
                 "add", name, cronStr, null,
                 exitCode, scheduleResult.Success ? "success" : "error", version,
                 scheduleResult.Warning));
@@ -229,7 +229,7 @@ internal sealed class Program
             string reason = listResult.FailureReason ?? "unknown";
             if (json)
             {
-                SafeWriteLine(Formatting.FormatTaskListJson(listResult.Tasks, failExit, "error", version, reason));
+                SafeWriteLineToStdout(Formatting.FormatTaskListJson(listResult.Tasks, failExit, "error", version, reason));
             }
             else
             {
@@ -240,7 +240,7 @@ internal sealed class Program
 
         if (json)
         {
-            SafeWriteLine(Formatting.FormatTaskListJson(listResult.Tasks, 0, "success", version, listResult.Warning));
+            SafeWriteLineToStdout(Formatting.FormatTaskListJson(listResult.Tasks, 0, "success", version, listResult.Warning));
         }
         else
         {
@@ -337,7 +337,7 @@ internal sealed class Program
         int exitCode = scheduleResult.Success ? 0 : ExitCode.NotExecutable;
         if (json)
         {
-            SafeWriteLine(Formatting.FormatActionJson(
+            SafeWriteLineToStdout(Formatting.FormatActionJson(
                 action, name, cronStr, null,
                 exitCode, scheduleResult.Success ? "success" : "error", version,
                 scheduleResult.Warning));
@@ -368,7 +368,7 @@ internal sealed class Program
 
         if (json)
         {
-            SafeWriteLine(Formatting.FormatHistoryJson(name, records, 0, "success", version));
+            SafeWriteLineToStdout(Formatting.FormatHistoryJson(name, records, 0, "success", version));
         }
         else
         {
@@ -438,7 +438,7 @@ internal sealed class Program
 
         if (json)
         {
-            SafeWriteLine(Formatting.FormatNextJson(cron.Expression, occurrences, 0, "success", version));
+            SafeWriteLineToStdout(Formatting.FormatNextJson(cron.Expression, occurrences, 0, "success", version));
         }
         else
         {
@@ -487,6 +487,23 @@ internal sealed class Program
     private static void SafeWrite(string message)
     {
         try { Console.Error.Write(message); }
+        catch (System.IO.IOException) { /* see SafeWriteLine */ }
+        catch (ObjectDisposedException) { /* see SafeWriteLine */ }
+    }
+
+    /// <summary>
+    /// Writes <paramref name="message"/> to STDOUT with the same swallow behaviour as
+    /// <see cref="SafeWriteLine"/>. Used for JSON envelopes (--json output) so they
+    /// land on stdout per the suite-wide convention — pipelines like
+    /// <c>schedule next --json X | jq</c> only work when the JSON is on stdout, not
+    /// stderr. Tier-1 smoke verification 2026-05-09 found the pre-fix code routed
+    /// JSON via <see cref="SafeWriteLine"/> to stderr, breaking that pipeline shape;
+    /// same suite-convention defect class as man F12, treex r2, whoholds, files,
+    /// less, winix.
+    /// </summary>
+    private static void SafeWriteLineToStdout(string message)
+    {
+        try { Console.Out.WriteLine(message); }
         catch (System.IO.IOException) { /* see SafeWriteLine */ }
         catch (ObjectDisposedException) { /* see SafeWriteLine */ }
     }
