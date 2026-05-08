@@ -357,6 +357,194 @@ public class TreeBuilderTests : IDisposable
         Assert.Contains("alpha.cs", childNames);
     }
 
+    // ── Date filter coverage (round-1 fresh-eyes 2026-05-09 test-analyzer C1) ──────
+    // Pre-fix the --newer / --older code paths in TreeBuilder were unwired by tests;
+    // a regression flipping <= to >= on either bound would ship green. Stage a tree
+    // with mixed timestamps and pin both bounds individually plus the bounded window.
+
+    [Fact]
+    public void Build_NewerThan_ExcludesOlderFiles()
+    {
+        string oldFile = Path.Combine(_root, "old.txt");
+        string newFile = Path.Combine(_root, "new.txt");
+        File.WriteAllText(oldFile, "old");
+        File.WriteAllText(newFile, "new");
+        // Backdate old.txt by 10 days; new.txt keeps its creation time (now).
+        File.SetLastWriteTimeUtc(oldFile, DateTime.UtcNow - TimeSpan.FromDays(10));
+
+        // --newer 1d cutoff = now - 1 day. Files modified AFTER that boundary survive.
+        var options = MakeOptions(
+            newerThan: DateTimeOffset.UtcNow - TimeSpan.FromDays(1),
+            includeHidden: true);
+        var builder = new TreeBuilder(options);
+
+        TreeNode root = builder.Build(_root);
+        var fileNames = GetAllFiles(root).Select(f => f.Name).ToList();
+
+        Assert.Contains("new.txt", fileNames);
+        Assert.DoesNotContain("old.txt", fileNames);
+    }
+
+    [Fact]
+    public void Build_OlderThan_ExcludesNewerFiles()
+    {
+        string oldFile = Path.Combine(_root, "ancient.txt");
+        string newFile = Path.Combine(_root, "fresh.txt");
+        File.WriteAllText(oldFile, "ancient");
+        File.WriteAllText(newFile, "fresh");
+        File.SetLastWriteTimeUtc(oldFile, DateTime.UtcNow - TimeSpan.FromDays(30));
+
+        // --older 1d cutoff = now - 1 day. Files modified BEFORE that boundary survive.
+        var options = MakeOptions(
+            olderThan: DateTimeOffset.UtcNow - TimeSpan.FromDays(1),
+            includeHidden: true);
+        var builder = new TreeBuilder(options);
+
+        TreeNode root = builder.Build(_root);
+        var fileNames = GetAllFiles(root).Select(f => f.Name).ToList();
+
+        Assert.Contains("ancient.txt", fileNames);
+        Assert.DoesNotContain("fresh.txt", fileNames);
+    }
+
+    [Fact]
+    public void Build_NewerAndOlder_BoundedWindow()
+    {
+        // Three files: very old, in-window, very new. The combined --newer 30d + --older 1d
+        // bracket selects only files modified between now-30d and now-1d.
+        string ancient = Path.Combine(_root, "ancient.txt");
+        string mid = Path.Combine(_root, "mid.txt");
+        string fresh = Path.Combine(_root, "fresh.txt");
+        File.WriteAllText(ancient, "a");
+        File.WriteAllText(mid, "b");
+        File.WriteAllText(fresh, "c");
+        File.SetLastWriteTimeUtc(ancient, DateTime.UtcNow - TimeSpan.FromDays(60));
+        File.SetLastWriteTimeUtc(mid, DateTime.UtcNow - TimeSpan.FromDays(7));
+        // fresh.txt keeps its creation time (now)
+
+        var options = MakeOptions(
+            newerThan: DateTimeOffset.UtcNow - TimeSpan.FromDays(30),
+            olderThan: DateTimeOffset.UtcNow - TimeSpan.FromDays(1),
+            includeHidden: true);
+        var builder = new TreeBuilder(options);
+
+        TreeNode root = builder.Build(_root);
+        var fileNames = GetAllFiles(root).Select(f => f.Name).ToList();
+
+        Assert.Contains("mid.txt", fileNames);
+        Assert.DoesNotContain("ancient.txt", fileNames);
+        Assert.DoesNotContain("fresh.txt", fileNames);
+    }
+
+    // ── Sort coverage gap (round-1 fresh-eyes 2026-05-09 test-analyzer I1) ────────
+
+    [Fact]
+    public void Build_SortByModified_NewestFirst()
+    {
+        // SortMode.Modified was reachable via --sort modified but had zero tests
+        // before this round. Pin the contract: directories first, then files newest-first.
+        string oldFile = Path.Combine(_root, "z-old.txt");
+        string midFile = Path.Combine(_root, "y-mid.txt");
+        string newFile = Path.Combine(_root, "x-new.txt");
+        File.WriteAllText(oldFile, "old");
+        File.WriteAllText(midFile, "mid");
+        File.WriteAllText(newFile, "new");
+        File.SetLastWriteTimeUtc(oldFile, DateTime.UtcNow - TimeSpan.FromDays(10));
+        File.SetLastWriteTimeUtc(midFile, DateTime.UtcNow - TimeSpan.FromDays(5));
+        // x-new.txt keeps its creation time (now)
+
+        var options = MakeOptions(sort: SortMode.Modified, includeHidden: true);
+        var builder = new TreeBuilder(options);
+
+        TreeNode root = builder.Build(_root);
+        // Filter to just our timestamped files (the existing fixture has other entries).
+        var ourFiles = root.Children
+            .Where(c => c.Type == FileEntryType.File && c.Name.EndsWith("-old.txt", StringComparison.Ordinal)
+                || c.Name.EndsWith("-mid.txt", StringComparison.Ordinal)
+                || c.Name.EndsWith("-new.txt", StringComparison.Ordinal))
+            .ToList();
+
+        // Newest first → x-new.txt before y-mid.txt before z-old.txt.
+        // Skip the test if the fixture didn't preserve our explicit timestamps (CI clock skew).
+        Assert.Equal(3, ourFiles.Count);
+        int newIdx = ourFiles.FindIndex(f => f.Name == "x-new.txt");
+        int midIdx = ourFiles.FindIndex(f => f.Name == "y-mid.txt");
+        int oldIdx = ourFiles.FindIndex(f => f.Name == "z-old.txt");
+        Assert.True(newIdx < midIdx, $"Expected x-new before y-mid; got newIdx={newIdx}, midIdx={midIdx}");
+        Assert.True(midIdx < oldIdx, $"Expected y-mid before z-old; got midIdx={midIdx}, oldIdx={oldIdx}");
+    }
+
+    // ── Filter combination matrix (round-1 fresh-eyes test-analyzer I2) ───────────
+
+    [Fact]
+    public void Build_GlobAndMinSize_BothMustMatch()
+    {
+        // Glob alone matches *.cs; min-size alone matches files >= 100 bytes. The AND
+        // combination must require BOTH — a regression to OR would surface here.
+        WriteFile("small.cs", 10);    // matches glob, fails size
+        WriteFile("big.txt", 200);    // fails glob, matches size
+        WriteFile("big.cs", 300);     // matches both
+
+        var options = MakeOptions(
+            globPatterns: new[] { "*.cs" },
+            minSize: 100,
+            includeHidden: true);
+        var builder = new TreeBuilder(options);
+
+        TreeNode root = builder.Build(_root);
+        var matchedNames = GetAllFiles(root).Where(f => f.IsMatch).Select(f => f.Name).ToList();
+
+        Assert.Contains("big.cs", matchedNames);
+        Assert.DoesNotContain("small.cs", matchedNames);
+        Assert.DoesNotContain("big.txt", matchedNames);
+    }
+
+    [Fact]
+    public void Build_TypeFileAndGlob_OnlyMatchingFiles()
+    {
+        // type=File should narrow to files only; glob *.cs further restricts.
+        // Subdirectory "sub" should still appear as ancestor for sub/beta.cs (per pruning),
+        // but the directory itself isn't a match in this filter.
+        var options = MakeOptions(
+            typeFilter: FileEntryType.File,
+            globPatterns: new[] { "*.cs" },
+            includeHidden: true);
+        var builder = new TreeBuilder(options);
+
+        TreeNode root = builder.Build(_root);
+        var matchedFiles = GetAllFiles(root).Where(f => f.IsMatch).ToList();
+
+        // All matching nodes must be files (not dirs/symlinks) AND match *.cs.
+        Assert.NotEmpty(matchedFiles);
+        Assert.All(matchedFiles, f =>
+        {
+            Assert.Equal(FileEntryType.File, f.Type);
+            Assert.EndsWith(".cs", f.Name, StringComparison.Ordinal);
+        });
+    }
+
+    [Fact]
+    public void Build_GitIgnoreAndGlob_GitIgnoreAppliedFirst()
+    {
+        // Files inside ignored dirs must be excluded EVEN IF they match the glob.
+        // Ordering matters: glob alone would match sub/beta.cs, but gitignore should
+        // suppress the entire sub/ subtree before glob filtering runs.
+        bool IsIgnored(string path) => path == "sub" || path.StartsWith("sub/", StringComparison.Ordinal);
+
+        var options = MakeOptions(
+            globPatterns: new[] { "*.cs" },
+            includeHidden: true);
+        var builder = new TreeBuilder(options, isIgnored: IsIgnored);
+
+        TreeNode root = builder.Build(_root);
+        var allNames = GetAllFiles(root).Select(f => f.Name).ToList();
+
+        // beta.cs (under sub/) must NOT appear despite matching the *.cs glob.
+        Assert.DoesNotContain("beta.cs", allNames);
+        // alpha.cs at root still matches (gitignore doesn't apply, glob does).
+        Assert.Contains("alpha.cs", allNames);
+    }
+
     private static TreeBuilderOptions MakeOptions(
         IReadOnlyList<string>? globPatterns = null,
         IReadOnlyList<string>? regexPatterns = null,
