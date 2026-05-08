@@ -458,10 +458,15 @@ public class TreeBuilderTests : IDisposable
 
         TreeNode root = builder.Build(_root);
         // Filter to just our timestamped files (the existing fixture has other entries).
+        // Round-2 fresh-eyes 2026-05-09 test-analyzer: && binds tighter than ||, so the
+        // pre-fix predicate read as `(File && -old.txt) || -mid.txt || -new.txt`,
+        // applying the type filter only to the -old.txt branch. Wrap the OR group in
+        // parens so the type filter applies to all three names.
         var ourFiles = root.Children
-            .Where(c => c.Type == FileEntryType.File && c.Name.EndsWith("-old.txt", StringComparison.Ordinal)
-                || c.Name.EndsWith("-mid.txt", StringComparison.Ordinal)
-                || c.Name.EndsWith("-new.txt", StringComparison.Ordinal))
+            .Where(c => c.Type == FileEntryType.File
+                && (c.Name.EndsWith("-old.txt", StringComparison.Ordinal)
+                    || c.Name.EndsWith("-mid.txt", StringComparison.Ordinal)
+                    || c.Name.EndsWith("-new.txt", StringComparison.Ordinal)))
             .ToList();
 
         // Newest first → x-new.txt before y-mid.txt before z-old.txt.

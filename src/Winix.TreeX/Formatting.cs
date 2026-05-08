@@ -101,13 +101,22 @@ public static class Formatting
 
     /// <summary>
     /// Returns a JSON error object for failures that occur before any entries are emitted.
-    /// Contains only the standard Winix envelope fields.
+    /// Contains the standard Winix envelope fields plus an optional human-readable
+    /// <c>error</c> field describing the failure.
     /// </summary>
-    /// <param name="exitCode">Process exit code (typically 125-127 for tool errors).</param>
-    /// <param name="exitReason">Machine-readable exit reason string.</param>
+    /// <param name="exitCode">Process exit code (typically 1 for runtime errors, 125-127 for tool errors).</param>
+    /// <param name="exitReason">Machine-readable exit reason string (e.g. "path_not_found", "not_a_directory", "walk_error_partial").</param>
     /// <param name="toolName">Value for the <c>tool</c> envelope field.</param>
     /// <param name="version">Value for the <c>version</c> envelope field.</param>
-    public static string FormatJsonError(int exitCode, string exitReason, string toolName, string version)
+    /// <param name="errorDetail">
+    /// Optional human-readable explanation of the failure (e.g. the same line emitted
+    /// to stderr in the non-JSON path). Emitted as a top-level <c>error</c> field when
+    /// non-null. Round-2 fresh-eyes 2026-05-09 code-reviewer I1: README + agent-guide +
+    /// CHANGELOG documented this field but the prior overload didn't accept or write it,
+    /// producing plan-to-code divergence (per
+    /// <c>feedback_plan_to_code_divergence_must_be_recorded.md</c>).
+    /// </param>
+    public static string FormatJsonError(int exitCode, string exitReason, string toolName, string version, string? errorDetail = null)
     {
         var (writer, buffer) = JsonHelper.CreateWriter();
         using (writer)
@@ -117,6 +126,10 @@ public static class Formatting
             writer.WriteString("version", version);
             writer.WriteNumber("exit_code", exitCode);
             writer.WriteString("exit_reason", exitReason);
+            if (errorDetail is not null)
+            {
+                writer.WriteString("error", errorDetail);
+            }
             writer.WriteEndObject();
         }
 

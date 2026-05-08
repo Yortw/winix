@@ -465,9 +465,19 @@ public sealed class TreeBuilder
 
     /// <summary>
     /// Determines whether a file is executable. On Windows, checks the extension against
-    /// a known set. On Unix, checks <see cref="System.IO.UnixFileMode.UserExecute"/>.
+    /// a known set (<c>.exe .cmd .bat .ps1 .com</c>, case-insensitive). On Unix, checks
+    /// <see cref="System.IO.UnixFileMode.UserExecute"/> on the file's mode.
     /// </summary>
-    private static bool IsExecutable(string fullPath)
+    /// <remarks>
+    /// Round-2 fresh-eyes 2026-05-09 silent-failure-hunter F1: pre-fix the Unix branch
+    /// caught all exceptions and silently returned <c>false</c>, hiding permission denials
+    /// and I/O failures the same way the C1 main-walk catch sites did before being closed.
+    /// Now narrowed to <see cref="PlatformNotSupportedException"/> (the documented intent);
+    /// other exceptions surface as a <see cref="WalkError"/> while still degrading exec
+    /// detection to <c>false</c> rather than crashing the walk.
+    /// Promoted from <c>static</c> to instance so it can append to <c>_walkErrors</c>.
+    /// </remarks>
+    private bool IsExecutable(string fullPath)
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
@@ -481,9 +491,23 @@ public sealed class TreeBuilder
             var mode = File.GetUnixFileMode(fullPath);
             return (mode & UnixFileMode.UserExecute) != 0;
         }
-        catch
+        catch (PlatformNotSupportedException)
         {
-            // Not supported on this platform/runtime — fall back to false
+            // The runtime does not implement Unix file modes (e.g. AOT runtime stubs on
+            // an unsupported platform). Documented intent for this catch.
+            return false;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            // The user can list this directory but not stat the file. Surface so the CLI
+            // can report it; degrade exec detection to false rather than crash the walk.
+            _walkErrors.Add(new WalkError(fullPath, "permission denied (mode): " + ex.Message));
+            return false;
+        }
+        catch (IOException ex)
+        {
+            // Transient FS failure (network share dropped, file vanished mid-stat).
+            _walkErrors.Add(new WalkError(fullPath, "I/O error reading mode: " + ex.Message));
             return false;
         }
     }

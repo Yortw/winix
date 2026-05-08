@@ -218,21 +218,22 @@ public static class Cli
                 // Tier-2 baseline 2026-05-06 finding F4: distinguish "path doesn't exist"
                 // from "path exists but is a file, not a directory."
                 bool isFile = File.Exists(root);
+                string reason = isFile ? "not_a_directory" : "path_not_found";
+                string message = isFile
+                    ? $"treex: not a directory: {root}"
+                    : $"treex: path not found: {root}";
                 if (jsonSummary)
                 {
                     // Round-1 fresh-eyes 2026-05-09 (CR I1, Docs I1, TA C3, SFH H2): JSON
-                    // envelope goes to stdout per suite convention (man-F12, winix-F3,
-                    // whoholds round-2). Pre-fix the error envelope went to stderr alongside
-                    // plain-text messages, so JSON consumers piping `treex --json | jq` got
-                    // nothing on the documented exit-1 path.
-                    string reason = isFile ? "not_a_directory" : "path_not_found";
-                    stdout.WriteLine(Formatting.FormatJsonError(1, reason, "treex", version));
+                    // envelope goes to stdout per suite convention.
+                    // Round-2 fresh-eyes 2026-05-09 (CR I1): emit the human-readable detail
+                    // as the documented `error` field so JSON consumers see what the stderr
+                    // text-mode line says. Pre-fix the docs promised this field but the code
+                    // never wrote it.
+                    stdout.WriteLine(Formatting.FormatJsonError(1, reason, "treex", version, message));
                 }
                 else
                 {
-                    string message = isFile
-                        ? $"treex: not a directory: {root}"
-                        : $"treex: path not found: {root}";
                     stderr.WriteLine(message);
                 }
                 return 1;

@@ -84,6 +84,11 @@ public sealed class CliRunTests : IDisposable
         string outText = stdout.ToString();
         Assert.Contains("\"exit_code\":1", outText, StringComparison.Ordinal);
         Assert.Contains("\"exit_reason\":\"path_not_found\"", outText, StringComparison.Ordinal);
+        // Round-2 fresh-eyes 2026-05-09 code-reviewer I1: the human-readable error
+        // detail must travel via the documented `error` field on the envelope. Without
+        // this field, JSON consumers see only the machine code with no detail — defeats
+        // the purpose of having both.
+        Assert.Contains("\"error\":\"treex: path not found:", outText, StringComparison.Ordinal);
         // Plain-text "treex: path not found" must NOT appear on stderr when --json is requested.
         Assert.DoesNotContain("treex: path not found", stderr.ToString(), StringComparison.Ordinal);
     }
@@ -98,7 +103,11 @@ public sealed class CliRunTests : IDisposable
         int exit = Cli.Run(new[] { "--json", filePath }, stdout, stderr, isStdoutRedirected: true);
 
         Assert.Equal(1, exit);
-        Assert.Contains("\"exit_reason\":\"not_a_directory\"", stdout.ToString(), StringComparison.Ordinal);
+        string outText = stdout.ToString();
+        Assert.Contains("\"exit_reason\":\"not_a_directory\"", outText, StringComparison.Ordinal);
+        // Round-2 fresh-eyes 2026-05-09 code-reviewer I1: error field present on this
+        // envelope too, with the canonical "treex: not a directory:" prefix.
+        Assert.Contains("\"error\":\"treex: not a directory:", outText, StringComparison.Ordinal);
     }
 
     // ── --json success envelope routing (suite convention) ────────────────────────
