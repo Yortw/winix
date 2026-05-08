@@ -115,6 +115,61 @@ public sealed class WalkErrorTests : IDisposable
     }
 
     [SkippableFact]
+    public void Walk_AfterPopulatedWalk_SecondCallResetsToEmpty_Linux()
+    {
+        // Round-2 fresh-eyes 2026-05-09 test-analyzer Item 2 + SFH I1: prior test only
+        // proved reset between EMPTY walks. The dangerous case is reset AFTER a walk
+        // that actually populated WalkErrors — that's where stale errors could leak
+        // into a subsequent clean walk. Plus SFH I1 flagged that the iterator-style
+        // reset only fired on first enumeration; commit 5 wraps Walk so reset happens
+        // on call. Pin both: populate via chmod, walk, assert non-empty; walk a clean
+        // dir, assert empty.
+        Skip.If(OperatingSystem.IsWindows(), "POSIX-only — chmod-based permission denial");
+        if (OperatingSystem.IsWindows()) { return; } // CA1416
+
+        // First walk: populate WalkErrors via a chmod-denied subdir.
+        string locked = Path.Combine(_tempDir, "locked");
+        Directory.CreateDirectory(locked);
+        File.SetUnixFileMode(locked, (UnixFileMode)0);
+
+        var walker = new FileWalker(MakeOptions());
+        _ = walker.Walk(new[] { _tempDir }).ToList();
+        Assert.NotEmpty(walker.WalkErrors);
+
+        // Restore permissions + remove the locked dir so the second walk has no errors.
+        File.SetUnixFileMode(locked,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        Directory.Delete(locked, recursive: true);
+
+        // Second walk: clean tree → WalkErrors must be empty (NOT carry over from
+        // the first call). This is the load-bearing assertion for both Item 2 and I1.
+        _ = walker.Walk(new[] { _tempDir }).ToList();
+        Assert.Empty(walker.WalkErrors);
+    }
+
+    [Fact]
+    public void Walk_DiscardingIteratorWithoutEnumerating_ResetsOnNextCall()
+    {
+        // SFH I1 round-2 2026-05-09: pre-fix, the reset was inside the iterator method
+        // body, so it only fired when the consumer pulled the first element. A consumer
+        // that called walker.Walk(...) and discarded the iterator would see stale errors
+        // on the next call. Post-fix the reset fires on the call to Walk(), not the
+        // first MoveNext(). Pin this contract by constructing two iterators in
+        // succession and never enumerating the first.
+        var walker = new FileWalker(MakeOptions());
+
+        // Call Walk and discard without enumerating. The wrapper must still execute the
+        // _walkErrors.Clear() at this call (not delay it to MoveNext).
+        _ = walker.Walk(new[] { _tempDir });
+
+        // Now call Walk a second time and enumerate. WalkErrors should be empty (the
+        // first call's reset fired on call, the second call's reset fired on call,
+        // the actual walk produced no errors).
+        _ = walker.Walk(new[] { _tempDir }).ToList();
+        Assert.Empty(walker.WalkErrors);
+    }
+
+    [SkippableFact]
     public void Walk_PermissionDeniedSubdir_RecordsWalkError_Linux()
     {
         // Permission-denied is reliably reproducible only on Unix (chmod). On Windows

@@ -84,9 +84,17 @@ public sealed class Round1CoverageTests : IDisposable
         // Both roots referenced in searched_roots envelope field.
         Assert.Contains("r1", outText, StringComparison.Ordinal);
         Assert.Contains("r2", outText, StringComparison.Ordinal);
-        // Both files appeared in the path stream (as path-per-line plus then JSON envelope).
-        Assert.Contains("alpha.txt", outText, StringComparison.Ordinal);
-        Assert.Contains("bravo.txt", outText, StringComparison.Ordinal);
+
+        // Round-2 fresh-eyes 2026-05-09 test-analyzer Item 6: the test name promised
+        // ordering ("WalksBothInOrder") but the body only asserted both files appear,
+        // not the order. Pin the order: alpha.txt (under r1) must precede bravo.txt
+        // (under r2) in the output stream because Cli.Run iterates roots in argv order.
+        int alphaIdx = outText.IndexOf("alpha.txt", StringComparison.Ordinal);
+        int bravoIdx = outText.IndexOf("bravo.txt", StringComparison.Ordinal);
+        Assert.True(alphaIdx >= 0, "alpha.txt must appear in output");
+        Assert.True(bravoIdx >= 0, "bravo.txt must appear in output");
+        Assert.True(alphaIdx < bravoIdx,
+            $"alpha.txt (under r1, walked first) should precede bravo.txt (under r2); got alpha@{alphaIdx}, bravo@{bravoIdx}");
     }
 
     // ── I6: --text/--binary content classification ────────────────────────────────

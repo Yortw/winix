@@ -327,25 +327,39 @@ public static class Cli
             }
             catch (System.Text.RegularExpressions.RegexParseException ex)
             {
-                // Round-1 fresh-eyes 2026-05-09 SFH C2: prefix with the exception type
-                // name so InvariantGlobalization-localised SR-key messages still leave
-                // a comprehensible English token in the user output. ArgumentException's
-                // RegexParseException subclass carries an English description but the
-                // pattern is suite-wide.
+                // RegexParseException carries an English description (the pattern parser
+                // produces literal text, not SR keys). Safe to include ex.Message.
                 stderr.WriteLine($"files: invalid regex: {ex.Message}");
                 exitCode = ExitCode.UsageError;
                 exitReason = "usage_error";
             }
-            catch (UnauthorizedAccessException ex)
+            catch (UnauthorizedAccessException)
             {
-                // Top-level escapee — narrow from the prior bare catch (Exception).
-                stderr.WriteLine($"files: permission denied: {ex.Message}");
+                // Round-2 fresh-eyes 2026-05-09 SFH I2: do NOT pipe ex.Message — under
+                // InvariantGlobalization framework messages may be SR resource keys
+                // (e.g. UnauthorizedAccess_IODenied_Path). Surface the type name + a
+                // tool-supplied English summary; the per-path detail is already in the
+                // walk-error log if applicable.
+                stderr.WriteLine("files: permission denied during walk (run with elevated privileges or check ACLs)");
                 exitCode = 1;
                 exitReason = "runtime_error";
             }
             catch (IOException ex)
             {
-                stderr.WriteLine($"files: {ex.GetType().Name}: {ex.Message}");
+                // Type name only — ex.Message is locale-dependent under InvariantGlobalization.
+                stderr.WriteLine($"files: {ex.GetType().Name} during walk");
+                exitCode = 1;
+                exitReason = "runtime_error";
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException))
+            {
+                // Round-2 fresh-eyes 2026-05-09 SFH I3: previously the bare catch was
+                // removed, leaving anything not Regex/UAE/IO to escape as an unhandled
+                // exception. That's worse UX than a one-line stderr diagnostic + exit 1.
+                // Final catch-all: type name only (no ex.Message, same SR-key concern as
+                // I2). OperationCanceledException is excluded so Ctrl-C cancellation
+                // still propagates with the standard CLR exit code.
+                stderr.WriteLine($"files: {ex.GetType().Name} during walk (unexpected)");
                 exitCode = 1;
                 exitReason = "runtime_error";
             }

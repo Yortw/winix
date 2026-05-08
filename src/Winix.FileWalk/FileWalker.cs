@@ -76,10 +76,18 @@ public sealed class FileWalker
     /// <returns>A lazy sequence of file entries matching the configured predicates.</returns>
     public IEnumerable<FileEntry> Walk(IReadOnlyList<string> roots)
     {
-        // SFH C1 round-1 2026-05-09: reset the walk-error log so each Walk invocation
-        // exposes only its own errors (no accumulation across reuses of the same walker).
+        // SFH C1 round-1 2026-05-09 + SFH I1 round-2 2026-05-09: reset the walk-error log
+        // so each Walk invocation exposes only its own errors. The reset MUST happen on
+        // the call to Walk(), not on the first enumeration of the iterator -- a consumer
+        // that calls Walk(...) and discards the iterator without enumerating would
+        // otherwise see stale errors from a previous walk on a subsequent call. The
+        // wrapper method clears, then returns the iterator from WalkCore.
         _walkErrors.Clear();
+        return WalkCore(roots);
+    }
 
+    private IEnumerable<FileEntry> WalkCore(IReadOnlyList<string> roots)
+    {
         foreach (string root in roots)
         {
             string fullRoot = Path.GetFullPath(root);
@@ -114,24 +122,29 @@ public sealed class FileWalker
             {
                 rootAttrs = File.GetAttributes(fullRoot);
             }
-            catch (UnauthorizedAccessException ex)
+            catch (UnauthorizedAccessException)
             {
-                _walkErrors.Add(new WalkError(fullRoot, "permission denied (root): " + ex.Message));
+                // SFH I2 round-2 2026-05-09: do NOT pipe ex.Message into WalkError.Reason
+                // — the JSON envelope's walk_errors[].reason field is machine-visible and
+                // under InvariantGlobalization framework ex.Message values may be SR
+                // resource keys. The path is already in WalkError.Path; the tool-supplied
+                // English token is the contract.
+                _walkErrors.Add(new WalkError(fullRoot, "permission denied (root)"));
                 continue;
             }
-            catch (FileNotFoundException ex)
+            catch (FileNotFoundException)
             {
-                _walkErrors.Add(new WalkError(fullRoot, "root vanished: " + ex.Message));
+                _walkErrors.Add(new WalkError(fullRoot, "root vanished"));
                 continue;
             }
-            catch (DirectoryNotFoundException ex)
+            catch (DirectoryNotFoundException)
             {
-                _walkErrors.Add(new WalkError(fullRoot, "root vanished: " + ex.Message));
+                _walkErrors.Add(new WalkError(fullRoot, "root vanished"));
                 continue;
             }
             catch (IOException ex)
             {
-                _walkErrors.Add(new WalkError(fullRoot, "I/O error reading root: " + ex.Message));
+                _walkErrors.Add(new WalkError(fullRoot, "I/O error reading root: " + ex.GetType().Name));
                 continue;
             }
             if ((rootAttrs & FileAttributes.ReparsePoint) != 0 && !_options.FollowSymlinks)
@@ -241,14 +254,15 @@ public sealed class FileWalker
                 string? resolved = dirInfo.ResolveLinkTarget(returnFinalTarget: true)?.FullName;
                 realPath = resolved ?? Path.GetFullPath(currentDir);
             }
-            catch (UnauthorizedAccessException ex)
+            catch (UnauthorizedAccessException)
             {
-                _walkErrors.Add(new WalkError(currentDir, "symlink resolve denied: " + ex.Message));
+                // Per SFH I2: tool-supplied English summary; no ex.Message.
+                _walkErrors.Add(new WalkError(currentDir, "symlink resolve denied"));
                 yield break;
             }
             catch (IOException ex)
             {
-                _walkErrors.Add(new WalkError(currentDir, "symlink resolve failed: " + ex.Message));
+                _walkErrors.Add(new WalkError(currentDir, "symlink resolve failed: " + ex.GetType().Name));
                 yield break;
             }
 
@@ -264,24 +278,25 @@ public sealed class FileWalker
         {
             entries = Directory.EnumerateFileSystemEntries(currentDir);
         }
-        catch (UnauthorizedAccessException ex)
+        catch (UnauthorizedAccessException)
         {
             // SFH C1 round-1 2026-05-09: surface as walk error so CLI exits 1 + diagnoses.
-            _walkErrors.Add(new WalkError(currentDir, "permission denied: " + ex.Message));
+            // SFH I2 round-2: no ex.Message (SR-key leak under InvariantGlobalization).
+            _walkErrors.Add(new WalkError(currentDir, "permission denied"));
             yield break;
         }
-        catch (DirectoryNotFoundException ex)
+        catch (DirectoryNotFoundException)
         {
             // Race: directory existed at the parent's enumeration moment but vanished
             // before we descended.
-            _walkErrors.Add(new WalkError(currentDir, "directory not found (removed during walk?): " + ex.Message));
+            _walkErrors.Add(new WalkError(currentDir, "directory not found (removed during walk?)"));
             yield break;
         }
         catch (IOException ex)
         {
             // Catch-all for transient filesystem failures (network share dropped,
-            // file-system reset). Surface; do not pretend the directory was empty.
-            _walkErrors.Add(new WalkError(currentDir, "I/O error: " + ex.Message));
+            // file-system reset). Type name only — tracks the failure class, not text.
+            _walkErrors.Add(new WalkError(currentDir, "I/O error: " + ex.GetType().Name));
             yield break;
         }
 
@@ -295,9 +310,9 @@ public sealed class FileWalker
             {
                 attrs = File.GetAttributes(fullPath);
             }
-            catch (UnauthorizedAccessException ex)
+            catch (UnauthorizedAccessException)
             {
-                _walkErrors.Add(new WalkError(fullPath, "permission denied (attributes): " + ex.Message));
+                _walkErrors.Add(new WalkError(fullPath, "permission denied (attributes)"));
                 continue;
             }
             catch (FileNotFoundException)
@@ -395,9 +410,9 @@ public sealed class FileWalker
                     fileSize = info.Length;
                     modified = new DateTimeOffset(info.LastWriteTimeUtc, TimeSpan.Zero);
                 }
-                catch (UnauthorizedAccessException ex)
+                catch (UnauthorizedAccessException)
                 {
-                    _walkErrors.Add(new WalkError(fullPath, "permission denied (stat): " + ex.Message));
+                    _walkErrors.Add(new WalkError(fullPath, "permission denied (stat)"));
                     continue;
                 }
                 catch (FileNotFoundException)
@@ -428,11 +443,23 @@ public sealed class FileWalker
                     continue;
                 }
 
-                // Text/binary detection -- late filter, only after all other predicates pass
+                // Text/binary detection -- late filter, only after all other predicates pass.
+                // Round-2 fresh-eyes 2026-05-09 SFH C1: ContentDetector now returns null on
+                // read failure (was: false, masking read errors as "binary"). When the file
+                // can't be classified, record a walk error and skip — neither --text nor
+                // --binary should silently include nor silently exclude an unreadable file.
                 bool? isText = null;
                 if (_options.TextOnly != null)
                 {
-                    isText = ContentDetector.IsTextFile(fullPath);
+                    isText = ContentDetector.IsTextFile(fullPath, out string? readError);
+
+                    if (isText is null)
+                    {
+                        _walkErrors.Add(new WalkError(
+                            fullPath,
+                            "could not classify text/binary: " + (readError ?? "unknown read error")));
+                        continue;
+                    }
 
                     // TextOnly == true: only text files; TextOnly == false: only binary files
                     if (_options.TextOnly.Value && !isText.Value)
