@@ -161,4 +161,145 @@ public class ManifestLoaderTests
             File.Delete(cachePath);
         }
     }
+
+    // Round-1 fresh-eyes 2026-05-09 SFH-I1 closure: corrupt cache no longer
+    // locks the user out when a valid bundle exists — fall through with a
+    // stderr warning naming the corrupt source.
+
+    [Fact]
+    public async Task LoadAsync_CorruptCacheValidBundle_FallsThroughToBundleWithWarning()
+    {
+        string cachePath = Path.Combine(Path.GetTempPath(), $"winix-cache-corrupt-{Guid.NewGuid():N}.json");
+        string bundlePath = Path.Combine(Path.GetTempPath(), $"winix-bundle-{Guid.NewGuid():N}.json");
+        try
+        {
+            // Cache exists and is fresher than bundle, but contains corrupt JSON.
+            await File.WriteAllTextAsync(cachePath, "{ corrupt: not valid json @@");
+            await File.WriteAllTextAsync(bundlePath, ValidJson);
+            // Make the cache strictly newer.
+            File.SetLastWriteTimeUtc(cachePath, DateTime.UtcNow);
+            File.SetLastWriteTimeUtc(bundlePath, DateTime.UtcNow.AddMinutes(-1));
+
+            using var warnings = new StringWriter();
+            ToolManifest manifest = await ManifestLoader.LoadAsync(
+                url: "http://localhost:1/never-reached",
+                bundledPath: bundlePath,
+                cachePath: cachePath,
+                warnings: warnings);
+
+            // Bundle won despite cache being newer — fallback succeeded.
+            Assert.Equal("0.4.0", manifest.Version);
+            // Warning was emitted naming the corrupt source.
+            string warning = warnings.ToString();
+            Assert.Contains("corrupt", warning, StringComparison.Ordinal);
+            Assert.Contains(cachePath, warning, StringComparison.Ordinal);
+        }
+        finally
+        {
+            if (File.Exists(cachePath)) File.Delete(cachePath);
+            if (File.Exists(bundlePath)) File.Delete(bundlePath);
+        }
+    }
+
+    [Fact]
+    public async Task LoadAsync_BothCorrupt_ThrowsOriginalFailure()
+    {
+        // Edge case: corrupt cache + corrupt bundle → rethrow the chosen-source
+        // exception (still better than silent success).
+        string cachePath = Path.Combine(Path.GetTempPath(), $"winix-cache-bothcorrupt-{Guid.NewGuid():N}.json");
+        string bundlePath = Path.Combine(Path.GetTempPath(), $"winix-bundle-bothcorrupt-{Guid.NewGuid():N}.json");
+        try
+        {
+            await File.WriteAllTextAsync(cachePath, "@@ invalid 1");
+            await File.WriteAllTextAsync(bundlePath, "@@ invalid 2");
+
+            await Assert.ThrowsAsync<ManifestParseException>(() => ManifestLoader.LoadAsync(
+                bundledPath: bundlePath,
+                cachePath: cachePath));
+        }
+        finally
+        {
+            if (File.Exists(cachePath)) File.Delete(cachePath);
+            if (File.Exists(bundlePath)) File.Delete(bundlePath);
+        }
+    }
+
+    // Round-1 fresh-eyes 2026-05-09 SFH-I2 closure: future-stamped cache mtime
+    // no longer wins indefinitely — clamped to UtcNow with 5-min skew tolerance
+    // so a fresher bundle wins normally.
+
+    [Fact]
+    public async Task LoadAsync_CacheMtimeFarInFuture_BundleWinsWhenBundleFresher()
+    {
+        string cachePath = Path.Combine(Path.GetTempPath(), $"winix-cache-future-{Guid.NewGuid():N}.json");
+        string bundlePath = Path.Combine(Path.GetTempPath(), $"winix-bundle-future-{Guid.NewGuid():N}.json");
+        try
+        {
+            // Cache is stamped 5 years in the future (incoherent — restored from a
+            // backup that preserved future timestamps, OR clock skew on a roaming
+            // laptop that briefly had the wrong year). Bundle is stamped now.
+            string staleManifest = """
+                {
+                  "version": "0.0.1-stale",
+                  "tools": {}
+                }
+                """;
+            await File.WriteAllTextAsync(cachePath, staleManifest);
+            await File.WriteAllTextAsync(bundlePath, ValidJson);
+
+            File.SetLastWriteTimeUtc(cachePath, DateTime.UtcNow.AddYears(5));
+            File.SetLastWriteTimeUtc(bundlePath, DateTime.UtcNow);
+
+            ToolManifest manifest = await ManifestLoader.LoadAsync(
+                url: "http://localhost:1/never-reached",
+                bundledPath: bundlePath,
+                cachePath: cachePath);
+
+            // Bundle won despite cache mtime being later in raw clock time.
+            Assert.Equal("0.4.0", manifest.Version);
+            Assert.NotEqual("0.0.1-stale", manifest.Version);
+        }
+        finally
+        {
+            if (File.Exists(cachePath)) File.Delete(cachePath);
+            if (File.Exists(bundlePath)) File.Delete(bundlePath);
+        }
+    }
+
+    [Fact]
+    public async Task LoadAsync_CacheMtimeWithinSkewTolerance_StillWins()
+    {
+        // Defensive: a cache stamped within the 5-minute skew tolerance is treated
+        // as legitimate and wins normally. Pre-fix this was the only behaviour;
+        // the SFH-I2 fix must not regress it.
+        string cachePath = Path.Combine(Path.GetTempPath(), $"winix-cache-skew-{Guid.NewGuid():N}.json");
+        string bundlePath = Path.Combine(Path.GetTempPath(), $"winix-bundle-skew-{Guid.NewGuid():N}.json");
+        try
+        {
+            string newerCache = """
+                {
+                  "version": "0.5.0-fresh",
+                  "tools": {}
+                }
+                """;
+            await File.WriteAllTextAsync(cachePath, newerCache);
+            await File.WriteAllTextAsync(bundlePath, ValidJson);
+
+            // Cache stamped 1 minute in the future (well within skew tolerance).
+            File.SetLastWriteTimeUtc(cachePath, DateTime.UtcNow.AddMinutes(1));
+            File.SetLastWriteTimeUtc(bundlePath, DateTime.UtcNow.AddMinutes(-1));
+
+            ToolManifest manifest = await ManifestLoader.LoadAsync(
+                url: "http://localhost:1/never-reached",
+                bundledPath: bundlePath,
+                cachePath: cachePath);
+
+            Assert.Equal("0.5.0-fresh", manifest.Version);
+        }
+        finally
+        {
+            if (File.Exists(cachePath)) File.Delete(cachePath);
+            if (File.Exists(bundlePath)) File.Delete(bundlePath);
+        }
+    }
 }

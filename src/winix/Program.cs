@@ -100,7 +100,7 @@ internal sealed class Program
         ToolManifest manifest;
         try
         {
-            manifest = await ManifestLoader.LoadAsync().ConfigureAwait(false);
+            manifest = await ManifestLoader.LoadAsync(warnings: Console.Error).ConfigureAwait(false);
         }
         catch (ManifestParseException ex)
         {

@@ -69,7 +69,8 @@ public static class ManifestLoader
     public static async Task<ToolManifest> LoadAsync(
         string? url = null,
         string? bundledPath = null,
-        string? cachePath = null)
+        string? cachePath = null,
+        TextWriter? warnings = null)
     {
         string resolvedBundlePath = bundledPath ?? DefaultBundledPath();
         string resolvedCachePath = cachePath ?? DefaultCachePath();
@@ -77,24 +78,66 @@ public static class ManifestLoader
         string? chosenPath = SelectFreshestLocalSource(resolvedCachePath, resolvedBundlePath);
         if (chosenPath != null)
         {
-            // Bundled and cached parses both surface immediately on failure rather than
-            // silently falling to the network — a corrupt local manifest is an
-            // internal-error condition the operator must see.
-            string json;
+            // Try the chosen path first. If it parses, return it.
+            //
+            // Round-1 fresh-eyes 2026-05-09 SFH-I1 closure: pre-fix a parse
+            // failure on the chosen path threw immediately with no fallback,
+            // which meant a single cache-write tear (interrupted I/O, AV
+            // quarantine repair, partial sync) locked the user out of every
+            // `winix list/install/uninstall` call until they manually deleted
+            // the cache file — a recovery procedure they had no documentation
+            // for. Now: when the chosen path fails to parse AND the other
+            // local source exists and parses, fall through with a stderr
+            // warning naming the corrupt source. The corrupt cache will be
+            // overwritten on the next `RefreshFromNetworkAsync` call.
             try
             {
-                json = await System.IO.File.ReadAllTextAsync(chosenPath).ConfigureAwait(false);
+                return await ReadAndParseAsync(chosenPath).ConfigureAwait(false);
             }
-            catch (System.IO.IOException ex)
+            catch (ManifestParseException primaryFailure)
             {
-                throw new ManifestParseException(
-                    $"Failed to read manifest at '{chosenPath}' ({ex.GetType().Name}).", ex);
-            }
+                // Try the other local source as a fallback if it exists.
+                string? fallbackPath = chosenPath == resolvedCachePath ? resolvedBundlePath : resolvedCachePath;
+                if (!string.IsNullOrEmpty(fallbackPath) && System.IO.File.Exists(fallbackPath))
+                {
+                    try
+                    {
+                        ToolManifest fallback = await ReadAndParseAsync(fallbackPath).ConfigureAwait(false);
+                        warnings?.WriteLine($"winix: warning: manifest at '{chosenPath}' is corrupt; falling back to '{fallbackPath}' ({primaryFailure.GetType().Name})");
+                        return fallback;
+                    }
+                    catch (ManifestParseException)
+                    {
+                        // Both local sources are corrupt — surface the original failure
+                        // (the chosen one — newer mtime, more likely to be the intended view).
+                    }
+                }
 
-            return ToolManifest.Parse(json);
+                throw;
+            }
         }
 
         return await LoadFromUrlAsync(url ?? DefaultUrl).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Reads a manifest file and parses it, wrapping read failures in
+    /// <see cref="ManifestParseException"/> so the caller's catch sees a single class.
+    /// </summary>
+    private static async Task<ToolManifest> ReadAndParseAsync(string path)
+    {
+        string json;
+        try
+        {
+            json = await System.IO.File.ReadAllTextAsync(path).ConfigureAwait(false);
+        }
+        catch (System.IO.IOException ex)
+        {
+            throw new ManifestParseException(
+                $"Failed to read manifest at '{path}' ({ex.GetType().Name}).", ex);
+        }
+
+        return ToolManifest.Parse(json);
     }
 
     /// <summary>
@@ -177,10 +220,37 @@ public static class ManifestLoader
     /// is present. Treats a missing path as "infinitely old" so a present file always
     /// wins against an absent one.
     /// </summary>
+    /// <remarks>
+    /// Round-1 fresh-eyes 2026-05-09 SFH-I2 closure: a cache file with a future mtime
+    /// (clock skew on a roaming laptop, restored backup that preserved future
+    /// timestamps, or any user-touched mtime) used to win against a fresher bundle
+    /// indefinitely — even when the bundle shipped months later in a real release.
+    /// User would install the current Winix release but `winix list` operated against
+    /// last release's tool list; newly-added tools absent, removed tools still
+    /// present, diagnostically opaque. Now: a cache mtime more than 5 minutes in the
+    /// future of <c>UtcNow</c> is clamped to <c>UtcNow</c>, so a fresher bundle wins
+    /// normally. The 5-minute tolerance absorbs ordinary NTP jitter without
+    /// punishing legitimate cache writes that happen on a slightly-skewed clock.
+    /// </remarks>
     private static string? SelectFreshestLocalSource(string cachePath, string bundlePath)
     {
         bool cacheExists = System.IO.File.Exists(cachePath);
         bool bundleExists = System.IO.File.Exists(bundlePath);
+
+        // Implausibly-future cache mtimes are treated as "doesn't exist" — the
+        // 5-minute tolerance absorbs ordinary NTP jitter; anything beyond that
+        // is a clock-skew or restored-backup artefact and shouldn't outlive
+        // the actual bundle. Bundle mtimes are not clamped because the bundle
+        // is the floor — even an oddly-stamped bundle is still authoritative
+        // when no valid cache exists.
+        if (cacheExists)
+        {
+            DateTime cacheTime = System.IO.File.GetLastWriteTimeUtc(cachePath);
+            if (cacheTime > DateTime.UtcNow.AddMinutes(5))
+            {
+                cacheExists = false;
+            }
+        }
 
         if (cacheExists && bundleExists)
         {
