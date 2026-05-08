@@ -43,7 +43,7 @@ A cross-platform **tree** replacement with full ANSI colour and filtering capabi
 :   Not modified within *DURATION* (e.g. **1h**, **7d**).
 
 **-d**, **--max-depth** *N*
-:   Maximum directory depth (0 = root only).
+:   Maximum directory depth (0-based; **0** = root only, **1** = root and immediate children, **N** = root and N levels of children).
 
 **--no-hidden**
 :   Skip hidden files and directories.
@@ -76,7 +76,7 @@ A cross-platform **tree** replacement with full ANSI colour and filtering capabi
 :   Streaming NDJSON to stdout, one JSON object per node.
 
 **--json**
-:   JSON summary to stderr on exit.
+:   JSON envelope to stdout on exit (suite convention).
 
 **--describe**
 :   Print machine-readable metadata and exit.
@@ -107,10 +107,22 @@ A cross-platform **tree** replacement with full ANSI colour and filtering capabi
 :   Success.
 
 **1**
-:   Runtime error (permission denied, invalid path).
+:   Runtime error (permission denied, invalid path, or partial walk with one or more unreadable directories).
 
 **125**
 :   Usage error (bad arguments).
+
+When directories cannot be enumerated (typically permission denied), each unreadable path is reported on stderr, the rendered tree marks the directory with **[error opening dir]**, and the process exits **1**.
+
+# STRUCTURED OUTPUT
+
+Both **--ndjson** and **--json** write to **stdout** per suite convention.
+
+**--ndjson** emits one JSON object per node with fields **path** (relative to root, forward-slash separated), **name**, **type** (**file** | **dir** | **link**), **size_bytes** (integer, or **null** for directories without **--size** rollup), **modified** (ISO 8601), and **depth** (integer; **0** = root).
+
+**--json** emits a single envelope after the walk: **tool**, **version**, **exit_code**, **exit_reason**, **directories**, **files**, and (when **--size** is on) **total_size_bytes**. Error envelopes additionally carry **error** (human-readable detail).
+
+The **exit_reason** values are: **success**, **walk_error_partial**, **path_not_found**, **not_a_directory**, **usage_error**, **runtime_error**.
 
 # ENVIRONMENT
 

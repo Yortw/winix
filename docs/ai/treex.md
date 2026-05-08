@@ -41,7 +41,7 @@ treex src --ext cs
 treex --newer 1h --date
 ```
 
-**Limit to two levels deep:**
+**Limit depth (0-based — `-d 2` shows root + 2 levels of children):**
 ```bash
 treex -d 2
 ```
@@ -74,7 +74,7 @@ files . --ext log --older 7d | wargs rm
 
 ## Gotchas
 
-**--gitignore uses the first root's .gitignore.** When multiple roots are passed, only the `.gitignore` from the first root path is loaded. Run `treex` once per root if separate gitignore scoping is needed.
+**--gitignore is per-root.** When multiple roots are passed, each root resolves its own `.gitignore` chain via `git check-ignore` in that root's working directory. If none of the roots are inside a git repository, treex prints a warning to stderr and continues without applying the filter.
 
 **--size triggers directory rollups.** Without `--size`, directory size columns are omitted. With `--size`, the tool computes rolled-up sizes for each directory node — this adds a second pass over the collected tree and has a small extra cost on very large trees.
 
@@ -92,28 +92,44 @@ files . --ext log --older 7d | wargs rm
 
 ## Getting Structured Data
 
-`treex` supports two machine-readable output modes:
+`treex` supports two machine-readable output modes; both write to **stdout** per suite convention (matches `man --json`, `winix --json`, `whoholds --json`).
 
-**NDJSON (streaming, to stdout)** — one JSON object per node, suitable for piping to `jq` or processing line by line:
+**NDJSON (streaming)** — one JSON object per node, suitable for piping to `jq` or processing line by line:
 ```bash
-treex --ndjson
+treex --ndjson | jq -r 'select(.type=="file") | .path'
 ```
 
-Each line contains:
-- `tool`, `version`, `exit_code`, `exit_reason` — standard Winix envelope
-- `path` — file path (relative to the root passed on the command line)
+Each record contains:
+- `path` — file path relative to the search root (forward-slash separated)
 - `name` — filename only
 - `type` — `"file"`, `"dir"`, or `"link"`
-- `size_bytes` — size in bytes (`-1` for directories when `--size` is not used)
+- `size_bytes` — integer for files, `null` for directories without `--size` rollup
 - `modified` — ISO 8601 timestamp with offset
-- `depth` — depth relative to the root node
+- `depth` — depth relative to the root node (`0` for the root)
 
-**JSON summary (to stderr)** — aggregate counts after the walk completes:
+Records do NOT carry envelope fields (`tool`, `version`, etc.) — stream-level metadata is emitted only via the `--json` envelope below.
+
+**JSON envelope** — single summary object emitted after the walk completes:
 ```bash
-treex --json 2>summary.json
+treex --json | jq .
 ```
 
-Summary fields: `tool`, `version`, `exit_code`, `exit_reason`, `directories`, `files`, `total_size_bytes` (only present when `--size` is active).
+Success envelope fields: `tool`, `version`, `exit_code`, `exit_reason`, `directories`, `files`, and (when `--size` is on) `total_size_bytes`.
+
+Error envelope (exit 1) carries the same shape plus an `error` field with the human-readable failure detail:
+```json
+{
+  "tool": "treex",
+  "version": "0.4.0",
+  "exit_code": 1,
+  "exit_reason": "path_not_found",
+  "directories": 0,
+  "files": 0,
+  "error": "treex: path not found: ..."
+}
+```
+
+`exit_reason` values: `success`, `walk_error_partial` (one or more unreadable directories), `path_not_found`, `not_a_directory`, `usage_error`, `runtime_error`.
 
 **--describe** — machine-readable flag reference and metadata (flags, types, defaults, examples, composability):
 ```bash

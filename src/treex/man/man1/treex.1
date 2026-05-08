@@ -44,7 +44,9 @@ Not modified within \f[I]DURATION\f[R] (e.g.\ \f[B]1h\f[R],
 \f[B]7d\f[R]).
 .TP
 \f[B]\-d\f[R], \f[B]\(enmax\-depth\f[R] \f[I]N\f[R]
-Maximum directory depth (0 = root only).
+Maximum directory depth (0\-based; \f[B]0\f[R] = root only,
+\f[B]1\f[R] = root and immediate children, \f[B]N\f[R] = root and N
+levels of children).
 .TP
 \f[B]\(enno\-hidden\f[R]
 Skip hidden files and directories.
@@ -78,7 +80,7 @@ Disable clickable terminal hyperlinks.
 Streaming NDJSON to stdout, one JSON object per node.
 .TP
 \f[B]\(enjson\f[R]
-JSON summary to stderr on exit.
+JSON envelope to stdout on exit (suite convention).
 .TP
 \f[B]\(endescribe\f[R]
 Print machine\-readable metadata and exit.
@@ -109,10 +111,37 @@ a unit: \f[B]s\f[R] (seconds), \f[B]m\f[R] (minutes), \f[B]h\f[R]
 Success.
 .TP
 \f[B]1\f[R]
-Runtime error (permission denied, invalid path).
+Runtime error (permission denied, invalid path, or partial walk with
+one or more unreadable directories).
 .TP
 \f[B]125\f[R]
 Usage error (bad arguments).
+.PP
+When directories cannot be enumerated, each unreadable path is reported
+on stderr, the rendered tree marks the directory with
+\f[B][error opening dir]\f[R], and the process exits \f[B]1\f[R].
+.SH STRUCTURED OUTPUT
+Both \f[B]\(enndjson\f[R] and \f[B]\(enjson\f[R] write to \f[B]stdout\f[R]
+per suite convention.
+.PP
+\f[B]\(enndjson\f[R] emits one JSON object per node with fields
+\f[B]path\f[R] (relative to root, forward\-slash separated),
+\f[B]name\f[R], \f[B]type\f[R] (\f[B]file\f[R] | \f[B]dir\f[R] |
+\f[B]link\f[R]), \f[B]size_bytes\f[R] (integer, or \f[B]null\f[R] for
+directories without \f[B]\(ensize\f[R] rollup), \f[B]modified\f[R]
+(ISO 8601), and \f[B]depth\f[R] (integer; \f[B]0\f[R] = root).
+.PP
+\f[B]\(enjson\f[R] emits a single envelope after the walk:
+\f[B]tool\f[R], \f[B]version\f[R], \f[B]exit_code\f[R],
+\f[B]exit_reason\f[R], \f[B]directories\f[R], \f[B]files\f[R], and
+(when \f[B]\(ensize\f[R] is on) \f[B]total_size_bytes\f[R].
+Error envelopes additionally carry \f[B]error\f[R] (human\-readable
+detail).
+.PP
+The \f[B]exit_reason\f[R] values are: \f[B]success\f[R],
+\f[B]walk_error_partial\f[R], \f[B]path_not_found\f[R],
+\f[B]not_a_directory\f[R], \f[B]usage_error\f[R],
+\f[B]runtime_error\f[R].
 .SH ENVIRONMENT
 .TP
 \f[B]NO_COLOR\f[R]
