@@ -79,7 +79,11 @@ files . --ext log --older 7d | wargs squeeze --gzip
 
 **Case sensitivity defaults differ by platform.** On Windows and macOS, matching is case-insensitive by default. On Linux it is case-sensitive. Use `--ignore-case` or `--case-sensitive` to make the behaviour explicit in scripts that need to be portable.
 
-**--gitignore uses the first root's .gitignore.** When multiple roots are passed, only the `.gitignore` from the first root path is loaded. If you need separate gitignore scoping, run `files` once per root.
+**--max-depth is 0-based.** `--max-depth 0` shows only the search root itself; `--max-depth 1` shows the root plus its immediate children; `--max-depth N` shows root + N levels of children. Matches GNU `find -maxdepth`. (BREAKING change at v0.4.0: pre-fix `--max-depth N` showed N+1 levels.)
+
+**--gitignore is per-root.** Each root resolves its own `.gitignore` chain via `git check-ignore` in that root's working directory. If none of the roots are inside a git repository, files prints a warning to stderr and continues without applying the filter.
+
+**Walk errors are surfaced and exit with 1.** When a directory cannot be enumerated (permission denied, vanished, I/O error), files writes one stderr line per unreadable path and exits 1 with `exit_reason: walk_error_partial` in the `--json` envelope. Use the `walk_errors[]` array in the JSON envelope to programmatically enumerate the failed paths.
 
 **--ext strips leading dots.** Passing `--ext .cs` works but emits a warning — pass `--ext cs` instead.
 
@@ -93,29 +97,51 @@ files . --ext log --older 7d | wargs squeeze --gzip
 
 ## Getting Structured Data
 
-`files` supports two machine-readable output modes:
+`files` supports two machine-readable output modes; both write to **stdout** per suite convention (matches `man --json`, `winix --json`, `whoholds --json`, `treex --json`).
 
-**NDJSON (streaming, to stdout)** — one JSON object per file, suitable for piping to `jq` or processing line by line:
+**NDJSON (streaming)** — one JSON object per matching entry, suitable for piping to `jq` or processing line by line:
 ```bash
-files . --ndjson
+files . --ndjson | jq -r 'select(.type=="file") | .path'
 ```
 
-Each line contains:
-- `tool`, `version`, `exit_code`, `exit_reason` — standard Winix envelope
-- `path` — file path (relative or absolute)
+Each record contains:
+- `path` — file path (relative or absolute per `--absolute`)
 - `name` — filename only
 - `type` — `"file"`, `"directory"`, or `"symlink"`
-- `size_bytes` — size in bytes (`-1` for directories)
-- `modified` — ISO 8601 timestamp with offset
-- `depth` — depth relative to search root
-- `is_text` — `true`/`false`, only present when `--text` or `--binary` is used
+- `size_bytes` — integer for files, `null` for directory entries
+- `modified` — ISO 8601 timestamp with offset, or `null` when not populated
+- `depth` — depth relative to search root (`0` = root)
+- `is_text` — `true`/`false`; only present when `--text` or `--binary` is used
 
-**JSON summary (to stderr)** — aggregate counts after the walk completes:
+Records do NOT carry envelope fields (`tool`, `version`, etc.) — stream-level metadata is emitted only via the `--json` envelope below.
+
+**JSON envelope** — single summary object emitted after the walk completes:
 ```bash
-files . --ext cs --json 2>results.json
+files . --ext cs --json | jq .count
 ```
 
-Summary fields: `tool`, `version`, `exit_code`, `exit_reason`, `count`, `searched_roots`.
+Success envelope fields: `tool`, `version`, `exit_code`, `exit_reason`, `count`, `searched_roots`, plus a `walk_errors` array.
+
+`walk_errors[]` enumerates directories or files that could not be read during the walk (permission denied, vanished, I/O error). Each entry is `{"path": "...", "reason": "..."}`. On a partial walk this triggers `exit_code: 1` with `exit_reason: "walk_error_partial"` and the array is non-empty. On success the array is `[]`. Always present so consumers can use a single shape:
+
+```bash
+files /protected --json | jq '.walk_errors[] | "\(.path): \(.reason)"'
+```
+
+Pre-walk error envelopes (`path_not_found`, `not_a_directory`) carry the same shape plus an `error` field with the human-readable failure detail:
+```json
+{
+  "tool": "files",
+  "version": "0.4.0",
+  "exit_code": 1,
+  "exit_reason": "path_not_found",
+  "error": "files: path not found: /missing",
+  "searched_roots": [],
+  "walk_errors": []
+}
+```
+
+`exit_reason` values: `success`, `walk_error_partial` (one or more unreadable directories), `path_not_found`, `not_a_directory`, `usage_error`, `runtime_error`.
 
 **--describe** — machine-readable flag reference and metadata (flags, types, defaults, examples, composability):
 ```bash

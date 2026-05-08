@@ -11,8 +11,9 @@ matching file paths to stdout, one per line.
 Supports glob and regex name matching, type filtering, size and date
 ranges, text/binary detection, and structured output.
 .PP
-Results are printed to stdout; the \f[B]\(enjson\f[R] summary goes to
-stderr so it does not pollute piped output.
+Results are printed to stdout; the \f[B]\(enjson\f[R] envelope is also
+emitted to stdout (suite convention) and is structured so it composes
+cleanly with \f[B]jq\f[R].
 .SH OPTIONS
 .TP
 \f[B]\-g\f[R], \f[B]\(englob\f[R] \f[I]PATTERN\f[R]
@@ -49,7 +50,9 @@ Not modified within \f[I]DURATION\f[R] (e.g.\ \f[B]1h\f[R],
 \f[B]7d\f[R]).
 .TP
 \f[B]\-d\f[R], \f[B]\(enmax\-depth\f[R] \f[I]N\f[R]
-Maximum directory depth (0 = search root only).
+Maximum directory depth (0\-based; \f[B]0\f[R] = search root only,
+\f[B]1\f[R] = root and immediate children, \f[B]N\f[R] = root and N
+levels of children).
 .TP
 \f[B]\-L\f[R], \f[B]\(enfollow\f[R]
 Follow symbolic links.
@@ -79,7 +82,7 @@ Null\-delimited output (for \f[B]xargs \-0\f[R]).
 Streaming NDJSON to stdout, one JSON object per file.
 .TP
 \f[B]\(enjson\f[R]
-JSON summary to stderr on exit.
+JSON envelope to stdout on exit (suite convention).
 .TP
 \f[B]\(endescribe\f[R]
 Print machine\-readable metadata and exit.
@@ -112,10 +115,43 @@ Examples: \f[B]30m\f[R], \f[B]1h\f[R], \f[B]7d\f[R].
 Success.
 .TP
 \f[B]1\f[R]
-Runtime error (permission denied, invalid path).
+Runtime error (permission denied, invalid path, or partial walk with
+one or more unreadable directories).
 .TP
 \f[B]125\f[R]
 Usage error (bad arguments).
+.PP
+When directories cannot be enumerated, each unreadable path is reported
+on stderr and the process exits \f[B]1\f[R] with
+\f[B]exit_reason: walk_error_partial\f[R] in the \f[B]\(enjson\f[R]
+envelope, plus a populated \f[B]walk_errors[]\f[R] array.
+.SH STRUCTURED OUTPUT
+Both \f[B]\(enndjson\f[R] and \f[B]\(enjson\f[R] write to \f[B]stdout\f[R]
+per suite convention.
+.PP
+\f[B]\(enndjson\f[R] emits one JSON object per matching entry with
+fields \f[B]path\f[R] (relative or absolute per \f[B]\(enabsolute\f[R]),
+\f[B]name\f[R], \f[B]type\f[R] (\f[B]file\f[R] | \f[B]directory\f[R] |
+\f[B]symlink\f[R]), \f[B]size_bytes\f[R] (integer, or \f[B]null\f[R]
+for directory entries), \f[B]modified\f[R] (ISO 8601, or \f[B]null\f[R]
+when not populated), \f[B]depth\f[R] (integer; \f[B]0\f[R] = root), and
+\f[B]is_text\f[R] (boolean, only present when \f[B]\(entext\f[R] or
+\f[B]\(enbinary\f[R] is used).
+.PP
+\f[B]\(enjson\f[R] emits a single envelope after the walk:
+\f[B]tool\f[R], \f[B]version\f[R], \f[B]exit_code\f[R],
+\f[B]exit_reason\f[R], \f[B]count\f[R], \f[B]searched_roots\f[R],
+\f[B]walk_errors\f[R] (array of \f[B]{path, reason}\f[R] for unreadable
+paths; empty on success). Pre\-walk error envelopes
+(\f[B]path_not_found\f[R], \f[B]not_a_directory\f[R]) additionally
+carry \f[B]error\f[R] (human\-readable detail) with empty
+\f[B]searched_roots\f[R] and \f[B]walk_errors\f[R] arrays for shape
+parity.
+.PP
+The \f[B]exit_reason\f[R] values are: \f[B]success\f[R],
+\f[B]walk_error_partial\f[R], \f[B]path_not_found\f[R],
+\f[B]not_a_directory\f[R], \f[B]usage_error\f[R],
+\f[B]runtime_error\f[R].
 .SH ENVIRONMENT
 .TP
 \f[B]NO_COLOR\f[R]
@@ -143,6 +179,6 @@ files . \-\-glob \(aq*.log\(aq \-\-print0 | xargs \-0 rm
 .EE
 .SH SEE ALSO
 \f[B]treex\f[R](1), \f[B]wargs\f[R](1), \f[B]timeit\f[R](1),
-\f[B]man\f[R](1)
+\f[B]peep\f[R](1), \f[B]man\f[R](1)
 .SH AUTHORS
 Troy Willmot.
