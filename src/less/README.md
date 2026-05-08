@@ -111,7 +111,7 @@ The `LESS` environment variable controls default options. Three states are disti
 - **Set to a non-empty value** — replaces the defaults entirely. The value is parsed as a list of options (e.g. `LESS=-NiR`). Unknown flags in the value are ignored.
 - **Set to an empty string** (`LESS=`) — disables all defaults. No `FRX`, no built-ins. Useful when you want every option to come from CLI flags.
 
-This matches the behaviour of traditional `less` implementations. (Pre-v0.4.0, "unset" and "empty" were conflated and both gave defaults; the empty-disables semantics is now correctly honoured per F8.)
+This matches the behaviour of traditional `less` implementations. (Pre-v0.4.0, "unset" and "empty" were conflated and both gave defaults; the empty-disables semantics is now correctly honoured.)
 
 ## Exit Codes
 
