@@ -13,6 +13,23 @@ public sealed class FileWalker
     private readonly Func<string, bool>? _isIgnored;
     private readonly GlobMatcher _globMatcher;
     private readonly Regex[] _regexes;
+    private readonly List<WalkError> _walkErrors = new();
+
+    /// <summary>
+    /// Errors encountered during the most recent <see cref="Walk"/> enumeration:
+    /// directories that could not be enumerated (typically <see cref="UnauthorizedAccessException"/>
+    /// or <see cref="DirectoryNotFoundException"/>) and individual files whose attributes
+    /// or stat could not be read.
+    /// </summary>
+    /// <remarks>
+    /// Round-1 fresh-eyes 2026-05-09 silent-failure-hunter C1: pre-fix, the catch sites
+    /// silently <c>yield break</c>'d / <c>continue</c>'d. The README's exit-1 contract for
+    /// "permission denied, invalid path" was unreachable from the CLI. Now collected here
+    /// and exposed for the CLI layer to surface to stderr + bump exit code.
+    /// Inspect after enumeration completes — the lazy <see cref="Walk"/> sequence is
+    /// fully drained before the count of errors is known.
+    /// </remarks>
+    public IReadOnlyList<WalkError> WalkErrors => _walkErrors;
 
     /// <summary>
     /// Initialises a new <see cref="FileWalker"/> with the given options and an optional ignore predicate.
@@ -59,6 +76,10 @@ public sealed class FileWalker
     /// <returns>A lazy sequence of file entries matching the configured predicates.</returns>
     public IEnumerable<FileEntry> Walk(IReadOnlyList<string> roots)
     {
+        // SFH C1 round-1 2026-05-09: reset the walk-error log so each Walk invocation
+        // exposes only its own errors (no accumulation across reuses of the same walker).
+        _walkErrors.Clear();
+
         foreach (string root in roots)
         {
             string fullRoot = Path.GetFullPath(root);
@@ -83,9 +104,36 @@ public sealed class FileWalker
             }
 
             // Skip recursion if the root is a symlink and --follow isn't set.
+            // SFH H2 round-1 2026-05-09: narrow the previously-bare catch and record
+            // the error so the CLI can surface it. UnauthorizedAccessException is the
+            // expected case when the user names a root they can't read; IOException +
+            // PathTooLongException + NotSupportedException are the other documented
+            // throws from File.GetAttributes that we still want to surface.
             FileAttributes rootAttrs;
-            try { rootAttrs = File.GetAttributes(fullRoot); }
-            catch { continue; }
+            try
+            {
+                rootAttrs = File.GetAttributes(fullRoot);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                _walkErrors.Add(new WalkError(fullRoot, "permission denied (root): " + ex.Message));
+                continue;
+            }
+            catch (FileNotFoundException ex)
+            {
+                _walkErrors.Add(new WalkError(fullRoot, "root vanished: " + ex.Message));
+                continue;
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                _walkErrors.Add(new WalkError(fullRoot, "root vanished: " + ex.Message));
+                continue;
+            }
+            catch (IOException ex)
+            {
+                _walkErrors.Add(new WalkError(fullRoot, "I/O error reading root: " + ex.Message));
+                continue;
+            }
             if ((rootAttrs & FileAttributes.ReparsePoint) != 0 && !_options.FollowSymlinks)
             {
                 continue;
@@ -179,6 +227,13 @@ public sealed class FileWalker
         // only normalises "." and ".." — it does NOT resolve symlinks.
         if (visitedDirs != null)
         {
+            // SFH H3 round-1 2026-05-09: narrow the bare catch. ResolveLinkTarget can
+            // throw IOException / UnauthorizedAccessException / SecurityException on
+            // permission errors or broken symlinks; previously the bare catch fell back
+            // to Path.GetFullPath(currentDir), which DEFEATS cycle detection (we'd add
+            // the unresolved path to visitedDirs and recurse into the symlink target).
+            // Now record the failure as a walk error and skip recursion entirely — safer
+            // than risking unbounded recursion through an undetectable cycle.
             string realPath;
             try
             {
@@ -186,10 +241,15 @@ public sealed class FileWalker
                 string? resolved = dirInfo.ResolveLinkTarget(returnFinalTarget: true)?.FullName;
                 realPath = resolved ?? Path.GetFullPath(currentDir);
             }
-            catch
+            catch (UnauthorizedAccessException ex)
             {
-                // Permission error or invalid path — fall back to canonical form
-                realPath = Path.GetFullPath(currentDir);
+                _walkErrors.Add(new WalkError(currentDir, "symlink resolve denied: " + ex.Message));
+                yield break;
+            }
+            catch (IOException ex)
+            {
+                _walkErrors.Add(new WalkError(currentDir, "symlink resolve failed: " + ex.Message));
+                yield break;
             }
 
             if (!visitedDirs.Add(realPath))
@@ -204,12 +264,24 @@ public sealed class FileWalker
         {
             entries = Directory.EnumerateFileSystemEntries(currentDir);
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException ex)
         {
+            // SFH C1 round-1 2026-05-09: surface as walk error so CLI exits 1 + diagnoses.
+            _walkErrors.Add(new WalkError(currentDir, "permission denied: " + ex.Message));
             yield break;
         }
-        catch (DirectoryNotFoundException)
+        catch (DirectoryNotFoundException ex)
         {
+            // Race: directory existed at the parent's enumeration moment but vanished
+            // before we descended.
+            _walkErrors.Add(new WalkError(currentDir, "directory not found (removed during walk?): " + ex.Message));
+            yield break;
+        }
+        catch (IOException ex)
+        {
+            // Catch-all for transient filesystem failures (network share dropped,
+            // file-system reset). Surface; do not pretend the directory was empty.
+            _walkErrors.Add(new WalkError(currentDir, "I/O error: " + ex.Message));
             yield break;
         }
 
@@ -223,12 +295,15 @@ public sealed class FileWalker
             {
                 attrs = File.GetAttributes(fullPath);
             }
-            catch (UnauthorizedAccessException)
+            catch (UnauthorizedAccessException ex)
             {
+                _walkErrors.Add(new WalkError(fullPath, "permission denied (attributes): " + ex.Message));
                 continue;
             }
             catch (FileNotFoundException)
             {
+                // File was enumerated but vanished before GetAttributes — common during
+                // active builds. Mid-walk volatility is not a contract violation.
                 continue;
             }
 
@@ -320,12 +395,15 @@ public sealed class FileWalker
                     fileSize = info.Length;
                     modified = new DateTimeOffset(info.LastWriteTimeUtc, TimeSpan.Zero);
                 }
-                catch (UnauthorizedAccessException)
+                catch (UnauthorizedAccessException ex)
                 {
+                    _walkErrors.Add(new WalkError(fullPath, "permission denied (stat): " + ex.Message));
                     continue;
                 }
                 catch (FileNotFoundException)
                 {
+                    // File vanished between enumeration and stat; same race rationale
+                    // as GetAttributes above. Do not surface.
                     continue;
                 }
 

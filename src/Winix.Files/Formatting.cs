@@ -120,7 +120,9 @@ public static class Formatting
 
     /// <summary>
     /// Returns a JSON summary object for a completed files invocation.
-    /// Standard envelope fields plus <c>count</c> and <c>searched_roots</c>.
+    /// Standard envelope fields plus <c>count</c>, <c>searched_roots</c>, and a
+    /// <c>walk_errors</c> array enumerating any directories or files that could not
+    /// be read.
     /// </summary>
     /// <param name="count">Number of entries emitted.</param>
     /// <param name="searchedRoots">Root paths that were walked.</param>
@@ -128,13 +130,20 @@ public static class Formatting
     /// <param name="exitReason">Machine-readable exit reason string.</param>
     /// <param name="toolName">Value for the <c>tool</c> envelope field.</param>
     /// <param name="version">Value for the <c>version</c> envelope field.</param>
+    /// <param name="walkErrors">
+    /// Walk errors aggregated across all roots. Always emitted (empty array on success)
+    /// so machine consumers can use a single shape regardless of outcome. Round-1
+    /// fresh-eyes 2026-05-09 silent-failure-hunter C1: pre-fix, walk failures were
+    /// silently swallowed and the JSON envelope had no signal that paths were skipped.
+    /// </param>
     public static string FormatJsonSummary(
         int count,
         IReadOnlyList<string> searchedRoots,
         int exitCode,
         string exitReason,
         string toolName,
-        string version)
+        string version,
+        IReadOnlyList<WalkError>? walkErrors = null)
     {
         var (writer, buffer) = JsonHelper.CreateWriter();
         using (writer)
@@ -151,6 +160,18 @@ public static class Formatting
                 writer.WriteStringValue(root);
             }
             writer.WriteEndArray();
+            writer.WriteStartArray("walk_errors");
+            if (walkErrors is not null)
+            {
+                foreach (WalkError walkError in walkErrors)
+                {
+                    writer.WriteStartObject();
+                    writer.WriteString("path", walkError.Path);
+                    writer.WriteString("reason", walkError.Reason);
+                    writer.WriteEndObject();
+                }
+            }
+            writer.WriteEndArray();
             writer.WriteEndObject();
         }
 
@@ -159,13 +180,23 @@ public static class Formatting
 
     /// <summary>
     /// Returns a JSON error object for failures that occur before any entries are emitted.
-    /// Contains only the standard Winix envelope fields.
+    /// Contains the standard Winix envelope fields, an optional <c>error</c> string for
+    /// the human-readable detail, an empty <c>searched_roots</c> array, and an empty
+    /// <c>walk_errors</c> array — both for shape parity with <see cref="FormatJsonSummary"/>.
     /// </summary>
-    /// <param name="exitCode">Process exit code (typically 125-127 for tool errors).</param>
+    /// <param name="exitCode">Process exit code (typically 1 for runtime errors, 125-127 for tool errors).</param>
     /// <param name="exitReason">Machine-readable exit reason string.</param>
     /// <param name="toolName">Value for the <c>tool</c> envelope field.</param>
     /// <param name="version">Value for the <c>version</c> envelope field.</param>
-    public static string FormatJsonError(int exitCode, string exitReason, string toolName, string version)
+    /// <param name="errorDetail">
+    /// Optional human-readable explanation of the failure. Round-1 fresh-eyes 2026-05-09
+    /// code-reviewer I3 + <c>feedback_dual_envelope_formatters_drift.md</c>: the pre-walk
+    /// envelope previously omitted both the human reason and the array fields, leaving
+    /// JSON consumers to special-case two shapes. Now both envelopes carry
+    /// <c>searched_roots</c> + <c>walk_errors</c> (empty on this path) and the error
+    /// envelope additionally carries <c>error</c>.
+    /// </param>
+    public static string FormatJsonError(int exitCode, string exitReason, string toolName, string version, string? errorDetail = null)
     {
         var (writer, buffer) = JsonHelper.CreateWriter();
         using (writer)
@@ -175,6 +206,17 @@ public static class Formatting
             writer.WriteString("version", version);
             writer.WriteNumber("exit_code", exitCode);
             writer.WriteString("exit_reason", exitReason);
+            if (errorDetail is not null)
+            {
+                writer.WriteString("error", errorDetail);
+            }
+            // Round-1 fresh-eyes 2026-05-09: shape parity with FormatJsonSummary so
+            // machine consumers can use a single shape (empty arrays here, populated
+            // there). Avoids the dual-envelope-formatter shape divergence class.
+            writer.WriteStartArray("searched_roots");
+            writer.WriteEndArray();
+            writer.WriteStartArray("walk_errors");
+            writer.WriteEndArray();
             writer.WriteEndObject();
         }
 
