@@ -266,6 +266,42 @@ public class ManifestLoaderTests
         }
     }
 
+    // Round-1 fresh-eyes 2026-05-09 pr-test-analyzer I1 closure: bundle discovery
+    // path was unpinned. A refactor that reordered segments (e.g. `winix/share`
+    // vs `share/winix`) or changed the constant filename would silently break
+    // the F1 offline-correctness contract on every released binary, with no
+    // test failure to catch it.
+
+    [Fact]
+    public void BundledRelativePath_MatchesDocumentedSegmentOrder()
+    {
+        // Pin the canonical layout: forward-slash form is the source-of-truth
+        // (it's how the relative path appears in csproj Content Include and in
+        // the release pipeline). Path.Combine on the consumer side handles
+        // platform-specific separators.
+        Assert.Equal("share/winix/winix-manifest.json", ManifestLoader.BundledRelativePath);
+    }
+
+    [Fact]
+    public void DefaultBundledPath_AnchorsOnAppContextBaseDirectoryAndShareWinix()
+    {
+        string resolved = ManifestLoader.DefaultBundledPath();
+
+        // The path must START with AppContext.BaseDirectory and END with the
+        // share/winix/winix-manifest.json segments. Path.Combine collapses
+        // duplicate separators so the equality test goes via path components.
+        Assert.StartsWith(AppContext.BaseDirectory, resolved, StringComparison.OrdinalIgnoreCase);
+        // Last three components match the published bundle layout.
+        Assert.Contains("share", resolved, StringComparison.Ordinal);
+        Assert.Contains("winix", resolved, StringComparison.Ordinal);
+        Assert.EndsWith("winix-manifest.json", resolved, StringComparison.Ordinal);
+        // Specifically the documented segment order: share comes BEFORE winix.
+        int shareIdx = resolved.LastIndexOf("share", StringComparison.Ordinal);
+        int winixIdx = resolved.LastIndexOf("winix", StringComparison.Ordinal);
+        Assert.True(shareIdx < winixIdx,
+            $"Bundle path must place 'share' before 'winix'. Got: {resolved}");
+    }
+
     [Fact]
     public async Task LoadAsync_CacheMtimeWithinSkewTolerance_StillWins()
     {

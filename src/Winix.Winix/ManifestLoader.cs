@@ -266,9 +266,12 @@ public static class ManifestLoader
 
     /// <summary>
     /// Computes the absolute path to the bundled manifest based on the running binary's
-    /// directory.
+    /// directory. Internal for test access — the canonical layout is
+    /// <c><see cref="AppContext.BaseDirectory"/>/share/winix/winix-manifest.json</c>;
+    /// any refactor that changes the segments or their order would silently break the
+    /// F1 offline-correctness contract on every released binary, hence the test pin.
     /// </summary>
-    private static string DefaultBundledPath()
+    internal static string DefaultBundledPath()
     {
         return System.IO.Path.Combine(AppContext.BaseDirectory, "share", "winix", "winix-manifest.json");
     }

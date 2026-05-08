@@ -62,6 +62,55 @@ public class ProcessHelperTests
     }
 
     [Fact]
+    public void IsOnPath_WindowsCmdExtension_FindsCommandWithoutExtension()
+    {
+        // Round-1 fresh-eyes 2026-05-09 pr-test-analyzer I4 closure: F6's PATHEXT-
+        // aware PATH walk replaced the old spawn-and-kill probe specifically so
+        // PowerShell + scoop installations (where scoop ships as `scoop.cmd`)
+        // would resolve correctly. Pre-fix the test suite only covered the .exe
+        // branch via `dotnet`, leaving the .cmd / .bat branches untested. A
+        // regression to GetExecutableExtensions returning Array.Empty<string>()
+        // would still pass the dotnet test (because dotnet.exe matches the bare
+        // name on first PATH hit) while breaking real scoop.cmd discovery in
+        // production.
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        string tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"winix-pathext-{Guid.NewGuid():N}");
+        System.IO.Directory.CreateDirectory(tempDir);
+        string cmdPath = System.IO.Path.Combine(tempDir, "winix-pathext-probe.cmd");
+        System.IO.File.WriteAllText(cmdPath, "@echo off\r\nexit 0\r\n");
+
+        string? originalPath = System.Environment.GetEnvironmentVariable("PATH");
+        try
+        {
+            // Prepend the temp dir to PATH so the probe is discoverable.
+            System.Environment.SetEnvironmentVariable("PATH", tempDir + ";" + originalPath);
+
+            // Probe the BARE name — IsOnPath must walk PATHEXT and find the .cmd file.
+            bool found = ProcessHelper.IsOnPath("winix-pathext-probe");
+
+            Assert.True(found,
+                $"IsOnPath should resolve a .cmd file via PATHEXT walk. tempDir={tempDir}, file exists: {System.IO.File.Exists(cmdPath)}");
+        }
+        finally
+        {
+            System.Environment.SetEnvironmentVariable("PATH", originalPath);
+            try
+            {
+                System.IO.File.Delete(cmdPath);
+                System.IO.Directory.Delete(tempDir);
+            }
+            catch
+            {
+                // Best-effort cleanup.
+            }
+        }
+    }
+
+    [Fact]
     public void IsOnPath_DoesNotSpawnProcess()
     {
         // Pre-F6 the probe spawned 'command --version' and immediately killed it. The

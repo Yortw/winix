@@ -201,6 +201,46 @@ public sealed class CliTests
         Assert.DoesNotContain("✗", stderr.ToString(), StringComparison.Ordinal);
     }
 
+    // ── pr-test I3 closure: F10 (via X) annotation drop wired through orchestration ─
+
+    [Fact]
+    public async Task RunAsync_InstallUnknownTool_EmitsNotInManifestWithoutViaAnnotation()
+    {
+        // Round-1 fresh-eyes 2026-05-09 pr-test-analyzer I3 closure: F10's
+        // FormatToolError is unit-tested in isolation, but the wiring — that
+        // SuiteManager calls FormatToolError (no via) for unknown tool names
+        // rather than the "(via X)"-emitting FormatToolResult — was unpinned.
+        // A refactor flipping back to the pre-F10 shape would silently re-
+        // introduce the misleading "(via winget)" annotation on errors that
+        // have nothing to do with the package manager.
+        var (stdout, stderr) = Sinks();
+
+        var stubAdapters = new Dictionary<string, IPackageManagerAdapter>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "winget", new StubAdapter("winget") },
+        };
+
+        int exit = await Cli.RunAsync(
+            new[] { "install", "bogus-tool-not-in-manifest" },
+            stdout, stderr,
+            adapters: stubAdapters,
+            platform: PlatformId.Windows,
+            manifestLoader: StubLoader(BuildManifest(("timeit", "Winix.TimeIt"))));
+
+        // The orchestration completes (manifest parsed, adapter resolved, then
+        // SuiteManager iterates the requested tool list and fails on the
+        // unknown one). Exit code is ToolFailure.
+        Assert.Equal(WinixExitCode.ToolFailure, exit);
+
+        string err = stderr.ToString();
+        Assert.Contains("bogus-tool-not-in-manifest", err, StringComparison.Ordinal);
+        Assert.Contains("not in manifest", err, StringComparison.Ordinal);
+        // F10 contract: NO "(via winget)" or any other "(via ...)" annotation
+        // on a not-in-manifest error. The adapter wasn't even consulted —
+        // surfacing "via X" misleads the user about where the error came from.
+        Assert.DoesNotContain("(via", err, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task RunAsync_StatusJson_RoutesToStdoutNotStderr()
     {
