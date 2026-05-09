@@ -159,6 +159,46 @@ public class SuiteManagerTests
     }
 
     [Fact]
+    public async Task UninstallAsync_UsesBulkSnapshot_NotPerToolIsInstalled()
+    {
+        // Perf-fix contract: UninstallAsync must use a single GetInstalled() snapshot
+        // per available adapter for ownership discovery, not per-tool IsInstalled().
+        // Pre-fix this loop fired 22+ filtered subprocess calls per chain entry, taking
+        // 5-7 minutes on real winget. Counting the fake's call counters proves the
+        // bulk path is wired up — if a future refactor re-introduces per-tool IsInstalled,
+        // this test fails immediately rather than waiting for a smoke-test wall-time
+        // regression.
+        var installedPackages = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Winix.TimeIt",
+        };
+
+        var wingetAdapter = new FullFakeAdapter("winget", available: true, installExitCode: 0,
+            installedPackages: installedPackages);
+        var scoopAdapter = new FullFakeAdapter("scoop", available: true, installExitCode: 0);
+        var dotnetAdapter = new FullFakeAdapter("dotnet", available: false, installExitCode: 0);
+
+        var adapters = new Dictionary<string, IPackageManagerAdapter>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "winget", wingetAdapter },
+            { "scoop", scoopAdapter },
+            { "dotnet", dotnetAdapter },
+        };
+
+        var manager = new SuiteManager(CreateTestManifest(), adapters, PlatformId.Windows);
+
+        var results = new List<string>();
+        await manager.UninstallAsync(null, dryRun: true, useColor: false, output: results.Add);
+
+        // Bulk path: GetInstalled fires once per AVAILABLE adapter; IsInstalled never fires.
+        Assert.Equal(0, wingetAdapter.IsInstalledCallCount);
+        Assert.Equal(0, scoopAdapter.IsInstalledCallCount);
+        Assert.Equal(1, wingetAdapter.GetInstalledCallCount);
+        Assert.Equal(1, scoopAdapter.GetInstalledCallCount);
+        Assert.Equal(0, dotnetAdapter.GetInstalledCallCount);
+    }
+
+    [Fact]
     public async Task UninstallAll_AllSucceed_ReturnsZero()
     {
         var installedPackages = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -204,6 +244,12 @@ public class SuiteManagerTests
         public string Name { get; }
         public int InstallCallCount { get; private set; }
 
+        // Track per-package IsInstalled calls so tests can assert that the
+        // bulk-snapshot paths (ListAsync, UninstallAsync) never fall back to
+        // the slow per-package probe.
+        public int IsInstalledCallCount { get; private set; }
+        public int GetInstalledCallCount { get; private set; }
+
         public FullFakeAdapter(
             string name, bool available, int installExitCode,
             Func<string, Task<ProcessResult>>? installOverride = null,
@@ -220,8 +266,11 @@ public class SuiteManagerTests
 
         public bool IsAvailable() => _available;
 
-        public Task<bool> IsInstalled(string packageId) =>
-            Task.FromResult(_installedPackages.Contains(packageId));
+        public Task<bool> IsInstalled(string packageId)
+        {
+            IsInstalledCallCount++;
+            return Task.FromResult(_installedPackages.Contains(packageId));
+        }
 
         public Task<string?> GetInstalledVersion(string packageId)
         {
@@ -231,6 +280,7 @@ public class SuiteManagerTests
 
         public Task<IReadOnlyDictionary<string, string?>> GetInstalled()
         {
+            GetInstalledCallCount++;
             // Build a snapshot from the installed-packages set, supplying the version
             // from _versions when present so list/status tests get the same shape they
             // expected from the per-package GetInstalledVersion path.

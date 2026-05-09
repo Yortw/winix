@@ -116,6 +116,33 @@ public sealed class SuiteManager
         string[] chain = PlatformDetector.GetDefaultChain(_platform);
         int failures = 0;
 
+        // Bulk-snapshot every available adapter UP FRONT — one subprocess per PM rather
+        // than per-tool. Pre-bulk this method called IsInstalled per (tool, PM) pair to
+        // discover ownership before uninstalling, which on real winget took ~7-19 seconds
+        // per call and pushed `winix uninstall --dry-run` past the 60 s smoke timeout
+        // after only ~9 tools. The snapshot's value (version string) is discarded —
+        // ownership is just a key-membership check — but reusing the same shape as
+        // ListAsync keeps a single bulk method on the adapter interface.
+        var snapshots = new Dictionary<string, IReadOnlyDictionary<string, string?>>(
+            StringComparer.OrdinalIgnoreCase);
+        foreach (string pmName in chain)
+        {
+            if (!_adapters.TryGetValue(pmName, out IPackageManagerAdapter? adapter))
+            {
+                continue;
+            }
+
+            if (!adapter.IsAvailable())
+            {
+                continue;
+            }
+
+            if (!snapshots.ContainsKey(pmName))
+            {
+                snapshots[pmName] = await adapter.GetInstalled().ConfigureAwait(false);
+            }
+        }
+
         foreach (string toolName in targets)
         {
             if (!_manifest.Tools.TryGetValue(toolName, out ToolEntry? entry))
@@ -127,18 +154,14 @@ public sealed class SuiteManager
                 continue;
             }
 
-            // Walk the platform chain to find which PM owns this tool.
+            // Walk the platform chain to find which PM owns this tool, using the
+            // pre-built snapshot (O(1) hash lookup, no subprocess).
             IPackageManagerAdapter? owningAdapter = null;
             string? packageId = null;
 
             foreach (string pmName in chain)
             {
-                if (!_adapters.TryGetValue(pmName, out IPackageManagerAdapter? adapter))
-                {
-                    continue;
-                }
-
-                if (!adapter.IsAvailable())
+                if (!snapshots.TryGetValue(pmName, out IReadOnlyDictionary<string, string?>? snapshot))
                 {
                     continue;
                 }
@@ -149,10 +172,11 @@ public sealed class SuiteManager
                     continue;
                 }
 
-                bool installed = await adapter.IsInstalled(pkgId).ConfigureAwait(false);
-                if (installed)
+                if (snapshot.ContainsKey(pkgId))
                 {
-                    owningAdapter = adapter;
+                    // _adapters is guaranteed to have pmName here because the snapshot
+                    // was built by walking the same chain through _adapters.
+                    owningAdapter = _adapters[pmName];
                     packageId = pkgId;
                     break;
                 }
