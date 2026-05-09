@@ -255,8 +255,13 @@ public static class Cli
     /// </summary>
     private static string GetVersion()
     {
-        return typeof(Pager).Assembly
+        // SDK appends a SourceLink "+gitsha" suffix to AssemblyInformationalVersion
+        // by default; strip it so users see plain "X.Y.Z" — matches the convention
+        // adopted across clip / digest / ids / schedule / etc.
+        string raw = typeof(Pager).Assembly
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
             ?.InformationalVersion ?? "0.0.0";
+        int plus = raw.IndexOf('+');
+        return plus >= 0 ? raw.Substring(0, plus) : raw;
     }
 }
