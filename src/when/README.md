@@ -90,7 +90,7 @@ Seconds:   604800
 
 **JSON** (`--json`):
 ```json
-{"tool":"when","version":"0.4.0","exit_code":0,"exit_reason":"success","input":"1718745600","offset":null,"utc":"2024-06-18T21:20:00Z","local":"2024-06-19T09:20:00+12:00","local_timezone":"NZST","unix_seconds":1718745600,"unix_milliseconds":1718745600000,"relative":"1 year ago"}
+{"tool":"when","version":"0.3.0","exit_code":0,"exit_reason":"success","input":"1718745600","offset":null,"utc":"2024-06-18T21:20:00Z","local":"2024-06-19T09:20:00+12:00","local_timezone":"NZST","unix_seconds":1718745600,"unix_milliseconds":1718745600000,"relative":"1 year ago"}
 ```
 
 When `--tz ZONE` is set in conversion mode, the JSON envelope additionally includes `"target"` (target-zone ISO 8601 timestamp) and `"target_timezone"` (target abbreviation).

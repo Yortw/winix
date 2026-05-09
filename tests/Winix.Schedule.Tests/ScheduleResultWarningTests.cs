@@ -112,7 +112,7 @@ public sealed class ScheduleResultWarningTests
     public void FormatActionJson_NoWarning_OmitsWarningField()
     {
         string json = Formatting.FormatActionJson(
-            "add", "foo", "0 2 * * *", null, 0, "success", "0.4.0", warning: null);
+            "add", "foo", "0 2 * * *", null, 0, "success", "0.3.0", warning: null);
         using var doc = JsonDocument.Parse(json);
         Assert.False(doc.RootElement.TryGetProperty("warning", out _));
     }
@@ -121,7 +121,7 @@ public sealed class ScheduleResultWarningTests
     public void FormatActionJson_WithWarning_IncludesWarningField()
     {
         string json = Formatting.FormatActionJson(
-            "add", "foo", "0 2 * * *", null, 0, "success", "0.4.0",
+            "add", "foo", "0 2 * * *", null, 0, "success", "0.3.0",
             warning: "Skipping line 2: bad day-of-month");
         using var doc = JsonDocument.Parse(json);
         Assert.Equal("Skipping line 2: bad day-of-month", doc.RootElement.GetProperty("warning").GetString());

@@ -33,7 +33,7 @@ public sealed class CliTests
         // Use ToolManifest.Parse — the class has only a private ctor, so synthesise
         // a JSON document equivalent to the requested manifest.
         var sb = new System.Text.StringBuilder();
-        sb.Append("{\"version\":\"0.4.0\",\"tools\":{");
+        sb.Append("{\"version\":\"0.3.0\",\"tools\":{");
         for (int i = 0; i < tools.Length; i++)
         {
             if (i > 0) sb.Append(",");

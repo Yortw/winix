@@ -327,7 +327,7 @@ internal sealed class Program
         // Match the convention used by clip / ids / digest / envvault — read
         // AssemblyInformationalVersion (injected via /p:Version by the release
         // pipeline) and strip the "+gitsha" SourceLink suffix the SDK appends
-        // by default. Users see "0.4.0", not "0.4.0+abc123…".
+        // by default. Users see "0.3.0", not "0.3.0+abc123…".
         string raw = typeof(PeepResult).Assembly
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
             ?.InformationalVersion ?? "0.0.0";

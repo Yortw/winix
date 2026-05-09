@@ -525,8 +525,8 @@ internal sealed class Program
     /// <summary>
     /// Returns the informational version from the Winix.Schedule library assembly. The SDK
     /// appends a SourceLink "+gitsha" suffix to <c>AssemblyInformationalVersion</c> by default
-    /// (e.g. "0.4.0+abc123…"); we strip it so users see "0.4.0" — matching the convention
-    /// adopted across clip / ids / digest / envvault / peep and the rest of the v0.3.x+ tools.
+    /// (e.g. "0.3.0+abc123…"); we strip it so users see "0.3.0" — matching the convention
+    /// adopted across clip / ids / digest / envvault / peep and the rest of the suite.
     /// </summary>
     private static string GetVersion()
     {

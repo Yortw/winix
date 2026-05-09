@@ -79,7 +79,7 @@ files . --ext log --older 7d | wargs squeeze --gzip
 
 **Case sensitivity defaults differ by platform.** On Windows and macOS, matching is case-insensitive by default. On Linux it is case-sensitive. Use `--ignore-case` or `--case-sensitive` to make the behaviour explicit in scripts that need to be portable.
 
-**--max-depth is 0-based.** `--max-depth 0` shows only the search root itself; `--max-depth 1` shows the root plus its immediate children; `--max-depth N` shows root + N levels of children. Matches GNU `find -maxdepth`. (BREAKING change at v0.4.0: pre-fix `--max-depth N` showed N+1 levels.)
+**--max-depth is 0-based.** `--max-depth 0` shows only the search root itself; `--max-depth 1` shows the root plus its immediate children; `--max-depth N` shows root + N levels of children. Matches GNU `find -maxdepth`. (BREAKING change at v0.3.0: pre-fix `--max-depth N` showed N+1 levels.)
 
 **--gitignore is per-root.** Each root resolves its own `.gitignore` chain via `git check-ignore` in that root's working directory. If none of the roots are inside a git repository, files prints a warning to stderr and continues without applying the filter.
 
@@ -140,7 +140,7 @@ Pre-walk error envelopes (`path_not_found`, `not_a_directory`) carry the same sh
 ```json
 {
   "tool": "files",
-  "version": "0.4.0",
+  "version": "0.3.0",
   "exit_code": 1,
   "exit_reason": "path_not_found",
   "error": "files: path not found: /missing",

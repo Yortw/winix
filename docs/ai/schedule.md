@@ -143,7 +143,7 @@ daily-build     0 2 * * *      2026-04-13 02:00     Enabled
 ```json
 {
   "tool": "schedule",
-  "version": "0.4.0",
+  "version": "0.3.0",
   "exit_code": 0,
   "exit_reason": "success",
   "tasks": [

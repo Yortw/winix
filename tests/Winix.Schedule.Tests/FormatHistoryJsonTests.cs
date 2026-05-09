@@ -21,11 +21,11 @@ public sealed class FormatHistoryJsonTests
     public void FormatHistoryJson_EmptyRecords_EmitsRunsArray()
     {
         string json = Formatting.FormatHistoryJson(
-            "my-task", Array.Empty<TaskRunRecord>(), 0, "success", "0.4.0");
+            "my-task", Array.Empty<TaskRunRecord>(), 0, "success", "0.3.0");
 
         using var doc = JsonDocument.Parse(json);
         Assert.Equal("schedule", doc.RootElement.GetProperty("tool").GetString());
-        Assert.Equal("0.4.0", doc.RootElement.GetProperty("version").GetString());
+        Assert.Equal("0.3.0", doc.RootElement.GetProperty("version").GetString());
         Assert.Equal(0, doc.RootElement.GetProperty("exit_code").GetInt32());
         Assert.Equal("success", doc.RootElement.GetProperty("exit_reason").GetString());
         Assert.Equal("my-task", doc.RootElement.GetProperty("name").GetString());
@@ -44,7 +44,7 @@ public sealed class FormatHistoryJsonTests
                 duration: TimeSpan.FromSeconds(1.5)),
         };
 
-        string json = Formatting.FormatHistoryJson("t", records, 0, "success", "0.4.0");
+        string json = Formatting.FormatHistoryJson("t", records, 0, "success", "0.3.0");
         using var doc = JsonDocument.Parse(json);
         var record = doc.RootElement.GetProperty("runs")[0];
 
@@ -68,7 +68,7 @@ public sealed class FormatHistoryJsonTests
                 duration: null),
         };
 
-        string json = Formatting.FormatHistoryJson("t", records, 0, "success", "0.4.0");
+        string json = Formatting.FormatHistoryJson("t", records, 0, "success", "0.3.0");
         using var doc = JsonDocument.Parse(json);
         var record = doc.RootElement.GetProperty("runs")[0];
 
@@ -87,7 +87,7 @@ public sealed class FormatHistoryJsonTests
                 duration: TimeSpan.FromSeconds(2)),
         };
 
-        string json = Formatting.FormatHistoryJson("t", records, 0, "success", "0.4.0");
+        string json = Formatting.FormatHistoryJson("t", records, 0, "success", "0.3.0");
         using var doc = JsonDocument.Parse(json);
         var record = doc.RootElement.GetProperty("runs")[0];
 

@@ -126,7 +126,7 @@ Error envelope (exit 1) carries the same shape plus an `error` field with the hu
 ```json
 {
   "tool": "treex",
-  "version": "0.4.0",
+  "version": "0.3.0",
   "exit_code": 1,
   "exit_reason": "path_not_found",
   "directories": 0,

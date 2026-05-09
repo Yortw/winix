@@ -508,12 +508,12 @@ public class SuiteManagerTests
         const string wingetListOutput =
             "Name         Id              Version\r\n" +
             "----------------------------------------\r\n" +
-            "Winix.TimeIt Winix.TimeIt    0.4.0\r\n";
+            "Winix.TimeIt Winix.TimeIt    0.3.0\r\n";
 
         const string scoopListOutput =
             "  Name   Version Source\r\n" +
             "  ----   ------- ------\r\n" +
-            "  timeit 0.3.0   winix\r\n";
+            "  timeit 0.2.0   winix\r\n";
 
         var winget = new ForceAvailableAdapter(new WingetAdapter(
             (cmd, args) => Task.FromResult(new ProcessResult(0, wingetListOutput, ""))));
@@ -533,7 +533,7 @@ public class SuiteManagerTests
         ToolStatus? timeitStatus = statuses.Find(s => s.Name == "timeit");
         Assert.NotNull(timeitStatus);
         Assert.True(timeitStatus.IsInstalled);
-        Assert.Equal("0.4.0", timeitStatus.Version);
+        Assert.Equal("0.3.0", timeitStatus.Version);
         Assert.Equal("winget", timeitStatus.PackageManager);
     }
 

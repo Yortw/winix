@@ -211,10 +211,10 @@ public sealed class FormattingTests
             UseTls = true,
         };
 
-        string json = Formatting.FormatErrorJson("0.4.0", options, 126, "unexpected_error", "something exploded");
+        string json = Formatting.FormatErrorJson("0.3.0", options, 126, "unexpected_error", "something exploded");
 
         Assert.Contains("\"tool\":\"nc\"", json);
-        Assert.Contains("\"version\":\"0.4.0\"", json);
+        Assert.Contains("\"version\":\"0.3.0\"", json);
         Assert.Contains("\"mode\":\"connect\"", json);
         Assert.Contains("\"host\":\"target.com\"", json);
         Assert.Contains("\"port\":443", json);
@@ -250,7 +250,7 @@ public sealed class FormattingTests
             RemoteAddress = "192.0.2.1:54321",
         };
 
-        string json = Formatting.FormatRunJson("0.4.0", options, result);
+        string json = Formatting.FormatRunJson("0.3.0", options, result);
 
         Assert.Contains("\"mode\":\"listen\"", json);
         Assert.Contains("\"local_address\":\"127.0.0.1:8080\"", json);
@@ -270,7 +270,7 @@ public sealed class FormattingTests
         };
         var result = new RunResult { ExitCode = 0, ExitReason = "success" };
 
-        string json = Formatting.FormatRunJson("0.4.0", options, result);
+        string json = Formatting.FormatRunJson("0.3.0", options, result);
 
         Assert.Contains("\"protocol\":\"udp\"", json);
         Assert.Contains("\"tls\":false", json);
@@ -289,7 +289,7 @@ public sealed class FormattingTests
         };
         var result = new RunResult { ExitCode = 0, ExitReason = "success" };
 
-        string json = Formatting.FormatRunJson("0.4.0", options, result);
+        string json = Formatting.FormatRunJson("0.3.0", options, result);
 
         Assert.Contains("\"tls\":true", json);
     }
@@ -302,7 +302,7 @@ public sealed class FormattingTests
             PortCheckResult.Error(80, "nodename nor servname provided"),
         };
 
-        string json = Formatting.FormatCheckJson("0.4.0", "target.com", results, 1, "all_failed");
+        string json = Formatting.FormatCheckJson("0.3.0", "target.com", results, 1, "all_failed");
 
         Assert.Contains("\"port\":80", json);
         Assert.Contains("\"status\":\"error\"", json);
@@ -317,7 +317,7 @@ public sealed class FormattingTests
             PortCheckResult.Timeout(443),
         };
 
-        string json = Formatting.FormatCheckJson("0.4.0", "target.com", results, 2, "some_timeout");
+        string json = Formatting.FormatCheckJson("0.3.0", "target.com", results, 2, "some_timeout");
 
         Assert.Contains("\"port\":443", json);
         Assert.Contains("\"status\":\"timeout\"", json);
@@ -338,7 +338,7 @@ public sealed class FormattingTests
             BindAddress = "127.0.0.1",
         };
 
-        string json = Formatting.FormatErrorJson("0.4.0", options, 126, "unexpected_error", "boom");
+        string json = Formatting.FormatErrorJson("0.3.0", options, 126, "unexpected_error", "boom");
 
         Assert.Contains("\"mode\":\"listen\"", json);
         Assert.DoesNotContain("\"host\":", json);
@@ -356,7 +356,7 @@ public sealed class FormattingTests
             Ports = new[] { new PortRange(53) },
         };
 
-        string json = Formatting.FormatErrorJson("0.4.0", options, 126, "unexpected_error", "boom");
+        string json = Formatting.FormatErrorJson("0.3.0", options, 126, "unexpected_error", "boom");
 
         Assert.Contains("\"protocol\":\"udp\"", json);
         Assert.Contains("\"tls\":false", json);
@@ -397,7 +397,7 @@ public sealed class FormattingTests
             Ports = new[] { new PortRange(80, 90) },
         };
 
-        string json = Formatting.FormatErrorJson("0.4.0", options, 126, "unexpected_error", "boom");
+        string json = Formatting.FormatErrorJson("0.3.0", options, 126, "unexpected_error", "boom");
 
         Assert.Contains("\"mode\":\"check\"", json);
         Assert.DoesNotContain("\"port\":", json);

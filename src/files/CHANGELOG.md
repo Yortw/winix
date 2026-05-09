@@ -4,7 +4,7 @@ All notable changes to **files** will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [0.4.0] - 2026-05-09
+## [0.3.0] - 2026-05-09
 
 ### Changed (BREAKING)
 - `--max-depth N` semantics: now matches GNU `find -maxdepth` (search root yielded as depth 0; `--max-depth 0` emits only the root path; `--max-depth N` includes up to N levels of children below the root). Pre-fix the search root was never yielded and `--max-depth 0` showed immediate children. Migration: subtract 1 from any existing `--max-depth` values.
@@ -21,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 - Path that exists but is a regular file (not a directory) now reports "not a directory" instead of the misleading "path not found", and surfaces `exit_reason: not_a_directory` in the `--json` envelope.
 - Top-level `catch (Exception ex)` narrowed to specific types (`RegexParseException` → 125, `UnauthorizedAccessException` / `IOException` → 1). Pre-fix the bare catch piped framework `ex.Message` to user output, which under `InvariantGlobalization=true` could leak SR resource keys per `feedback_invariant_globalization_resource_keys.md`.
 - Symlink cycle detection no longer falls back to the unresolved `Path.GetFullPath` on `ResolveLinkTarget` failure — the bare-catch fallback defeated cycle detection on the very directory whose target couldn't be resolved. Now records the failure as a walk error and skips recursion.
+- `--version` output no longer carries the `+gitsha` SourceLink suffix the .NET SDK appends by default. Users see plain `files 0.3.0`, matching the suite-wide convention.
 
 ### Added
 - Library seam `Winix.Files.Cli.Run` for orchestration testing without process spawning. Matches sibling-tool pattern (`clip`, `digest`, `url`, `qr`, `whoholds`, `treex`).

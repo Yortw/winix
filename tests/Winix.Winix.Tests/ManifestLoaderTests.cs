@@ -11,7 +11,7 @@ public class ManifestLoaderTests
 {
     private const string ValidJson = """
         {
-          "version": "0.4.0",
+          "version": "0.3.0",
           "tools": {
             "timeit": {
               "description": "Time a command.",
@@ -34,7 +34,7 @@ public class ManifestLoaderTests
                 url: "http://localhost:1/never-reached",
                 bundledPath: tempPath);
 
-            Assert.Equal("0.4.0", manifest.Version);
+            Assert.Equal("0.3.0", manifest.Version);
             Assert.True(manifest.Tools.ContainsKey("timeit"));
         }
         finally
@@ -86,7 +86,7 @@ public class ManifestLoaderTests
         string cachePath = Path.Combine(Path.GetTempPath(), $"winix-cache-{Guid.NewGuid():N}.json");
 
         // Bundle has version 0.1, cache has version 0.4 — we expect 0.4 because cache is fresher.
-        string bundleJson = ValidJson.Replace("0.4.0", "0.1.0");
+        string bundleJson = ValidJson.Replace("0.3.0", "0.1.0");
         await File.WriteAllTextAsync(bundlePath, bundleJson);
         File.SetLastWriteTimeUtc(bundlePath, DateTime.UtcNow.AddDays(-30));
 
@@ -99,7 +99,7 @@ public class ManifestLoaderTests
                 bundledPath: bundlePath,
                 cachePath: cachePath);
 
-            Assert.Equal("0.4.0", manifest.Version);
+            Assert.Equal("0.3.0", manifest.Version);
         }
         finally
         {
@@ -115,7 +115,7 @@ public class ManifestLoaderTests
         string cachePath = Path.Combine(Path.GetTempPath(), $"winix-cache-{Guid.NewGuid():N}.json");
 
         // Cache has stale version 0.1, bundle has version 0.4 (a recent release shipped).
-        string staleCacheJson = ValidJson.Replace("0.4.0", "0.1.0");
+        string staleCacheJson = ValidJson.Replace("0.3.0", "0.1.0");
         await File.WriteAllTextAsync(cachePath, staleCacheJson);
         File.SetLastWriteTimeUtc(cachePath, DateTime.UtcNow.AddDays(-30));
 
@@ -128,7 +128,7 @@ public class ManifestLoaderTests
                 bundledPath: bundlePath,
                 cachePath: cachePath);
 
-            Assert.Equal("0.4.0", manifest.Version);
+            Assert.Equal("0.3.0", manifest.Version);
         }
         finally
         {
@@ -141,7 +141,9 @@ public class ManifestLoaderTests
     public async Task RefreshFromNetworkAsync_NetworkUnreachable_DoesNotOverwriteCache()
     {
         string cachePath = Path.Combine(Path.GetTempPath(), $"winix-cache-{Guid.NewGuid():N}.json");
-        string original = ValidJson.Replace("0.4.0", "0.3.0");
+        // Use a different version string than ValidJson so the test asserts the cache
+        // content was preserved byte-for-byte (it's opaque to the network-refresh path).
+        string original = ValidJson.Replace("0.3.0", "0.2.0");
         await File.WriteAllTextAsync(cachePath, original);
 
         try
@@ -188,7 +190,7 @@ public class ManifestLoaderTests
                 warnings: warnings);
 
             // Bundle won despite cache being newer — fallback succeeded.
-            Assert.Equal("0.4.0", manifest.Version);
+            Assert.Equal("0.3.0", manifest.Version);
             // Warning was emitted naming the corrupt source.
             string warning = warnings.ToString();
             Assert.Contains("corrupt", warning, StringComparison.Ordinal);
@@ -256,7 +258,7 @@ public class ManifestLoaderTests
                 cachePath: cachePath);
 
             // Bundle won despite cache mtime being later in raw clock time.
-            Assert.Equal("0.4.0", manifest.Version);
+            Assert.Equal("0.3.0", manifest.Version);
             Assert.NotEqual("0.0.1-stale", manifest.Version);
         }
         finally

@@ -4,7 +4,7 @@ All notable changes to **less** will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [0.4.0] - 2026-05-09
+## [0.3.0] - 2026-05-09
 
 ### Changed (BREAKING)
 - Multi-file paging removed. Pre-fix the binary silently overwrote `filePath` with each subsequent positional, opening only the LAST one. README and man both claimed "Multiple files are paged in sequence." Now `less file1 file2` exits with usage error 2 and a clear message. For concatenated paging, use `cat file1 file2 | less`. True multi-file paging with `:n` / `:p` navigation is tracked for v0.5+.
@@ -18,6 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 - File-load now catches `IOException` and `UnauthorizedAccessException` in addition to the previously-only-caught `FileNotFoundException`. Pre-fix a path-too-long, locked-for-exclusive-write file, or permission-denied target crashed with a stack trace. `UnauthorizedAccessException` emits a tool-supplied English message to avoid leaking SR resource keys under InvariantGlobalization.
 - `LESS=` (empty) now correctly disables all defaults. Pre-fix code conflated null and empty via `string.IsNullOrEmpty`, so the documented "set LESS= explicitly to empty to disable defaults" contract was unreachable.
 - Pager-Screen-ReattachUnix cleanup-class triangle (round-1 fresh-eyes 2026-05-09): three cooperative silent-failure modes around console-handle lifecycle closed in one fix. Pager.Run now catches both `IOException` AND `InvalidOperationException` (the latter fires when `Console.ReadKey` runs after a failed reattach — common on `git diff | less +F`). `Screen.Dispose` guards each terminal write against `IOException` so unwind doesn't compound the original failure. `ConsoleInput.ReattachUnix` narrows from a bare `catch { }` to typed catches with a one-shot stderr diagnostic. The crash-fallback `DumpFromViewport` preserves the user's current viewport position rather than re-emitting content scrolled past.
+- `--version` output no longer carries the `+gitsha` SourceLink suffix. Users see plain `less 0.3.0`, matching the suite-wide convention.
 
 ### Added
 - Library seam `Winix.Less.Cli.Run` for orchestration testing without process spawning or entering the interactive Pager.Run loop. Matches sibling-tool pattern (`clip`, `digest`, `url`, `qr`, `whoholds`, `treex`, `files`).

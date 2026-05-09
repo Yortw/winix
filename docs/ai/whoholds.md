@@ -114,7 +114,7 @@ myapp.dll is held by:
 ```json
 {
   "tool": "whoholds",
-  "version": "0.4.0",
+  "version": "0.3.0",
   "exit_code": 0,
   "exit_reason": "success",
   "processes": [

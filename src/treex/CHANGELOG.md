@@ -4,7 +4,7 @@ All notable changes to **treex** will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [0.4.0] - 2026-05-09
+## [0.3.0] - 2026-05-09
 
 ### Changed (BREAKING)
 - `--max-depth N` semantics: now `depth ≤ N` with the search root at depth 0. `--max-depth 0` shows only the root; `--max-depth 1` shows root + immediate children. Previously `--max-depth 0` showed root + immediate children, contradicting the documented contract. Migration: subtract 1 from any existing `--max-depth` values.
@@ -21,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 - Directories that cannot be enumerated are now annotated with `[error opening dir]` in the rendered tree, matching `tree(1)` precedent.
 - `--describe` JSON field schema for `size_bytes` updated from `int` to `int|null` to match the post-fix emitter.
 - Path that exists but is a regular file (not a directory) now reports "not a directory" instead of the misleading "path not found", and surfaces `exit_reason: not_a_directory` in the `--json` envelope.
+- `--version` output no longer carries the `+gitsha` SourceLink suffix. Users see plain `treex 0.3.0`, matching the suite-wide convention.
 
 ### Added
 - Library seam `Winix.TreeX.Cli.Run` for orchestration testing without process spawning. Matches sibling-tool pattern (`clip`, `digest`, `url`, `qr`, `whoholds`).

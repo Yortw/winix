@@ -127,7 +127,7 @@ files . --glob '*.log' --print0 | xargs -0 rm
 | Name matching | `-name '*.cs'` | `--glob '*.cs'` or `--ext cs` |
 | Regex | `-regex` (anchored, varies by OS) | `--regex` (filename only) |
 | Type filter | `-type f/d/l` | `--type f/d/l` (same) |
-| Max depth | `-maxdepth N` (root + N levels of children) | `--max-depth N` (same; 0-based, matches `find` post-v0.4.0) |
+| Max depth | `-maxdepth N` (root + N levels of children) | `--max-depth N` (same; 0-based, matches `find` post-v0.3.0) |
 | Newer than | `-newer <file>` | `--newer 1h` (duration-based) |
 | Size filter | `-size +1M` | `--min-size 1M` / `--max-size 1M` |
 | Skip hidden | No built-in | `--no-hidden` |

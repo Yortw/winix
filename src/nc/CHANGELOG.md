@@ -4,7 +4,7 @@ All notable changes to **nc** will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [0.4.0] - 2026-04-24
+## [0.3.0] - 2026-04-24
 
 Three rounds of fresh-eyes code review landed substantive behaviour fixes
 across the client, listener, check, and TLS paths. Round 1 corrected the
@@ -93,6 +93,8 @@ large batch of Important diagnosability gaps.
   mapped to exit 1 rather than escaping as "unexpected error".
 - User-cancel OCE during TLS handshake rethrown so Main's 130 arm fires
   instead of mis-labelling as `tls_failed` / exit 1.
+- `--version` output no longer carries the `+gitsha` SourceLink suffix.
+  Users see plain `nc 0.3.0`, matching the suite-wide convention.
 
 ### Pinning tests
 

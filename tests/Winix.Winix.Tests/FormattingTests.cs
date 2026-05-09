@@ -142,11 +142,11 @@ public class FormattingTests
     {
         var statuses = new List<ToolStatus>
         {
-            new("timeit", isInstalled: true, version: "0.4.0", packageManager: "winget"),
+            new("timeit", isInstalled: true, version: "0.3.0", packageManager: "winget"),
             new("squeeze", isInstalled: false, version: null, packageManager: null),
         };
 
-        string json = Formatting.FormatListJson(statuses, "0.4.0", PlatformId.Windows);
+        string json = Formatting.FormatListJson(statuses, "0.3.0", PlatformId.Windows);
 
         // Round-trip via System.Text.Json to confirm the output is well-formed JSON and
         // pin the shape consumers will rely on.
@@ -155,7 +155,7 @@ public class FormattingTests
 
         Assert.Equal("winix", root.GetProperty("tool").GetString());
         Assert.Equal("list", root.GetProperty("command").GetString());
-        Assert.Equal("0.4.0", root.GetProperty("version").GetString());
+        Assert.Equal("0.3.0", root.GetProperty("version").GetString());
         Assert.Equal("windows", root.GetProperty("platform").GetString());
 
         var tools = root.GetProperty("tools");
@@ -164,7 +164,7 @@ public class FormattingTests
         var first = tools[0];
         Assert.Equal("timeit", first.GetProperty("name").GetString());
         Assert.True(first.GetProperty("installed").GetBoolean());
-        Assert.Equal("0.4.0", first.GetProperty("version").GetString());
+        Assert.Equal("0.3.0", first.GetProperty("version").GetString());
         Assert.Equal("winget", first.GetProperty("via").GetString());
 
         var second = tools[1];
@@ -180,13 +180,13 @@ public class FormattingTests
     {
         var statuses = new List<ToolStatus>
         {
-            new("timeit", isInstalled: true, version: "0.4.0", packageManager: "winget"),
-            new("squeeze", isInstalled: true, version: "0.4.0", packageManager: "winget"),
-            new("peep", isInstalled: true, version: "0.4.0", packageManager: "scoop"),
+            new("timeit", isInstalled: true, version: "0.3.0", packageManager: "winget"),
+            new("squeeze", isInstalled: true, version: "0.3.0", packageManager: "winget"),
+            new("peep", isInstalled: true, version: "0.3.0", packageManager: "scoop"),
             new("wargs", isInstalled: false, version: null, packageManager: null),
         };
 
-        string json = Formatting.FormatStatusJson(statuses, totalTools: 4, "0.4.0", PlatformId.MacOS);
+        string json = Formatting.FormatStatusJson(statuses, totalTools: 4, "0.3.0", PlatformId.MacOS);
 
         using var doc = System.Text.Json.JsonDocument.Parse(json);
         var root = doc.RootElement;
