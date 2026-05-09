@@ -211,4 +211,195 @@ public class WingetAdapterTests
 
         Assert.Equal("17.0.0", version);
     }
+
+    // ── GetInstalled / ParseListOutput ──────────────────────────────────────
+    //
+    // The bulk path replaces the per-tool IsInstalled/GetInstalledVersion loop
+    // with a single `winget list` (no filter) parsed into a dictionary keyed by
+    // Id. Pre-bulk the suite-wide flows (winix list / status / uninstall) took
+    // 5-7 minutes against real winget; post-bulk they complete in ~8 seconds.
+
+    [Fact]
+    public async Task GetInstalled_ConstructsListWithoutFilter()
+    {
+        // Verify the bulk path uses the unfiltered `winget list` form, NOT
+        // `winget list --id X --exact` per-tool. The unfiltered call lets winget
+        // walk its index once for all packages instead of once per package.
+        var recorder = new ProcessRecorder(new ProcessResult(0, "", ""));
+        var adapter = new WingetAdapter(recorder.RunAsync);
+
+        await adapter.GetInstalled();
+
+        Assert.Equal("winget", recorder.LastCommand);
+        Assert.Equal(new[] { "list" }, recorder.LastArguments);
+    }
+
+    [Fact]
+    public async Task GetInstalled_NonZeroExitCode_ReturnsEmptySnapshot()
+    {
+        // Adapter contract on failure: empty snapshot, not throw. Caller treats
+        // every tool as not-installed — matches the per-package path where
+        // IsInstalled returns false on non-zero exit.
+        var recorder = new ProcessRecorder(new ProcessResult(1, "", "winget index unavailable"));
+        var adapter = new WingetAdapter(recorder.RunAsync);
+
+        IReadOnlyDictionary<string, string?> snapshot = await adapter.GetInstalled();
+
+        Assert.Empty(snapshot);
+    }
+
+    [Fact]
+    public void ParseListOutput_3ColumnShape_PopulatesIdAndVersion()
+    {
+        // The minimal "happy path" shape: Name | Id | Version, no upgrades pending.
+        const string output =
+            "Name     Id              Version\r\n" +
+            "---------------------------------\r\n" +
+            "timeit   Winix.TimeIt    0.2.0\r\n" +
+            "squeeze  Winix.Squeeze   0.1.5";
+
+        IReadOnlyDictionary<string, string?> result = WingetAdapter.ParseListOutput(output);
+
+        Assert.Equal(2, result.Count);
+        Assert.Equal("0.2.0", result["Winix.TimeIt"]);
+        Assert.Equal("0.1.5", result["Winix.Squeeze"]);
+    }
+
+    [Fact]
+    public void ParseListOutput_5ColumnShape_VersionIsInstalledNotAvailableNotSource()
+    {
+        // Mirrors the GetInstalledVersion SFH-C1 case at the bulk level: when ANY
+        // package has an upgrade pending, winget appends Available + Source columns
+        // for every row. Version cell must be the INSTALLED version, not the
+        // available version, and certainly not the source name "winix".
+        const string output =
+            "Name           Id              Version  Available  Source\r\n" +
+            "------------------------------------------------------------\r\n" +
+            "timeit         Winix.TimeIt    0.3.0    0.4.0      winix\r\n" +
+            "squeeze        Winix.Squeeze   0.1.5                       ";
+
+        IReadOnlyDictionary<string, string?> result = WingetAdapter.ParseListOutput(output);
+
+        Assert.Equal("0.3.0", result["Winix.TimeIt"]);
+        Assert.NotEqual("0.4.0", result["Winix.TimeIt"]);
+        Assert.NotEqual("winix", result["Winix.TimeIt"]);
+        Assert.Equal("0.1.5", result["Winix.Squeeze"]);
+    }
+
+    [Fact]
+    public void ParseListOutput_SpinnerPrefix_HeaderDetectionSkipsGarbage()
+    {
+        // winget streams progress glyphs (-\|/) BEFORE the header line. Header
+        // detection scans for "Name…" followed by "---…" to skip this garbage.
+        // The spinner length varies — sometimes a few dozen chars, sometimes
+        // hundreds — but the structure is always "garbage line(s), then real table".
+        const string output =
+            "  -  \r\n" +
+            "  \\ \r\n" +
+            "  | \r\n" +
+            "  / \r\n" +
+            "Name     Id              Version\r\n" +
+            "---------------------------------\r\n" +
+            "timeit   Winix.TimeIt    0.2.0";
+
+        IReadOnlyDictionary<string, string?> result = WingetAdapter.ParseListOutput(output);
+
+        Assert.Single(result);
+        Assert.Equal("0.2.0", result["Winix.TimeIt"]);
+    }
+
+    [Fact]
+    public void ParseListOutput_MultiWordName_DoesNotCorruptIdOrVersion()
+    {
+        // A Name with embedded spaces ("Visual Studio") would defeat a
+        // whitespace-split parser. Fixed-width slicing on header column offsets
+        // is robust because the Name column has a known boundary regardless of
+        // how many tokens its value contains.
+        const string output =
+            "Name             Id                       Version\r\n" +
+            "------------------------------------------------------\r\n" +
+            "Visual Studio    Microsoft.VisualStudio   17.0.0\r\n" +
+            "Git              Git.Git                  2.43.0";
+
+        IReadOnlyDictionary<string, string?> result = WingetAdapter.ParseListOutput(output);
+
+        Assert.Equal("17.0.0", result["Microsoft.VisualStudio"]);
+        Assert.Equal("2.43.0", result["Git.Git"]);
+    }
+
+    [Fact]
+    public void ParseListOutput_EmptyVersionCell_StoresNullValue()
+    {
+        // winget can emit a row with a blank Version cell for ARP-detected
+        // packages where the registry entry has no DisplayVersion. The parser
+        // surfaces null rather than treating absence as "not in snapshot" —
+        // membership (IsInstalled) and version (GetInstalledVersion) are
+        // separate concerns and the bulk caller needs to differentiate them.
+        const string output =
+            "Name        Id              Version\r\n" +
+            "----------------------------------------\r\n" +
+            "tool-a      Some.Package    \r\n" +
+            "tool-b      Other.Package   1.2.3";
+
+        IReadOnlyDictionary<string, string?> result = WingetAdapter.ParseListOutput(output);
+
+        Assert.True(result.ContainsKey("Some.Package"));
+        Assert.Null(result["Some.Package"]);
+        Assert.Equal("1.2.3", result["Other.Package"]);
+    }
+
+    [Fact]
+    public void ParseListOutput_LookupIsCaseInsensitive()
+    {
+        // winget preserves the published case (e.g. "Microsoft.VisualStudio").
+        // Manifests can use slightly different casing across tools, so the
+        // snapshot is keyed case-insensitively to avoid forcing every adapter +
+        // every manifest entry into a single canonical case.
+        const string output =
+            "Name     Id              Version\r\n" +
+            "---------------------------------\r\n" +
+            "timeit   Winix.TimeIt    0.2.0";
+
+        IReadOnlyDictionary<string, string?> result = WingetAdapter.ParseListOutput(output);
+
+        Assert.Equal("0.2.0", result["winix.timeit"]);
+        Assert.Equal("0.2.0", result["WINIX.TIMEIT"]);
+        Assert.Equal("0.2.0", result["Winix.TimeIt"]);
+    }
+
+    [Fact]
+    public void ParseListOutput_NoHeader_ReturnsEmpty()
+    {
+        // Defensive: if winget changes its output shape (or emits an error to
+        // stdout), header detection fails and we return empty rather than
+        // attempting to slice arbitrary lines at column offsets we never
+        // computed.
+        const string output =
+            "Some unexpected text without the Name/--- header pair.\r\n" +
+            "Another line.";
+
+        IReadOnlyDictionary<string, string?> result = WingetAdapter.ParseListOutput(output);
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void ParseListOutput_TruncatedRowShorterThanIdColumn_Skipped()
+    {
+        // A row physically too short to contain the Id column (e.g. a stray
+        // blank line emitted between data rows) must be skipped, not throw an
+        // out-of-range slice. Robustness against winget output variations.
+        const string output =
+            "Name     Id              Version\r\n" +
+            "---------------------------------\r\n" +
+            "timeit   Winix.TimeIt    0.2.0\r\n" +
+            "x\r\n" +
+            "squeeze  Winix.Squeeze   0.1.5";
+
+        IReadOnlyDictionary<string, string?> result = WingetAdapter.ParseListOutput(output);
+
+        Assert.Equal(2, result.Count);
+        Assert.Equal("0.2.0", result["Winix.TimeIt"]);
+        Assert.Equal("0.1.5", result["Winix.Squeeze"]);
+    }
 }

@@ -174,4 +174,105 @@ public class BrewAdapterTests
         Assert.Contains("brew tap", ex.Message, StringComparison.Ordinal);
         Assert.Contains("exit code 1", ex.Message, StringComparison.Ordinal);
     }
+
+    // ── GetInstalled / ParseListOutput ──────────────────────────────────────
+
+    [Fact]
+    public async Task GetInstalled_ConstructsListVersionsWithoutFilter()
+    {
+        // Bulk path uses `brew list --versions` (no formula). The unfiltered call
+        // returns one row per installed formula, which the parser splits on whitespace.
+        var recorder = new ProcessRecorder(new ProcessResult(0, "", ""));
+        var adapter = new BrewAdapter(recorder.RunAsync);
+
+        await adapter.GetInstalled();
+
+        Assert.Equal("brew", recorder.LastCommand);
+        Assert.Equal(new[] { "list", "--versions" }, recorder.LastArguments);
+    }
+
+    [Fact]
+    public async Task GetInstalled_NonZeroExitCode_ReturnsEmptySnapshot()
+    {
+        var recorder = new ProcessRecorder(new ProcessResult(1, "", "brew not on PATH"));
+        var adapter = new BrewAdapter(recorder.RunAsync);
+
+        IReadOnlyDictionary<string, string?> snapshot = await adapter.GetInstalled();
+
+        Assert.Empty(snapshot);
+    }
+
+    [Fact]
+    public void ParseListOutput_HappyPath_PopulatesNameAndVersion()
+    {
+        // Standard case: each line is "name version", whitespace-separated.
+        const string output =
+            "timeit 0.2.0\n" +
+            "squeeze 0.1.5\n" +
+            "git 2.43.0";
+
+        IReadOnlyDictionary<string, string?> result = BrewAdapter.ParseListOutput(output);
+
+        Assert.Equal(3, result.Count);
+        Assert.Equal("0.2.0", result["timeit"]);
+        Assert.Equal("0.1.5", result["squeeze"]);
+        Assert.Equal("2.43.0", result["git"]);
+    }
+
+    [Fact]
+    public void ParseListOutput_MultipleVersionsOnSameLine_TakesLastToken()
+    {
+        // brew can report multiple installed versions for the same formula by
+        // appending them as additional whitespace-separated tokens
+        // (e.g. "openssl@3 3.1.0 3.2.0"). The parser takes the last token to
+        // match GetInstalledVersion's "most-recently-installed" convention.
+        const string output =
+            "openssl@3 3.1.0 3.2.0\n" +
+            "python 3.11.0 3.12.0";
+
+        IReadOnlyDictionary<string, string?> result = BrewAdapter.ParseListOutput(output);
+
+        Assert.Equal("3.2.0", result["openssl@3"]);
+        Assert.Equal("3.12.0", result["python"]);
+    }
+
+    [Fact]
+    public void ParseListOutput_NameWithoutVersion_StoresNullValue()
+    {
+        // Defensive: a malformed brew output line with only a formula name and
+        // no version. Surface as "installed but no version" — null on the value,
+        // key present — rather than dropping the row entirely.
+        const string output =
+            "timeit 0.2.0\n" +
+            "broken-formula";
+
+        IReadOnlyDictionary<string, string?> result = BrewAdapter.ParseListOutput(output);
+
+        Assert.Equal("0.2.0", result["timeit"]);
+        Assert.True(result.ContainsKey("broken-formula"));
+        Assert.Null(result["broken-formula"]);
+    }
+
+    [Fact]
+    public void ParseListOutput_LookupIsCaseInsensitive()
+    {
+        const string output = "timeit 0.2.0";
+
+        IReadOnlyDictionary<string, string?> result = BrewAdapter.ParseListOutput(output);
+
+        Assert.Equal("0.2.0", result["timeit"]);
+        Assert.Equal("0.2.0", result["TIMEIT"]);
+        Assert.Equal("0.2.0", result["TimeIt"]);
+    }
+
+    [Fact]
+    public void ParseListOutput_EmptyOutput_ReturnsEmpty()
+    {
+        // brew with no installed formulae — common on a fresh machine. Empty
+        // snapshot means every Winix manifest tool resolves to "not installed",
+        // which is correct.
+        IReadOnlyDictionary<string, string?> result = BrewAdapter.ParseListOutput("");
+
+        Assert.Empty(result);
+    }
 }

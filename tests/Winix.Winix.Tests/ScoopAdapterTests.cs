@@ -188,4 +188,102 @@ public class ScoopAdapterTests
         Assert.Contains("scoop bucket add", ex.Message, StringComparison.Ordinal);
         Assert.Contains("exit code 1", ex.Message, StringComparison.Ordinal);
     }
+
+    // ── GetInstalled / ParseListOutput ──────────────────────────────────────
+
+    [Fact]
+    public async Task GetInstalled_ConstructsListWithoutFilter()
+    {
+        var recorder = new ProcessRecorder(new ProcessResult(0, "", ""));
+        var adapter = new ScoopAdapter(recorder.RunAsync);
+
+        await adapter.GetInstalled();
+
+        Assert.Equal("scoop", recorder.LastCommand);
+        Assert.Equal(new[] { "list" }, recorder.LastArguments);
+    }
+
+    [Fact]
+    public async Task GetInstalled_NonZeroExitCode_ReturnsEmptySnapshot()
+    {
+        var recorder = new ProcessRecorder(new ProcessResult(1, "", "scoop is not installed"));
+        var adapter = new ScoopAdapter(recorder.RunAsync);
+
+        IReadOnlyDictionary<string, string?> snapshot = await adapter.GetInstalled();
+
+        Assert.Empty(snapshot);
+    }
+
+    [Fact]
+    public void ParseListOutput_HappyPath_PopulatesNameAndVersion()
+    {
+        // scoop's tabular output has a "Installed apps:" preamble + blank line before
+        // the Name/Version/Source header. Header detection picks up the table from
+        // anywhere in the stream by scanning for the Name+--- pair.
+        const string output =
+            "Installed apps:\r\n" +
+            "\r\n" +
+            "  Name    Version Source\r\n" +
+            "  ----    ------- ------\r\n" +
+            "  timeit  0.2.0   winix\r\n" +
+            "  squeeze 0.1.5   winix";
+
+        IReadOnlyDictionary<string, string?> result = ScoopAdapter.ParseListOutput(output);
+
+        Assert.Equal(2, result.Count);
+        Assert.Equal("0.2.0", result["timeit"]);
+        Assert.Equal("0.1.5", result["squeeze"]);
+    }
+
+    [Fact]
+    public void ParseListOutput_EmptyVersionCell_StoresNullValue()
+    {
+        // Observed on dev machine: scoop registers an app and then the install
+        // errors mid-extract, leaving the Version cell blank. The bulk path must
+        // surface this as "installed but no version" — null on the value, key
+        // present — rather than dropping the row.
+        const string output =
+            "Installed apps:\r\n" +
+            "\r\n" +
+            "  Name    Version Source\r\n" +
+            "  ----    ------- ------\r\n" +
+            "  timeit          winix\r\n" +
+            "  squeeze 0.1.5   winix";
+
+        IReadOnlyDictionary<string, string?> result = ScoopAdapter.ParseListOutput(output);
+
+        Assert.True(result.ContainsKey("timeit"));
+        Assert.Null(result["timeit"]);
+        Assert.Equal("0.1.5", result["squeeze"]);
+    }
+
+    [Fact]
+    public void ParseListOutput_LookupIsCaseInsensitive()
+    {
+        const string output =
+            "  Name   Version Source\r\n" +
+            "  ----   ------- ------\r\n" +
+            "  timeit 0.2.0   winix";
+
+        IReadOnlyDictionary<string, string?> result = ScoopAdapter.ParseListOutput(output);
+
+        Assert.Equal("0.2.0", result["timeit"]);
+        Assert.Equal("0.2.0", result["TIMEIT"]);
+        Assert.Equal("0.2.0", result["TimeIt"]);
+    }
+
+    [Fact]
+    public void ParseListOutput_NoHeader_ReturnsEmpty()
+    {
+        // When scoop emits an error message on stdout (rare but possible: corrupt
+        // global state, partial migration) without the Name/--- header, the parser
+        // returns empty rather than guessing at column offsets.
+        const string output =
+            "ERROR: Couldn't load configuration.\r\n" +
+            "scoop is in an inconsistent state.";
+
+        IReadOnlyDictionary<string, string?> result = ScoopAdapter.ParseListOutput(output);
+
+        Assert.Empty(result);
+    }
 }

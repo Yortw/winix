@@ -113,4 +113,105 @@ public class DotnetToolAdapterTests
 
         Assert.Null(version);
     }
+
+    // ── GetInstalled / ParseListOutput ──────────────────────────────────────
+
+    [Fact]
+    public async Task GetInstalled_ConstructsToolListGlobal()
+    {
+        // Bulk path runs `dotnet tool list -g` once. dotnet's per-package query
+        // and the global-list query are the same command — there's no per-package
+        // filter — so the bulk saving here is "1 process spawn instead of N", not
+        // a query-shape change.
+        var recorder = new ProcessRecorder(new ProcessResult(0, "", ""));
+        var adapter = new DotnetToolAdapter(recorder.RunAsync);
+
+        await adapter.GetInstalled();
+
+        Assert.Equal("dotnet", recorder.LastCommand);
+        Assert.Equal(new[] { "tool", "list", "-g" }, recorder.LastArguments);
+    }
+
+    [Fact]
+    public async Task GetInstalled_NonZeroExitCode_ReturnsEmptySnapshot()
+    {
+        var recorder = new ProcessRecorder(new ProcessResult(1, "", "dotnet sdk not installed"));
+        var adapter = new DotnetToolAdapter(recorder.RunAsync);
+
+        IReadOnlyDictionary<string, string?> snapshot = await adapter.GetInstalled();
+
+        Assert.Empty(snapshot);
+    }
+
+    [Fact]
+    public void ParseListOutput_HappyPath_PopulatesIdAndVersion()
+    {
+        // dotnet's tabular output uses fixed-column widths but is splittable on
+        // whitespace because Package Ids never contain spaces. The parser takes
+        // parts[0] (id) and parts[1] (version), skipping the "Package Id" header
+        // and "---" separator rows.
+        const string output =
+            "Package Id      Version    Commands\r\n" +
+            "----------------------------------------\r\n" +
+            "winix.timeit    0.2.0      timeit\r\n" +
+            "winix.squeeze   0.1.5      squeeze";
+
+        IReadOnlyDictionary<string, string?> result = DotnetToolAdapter.ParseListOutput(output);
+
+        Assert.Equal(2, result.Count);
+        Assert.Equal("0.2.0", result["winix.timeit"]);
+        Assert.Equal("0.1.5", result["winix.squeeze"]);
+    }
+
+    [Fact]
+    public void ParseListOutput_LookupNormalisesPublishedCase()
+    {
+        // dotnet CLI lowercases every package id regardless of how it was
+        // published. Manifests use the published case ("Winix.TimeIt"), so the
+        // case-insensitive dictionary is what bridges them — without it, a
+        // perfectly-installed tool would resolve to "not installed" purely
+        // because of a casing mismatch.
+        const string output =
+            "Package Id      Version    Commands\r\n" +
+            "----------------------------------------\r\n" +
+            "winix.timeit    0.2.0      timeit";
+
+        IReadOnlyDictionary<string, string?> result = DotnetToolAdapter.ParseListOutput(output);
+
+        Assert.Equal("0.2.0", result["Winix.TimeIt"]);
+        Assert.Equal("0.2.0", result["WINIX.TIMEIT"]);
+        Assert.Equal("0.2.0", result["winix.timeit"]);
+    }
+
+    [Fact]
+    public void ParseListOutput_HeaderAndSeparator_AreSkipped()
+    {
+        // The "Package Id" header line splits to 3 tokens — we mustn't accidentally
+        // store it as a fake package. The "---" separator likewise. Both should
+        // be filtered before the parts.Length-based ingest.
+        const string output =
+            "Package Id      Version    Commands\r\n" +
+            "----------------------------------------\r\n" +
+            "winix.timeit    0.2.0      timeit";
+
+        IReadOnlyDictionary<string, string?> result = DotnetToolAdapter.ParseListOutput(output);
+
+        Assert.False(result.ContainsKey("Package"));
+        Assert.False(result.ContainsKey("---"));
+        Assert.Single(result);
+    }
+
+    [Fact]
+    public void ParseListOutput_EmptyToolList_ReturnsEmpty()
+    {
+        // `dotnet tool list -g` with no installed tools emits just the header.
+        // Snapshot must be empty (not throw, not invent rows).
+        const string output =
+            "Package Id      Version    Commands\r\n" +
+            "----------------------------------------\r\n";
+
+        IReadOnlyDictionary<string, string?> result = DotnetToolAdapter.ParseListOutput(output);
+
+        Assert.Empty(result);
+    }
 }
