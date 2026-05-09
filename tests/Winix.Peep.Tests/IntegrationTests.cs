@@ -292,6 +292,12 @@ public class IntegrationTests : IDisposable
 
     /// <summary>
     /// Best-effort temp directory cleanup with retry for OS handle release delays.
+    /// On Windows the FileSystemWatcher's underlying I/O completion port can lag
+    /// behind <c>watcher.Dispose()</c> by hundreds of ms — Directory.Delete then
+    /// fails with "the process cannot access the file …". We retry, and on the
+    /// final iteration give up silently rather than failing the test from
+    /// <c>Dispose()</c>: the leaked dir lives under <c>%TEMP%</c> and the OS
+    /// cleans it eventually.
     /// </summary>
     private static void TryDeleteDirectory(string path)
     {
@@ -305,12 +311,14 @@ public class IntegrationTests : IDisposable
                 }
                 return;
             }
-            catch (IOException) when (i < 9)
+            catch (IOException)
             {
+                if (i == 9) return;
                 Thread.Sleep(200);
             }
-            catch (UnauthorizedAccessException) when (i < 9)
+            catch (UnauthorizedAccessException)
             {
+                if (i == 9) return;
                 Thread.Sleep(200);
             }
         }
