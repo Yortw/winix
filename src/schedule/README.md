@@ -35,7 +35,7 @@ Download native binaries from [GitHub Releases](https://github.com/Yortw/winix/r
 schedule <subcommand> [options] [args...]
 ```
 
-All output goes to **stderr**. Exit codes, JSON, and composability are described below.
+Plain-text tables, status messages, and diagnostics go to **stderr**. With `--json`, the success or error envelope goes to **stdout** so consumers can do `schedule next "..." --json | jq` reliably. Usage-error envelopes (e.g. unknown subcommand) also go to stderr. Exit codes and JSON shape are described below.
 
 ## Subcommands
 
@@ -170,7 +170,7 @@ On **Linux/macOS**, Winix-managed crontab entries are tagged with a `# winix:<na
 | `--folder PATH` | Task Scheduler folder (Windows). Default: `\Winix\`. |
 | `--count N` | Number of fire times to show for `next` (default: 5). |
 | `--all` | Show all tasks, not just Winix-managed. Used with `list`. |
-| `--json` | Output results as JSON to stderr. |
+| `--json` | Output results as a JSON envelope on stdout (usage-error envelopes go to stderr). |
 | `--color` | Force coloured output (overrides `NO_COLOR`). |
 | `--no-color` | Disable coloured output. |
 | `--help` | Show help and exit. |

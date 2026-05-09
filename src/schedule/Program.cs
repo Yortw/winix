@@ -35,8 +35,8 @@ internal sealed class Program
                 "No cross-platform scheduler CLI with cron syntax exists",
                 "Unified cron syntax for Windows Task Scheduler and crontab")
             .StdinDescription("Not used")
-            .StdoutDescription("Not used (all output goes to stderr)")
-            .StderrDescription("Tables, messages, JSON output")
+            .StdoutDescription("JSON envelope when --json is set (success/error envelope on stdout per suite convention); otherwise unused")
+            .StderrDescription("Plain-text tables, status messages, and human diagnostics. Usage-error JSON envelopes also land here.")
             .Example("schedule add --cron \"0 2 * * *\" -- dotnet build", "Create a task that runs daily at 2am")
             .Example("schedule add --cron \"*/5 * * * *\" --name health-check -- curl http://localhost:8080/health", "Create a named task")
             .Example("schedule list", "List Winix-managed tasks")

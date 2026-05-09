@@ -130,7 +130,7 @@ timeit -- schedule run my-task
 
 ## Output Format
 
-All output goes to **stderr** — this keeps stdout clean for piping. Use `--json` for machine-parseable output.
+Plain-text tables, status messages, and human diagnostics go to **stderr**. With `--json`, the success/error envelope goes to **stdout** for `schedule ... --json | jq` composability (matching gh / kubectl / jq convention). Usage-error envelopes (e.g. unknown subcommand) go to stderr.
 
 **Default `list`:**
 ```
