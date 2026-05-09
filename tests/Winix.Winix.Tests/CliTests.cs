@@ -275,6 +275,9 @@ public sealed class CliTests
         public bool IsAvailable() => true;
         public Task<bool> IsInstalled(string packageId) => Task.FromResult(false);
         public Task<string?> GetInstalledVersion(string packageId) => Task.FromResult<string?>(null);
+        public Task<IReadOnlyDictionary<string, string?>> GetInstalled()
+            => Task.FromResult<IReadOnlyDictionary<string, string?>>(
+                new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase));
         public Task<ProcessResult> Install(string packageId) => Task.FromResult(new ProcessResult(0, "", ""));
         public Task<ProcessResult> Update(string packageId) => Task.FromResult(new ProcessResult(0, "", ""));
         public Task<ProcessResult> Uninstall(string packageId) => Task.FromResult(new ProcessResult(0, "", ""));

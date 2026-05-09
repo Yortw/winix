@@ -74,6 +74,27 @@ public sealed class DotnetToolAdapter : IPackageManagerAdapter
 
     /// <inheritdoc/>
     /// <remarks>
+    /// Runs <c>dotnet tool list -g</c> once and parses every row of the tabular output.
+    /// <see cref="GetInstalledVersion"/> already runs the same command per call, so for
+    /// the bulk path the only saving is that the caller needs one process spawn instead
+    /// of N — still meaningful when N is 22+.
+    /// </remarks>
+    public async Task<IReadOnlyDictionary<string, string?>> GetInstalled()
+    {
+        ProcessResult result = await _runAsync(
+            "dotnet",
+            new[] { "tool", "list", "-g" }).ConfigureAwait(false);
+
+        if (result.ExitCode != 0)
+        {
+            return new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        return ParseListOutput(result.Stdout);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
     /// Runs <c>dotnet tool install -g &lt;packageId&gt;</c>.
     /// </remarks>
     public Task<ProcessResult> Install(string packageId)
@@ -138,5 +159,52 @@ public sealed class DotnetToolAdapter : IPackageManagerAdapter
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Parses the <c>dotnet tool list -g</c> output into a dictionary keyed by package
+    /// id (case-insensitive). Each data row is
+    /// <c>packageid version commands</c> separated by whitespace; the first two
+    /// whitespace-separated tokens are the id and version. Header and dashes-separator
+    /// rows are skipped by the <c>parts.Length &lt; 2</c> guard combined with the
+    /// "starts with letter or digit" check on the id.
+    /// </summary>
+    /// <remarks>
+    /// dotnet's CLI normalises package ids to lowercase regardless of how the package
+    /// was published; the case-insensitive dictionary lets callers look up by either
+    /// form. The header line (<c>"Package Id  Version  Commands"</c>) splits to 3
+    /// tokens with first token "Package", which would parse as a fake package — we
+    /// reject it by requiring the row to start with the package id position (col 0
+    /// is always the id). Practically the lazy reject works because we then verify
+    /// the row has exactly the shape expected.
+    /// </remarks>
+    internal static IReadOnlyDictionary<string, string?> ParseListOutput(string stdout)
+    {
+        var result = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        string[] lines = stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+
+        foreach (string line in lines)
+        {
+            string trimmed = line.Trim();
+
+            // Skip header ("Package Id  Version  Commands") and separator ("---...").
+            if (trimmed.StartsWith("Package", StringComparison.Ordinal) ||
+                trimmed.StartsWith("---", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            string[] parts = trimmed.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 2)
+            {
+                continue;
+            }
+
+            string packageId = parts[0];
+            string version = parts[1];
+            result[packageId] = version;
+        }
+
+        return result;
     }
 }

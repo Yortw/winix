@@ -82,6 +82,27 @@ public sealed class ScoopAdapter : IPackageManagerAdapter
 
     /// <inheritdoc/>
     /// <remarks>
+    /// Runs <c>scoop list</c> (no filter) once and parses every row of the tabular
+    /// output. See <see cref="WingetAdapter.GetInstalled"/> for the rationale —
+    /// <c>scoop list</c>'s per-package filter still walks the full app directory, so
+    /// the unfiltered call is at most O(N) faster when checking N tools.
+    /// </remarks>
+    public async Task<IReadOnlyDictionary<string, string?>> GetInstalled()
+    {
+        ProcessResult result = await _runAsync(
+            "scoop",
+            new[] { "list" }).ConfigureAwait(false);
+
+        if (result.ExitCode != 0)
+        {
+            return new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        return ParseListOutput(result.Stdout);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
     /// Runs <c>scoop install &lt;packageId&gt;</c>.
     /// </remarks>
     public Task<ProcessResult> Install(string packageId)
@@ -196,5 +217,97 @@ public sealed class ScoopAdapter : IPackageManagerAdapter
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Parses the full <c>scoop list</c> tabular output into a dictionary keyed by app
+    /// name (case-insensitive). The Version cell is the value, or <see langword="null"/>
+    /// when the row's Version column is empty (scoop emits empty Version for failed
+    /// installs — observed on local dev machine where <c>timeit</c> was registered but
+    /// the install errored partway).
+    /// </summary>
+    /// <remarks>
+    /// scoop's tabular output starts with <c>Installed apps:</c>, an empty line, then
+    /// the header <c>Name | Version | Source | Updated | Info</c>, a dashes-separator
+    /// line, and finally the data rows. Columns are fixed-width as with winget, so the
+    /// parsing strategy is the same: locate the header, identify column start
+    /// positions, slice each data row at those offsets.
+    /// </remarks>
+    internal static IReadOnlyDictionary<string, string?> ParseListOutput(string stdout)
+    {
+        var result = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        string[] lines = stdout.Split('\n');
+
+        int headerIdx = -1;
+        for (int i = 0; i < lines.Length - 1; i++)
+        {
+            string trimmed = lines[i].TrimStart();
+            if (!trimmed.StartsWith("Name", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            string nextTrimmed = lines[i + 1].TrimStart();
+            if (nextTrimmed.StartsWith("---", StringComparison.Ordinal))
+            {
+                headerIdx = i;
+                break;
+            }
+        }
+
+        if (headerIdx < 0)
+        {
+            return result;
+        }
+
+        string header = lines[headerIdx];
+        int nameCol = header.IndexOf("Name", StringComparison.Ordinal);
+        int versionCol = header.IndexOf("Version", StringComparison.Ordinal);
+        int sourceCol = header.IndexOf("Source", StringComparison.Ordinal);
+
+        if (nameCol < 0 || versionCol <= nameCol)
+        {
+            return result;
+        }
+
+        // Version ends at the start of "Source" if present, else end-of-line.
+        int versionEnd = sourceCol > versionCol ? sourceCol : -1;
+
+        for (int i = headerIdx + 2; i < lines.Length; i++)
+        {
+            string line = lines[i];
+            if (line.EndsWith("\r", StringComparison.Ordinal))
+            {
+                line = line[..^1];
+            }
+
+            if (line.Length <= nameCol)
+            {
+                continue;
+            }
+
+            int nameEnd = Math.Min(versionCol, line.Length);
+            string name = line.Substring(nameCol, nameEnd - nameCol).Trim();
+
+            if (string.IsNullOrEmpty(name))
+            {
+                continue;
+            }
+
+            string? version = null;
+            if (line.Length > versionCol)
+            {
+                int verEnd = versionEnd > 0 ? Math.Min(versionEnd, line.Length) : line.Length;
+                string raw = line.Substring(versionCol, verEnd - versionCol).Trim();
+                if (!string.IsNullOrEmpty(raw))
+                {
+                    version = raw;
+                }
+            }
+
+            result[name] = version;
+        }
+
+        return result;
     }
 }

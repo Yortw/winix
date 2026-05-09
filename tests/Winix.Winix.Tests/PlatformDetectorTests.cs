@@ -133,6 +133,10 @@ public class PlatformDetectorTests
 
         public Task<string?> GetInstalledVersion(string packageId) => Task.FromResult<string?>(null);
 
+        public Task<IReadOnlyDictionary<string, string?>> GetInstalled()
+            => Task.FromResult<IReadOnlyDictionary<string, string?>>(
+                new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase));
+
         public Task<ProcessResult> Install(string packageId) => Task.FromResult(new ProcessResult(0, "", ""));
 
         public Task<ProcessResult> Update(string packageId) => Task.FromResult(new ProcessResult(0, "", ""));

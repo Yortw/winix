@@ -205,6 +205,36 @@ public sealed class SuiteManager
         string[] chain = PlatformDetector.GetDefaultChain(_platform);
         var statuses = new List<ToolStatus>();
 
+        // Bulk-snapshot every available adapter UP FRONT — one subprocess per PM rather
+        // than per-tool. The pre-bulk path called IsInstalled then GetInstalledVersion
+        // on every tool against every PM in the chain (44+ filtered subprocess calls
+        // for a 22-tool manifest with 2 available PMs); each `winget list --id X` was
+        // measured at ~7-19 seconds against a real machine, so `winix list` could take
+        // 5-7 minutes before timing out at 60 s. The bulk path runs `winget list` once
+        // (no filter) and then performs O(1) hash lookups per tool.
+        var snapshots = new Dictionary<string, IReadOnlyDictionary<string, string?>>(
+            StringComparer.OrdinalIgnoreCase);
+        foreach (string pmName in chain)
+        {
+            if (!_adapters.TryGetValue(pmName, out IPackageManagerAdapter? adapter))
+            {
+                continue;
+            }
+
+            if (!adapter.IsAvailable())
+            {
+                continue;
+            }
+
+            // Cache snapshots so a chain that mentions the same PM twice (shouldn't
+            // happen in current PlatformDetector output, but cheap defence-in-depth)
+            // doesn't re-spawn the subprocess.
+            if (!snapshots.ContainsKey(pmName))
+            {
+                snapshots[pmName] = await adapter.GetInstalled().ConfigureAwait(false);
+            }
+        }
+
         foreach (var kvp in _manifest.Tools)
         {
             string toolName = kvp.Key;
@@ -214,12 +244,7 @@ public sealed class SuiteManager
 
             foreach (string pmName in chain)
             {
-                if (!_adapters.TryGetValue(pmName, out IPackageManagerAdapter? adapter))
-                {
-                    continue;
-                }
-
-                if (!adapter.IsAvailable())
+                if (!snapshots.TryGetValue(pmName, out IReadOnlyDictionary<string, string?>? snapshot))
                 {
                     continue;
                 }
@@ -230,13 +255,11 @@ public sealed class SuiteManager
                     continue;
                 }
 
-                bool installed = await adapter.IsInstalled(packageId).ConfigureAwait(false);
-                if (!installed)
+                if (!snapshot.TryGetValue(packageId, out string? version))
                 {
                     continue;
                 }
 
-                string? version = await adapter.GetInstalledVersion(packageId).ConfigureAwait(false);
                 statuses.Add(new ToolStatus(toolName, isInstalled: true, version: version, packageManager: pmName));
                 found = true;
                 break;

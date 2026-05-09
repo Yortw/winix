@@ -229,6 +229,20 @@ public class SuiteManagerTests
             return Task.FromResult(version);
         }
 
+        public Task<IReadOnlyDictionary<string, string?>> GetInstalled()
+        {
+            // Build a snapshot from the installed-packages set, supplying the version
+            // from _versions when present so list/status tests get the same shape they
+            // expected from the per-package GetInstalledVersion path.
+            var snapshot = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+            foreach (string pkg in _installedPackages)
+            {
+                _versions.TryGetValue(pkg, out string? version);
+                snapshot[pkg] = version;
+            }
+            return Task.FromResult<IReadOnlyDictionary<string, string?>>(snapshot);
+        }
+
         public Task<ProcessResult> Install(string packageId)
         {
             InstallCallCount++;

@@ -46,6 +46,33 @@ public interface IPackageManagerAdapter
     Task<string?> GetInstalledVersion(string packageId);
 
     /// <summary>
+    /// Returns a snapshot of every package this manager currently considers installed,
+    /// keyed by package ID with the installed version as the value (or
+    /// <see langword="null"/> when the version field could not be parsed for that row).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// One subprocess call serves the whole snapshot. Used by suite-wide flows
+    /// (<c>winix list</c>, <c>winix status</c>, <c>winix uninstall</c>) where iterating
+    /// 22+ tools through the per-package <see cref="IsInstalled"/> path takes minutes
+    /// because each call spawns a fresh PM subprocess. The bulk call typically runs in
+    /// seconds because the PM only enumerates its index once.
+    /// </para>
+    /// <para>
+    /// The returned dictionary uses case-insensitive keys: package IDs differ in case
+    /// across PMs (winget preserves the published case, dotnet lowercases everything),
+    /// and callers shouldn't have to track which PM normalised which way.
+    /// </para>
+    /// <para>
+    /// Adapters whose underlying CLI does not support a bulk listing operation (or
+    /// when bulk would be slower than per-package for the manager's design) may fall
+    /// back to per-package iteration internally — but the returned snapshot must still
+    /// be a single coherent view, not a streaming enumerable.
+    /// </para>
+    /// </remarks>
+    Task<IReadOnlyDictionary<string, string?>> GetInstalled();
+
+    /// <summary>
     /// Installs the package identified by <paramref name="packageId"/>.
     /// </summary>
     /// <param name="packageId">The package manager's identifier for the tool.</param>

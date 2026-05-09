@@ -78,6 +78,33 @@ public sealed class WingetAdapter : IPackageManagerAdapter
 
     /// <inheritdoc/>
     /// <remarks>
+    /// Runs <c>winget list</c> (no filter) once and parses every row of the tabular
+    /// output into a dictionary keyed by Id. Suite-wide flows (<c>winix list</c>,
+    /// <c>winix status</c>, <c>winix uninstall</c>) measured at ~7 minutes when issuing
+    /// 22 filtered <see cref="IsInstalled"/> calls; the unfiltered call returns the same
+    /// information in ~8 seconds because winget only walks its index once.
+    /// </remarks>
+    public async Task<IReadOnlyDictionary<string, string?>> GetInstalled()
+    {
+        ProcessResult result = await _runAsync(
+            "winget",
+            new[] { "list" }).ConfigureAwait(false);
+
+        // winget list returns 0 even when the table is empty; non-zero indicates a real
+        // failure (winget missing, network down for the index refresh, etc.). Surface
+        // an empty snapshot rather than throwing — the caller will treat every tool as
+        // not-installed, which is the same outcome the per-package path produces on
+        // adapter failure (IsInstalled returns false on non-zero exit).
+        if (result.ExitCode != 0)
+        {
+            return new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        return ParseListOutput(result.Stdout);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
     /// Runs <c>winget install --id &lt;packageId&gt; --exact --accept-source-agreements</c>.
     /// </remarks>
     public Task<ProcessResult> Install(string packageId)
@@ -187,5 +214,127 @@ public sealed class WingetAdapter : IPackageManagerAdapter
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Parses the full <c>winget list</c> tabular output into a dictionary keyed by
+    /// the package Id (case-insensitive). The Version cell is the value, or
+    /// <see langword="null"/> when the row's Version column is empty (winget can emit
+    /// rows with no version for ARP-detected packages — see the row format described
+    /// in the remarks).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// winget's tabular output uses fixed-width columns. The header line is
+    /// <c>Name … Id … Version … [Available … Source]</c>. The 5-column shape appears
+    /// whenever any row has an upgrade pending or a Source attribution. Names are
+    /// truncated with <c>…</c> to fit their column when too long.
+    /// </para>
+    /// <para>
+    /// Because Names can contain whitespace and may be truncated mid-word, we cannot
+    /// rely on whitespace-split column counts. Instead we parse the header to find
+    /// each column's start position and slice each data row at those byte offsets.
+    /// </para>
+    /// <para>
+    /// winget prefixes its stdout with a progress spinner (e.g. <c>"   -    \    |    /"</c>)
+    /// before the actual table — sometimes hundreds of characters of garbage. The
+    /// header detection (a line whose trimmed prefix is <c>"Name"</c> followed by a
+    /// dashes-separator line) skips this prefix naturally.
+    /// </para>
+    /// </remarks>
+    internal static IReadOnlyDictionary<string, string?> ParseListOutput(string stdout)
+    {
+        var result = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        string[] lines = stdout.Split('\n');
+
+        int headerIdx = -1;
+        for (int i = 0; i < lines.Length - 1; i++)
+        {
+            string trimmed = lines[i].TrimStart();
+            if (!trimmed.StartsWith("Name", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            string nextTrimmed = lines[i + 1].TrimStart();
+            if (nextTrimmed.StartsWith("---", StringComparison.Ordinal))
+            {
+                headerIdx = i;
+                break;
+            }
+        }
+
+        if (headerIdx < 0)
+        {
+            return result;
+        }
+
+        string header = lines[headerIdx];
+        int idCol = header.IndexOf("Id", StringComparison.Ordinal);
+        int versionCol = header.IndexOf("Version", StringComparison.Ordinal);
+        int availableCol = header.IndexOf("Available", StringComparison.Ordinal);
+        int sourceCol = header.IndexOf("Source", StringComparison.Ordinal);
+
+        if (idCol < 0 || versionCol <= idCol)
+        {
+            return result;
+        }
+
+        // Version column ends at whichever column comes next, or end-of-line.
+        int versionEnd;
+        if (availableCol > versionCol)
+        {
+            versionEnd = availableCol;
+        }
+        else if (sourceCol > versionCol)
+        {
+            versionEnd = sourceCol;
+        }
+        else
+        {
+            versionEnd = -1;
+        }
+
+        for (int i = headerIdx + 2; i < lines.Length; i++)
+        {
+            string line = lines[i];
+            // winget often appends a CR on each line on Windows; strip it before slicing
+            // so the trailing column doesn't pick up a stray '\r'.
+            if (line.EndsWith("\r", StringComparison.Ordinal))
+            {
+                line = line[..^1];
+            }
+
+            if (line.Length <= idCol)
+            {
+                continue;
+            }
+
+            int idEnd = Math.Min(versionCol, line.Length);
+            string id = line.Substring(idCol, idEnd - idCol).Trim();
+
+            if (string.IsNullOrEmpty(id))
+            {
+                continue;
+            }
+
+            string? version = null;
+            if (line.Length > versionCol)
+            {
+                int verEnd = versionEnd > 0 ? Math.Min(versionEnd, line.Length) : line.Length;
+                string raw = line.Substring(versionCol, verEnd - versionCol).Trim();
+                if (!string.IsNullOrEmpty(raw))
+                {
+                    version = raw;
+                }
+            }
+
+            // Last write wins — winget rarely emits duplicate Ids but if it does, the
+            // later row almost always reflects the more recent state (e.g. a re-install
+            // mid-run). Using the indexer rather than Add avoids a throw.
+            result[id] = version;
+        }
+
+        return result;
     }
 }

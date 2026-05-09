@@ -93,6 +93,27 @@ public sealed class BrewAdapter : IPackageManagerAdapter
 
     /// <inheritdoc/>
     /// <remarks>
+    /// Runs <c>brew list --versions</c> (no filter) once. Output is one
+    /// <c>name version1 [version2 …]</c> per installed formula, so we don't need
+    /// fixed-width parsing — split each line on whitespace, take the first token as
+    /// the name and the second as the version.
+    /// </remarks>
+    public async Task<IReadOnlyDictionary<string, string?>> GetInstalled()
+    {
+        ProcessResult result = await _runAsync(
+            "brew",
+            new[] { "list", "--versions" }).ConfigureAwait(false);
+
+        if (result.ExitCode != 0)
+        {
+            return new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        return ParseListOutput(result.Stdout);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
     /// Runs <c>brew install yortw/winix/&lt;packageId&gt;</c> using the fully-qualified
     /// tap path so brew can locate the formula without requiring a prior tap.
     /// </remarks>
@@ -166,5 +187,39 @@ public sealed class BrewAdapter : IPackageManagerAdapter
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Parses the <c>brew list --versions</c> output into a dictionary keyed by
+    /// formula name (case-insensitive). Each output line is
+    /// <c>name version1 [version2 …]</c>; multiple installed versions on the same
+    /// formula get the most-recent (last whitespace-separated) value, matching
+    /// <see cref="GetInstalledVersion"/>'s "last token" convention.
+    /// </summary>
+    internal static IReadOnlyDictionary<string, string?> ParseListOutput(string stdout)
+    {
+        var result = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        string[] lines = stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+
+        foreach (string line in lines)
+        {
+            string trimmed = line.Trim();
+            if (string.IsNullOrEmpty(trimmed))
+            {
+                continue;
+            }
+
+            string[] parts = trimmed.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0)
+            {
+                continue;
+            }
+
+            string name = parts[0];
+            string? version = parts.Length >= 2 ? parts[parts.Length - 1] : null;
+            result[name] = version;
+        }
+
+        return result;
     }
 }
