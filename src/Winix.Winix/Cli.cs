@@ -164,9 +164,17 @@ public static class Cli
         {
             var manager = new SuiteManager(manifest, resolvedAdapters, resolvedPlatform);
             string[]? toolFilter = toolNames.Length > 0 ? toolNames : null;
+            // Per-PM "querying X…" progress fires synchronously inside UninstallAsync
+            // immediately before each adapter's bulk subprocess. Without this the tool
+            // sits silent for ~8s while winget walks its index. Suppressed under
+            // --json so the human-progress lines don't contaminate piped output.
+            Action<string>? onPmQuery = jsonOutput
+                ? null
+                : pmName => stderr.WriteLine($"winix: querying {pmName}…");
             return await manager.UninstallAsync(
                 toolFilter, dryRun, useColor,
-                line => stderr.WriteLine(line)).ConfigureAwait(false);
+                line => stderr.WriteLine(line),
+                onPmQuery).ConfigureAwait(false);
         }
 
         IPackageManagerAdapter? adapter = PlatformDetector.ResolveAdapter(viaOverride, resolvedAdapters, resolvedPlatform);
@@ -250,7 +258,12 @@ public static class Cli
         TextWriter stderr)
     {
         var manager = new SuiteManager(manifest, adapters, platform);
-        List<ToolStatus> statuses = await manager.ListAsync().ConfigureAwait(false);
+        // Per-PM "querying X…" progress; suppressed under --json (see UninstallAsync
+        // call site for rationale).
+        Action<string>? onPmQuery = jsonOutput
+            ? null
+            : pmName => stderr.WriteLine($"winix: querying {pmName}…");
+        List<ToolStatus> statuses = await manager.ListAsync(onPmQuery).ConfigureAwait(false);
 
         if (jsonOutput)
         {

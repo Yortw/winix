@@ -242,6 +242,57 @@ public sealed class CliTests
     }
 
     [Fact]
+    public async Task RunAsync_List_EmitsQueryingProgressLineToStderr()
+    {
+        // Pre-fix `winix list` was silent for ~8s while winget walked its index.
+        // The progress line tells the user which PM is currently being queried.
+        // Suppression under --json is verified separately below.
+        var (stdout, stderr) = Sinks();
+
+        var stubAdapters = new Dictionary<string, IPackageManagerAdapter>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "winget", new StubAdapter("winget") },
+        };
+
+        int exit = await Cli.RunAsync(
+            new[] { "list" },
+            stdout, stderr,
+            adapters: stubAdapters,
+            platform: PlatformId.Windows,
+            manifestLoader: StubLoader(BuildManifest(("timeit", "Winix.TimeIt"))));
+
+        Assert.Equal(WinixExitCode.Success, exit);
+        string err = stderr.ToString();
+        Assert.Contains("winix: querying winget", err, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RunAsync_ListJson_DoesNotEmitProgressLineToStderr()
+    {
+        // F3 + UX rule: under --json, no human-progress lines on stderr — the
+        // expected stderr surface is errors only. A user piping `winix list --json
+        // | jq` won't typically see stderr but the convention still holds:
+        // suppress non-error stderr text in machine-mode.
+        var (stdout, stderr) = Sinks();
+
+        var stubAdapters = new Dictionary<string, IPackageManagerAdapter>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "winget", new StubAdapter("winget") },
+        };
+
+        int exit = await Cli.RunAsync(
+            new[] { "--json", "list" },
+            stdout, stderr,
+            adapters: stubAdapters,
+            platform: PlatformId.Windows,
+            manifestLoader: StubLoader(BuildManifest(("timeit", "Winix.TimeIt"))));
+
+        Assert.Equal(WinixExitCode.Success, exit);
+        string err = stderr.ToString();
+        Assert.DoesNotContain("querying", err, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RunAsync_StatusJson_RoutesToStdoutNotStderr()
     {
         // Same contract for the status command.

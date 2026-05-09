@@ -110,7 +110,7 @@ public sealed class SuiteManager
     /// <returns>
     /// <c>0</c> when all uninstalls succeed (or dry-run); <c>1</c> when at least one fails.
     /// </returns>
-    public async Task<int> UninstallAsync(string[]? toolNames, bool dryRun, bool useColor, Action<string> output)
+    public async Task<int> UninstallAsync(string[]? toolNames, bool dryRun, bool useColor, Action<string> output, Action<string>? onPmQuery = null)
     {
         string[] targets = ResolveTargets(toolNames);
         string[] chain = PlatformDetector.GetDefaultChain(_platform);
@@ -139,6 +139,7 @@ public sealed class SuiteManager
 
             if (!snapshots.ContainsKey(pmName))
             {
+                onPmQuery?.Invoke(pmName);
                 snapshots[pmName] = await adapter.GetInstalled().ConfigureAwait(false);
             }
         }
@@ -224,7 +225,7 @@ public sealed class SuiteManager
     /// <returns>
     /// A list of <see cref="ToolStatus"/> records, one per tool in manifest order.
     /// </returns>
-    public async Task<List<ToolStatus>> ListAsync()
+    public async Task<List<ToolStatus>> ListAsync(Action<string>? onPmQuery = null)
     {
         string[] chain = PlatformDetector.GetDefaultChain(_platform);
         var statuses = new List<ToolStatus>();
@@ -236,6 +237,13 @@ public sealed class SuiteManager
         // measured at ~7-19 seconds against a real machine, so `winix list` could take
         // 5-7 minutes before timing out at 60 s. The bulk path runs `winget list` once
         // (no filter) and then performs O(1) hash lookups per tool.
+        //
+        // The optional onPmQuery callback fires immediately before each adapter's
+        // bulk subprocess is spawned. Cli passes a writer that emits "winix: querying
+        // winget…" lines so the user sees progress during the (still-multi-second)
+        // wait — without this the tool sits silent for ~8s on Windows and the user
+        // can't tell whether it hung. Suppressed under --json to avoid contaminating
+        // the JSON output stream.
         var snapshots = new Dictionary<string, IReadOnlyDictionary<string, string?>>(
             StringComparer.OrdinalIgnoreCase);
         foreach (string pmName in chain)
@@ -255,6 +263,7 @@ public sealed class SuiteManager
             // doesn't re-spawn the subprocess.
             if (!snapshots.ContainsKey(pmName))
             {
+                onPmQuery?.Invoke(pmName);
                 snapshots[pmName] = await adapter.GetInstalled().ConfigureAwait(false);
             }
         }

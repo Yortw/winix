@@ -159,6 +159,85 @@ public class SuiteManagerTests
     }
 
     [Fact]
+    public async Task ListAsync_OnPmQueryCallback_FiresOncePerAvailableAdapterInChainOrder()
+    {
+        // The progress callback exists so Cli can emit "winix: querying winget…"
+        // lines just before each bulk subprocess fires. Order-preservation matters
+        // for UX — the user sees the in-flight PM, not a random shuffle. Suppressed
+        // (null) under --json by the caller, but this test exercises the
+        // non-null path.
+        var wingetAdapter = new FullFakeAdapter("winget", available: true, installExitCode: 0);
+        var scoopAdapter = new FullFakeAdapter("scoop", available: false, installExitCode: 0);
+        var dotnetAdapter = new FullFakeAdapter("dotnet", available: true, installExitCode: 0);
+
+        var adapters = new Dictionary<string, IPackageManagerAdapter>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "winget", wingetAdapter },
+            { "scoop", scoopAdapter },
+            { "dotnet", dotnetAdapter },
+        };
+
+        var manager = new SuiteManager(CreateTestManifest(), adapters, PlatformId.Windows);
+
+        var queriedPms = new List<string>();
+        await manager.ListAsync(pm => queriedPms.Add(pm));
+
+        // Windows chain is (winget, scoop, dotnet). scoop is unavailable, so the
+        // callback must fire only for winget and dotnet, in that order.
+        Assert.Equal(new[] { "winget", "dotnet" }, queriedPms);
+    }
+
+    [Fact]
+    public async Task ListAsync_NoOnPmQueryCallback_DoesNotThrow()
+    {
+        // The callback is optional — passing null (or omitting) must be a clean
+        // path. Regression guard against an accidental "?.Invoke" → "Invoke"
+        // refactor that would NRE.
+        var adapter = new FullFakeAdapter("winget", available: true, installExitCode: 0);
+        var adapters = new Dictionary<string, IPackageManagerAdapter>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "winget", adapter },
+        };
+
+        var manager = new SuiteManager(CreateTestManifest(), adapters, PlatformId.Windows);
+
+        await manager.ListAsync(); // no callback
+        await manager.ListAsync(null); // explicit null
+
+        // Just reaching here without throwing is the assertion; bulk path still ran.
+        Assert.Equal(2, adapter.GetInstalledCallCount);
+    }
+
+    [Fact]
+    public async Task UninstallAsync_OnPmQueryCallback_FiresOncePerAvailableAdapter()
+    {
+        // Mirror of the ListAsync test: UninstallAsync also accepts the progress
+        // callback. Pre-fix UninstallAsync had no progress emission at all so a
+        // 22-tool dry-run looked silent for several seconds.
+        var wingetAdapter = new FullFakeAdapter("winget", available: true, installExitCode: 0);
+        var scoopAdapter = new FullFakeAdapter("scoop", available: true, installExitCode: 0);
+        var dotnetAdapter = new FullFakeAdapter("dotnet", available: false, installExitCode: 0);
+
+        var adapters = new Dictionary<string, IPackageManagerAdapter>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "winget", wingetAdapter },
+            { "scoop", scoopAdapter },
+            { "dotnet", dotnetAdapter },
+        };
+
+        var manager = new SuiteManager(CreateTestManifest(), adapters, PlatformId.Windows);
+
+        var queriedPms = new List<string>();
+        var output = new List<string>();
+        await manager.UninstallAsync(
+            null, dryRun: true, useColor: false,
+            output: output.Add,
+            onPmQuery: pm => queriedPms.Add(pm));
+
+        Assert.Equal(new[] { "winget", "scoop" }, queriedPms);
+    }
+
+    [Fact]
     public async Task UninstallAsync_UsesBulkSnapshot_NotPerToolIsInstalled()
     {
         // Perf-fix contract: UninstallAsync must use a single GetInstalled() snapshot
