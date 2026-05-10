@@ -1,0 +1,203 @@
+name: Manual Smoke (cross-platform)
+
+# Manually-dispatched cross-platform smoke verification: builds AOT for the
+# requested target(s) and replays each tool's existing run-smokes.sh against
+# the freshly-published binary. Uploads exit-code captures + stdout/stderr as
+# artifacts for diff against the per-tool baselines under
+# artifacts/round-stop-2026-05-09/ and artifacts/reverify-2026-05-06/.
+#
+# Why this exists separately from ci.yml and release.yml:
+#   - ci.yml runs `dotnet test` (JIT xUnit) — covers correctness but not the
+#     AOT-published binary's behaviour on each platform.
+#   - release.yml builds AOT for win-x64/linux-x64/osx-x64/osx-arm64 but only
+#     as a side-effect of tagging — no smokes are run against the AOT outputs.
+#   - This workflow gives us pre-tag confidence that the actual shipped AOT
+#     binaries behave correctly on each target OS, with a manual trigger so
+#     we can verify before tagging without needing to push and revert.
+
+on:
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: "Targets to smoke (comma-separated): linux-x64, osx-arm64, osx-x64. Default: all three."
+        required: false
+        default: "linux-x64,osx-arm64,osx-x64"
+      tools:
+        description: "Tools to smoke (comma-separated). Default: all."
+        required: false
+        default: "all"
+
+permissions:
+  contents: read
+
+jobs:
+  resolve-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      include: ${{ steps.build-matrix.outputs.include }}
+    steps:
+      - name: Build matrix from inputs
+        id: build-matrix
+        run: |
+          INPUT_TARGETS="${{ github.event.inputs.targets }}"
+          INPUT_TARGETS="${INPUT_TARGETS:-linux-x64,osx-arm64,osx-x64}"
+
+          INCLUDE="["
+          first=1
+          IFS=',' read -ra TARGETS <<< "$INPUT_TARGETS"
+          for t in "${TARGETS[@]}"; do
+            t=$(echo "$t" | xargs)  # trim whitespace
+            case "$t" in
+              linux-x64)   os="ubuntu-latest" ;;
+              osx-x64)     os="macos-latest" ;;  # cross-compile on arm64 runner; macos-13 retired
+              osx-arm64)   os="macos-latest" ;;
+              *) echo "::error::Unknown target '$t' (expected linux-x64, osx-x64, osx-arm64)" ; exit 1 ;;
+            esac
+            if [ $first -eq 0 ]; then INCLUDE="$INCLUDE,"; fi
+            INCLUDE="$INCLUDE{\"rid\":\"$t\",\"os\":\"$os\"}"
+            first=0
+          done
+          INCLUDE="$INCLUDE]"
+          echo "include=$INCLUDE" >> "$GITHUB_OUTPUT"
+          echo "Matrix: $INCLUDE"
+
+  smoke:
+    needs: resolve-matrix
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.resolve-matrix.outputs.include) }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Resolve tool list
+        id: tools
+        shell: bash
+        run: |
+          INPUT_TOOLS="${{ github.event.inputs.tools }}"
+          if [ -z "$INPUT_TOOLS" ] || [ "$INPUT_TOOLS" = "all" ]; then
+            TOOLS="timeit,squeeze,peep,wargs,files,treex,man,less,whoholds,schedule,nc,winix,retry,when,clip,ids,digest,notify,url,qr,protect,unprotect,envvault"
+          else
+            TOOLS="$INPUT_TOOLS"
+          fi
+          echo "list=$TOOLS" >> "$GITHUB_OUTPUT"
+          echo "Smoking: $TOOLS"
+
+      - name: Pre-build shared libraries
+        shell: bash
+        run: |
+          for shared in Yort.ShellKit Winix.FileWalk Winix.Codec Winix.QrCode Winix.SecretStore; do
+            if [ -d "src/$shared" ]; then
+              dotnet build "src/$shared/$shared.csproj" -c Release -p:Version=0.3.0 --nologo -v quiet
+            fi
+          done
+
+      - name: AOT publish each tool (serial)
+        shell: bash
+        run: |
+          mkdir -p "artifacts/manual-smoke/${{ matrix.rid }}"
+          IFS=',' read -ra TOOLS <<< "${{ steps.tools.outputs.list }}"
+          for t in "${TOOLS[@]}"; do
+            out="artifacts/manual-smoke/${{ matrix.rid }}/${t}"
+            echo "::group::publish $t"
+            dotnet publish "src/${t}/${t}.csproj" \
+              -c Release -r ${{ matrix.rid }} -p:Version=0.3.0 \
+              -o "$out" --nologo -v quiet
+            echo "::endgroup::"
+          done
+
+      - name: Run platform-portable smokes per tool
+        shell: bash
+        run: |
+          ART="artifacts/manual-smoke/${{ matrix.rid }}"
+          SUMMARY="$ART/smoke-summary.txt"
+          > "$SUMMARY"
+
+          # Per-tool smoke runner location — prefer round-stop, fall back to reverify.
+          declare -A RUNNER
+          RUNNER[clip]="round-stop-2026-05-09/clip"
+          RUNNER[envvault]="round-stop-2026-05-09/envvault"
+          RUNNER[files]="round-stop-2026-05-09/files"
+          RUNNER[less]="round-stop-2026-05-09/less"
+          RUNNER[man]="round-stop-2026-05-09/man"
+          RUNNER[nc]="round-stop-2026-05-09/nc"
+          RUNNER[peep]="round-stop-2026-05-09/peep"
+          RUNNER[protect]="round-stop-2026-05-09/protect"
+          RUNNER[retry]="round-stop-2026-05-09/retry"
+          RUNNER[schedule]="round-stop-2026-05-09/schedule"
+          RUNNER[timeit]="round-stop-2026-05-09/timeit"
+          RUNNER[treex]="round-stop-2026-05-09/treex"
+          RUNNER[unprotect]="round-stop-2026-05-09/unprotect"
+          RUNNER[url]="round-stop-2026-05-09/url"
+          RUNNER[wargs]="round-stop-2026-05-09/wargs"
+          RUNNER[whoholds]="round-stop-2026-05-09/whoholds"
+          RUNNER[winix]="round-stop-2026-05-09/winix"
+          RUNNER[digest]="reverify-2026-05-06/digest"
+          RUNNER[notify]="reverify-2026-05-06/notify"
+          RUNNER[ids]="reverify-2026-05-06/ids"
+          RUNNER[when]="reverify-2026-05-06/when"
+          RUNNER[qr]="reverify-2026-05-06/qr"
+          RUNNER[squeeze]="reverify-2026-05-06/squeeze"
+
+          IFS=',' read -ra TOOLS <<< "${{ steps.tools.outputs.list }}"
+          for t in "${TOOLS[@]}"; do
+            echo "==== $t ====" | tee -a "$SUMMARY"
+
+            bin="$ART/$t/$t"
+            if [ ! -x "$bin" ]; then
+              echo "  SKIP: AOT binary missing at $bin" | tee -a "$SUMMARY"
+              continue
+            fi
+
+            runner_subdir="${RUNNER[$t]:-}"
+            if [ -z "$runner_subdir" ]; then
+              echo "  SKIP: no runner mapping for $t" | tee -a "$SUMMARY"
+              continue
+            fi
+
+            src_runner="artifacts/${runner_subdir}/run-smokes.sh"
+            if [ ! -f "$src_runner" ]; then
+              echo "  SKIP: source runner missing at $src_runner" | tee -a "$SUMMARY"
+              continue
+            fi
+
+            dst_runner="$ART/$t/run-smokes.sh"
+            cp "$src_runner" "$dst_runner"
+            # Retarget BIN+OUT to the freshly-published AOT binary on this runner.
+            sed -i.bak \
+              -e "s|fresh-publish/${t}.exe|${t}|g" \
+              -e "s|fresh-publish/${t}|${t}|g" \
+              -e "s|round-stop-2026-05-09/${t}/out|manual-smoke/${{ matrix.rid }}/${t}/out|g" \
+              -e "s|round-stop-2026-05-09/${t}/data|manual-smoke/${{ matrix.rid }}/${t}/data|g" \
+              -e "s|reverify-2026-05-06/${t}/bin/${t}.exe|manual-smoke/${{ matrix.rid }}/${t}/${t}|g" \
+              -e "s|reverify-2026-05-06/${t}/bin/${t}|manual-smoke/${{ matrix.rid }}/${t}/${t}|g" \
+              -e "s|reverify-2026-05-06/${t}/out|manual-smoke/${{ matrix.rid }}/${t}/out|g" \
+              -e "s|reverify-2026-05-06/${t}/data|manual-smoke/${{ matrix.rid }}/${t}/data|g" \
+              -e "s|d:/projects/winix|$(pwd)|g" \
+              -e "s|D:/projects/winix|$(pwd)|g" \
+              "$dst_runner"
+            rm -f "$dst_runner.bak"
+
+            echo "  running smokes (timeout 240s) ..." | tee -a "$SUMMARY"
+            timeout 240s bash "$dst_runner" > "$ART/$t/run-smokes.stdout" 2> "$ART/$t/run-smokes.stderr"
+            rc=$?
+            count=$(find "$ART/$t/out" -name '*.exit*' -type f 2>/dev/null | wc -l)
+            echo "  rc=$rc smoke_count=$count" | tee -a "$SUMMARY"
+          done
+
+          echo "" | tee -a "$SUMMARY"
+          echo "=== final tally for ${{ matrix.rid }} ===" | tee -a "$SUMMARY"
+          grep -E "^==== |^  rc=|^  SKIP:" "$SUMMARY" | head -100 | tee -a "$SUMMARY"
+
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: manual-smoke-${{ matrix.rid }}
+          path: artifacts/manual-smoke/${{ matrix.rid }}/
+          retention-days: 30
