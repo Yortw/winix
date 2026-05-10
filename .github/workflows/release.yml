@@ -65,8 +65,54 @@ jobs:
       - name: Build
         run: dotnet build Winix.sln --no-restore -c Release
 
+      # libsecret-tools + gnome-keyring + dbus-x11 give the Linux runner a
+      # working secret service so AeadLibsecretBackendIntegrationTests and the
+      # other libsecret-backed tests can run for real (otherwise they fail
+      # with "no available secret service backend"). Mirrors ci.yml step.
+      - name: Install Linux secret service dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y gnome-keyring dbus-x11 libsecret-tools
+
+      # macos-latest runners ship with an asymmetric keychain config: default
+      # keychain and search list don't agree, so add-generic-password writes
+      # to one keychain while find/delete-generic-password searches a different
+      # one. Configure a single fresh build keychain as both default + search
+      # list to make the security CLI commands target the same place. Mirrors
+      # ci.yml step.
+      - name: Configure macOS keychain
+        if: matrix.os == 'macos-latest'
+        run: |
+          security create-keychain -p winix-ci build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p winix-ci build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security list-keychains -d user -s build.keychain login.keychain
+
       - name: Test
+        if: matrix.os != 'ubuntu-latest'
         run: dotnet test Winix.sln --no-build -c Release --logger "trx;LogFileName=results.trx"
+
+      # Linux Test wrapped in dbus-run-session + gnome-keyring warmup so
+      # libsecret-backed integration tests have a working secret service.
+      # Skip the secret-tool clear cleanup of the warmup entry — that command
+      # produces a SIGPIPE-style signal that kills dbus-daemon. A stale
+      # winix-warmup entry in an ephemeral session keyring is harmless;
+      # the session and its keyring evaporate when dbus-run-session exits.
+      # Mirrors ci.yml step.
+      - name: Test (Linux with libsecret service)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          dbus-run-session -- bash -c '
+            set -e
+            printf "\n" | gnome-keyring-daemon --unlock --components=secrets >/dev/null
+            eval $(printf "\n" | gnome-keyring-daemon --start --components=secrets)
+            export DBUS_SESSION_BUS_ADDRESS GNOME_KEYRING_CONTROL SSH_AUTH_SOCK
+            printf warmup | secret-tool store --label winix-warmup service winix-warmup key v
+            dotnet test Winix.sln --no-build -c Release --logger "trx;LogFileName=results.trx"
+          '
 
       - name: Upload test results
         if: always()
