@@ -10,7 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 - Multi-member gzip detection dropped. Pre-fix some incompressible binary inputs triggered false multi-member detection on decode. The detection logic is now removed; the trade-off is a louder false-positive footprint on legitimately-multi-member archives in exchange for never silently corrupting single-member output. Single-member gzip — the overwhelming common case — is unaffected.
 
 ### Fixed
-- Truncated gzip decode no longer silently ships garbage. ISIZE field validation now rejects malformed input with a clear error message instead of completing exit 0 with a partial / corrupt stdout. This was the headline silent-corruption defect surfaced by tier-2 review.
+- Truncated gzip decode no longer silently ships garbage. ISIZE field validation now rejects malformed input with a clear error message instead of completing exit 0 with a partial / corrupt stdout.
 - Framework SR resource keys (e.g. `Arg_ParamName_Name`) no longer leak into user-facing error output under `InvariantGlobalization=true`. Tool-supplied English messages now used throughout.
 - IOException on read/write paths now caught and surfaced with context rather than escaping as a stack trace.
 - `--version` output no longer carries the `+gitsha` SourceLink suffix the .NET SDK appends by default. Users see plain `squeeze 0.3.0`, matching the convention across the rest of the suite.

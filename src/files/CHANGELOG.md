@@ -24,7 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 - `--version` output no longer carries the `+gitsha` SourceLink suffix the .NET SDK appends by default. Users see plain `files 0.3.0`, matching the suite-wide convention.
 
 ### Added
-- Library seam `Winix.Files.Cli.Run` for orchestration testing without process spawning. Matches sibling-tool pattern (`clip`, `digest`, `url`, `qr`, `whoholds`, `treex`).
+- Library seam `Winix.Files.Cli.Run` for orchestration testing without process spawning.
 - `--json` summary envelope now includes a `walk_errors` array enumerating directories and files that could not be read during the walk. Each entry is `{"path": "...", "reason": "..."}`. Always present (empty array on success); non-empty when `exit_reason: "walk_error_partial"`.
 - `--json` pre-walk error envelopes (`path_not_found`, `not_a_directory`) now carry an `error` field with the human-readable failure detail, plus empty `searched_roots` and `walk_errors` arrays for shape parity with success envelopes.
 - `peep` added to the man page SEE ALSO list (composes with `files` for periodic file-system polling).

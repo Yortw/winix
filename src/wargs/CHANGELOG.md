@@ -6,8 +6,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [0.3.0] - 2026-05-10
 
-Substantial behaviour hardening across 17 fresh-eyes review rounds. Headlines below; full per-round detail in commit history.
-
 ### Changed
 - `--ndjson` now streams lines as jobs complete rather than buffering until `Task.WhenAll`. Pipeline consumers (`wargs ... --ndjson | jq -c .`) see results as they happen instead of in one batch at the end.
 - `--keep-order --ndjson` honours per-input ordering by holding back lines for parallel out-of-order completion. Pre-fix the streaming change had broken keep-order; now reconciled.

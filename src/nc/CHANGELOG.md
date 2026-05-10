@@ -6,18 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [0.3.0] - 2026-04-24
 
-Three rounds of fresh-eyes code review landed substantive behaviour fixes
-across the client, listener, check, and TLS paths. Round 1 corrected the
-big-ticket silent-failure classes; round 2 tightened the check-mode exit
-contract and the TLS handshake deadline; round 3 closed two remaining
-Critical defect classes (AF honoured, broad exception safety-net) plus a
-large batch of Important diagnosability gaps.
-
 ### Added
 
 - `--ipv4` / `--ipv6` flags now actually honoured in TCP Connect and
-  `--check` modes (round-3 Critical). Previously the flags were advertised
-  in `--help` / `--describe` but the resolver ran dual-stack regardless.
+  `--check` modes. Previously the flags were advertised in `--help` /
+  `--describe` but the resolver ran dual-stack regardless.
 - `--check --json` now suppresses per-port text on stdout so downstream
   parsers get a single-stream JSON envelope.
 - Check-mode non-verbose stderr summary now covers both all-error AND
@@ -95,12 +88,6 @@ large batch of Important diagnosability gaps.
   instead of mis-labelling as `tls_failed` / exit 1.
 - `--version` output no longer carries the `+gitsha` SourceLink suffix.
   Users see plain `nc 0.3.0`, matching the suite-wide convention.
-
-### Pinning tests
-
-46 → 56 → 75+ xUnit tests. Every fix above has at least one test that
-would fail if the fix were reverted; naming convention explicitly cites
-which review round and finding each test pins.
 
 ## [0.2.0] - 2026-04-16
 
