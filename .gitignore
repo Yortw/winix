@@ -4,8 +4,20 @@ obj/
 *.suo
 .vs/
 TestResults/
+tmp/
 tmp_*/
 tmp-*/
 .worktrees/
 .superpowers/
 /.claude/settings.local.json
+.claude/
+
+# Smoke-replay artifacts. The run-smokes.sh scripts ARE tracked (see explicit
+# negation) — they're test infrastructure. Everything else under artifacts/
+# is generated output (binaries, captured stdout/stderr/exit codes, fixture
+# trees that can exceed Windows MAX_PATH and break git status).
+artifacts/
+!artifacts/**/run-smokes.sh
+
+# Local scratch / dev databases
+dttest/
