@@ -21,13 +21,14 @@ public interface ISecretStore
     /// every previously-encrypted file undecryptable).
     /// </summary>
     /// <remarks>
-    /// Backend atomicity guarantees vary: macOS Keychain's <c>add-generic-password</c>
-    /// (without <c>-U</c>) and Windows Credential Manager's <c>CRED_PRESERVE_TYPE</c>
-    /// give true atomic create-only semantics. The Linux libsecret CLI has no
-    /// non-overwriting form, so the implementation falls back to <c>Get</c>-then-<c>Set</c>;
-    /// that has a narrow race window if multiple processes write to the same
-    /// (namespace_, key) concurrently, which is acceptable for our intended use case
-    /// (single-process per-tool master-key initialisation).
+    /// Backend atomicity guarantees vary. macOS Keychain's <c>add-generic-password</c>
+    /// (without <c>-U</c>) provides true atomic create-only semantics. Windows
+    /// Credential Manager (<c>CredWriteW</c>) and the Linux libsecret CLI have no
+    /// non-overwriting form, so both implementations fall back to
+    /// <c>Get</c>-then-<c>Set</c>. That fallback has a narrow race window if
+    /// multiple processes write to the same (namespace_, key) concurrently, which
+    /// is acceptable for our intended use case (single-process per-tool master-key
+    /// initialisation).
     /// </remarks>
     bool TryAdd(string namespace_, string key, byte[] value);
 

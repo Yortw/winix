@@ -443,10 +443,19 @@ jobs:
             fi
           fi
 
+          # Mark hyphenated tags (e.g. v0.3.0-rc1) as prerelease so the GitHub
+          # release UI flags them and the post-publish workflow's prerelease
+          # guards engage correctly.
+          PRERELEASE_FLAG=""
+          if [[ "$VERSION" == *-* ]]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+
           gh release create "$TAG" \
             --title "v${VERSION}" \
             --generate-notes \
             --draft \
+            $PRERELEASE_FLAG \
             packages/*.nupkg \
             aot/*.zip \
             winix-manifest.json

@@ -6,10 +6,10 @@
   "architecture": {
     "64bit": {
       "url": "https://github.com/Yortw/winix/releases/download/v0.2.0/squeeze-win-x64.zip",
-      "hash": "7c69874ece4b5df24a5919d65d44dcc432e4abe5fbf7dab7840ebbbcc631405b"
+      "hash": "7c69874ece4b5df24a5919d65d44dcc432e4abe5fbf7dab7840ebbbcc631405b",
+      "bin": "squeeze.exe"
     }
   },
-  "bin": "squeeze.exe",
   "checkver": "github",
   "autoupdate": {
     "architecture": {

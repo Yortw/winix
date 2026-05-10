@@ -6,10 +6,10 @@
   "architecture": {
     "64bit": {
       "url": "https://github.com/Yortw/winix/releases/download/v0.2.0/winix-win-x64.zip",
-      "hash": "5f6d9f1cb71334950379aa4d60287f1dfa1c5149336ac5a204456912dc350c5e"
+      "hash": "5f6d9f1cb71334950379aa4d60287f1dfa1c5149336ac5a204456912dc350c5e",
+      "bin": "winix.exe"
     }
   },
-  "bin": "winix.exe",
   "post_install": "winix install --via scoop",
   "checkver": "github",
   "autoupdate": {

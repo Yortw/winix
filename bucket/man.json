@@ -6,10 +6,10 @@
   "architecture": {
     "64bit": {
       "url": "https://github.com/Yortw/winix/releases/download/v0.2.0/man-win-x64.zip",
-      "hash": "2c453ffd287b3ef55f86e7c5170983a93b65e21ccd0bf3b10d159f113505781c"
+      "hash": "2c453ffd287b3ef55f86e7c5170983a93b65e21ccd0bf3b10d159f113505781c",
+      "bin": "man.exe"
     }
   },
-  "bin": "man.exe",
   "checkver": "github",
   "autoupdate": {
     "architecture": {

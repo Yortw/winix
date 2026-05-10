@@ -6,10 +6,10 @@
   "architecture": {
     "64bit": {
       "url": "https://github.com/Yortw/winix/releases/download/v0.2.0/treex-win-x64.zip",
-      "hash": "c2e057d1d2af4f860758f0abc63eb86003bfc852d06a162dfa0392300a076cb9"
+      "hash": "c2e057d1d2af4f860758f0abc63eb86003bfc852d06a162dfa0392300a076cb9",
+      "bin": "treex.exe"
     }
   },
-  "bin": "treex.exe",
   "checkver": "github",
   "autoupdate": {
     "architecture": {

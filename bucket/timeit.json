@@ -6,10 +6,10 @@
   "architecture": {
     "64bit": {
       "url": "https://github.com/Yortw/winix/releases/download/v0.2.0/timeit-win-x64.zip",
-      "hash": "f87b7b867d2afe2a063754df09f10df5812e79481de371d6fd6c9926f2e3ae4d"
+      "hash": "f87b7b867d2afe2a063754df09f10df5812e79481de371d6fd6c9926f2e3ae4d",
+      "bin": "timeit.exe"
     }
   },
-  "bin": "timeit.exe",
   "checkver": "github",
   "autoupdate": {
     "architecture": {

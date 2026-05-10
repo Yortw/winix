@@ -85,7 +85,7 @@ public class ManifestLoaderTests
         string bundlePath = Path.Combine(Path.GetTempPath(), $"winix-bundle-{Guid.NewGuid():N}.json");
         string cachePath = Path.Combine(Path.GetTempPath(), $"winix-cache-{Guid.NewGuid():N}.json");
 
-        // Bundle has version 0.1, cache has version 0.4 — we expect 0.4 because cache is fresher.
+        // Bundle has version 0.1, cache has version 0.3 — we expect 0.3 because cache is fresher.
         string bundleJson = ValidJson.Replace("0.3.0", "0.1.0");
         await File.WriteAllTextAsync(bundlePath, bundleJson);
         File.SetLastWriteTimeUtc(bundlePath, DateTime.UtcNow.AddDays(-30));
@@ -114,7 +114,7 @@ public class ManifestLoaderTests
         string bundlePath = Path.Combine(Path.GetTempPath(), $"winix-bundle-{Guid.NewGuid():N}.json");
         string cachePath = Path.Combine(Path.GetTempPath(), $"winix-cache-{Guid.NewGuid():N}.json");
 
-        // Cache has stale version 0.1, bundle has version 0.4 (a recent release shipped).
+        // Cache has stale version 0.1, bundle has version 0.3 (a recent release shipped).
         string staleCacheJson = ValidJson.Replace("0.3.0", "0.1.0");
         await File.WriteAllTextAsync(cachePath, staleCacheJson);
         File.SetLastWriteTimeUtc(cachePath, DateTime.UtcNow.AddDays(-30));

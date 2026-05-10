@@ -13,6 +13,10 @@ permissions:
 
 jobs:
   update-scoop-bucket:
+    # Only for stable versions (no pre-release dash) — RC/beta tags must not
+    # bump the scoop bucket on main, otherwise users on the stable scoop
+    # channel receive a prerelease via `scoop update`.
+    if: ${{ !contains(github.event.release.tag_name, '-') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
