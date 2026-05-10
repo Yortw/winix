@@ -1,0 +1,22 @@
+<Project>
+  <!-- Inherit from the repo-root Directory.Build.props (Version, LangVersion,
+       Nullable, etc.). MSBuild does not chain Directory.Build.props across
+       directory levels automatically — the closest one wins — so we re-import
+       the root explicitly. -->
+  <Import Project="$(MSBuildThisFileDirectory)../Directory.Build.props" />
+
+  <PropertyGroup>
+    <!-- Match the InvariantGlobalization=true setting on production console csprojs
+         per feedback_invariant_globalization_resource_keys.md. Under the
+         InvariantGlobalization+UseSystemResourceKeys flag combination that AOT
+         consoles ship with, framework ex.Message values are SR resource keys
+         (e.g. Arg_ParamName_Name) instead of English text. Tests must run under
+         the same setting so SR-key leaks surface deterministically here, not
+         in production user output.
+
+         Individual test csprojs may override this with <InvariantGlobalization>false</InvariantGlobalization>
+         when their production counterpart is also false (e.g. Winix.When.Tests
+         needs ICU access for timezone and named-month parsing). -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+</Project>
