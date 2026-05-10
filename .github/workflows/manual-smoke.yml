@@ -180,6 +180,8 @@ jobs:
               -e 's|artifacts/reverify-2026-05-06/([a-z]+)/bin/\1\.exe|artifacts/manual-smoke/'"${{ matrix.rid }}"'/\1/\1|g' \
               -e 's|artifacts/round-stop-2026-05-09/([a-z]+)|artifacts/manual-smoke/'"${{ matrix.rid }}"'/\1|g' \
               -e 's|artifacts/reverify-2026-05-06/([a-z]+)|artifacts/manual-smoke/'"${{ matrix.rid }}"'/\1|g' \
+              -e 's|fresh-publish/([a-z]+)\.exe|\1|g' \
+              -e 's|bin/([a-z]+)\.exe|\1|g' \
               "$dst_runner"
             rm -f "$dst_runner.bak"
 
