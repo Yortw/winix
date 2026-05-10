@@ -75,6 +75,16 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      - name: Install GNU coreutils (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          # macOS BSD utils don't ship `timeout`; coreutils provides it as gtimeout.
+          brew install coreutils
+          # Symlink gtimeout → timeout so the smoke step is portable across runners.
+          mkdir -p /tmp/winix-bin
+          ln -sf "$(which gtimeout)" /tmp/winix-bin/timeout
+          echo "/tmp/winix-bin" >> "$GITHUB_PATH"
+
       - name: Resolve tool list
         id: tools
         shell: bash
@@ -118,14 +128,15 @@ jobs:
           SUMMARY="$ART/smoke-summary.txt"
           > "$SUMMARY"
 
-          # Per-tool smoke runner location — prefer round-stop, fall back to reverify.
-          # Use a function dispatcher rather than `declare -A` because macOS GHA
-          # runners ship bash 3.2 (Apple keeps the GPLv2 fork; bash 4+ is GPLv3).
+          # Per-tool smoke runner location. Function dispatcher (not `declare -A`)
+          # because macOS GHA runners ship bash 3.2. Mapping reflects which baseline
+          # directory actually has each tool's runner. unprotect has no separate
+          # runner — protect's exercises both ends of the round-trip.
           runner_for() {
             case "$1" in
-              clip|envvault|files|less|man|nc|peep|protect|retry|schedule|timeit|treex|unprotect|url|wargs|whoholds|winix)
+              clip|envvault|files|less|man|nc|peep|protect|retry|schedule|treex|wargs|whoholds|winix)
                 echo "round-stop-2026-05-09/$1" ;;
-              digest|notify|ids|when|qr|squeeze)
+              timeit|url|digest|notify|ids|when|qr|squeeze)
                 echo "reverify-2026-05-06/$1" ;;
               *) echo "" ;;
             esac
@@ -159,19 +170,29 @@ jobs:
             # Generic regex with backref captures the tool name so cross-tool refs
             # (e.g. protect's runner referencing both protect.exe and unprotect.exe)
             # rewrite correctly. -E for extended regex (works on both GNU + BSD sed).
+            # Most-specific patterns first (full bin path), then directory prefix
+            # WITHOUT trailing slash so `ART="...round-stop-2026-05-09/winix"`-style
+            # lines (no trailing /) also rewrite. -E for extended regex (works on
+            # GNU + BSD sed).
             sed -E -i.bak \
               -e 's|[Dd]:/projects/winix/||g' \
               -e 's|artifacts/round-stop-2026-05-09/([a-z]+)/fresh-publish/\1\.exe|artifacts/manual-smoke/'"${{ matrix.rid }}"'/\1/\1|g' \
-              -e 's|artifacts/round-stop-2026-05-09/([a-z]+)/|artifacts/manual-smoke/'"${{ matrix.rid }}"'/\1/|g' \
               -e 's|artifacts/reverify-2026-05-06/([a-z]+)/bin/\1\.exe|artifacts/manual-smoke/'"${{ matrix.rid }}"'/\1/\1|g' \
-              -e 's|artifacts/reverify-2026-05-06/([a-z]+)/|artifacts/manual-smoke/'"${{ matrix.rid }}"'/\1/|g' \
+              -e 's|artifacts/round-stop-2026-05-09/([a-z]+)|artifacts/manual-smoke/'"${{ matrix.rid }}"'/\1|g' \
+              -e 's|artifacts/reverify-2026-05-06/([a-z]+)|artifacts/manual-smoke/'"${{ matrix.rid }}"'/\1|g' \
               "$dst_runner"
             rm -f "$dst_runner.bak"
 
             echo "  running smokes (timeout 240s) ..." | tee -a "$SUMMARY"
             timeout 240s bash "$dst_runner" > "$ART/$t/run-smokes.stdout" 2> "$ART/$t/run-smokes.stderr"
             rc=$?
-            count=$(find "$ART/$t/out" -name '*.exit*' -type f 2>/dev/null | wc -l)
+            # Tools use either out/ or results/ for exit-code captures.
+            count=0
+            for d in "$ART/$t/out" "$ART/$t/results"; do
+              if [ -d "$d" ]; then
+                count=$((count + $(find "$d" -name '*.exit*' -type f 2>/dev/null | wc -l)))
+              fi
+            done
             echo "  rc=$rc smoke_count=$count" | tee -a "$SUMMARY"
           done
 
