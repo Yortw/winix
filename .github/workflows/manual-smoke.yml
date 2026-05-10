@@ -119,30 +119,17 @@ jobs:
           > "$SUMMARY"
 
           # Per-tool smoke runner location — prefer round-stop, fall back to reverify.
-          declare -A RUNNER
-          RUNNER[clip]="round-stop-2026-05-09/clip"
-          RUNNER[envvault]="round-stop-2026-05-09/envvault"
-          RUNNER[files]="round-stop-2026-05-09/files"
-          RUNNER[less]="round-stop-2026-05-09/less"
-          RUNNER[man]="round-stop-2026-05-09/man"
-          RUNNER[nc]="round-stop-2026-05-09/nc"
-          RUNNER[peep]="round-stop-2026-05-09/peep"
-          RUNNER[protect]="round-stop-2026-05-09/protect"
-          RUNNER[retry]="round-stop-2026-05-09/retry"
-          RUNNER[schedule]="round-stop-2026-05-09/schedule"
-          RUNNER[timeit]="round-stop-2026-05-09/timeit"
-          RUNNER[treex]="round-stop-2026-05-09/treex"
-          RUNNER[unprotect]="round-stop-2026-05-09/unprotect"
-          RUNNER[url]="round-stop-2026-05-09/url"
-          RUNNER[wargs]="round-stop-2026-05-09/wargs"
-          RUNNER[whoholds]="round-stop-2026-05-09/whoholds"
-          RUNNER[winix]="round-stop-2026-05-09/winix"
-          RUNNER[digest]="reverify-2026-05-06/digest"
-          RUNNER[notify]="reverify-2026-05-06/notify"
-          RUNNER[ids]="reverify-2026-05-06/ids"
-          RUNNER[when]="reverify-2026-05-06/when"
-          RUNNER[qr]="reverify-2026-05-06/qr"
-          RUNNER[squeeze]="reverify-2026-05-06/squeeze"
+          # Use a function dispatcher rather than `declare -A` because macOS GHA
+          # runners ship bash 3.2 (Apple keeps the GPLv2 fork; bash 4+ is GPLv3).
+          runner_for() {
+            case "$1" in
+              clip|envvault|files|less|man|nc|peep|protect|retry|schedule|timeit|treex|unprotect|url|wargs|whoholds|winix)
+                echo "round-stop-2026-05-09/$1" ;;
+              digest|notify|ids|when|qr|squeeze)
+                echo "reverify-2026-05-06/$1" ;;
+              *) echo "" ;;
+            esac
+          }
 
           IFS=',' read -ra TOOLS <<< "${{ steps.tools.outputs.list }}"
           for t in "${TOOLS[@]}"; do
@@ -154,7 +141,7 @@ jobs:
               continue
             fi
 
-            runner_subdir="${RUNNER[$t]:-}"
+            runner_subdir="$(runner_for "$t")"
             if [ -z "$runner_subdir" ]; then
               echo "  SKIP: no runner mapping for $t" | tee -a "$SUMMARY"
               continue
@@ -169,17 +156,15 @@ jobs:
             dst_runner="$ART/$t/run-smokes.sh"
             cp "$src_runner" "$dst_runner"
             # Retarget BIN+OUT to the freshly-published AOT binary on this runner.
-            sed -i.bak \
-              -e "s|fresh-publish/${t}.exe|${t}|g" \
-              -e "s|fresh-publish/${t}|${t}|g" \
-              -e "s|round-stop-2026-05-09/${t}/out|manual-smoke/${{ matrix.rid }}/${t}/out|g" \
-              -e "s|round-stop-2026-05-09/${t}/data|manual-smoke/${{ matrix.rid }}/${t}/data|g" \
-              -e "s|reverify-2026-05-06/${t}/bin/${t}.exe|manual-smoke/${{ matrix.rid }}/${t}/${t}|g" \
-              -e "s|reverify-2026-05-06/${t}/bin/${t}|manual-smoke/${{ matrix.rid }}/${t}/${t}|g" \
-              -e "s|reverify-2026-05-06/${t}/out|manual-smoke/${{ matrix.rid }}/${t}/out|g" \
-              -e "s|reverify-2026-05-06/${t}/data|manual-smoke/${{ matrix.rid }}/${t}/data|g" \
-              -e "s|d:/projects/winix|$(pwd)|g" \
-              -e "s|D:/projects/winix|$(pwd)|g" \
+            # Generic regex with backref captures the tool name so cross-tool refs
+            # (e.g. protect's runner referencing both protect.exe and unprotect.exe)
+            # rewrite correctly. -E for extended regex (works on both GNU + BSD sed).
+            sed -E -i.bak \
+              -e 's|[Dd]:/projects/winix/||g' \
+              -e 's|artifacts/round-stop-2026-05-09/([a-z]+)/fresh-publish/\1\.exe|artifacts/manual-smoke/'"${{ matrix.rid }}"'/\1/\1|g' \
+              -e 's|artifacts/round-stop-2026-05-09/([a-z]+)/|artifacts/manual-smoke/'"${{ matrix.rid }}"'/\1/|g' \
+              -e 's|artifacts/reverify-2026-05-06/([a-z]+)/bin/\1\.exe|artifacts/manual-smoke/'"${{ matrix.rid }}"'/\1/\1|g' \
+              -e 's|artifacts/reverify-2026-05-06/([a-z]+)/|artifacts/manual-smoke/'"${{ matrix.rid }}"'/\1/|g' \
               "$dst_runner"
             rm -f "$dst_runner.bak"
 
