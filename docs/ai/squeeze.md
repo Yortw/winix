@@ -79,7 +79,19 @@ squeeze --json --zstd data.csv 2>&1 | jq '.files[0].input_bytes, .files[0].outpu
 
 ## Gotchas
 
-**Brotli has no magic bytes — detection uses file extension.** When decompressing with `-d`, gzip and zstd are identified by magic bytes in the file header. Brotli has no standard magic bytes, so `squeeze` falls back to the `.br` extension. If your brotli file has a non-standard extension, detection will fail.
+**Brotli has no magic bytes — detection uses file extension first, then trial-decompression.** When decompressing with `-d`, gzip and zstd are identified by magic bytes in the file header. Brotli has no standard magic bytes, so `squeeze` falls back to the `.br` extension OR a trial-decompression attempt (which is why brotli files with non-standard extensions like `.dat` may still decompress successfully — but is fragile, prefer `.br`).
+
+**Truncated gzip is rejected with exit 1.** Pre-round-tier-2-review `squeeze` silently produced partial output for half-downloaded `.gz` files. Now the gzip trailer (CRC32 + ISIZE) is validated against the actual decompressed byte count; mismatch = exit 1 with a clear "integrity check failed" message. Pipe consumers should rely on exit codes, not partial-output detection.
+
+**Multi-member gzip is REJECTED as corrupt.** Concatenated gzip streams (e.g. `cat a.gz b.gz`, `gzip file1 file2 && cat *.gz`) currently exit 1 with `data is corrupt or truncated` — both in file mode AND pipe mode. `squeeze` emits the decompressed content of all members to stdout *before* the error fires, so the content is technically correct, but exit 1 means scripts that check exit codes will treat the run as failed.
+
+Why: `squeeze`'s integrity check validates the gzip ISIZE field against the actual decompressed byte count. For multi-member streams, the ISIZE in the LAST member's trailer represents only that member's uncompressed size, not the cumulative total — so the check fails. An earlier (post-tier-2-review) attempt to detect multi-member by scanning for additional `1f 8b` magic bytes was found to false-positive on incompressible single-member input (random/encrypted data ~10MB+), silently accepting truncation. The current behaviour rejects multi-member loudly rather than silently accepting corruption.
+
+Workaround: use system `gzip` directly (`gzip -dc concat.gz`), or split the concatenation back into individual `.gz` files and decompress separately.
+
+A future version may add proper member-by-member parsing per RFC 1952 §2.2, which would handle multi-member correctly.
+
+**`--keep` and `--remove` together: `--keep` wins.** Mirrors gzip(1) semantics. A warning is printed to stderr so users see that `--remove` was overridden.
 
 **Output file is created alongside the input by default.** `squeeze data.csv` creates `data.csv.gz` in the same directory. Use `-o` to specify a different output path, or `-c`/`--stdout` to write to stdout instead.
 
@@ -99,16 +111,21 @@ squeeze --json --zstd data.csv 2>&1 | jq '.files[0].input_bytes, .files[0].outpu
 squeeze --json --zstd data.csv 2>stats.json
 ```
 
-Top-level fields: `tool`, `version`, `exit_code`, `exit_reason`, `files`.
+Top-level fields: `tool`, `version`, `exit_code`, `exit_reason`, `files`, `errors`.
+
+`errors` is an array of strings present when `exit_reason` is `partial_failure` or `failure` (file mode); each string describes one per-file failure. Omitted on full success.
 
 Each entry in `files`:
 - `input` — input file path
 - `output` — output file path
 - `input_bytes` — size before compression
 - `output_bytes` — size after compression
-- `format` — `"gzip"`, `"brotli"`, or `"zstd"`
-- `level` — compression level used
+- `ratio` — `output_bytes / input_bytes` (0.0–1.0)
+- `format` — `"gz"`, `"br"`, or `"zst"` (short form; pre-2026-05 docs incorrectly said `"gzip"`/`"brotli"`/`"zstd"`)
+- `level` — compression level used (compress mode only)
 - `seconds` — time taken
+
+`exit_reason` values: `success`, `partial_failure`, `failure`, `usage_error`, `file_not_found`, `corrupt_input`, `decompress_failed`, `compress_failed`, `io_error`, `output_exists`, `unknown_extension`.
 
 **--describe** — machine-readable flag reference:
 ```bash

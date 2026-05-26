@@ -25,22 +25,51 @@ public static class ScreenRenderer
     /// Enters the alternate screen buffer. This preserves the user's terminal history
     /// and provides a clean canvas for peep's output.
     /// </summary>
+    /// <remarks>
+    /// Best-effort: writes are wrapped to swallow IOException / ObjectDisposedException.
+    /// If stdout is broken (e.g. piped to a closed consumer), the alt-buffer escape is
+    /// futile but the call must not throw — a failure here happens BEFORE the matching
+    /// <see cref="ExitAlternateBuffer"/> guard is registered, and an exception would
+    /// leak past the session's outer finally and corrupt the user's terminal.
+    /// </remarks>
     public static void EnterAlternateBuffer(TextWriter writer)
     {
-        writer.Write(EnterAlternateBufferSeq);
-        writer.Write(HideCursorSeq);
-        writer.Flush();
+        try
+        {
+            writer.Write(EnterAlternateBufferSeq);
+            writer.Write(HideCursorSeq);
+            writer.Flush();
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException)
+        {
+            // Terminal is gone (broken pipe / disposed). The alt-buffer enter is futile;
+            // skip silently rather than propagate.
+        }
     }
 
     /// <summary>
     /// Exits the alternate screen buffer and shows the cursor, restoring the terminal
     /// to its state before peep started.
     /// </summary>
+    /// <remarks>
+    /// Best-effort: writes are wrapped because this is called from session-finally on
+    /// every exit path. If stdout has gone away (broken pipe, closed handle), the user's
+    /// terminal can't be restored anyway — but we MUST NOT throw, because that would
+    /// leak past the finally and leave the user stuck in alternate-buffer mode with a
+    /// hidden cursor for the rest of the shell session.
+    /// </remarks>
     public static void ExitAlternateBuffer(TextWriter writer)
     {
-        writer.Write(ShowCursorSeq);
-        writer.Write(ExitAlternateBufferSeq);
-        writer.Flush();
+        try
+        {
+            writer.Write(ShowCursorSeq);
+            writer.Write(ExitAlternateBufferSeq);
+            writer.Flush();
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException)
+        {
+            // Terminal is gone. Nothing we can do — must not throw out of teardown.
+        }
     }
 
     /// <summary>

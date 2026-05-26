@@ -105,6 +105,17 @@ public sealed class TreeRenderer
                 WriteDateColumn(writer, child);
             }
 
+            // Round-1 fresh-eyes 2026-05-09 silent-failure-hunter C1: annotate directories
+            // that could not be enumerated. Matches tree(1)'s "[error opening dir]" annotation
+            // so a partial tree is visually distinct from a legitimately-empty one.
+            if (child.IsUnreadable)
+            {
+                writer.Write("  ");
+                writer.Write(AnsiColor.Dim(_options.UseColor));
+                writer.Write("[error opening dir]");
+                writer.Write(AnsiColor.Reset(_options.UseColor));
+            }
+
             writer.WriteLine();
 
             // Recurse into directory children

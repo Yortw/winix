@@ -11,6 +11,7 @@
     <ToolCommandName>man</ToolCommandName>
     <PackageId>Winix.Man</PackageId>
     <Description>Cross-platform man page viewer with colour and hyperlinks. Renders groff man/mdoc pages natively — no groff installation required.</Description>
+    <PackageTags>cli;command-line;cross-platform;windows;macos;linux;aot;dotnet-tool;winix;man-page;groff;documentation;mdoc</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
   <ItemGroup>

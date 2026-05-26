@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsTestProject>true</IsTestProject>
+    <!-- Round-2 review CR-I2: mirror qr.csproj's InvariantGlobalization=true so the
+         test process exercises ArgumentException/IOException messages under the same
+         runtime config as the shipped AOT binary. Without this, two-arg ArgumentException
+         and ex.Message-from-framework-exception leaks ('Arg_ParamName_Name', 'IO_PathNotFound_Path')
+         render normally during tests but fail in production. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.*" />
+    <PackageReference Include="xunit" Version="2.*" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.*" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Winix.Qr\Winix.Qr.csproj" />
+  </ItemGroup>
+</Project>

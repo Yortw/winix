@@ -18,8 +18,8 @@ cross\-platform).
 \f[B]MANPATH\f[R] \(em directories listed in the \f[B]MANPATH\f[R]
 environment variable.
 .IP "3." 3
-\f[B]Auto\-detected\f[R] system locations (\f[B]/usr/share/man\f[R],
-\f[B]/usr/local/share/man\f[R], etc.
+\f[B]Auto\-detected\f[R] system locations (\f[CR]/usr/share/man\f[R],
+\f[CR]/usr/local/share/man\f[R], etc.
 on Linux/macOS; no system locations on Windows).
 .PP
 Use \f[B]man \(enmanpath\f[R] to inspect the effective search path.
@@ -35,10 +35,21 @@ Force coloured output (overrides \f[B]NO_COLOR\f[R]).
 Disable coloured output.
 .TP
 \f[B]\(enwidth\f[R] \f[I]N\f[R]
-Override output width in columns (default: terminal width).
+Override output width in columns.
+\f[I]N\f[R] must be at least 10.
+When omitted, width is taken from MANWIDTH if set, otherwise from the
+terminal width capped at 80 columns.
+The 80\-column cap matches the effective behaviour of GNU man\-db (which
+delegates rendering to groff, whose default width is 80) \(em set
+MANWIDTH or pass \f[B]\(enwidth\f[R] explicitly to render wider.
 .TP
 \f[B]\-w\f[R], \f[B]\(enpath\f[R]
 Print the path to the man page file and exit (do not render).
+The path is reported on the first match that passes a
+structural\-validity check; the file is not opened for full read, so a
+path that resolves successfully here may still fail to render with
+\f[B]\(enno\-pager\f[R] if the content is corrupt later in the read
+pipeline.
 .TP
 \f[B]\(enwhere\f[R]
 Alias for \f[B]\(enpath\f[R].
@@ -47,7 +58,7 @@ Alias for \f[B]\(enpath\f[R].
 Print the list of man page search directories and exit.
 .TP
 \f[B]\(enjson\f[R]
-Write a JSON summary to stderr on exit.
+Write a JSON summary of the page metadata to stdout and exit.
 .TP
 \f[B]\(endescribe\f[R]
 Print machine\-readable metadata and exit.
@@ -74,8 +85,30 @@ Internal error.
 .SH ENVIRONMENT
 .TP
 \f[B]MANPATH\f[R]
-Colon\-separated list of directories to search for man pages, prepended
-to auto\-detected locations.
+Platform\-separated list of directories to search for man pages,
+prepended to auto\-detected locations.
+The separator is \f[B]:\f[R] (colon) on Linux/macOS and \f[B];\f[R]
+(semicolon) on Windows, matching the platform\(cqs PATH separator.
+.TP
+\f[B]MANWIDTH\f[R]
+When set to a positive integer ≥ 10 and \f[B]\(enwidth\f[R] is not
+given, used as the rendering width.
+Otherwise the default applies (terminal width, capped at 80).
+.TP
+\f[B]MANPAGER\f[R]
+The pager command to invoke for displaying rendered output.
+May be a bare executable (\f[B]less\f[R]) or a full command line with
+arguments (\f[B]less \-R\f[R], \f[B]less \-R \(enignore\-case\f[R]); the
+value is passed to \f[B]/bin/sh \-c\f[R] on Linux/macOS and \f[B]cmd
+/c\f[R] on Windows so any shell\-syntax is honoured.
+Takes priority over \f[B]PAGER\f[R].
+.TP
+\f[B]PAGER\f[R]
+Fallback pager command, consulted when \f[B]MANPAGER\f[R] is unset.
+Same parsing rules as \f[B]MANPAGER\f[R].
+If neither variable is set, man falls back (in order) to a sibling
+\f[B]less\f[R] binary in the same directory, the \f[B]less\f[R] found on
+\f[B]PATH\f[R], or a built\-in minimal pager.
 .TP
 \f[B]NO_COLOR\f[R]
 If set, disables coloured output and clickable hyperlinks

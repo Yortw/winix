@@ -26,10 +26,10 @@ Cross-platform installer for the Winix CLI tool suite. Installs, updates, and un
 :   Uninstall all Winix tools, or a named subset.
 
 **list**
-:   List all available Winix tools.
+:   List all available Winix tools. With **--json**, emits a JSON envelope on stdout instead of the human-readable table.
 
 **status**
-:   Show install status and version of each tool.
+:   Show install status and version of each tool. With **--json**, emits a JSON summary envelope on stdout instead of the one-line text summary.
 
 # OPTIONS
 
@@ -39,8 +39,14 @@ Cross-platform installer for the Winix CLI tool suite. Installs, updates, and un
 **--dry-run**
 :   Print what would be done without executing any changes.
 
+**--json**
+:   For **list** and **status**, emit a JSON envelope on stdout (suite convention) rather than the human-readable table or summary. The envelope includes the winix version, current platform, and per-tool install state; pipe through **jq** for scripted consumption. Ignored on **install**, **update**, and **uninstall**.
+
 **--describe**
 :   Print machine-readable metadata and exit.
+
+**--color**
+:   Force coloured output, overriding **NO_COLOR**.
 
 **--no-color**
 :   Disable coloured output.

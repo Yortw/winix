@@ -18,6 +18,7 @@ internal sealed class Program
     static int Main(string[] args)
     {
         ConsoleEnv.EnableAnsiIfNeeded();
+        ConsoleEnv.UseUtf8Streams();
         string version = GetVersion();
 
         var parser = new CommandLineParser("schedule", version)
@@ -34,8 +35,8 @@ internal sealed class Program
                 "No cross-platform scheduler CLI with cron syntax exists",
                 "Unified cron syntax for Windows Task Scheduler and crontab")
             .StdinDescription("Not used")
-            .StdoutDescription("Not used (all output goes to stderr)")
-            .StderrDescription("Tables, messages, JSON output")
+            .StdoutDescription("JSON envelope when --json is set (success/error envelope on stdout per suite convention); otherwise unused")
+            .StderrDescription("Plain-text tables, status messages, and human diagnostics. Usage-error JSON envelopes also land here.")
             .Example("schedule add --cron \"0 2 * * *\" -- dotnet build", "Create a task that runs daily at 2am")
             .Example("schedule add --cron \"*/5 * * * *\" --name health-check -- curl http://localhost:8080/health", "Create a named task")
             .Example("schedule list", "List Winix-managed tasks")
@@ -49,8 +50,8 @@ internal sealed class Program
             .Example("schedule next \"*/5 * * * *\" --count 10", "Show next 10 fire times")
             .ExitCodes(
                 (0, "Success"),
-                (1, "Error (task not found, scheduler failure, invalid cron)"),
-                (ExitCode.UsageError, "Usage error (bad arguments)"));
+                (ExitCode.UsageError, "Usage error (bad arguments, invalid cron expression)"),
+                (ExitCode.NotExecutable, "Backend failure (task not found, scheduler error)"));
 
         var result = parser.Parse(args);
         if (result.IsHandled) { return result.ExitCode; }
@@ -67,9 +68,13 @@ internal sealed class Program
         bool jsonOutput = result.Has("--json");
         bool useColor = result.ResolveColor(checkStdErr: true);
 
-        // Default folder is \Winix\ on Windows, empty on Linux/macOS.
-        string folder = result.Has("--folder")
-            ? result.GetString("--folder")
+        // Default folder is \Winix\ on Windows, empty on Linux/macOS. An explicit empty
+        // --folder ("" passed by the user) is treated the same as "flag absent" — without
+        // this fall-back the empty string would propagate to schtasks as /TN "" which it
+        // rejects with a confusing error.
+        string folderArg = result.Has("--folder") ? result.GetString("--folder") : "";
+        string folder = !string.IsNullOrEmpty(folderArg)
+            ? folderArg
             : (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? @"\Winix\" : string.Empty);
 
         switch (subcommand)
@@ -119,8 +124,7 @@ internal sealed class Program
         }
         catch (FormatException ex)
         {
-            Console.Error.WriteLine($"schedule: invalid cron expression: {ex.Message}");
-            return 1;
+            return result.WriteError($"invalid cron expression: {ex.Message}", Console.Error);
         }
 
         // Positionals[0] is "add"; everything after is the command to schedule.
@@ -150,21 +154,59 @@ internal sealed class Program
             name = NameGenerator.FromCommand(fullCommand);
         }
 
-        ISchedulerBackend backend = GetBackend();
-        ScheduleResult scheduleResult = backend.Add(name, cron, command, arguments, folder);
+        // Reject newlines in user-supplied identifiers BEFORE handing them to the backend.
+        // crontab is newline-delimited; an unfiltered '\n' in name/command/argument injects
+        // additional entries into the user's crontab, registering hidden tasks alongside the
+        // legitimate one. schtasks rejects them too but with a less actionable error.
+        // Defence in depth: CrontabParser.AddEntry also validates, but the cleaner UX is to
+        // surface the usage error here rather than let an ArgumentException escape.
+        if (RejectIfMultiline("--name", name, out string? nameError))
+        {
+            return result.WriteError(nameError!, Console.Error);
+        }
+        if (RejectIfMultiline("command", command, out string? cmdError))
+        {
+            return result.WriteError(cmdError!, Console.Error);
+        }
+        for (int ai = 0; ai < arguments.Length; ai++)
+        {
+            if (RejectIfMultiline($"argument {ai + 1}", arguments[ai], out string? argError))
+            {
+                return result.WriteError(argError!, Console.Error);
+            }
+        }
 
+        ISchedulerBackend backend = GetBackend();
+        ScheduleResult scheduleResult;
+        try
+        {
+            scheduleResult = backend.Add(name, cron, command, arguments, folder);
+        }
+        catch (ArgumentException ex)
+        {
+            // CrontabParser.AddEntry throws ArgumentException for inputs that survived the
+            // RejectIfMultiline gate above but still violate the parser's tighter contract
+            // (notably a name containing the literal '# winix:' tag prefix). Catching here
+            // turns the validation failure into a clean usage-error exit (125) rather than
+            // letting the exception escape as an unhandled stack trace. See SafeWriteLine
+            // rationale — diagnostic must never crash the tool.
+            return result.WriteError(ex.Message, Console.Error);
+        }
+
+        int exitCode = scheduleResult.Success ? 0 : ExitCode.NotExecutable;
         if (json)
         {
-            Console.Error.WriteLine(Formatting.FormatActionJson(
+            SafeWriteLineToStdout(Formatting.FormatActionJson(
                 "add", name, cronStr, null,
-                scheduleResult.Success ? 0 : 1, scheduleResult.Success ? "success" : "error", version));
+                exitCode, scheduleResult.Success ? "success" : "error", version,
+                scheduleResult.Warning));
         }
         else
         {
-            Console.Error.WriteLine(Formatting.FormatResult(scheduleResult, useColor));
+            SafeWriteLine(Formatting.FormatResult(scheduleResult, useColor));
         }
 
-        return scheduleResult.Success ? 0 : 1;
+        return exitCode;
     }
 
     /// <summary>
@@ -176,15 +218,37 @@ internal sealed class Program
         bool all = result.Has("--all");
 
         ISchedulerBackend backend = GetBackend();
-        IReadOnlyList<ScheduledTask> tasks = backend.List(all ? null : folder, all);
+        ScheduleListResult listResult = backend.List(all ? null : folder, all);
+
+        if (!listResult.Available)
+        {
+            // Backend reported a real failure (Task Scheduler service stopped, crontab
+            // denied, etc.). Surface diagnostic via stderr and exit non-zero rather than
+            // silently presenting an empty table that the user mistakes for "no tasks."
+            int failExit = (int)ExitCode.NotExecutable;
+            string reason = listResult.FailureReason ?? "unknown";
+            if (json)
+            {
+                SafeWriteLineToStdout(Formatting.FormatTaskListJson(listResult.Tasks, failExit, "error", version, reason));
+            }
+            else
+            {
+                SafeWriteLine($"schedule: {reason}");
+            }
+            return failExit;
+        }
 
         if (json)
         {
-            Console.Error.WriteLine(Formatting.FormatTaskListJson(tasks, 0, "success", version));
+            SafeWriteLineToStdout(Formatting.FormatTaskListJson(listResult.Tasks, 0, "success", version, listResult.Warning));
         }
         else
         {
-            Console.Error.Write(Formatting.FormatTable(tasks, showFolder: all, useColor: useColor));
+            SafeWrite(Formatting.FormatTable(listResult.Tasks, showFolder: all, useColor: useColor));
+            if (!string.IsNullOrEmpty(listResult.Warning))
+            {
+                SafeWriteLine($"warning: {listResult.Warning}");
+            }
         }
 
         return 0;
@@ -205,18 +269,7 @@ internal sealed class Program
         ISchedulerBackend backend = GetBackend();
         ScheduleResult scheduleResult = backend.Remove(name, folder);
 
-        if (json)
-        {
-            Console.Error.WriteLine(Formatting.FormatActionJson(
-                "remove", name, null, null,
-                scheduleResult.Success ? 0 : 1, scheduleResult.Success ? "success" : "error", version));
-        }
-        else
-        {
-            Console.Error.WriteLine(Formatting.FormatResult(scheduleResult, useColor));
-        }
-
-        return scheduleResult.Success ? 0 : 1;
+        return WriteActionResult(scheduleResult, "remove", name, null, version, json, useColor);
     }
 
     /// <summary>
@@ -234,18 +287,7 @@ internal sealed class Program
         ISchedulerBackend backend = GetBackend();
         ScheduleResult scheduleResult = backend.Enable(name, folder);
 
-        if (json)
-        {
-            Console.Error.WriteLine(Formatting.FormatActionJson(
-                "enable", name, null, null,
-                scheduleResult.Success ? 0 : 1, scheduleResult.Success ? "success" : "error", version));
-        }
-        else
-        {
-            Console.Error.WriteLine(Formatting.FormatResult(scheduleResult, useColor));
-        }
-
-        return scheduleResult.Success ? 0 : 1;
+        return WriteActionResult(scheduleResult, "enable", name, null, version, json, useColor);
     }
 
     /// <summary>
@@ -263,18 +305,7 @@ internal sealed class Program
         ISchedulerBackend backend = GetBackend();
         ScheduleResult scheduleResult = backend.Disable(name, folder);
 
-        if (json)
-        {
-            Console.Error.WriteLine(Formatting.FormatActionJson(
-                "disable", name, null, null,
-                scheduleResult.Success ? 0 : 1, scheduleResult.Success ? "success" : "error", version));
-        }
-        else
-        {
-            Console.Error.WriteLine(Formatting.FormatResult(scheduleResult, useColor));
-        }
-
-        return scheduleResult.Success ? 0 : 1;
+        return WriteActionResult(scheduleResult, "disable", name, null, version, json, useColor);
     }
 
     /// <summary>
@@ -292,18 +323,31 @@ internal sealed class Program
         ISchedulerBackend backend = GetBackend();
         ScheduleResult scheduleResult = backend.Run(name, folder);
 
+        return WriteActionResult(scheduleResult, "run", name, null, version, json, useColor);
+    }
+
+    /// <summary>
+    /// Common output path for action-style subcommands (add/remove/enable/disable/run).
+    /// Returns 0 on success, <see cref="ExitCode.NotExecutable"/> (126) on backend failure.
+    /// </summary>
+    private static int WriteActionResult(
+        ScheduleResult scheduleResult, string action, string name, string? cronStr,
+        string version, bool json, bool useColor)
+    {
+        int exitCode = scheduleResult.Success ? 0 : ExitCode.NotExecutable;
         if (json)
         {
-            Console.Error.WriteLine(Formatting.FormatActionJson(
-                "run", name, null, null,
-                scheduleResult.Success ? 0 : 1, scheduleResult.Success ? "success" : "error", version));
+            SafeWriteLineToStdout(Formatting.FormatActionJson(
+                action, name, cronStr, null,
+                exitCode, scheduleResult.Success ? "success" : "error", version,
+                scheduleResult.Warning));
         }
         else
         {
-            Console.Error.WriteLine(Formatting.FormatResult(scheduleResult, useColor));
+            SafeWriteLine(Formatting.FormatResult(scheduleResult, useColor));
         }
 
-        return scheduleResult.Success ? 0 : 1;
+        return exitCode;
     }
 
     /// <summary>
@@ -324,17 +368,17 @@ internal sealed class Program
 
         if (json)
         {
-            Console.Error.WriteLine(Formatting.FormatHistoryJson(name, records, 0, "success", version));
+            SafeWriteLineToStdout(Formatting.FormatHistoryJson(name, records, 0, "success", version));
         }
         else
         {
             if (records.Count == 0)
             {
-                Console.Error.WriteLine(Formatting.FormatHistoryNotAvailable());
+                SafeWriteLine(Formatting.FormatHistoryNotAvailable());
             }
             else
             {
-                Console.Error.Write(Formatting.FormatHistory(records, useColor));
+                SafeWrite(Formatting.FormatHistory(records, useColor));
             }
         }
 
@@ -362,8 +406,7 @@ internal sealed class Program
         }
         catch (FormatException ex)
         {
-            Console.Error.WriteLine($"schedule: invalid cron expression: {ex.Message}");
-            return 1;
+            return result.WriteError($"invalid cron expression: {ex.Message}", Console.Error);
         }
 
         int count = 5;
@@ -378,18 +421,91 @@ internal sealed class Program
             }
         }
 
-        IReadOnlyList<DateTimeOffset> occurrences = cron.GetNextOccurrences(DateTimeOffset.Now, count);
+        IReadOnlyList<DateTimeOffset> occurrences;
+        try
+        {
+            occurrences = cron.GetNextOccurrences(DateTimeOffset.Now, count);
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Parseable expressions can still be unsatisfiable — e.g. '0 0 30 2 *' (Feb 30).
+            // GetNextOccurrence throws after exhausting an 8-year search horizon. Without this
+            // catch the exception escapes RunNext as an unhandled CLR error with a stack trace.
+            // CrontabParser already learned this lesson; mirror it here. Treat as a usage error
+            // since the cron is technically valid syntax but logically impossible.
+            return result.WriteError(ex.Message, Console.Error);
+        }
 
         if (json)
         {
-            Console.Error.WriteLine(Formatting.FormatNextJson(cron.Expression, occurrences, 0, "success", version));
+            SafeWriteLineToStdout(Formatting.FormatNextJson(cron.Expression, occurrences, 0, "success", version));
         }
         else
         {
-            Console.Error.Write(Formatting.FormatNextOccurrences(cron.Expression, occurrences));
+            SafeWrite(Formatting.FormatNextOccurrences(cron.Expression, occurrences));
         }
 
         return 0;
+    }
+
+    /// <summary>
+    /// Returns <see langword="true"/> and emits an error message into <paramref name="error"/>
+    /// when <paramref name="value"/> contains a newline or carriage return — used as a
+    /// usage-error gate for user-supplied identifiers (task name, command, arguments) before
+    /// they reach the backend. Without this check, '\n' in any of those fields would inject
+    /// additional crontab entries.
+    /// </summary>
+    private static bool RejectIfMultiline(string label, string value, out string? error)
+    {
+        if (value.IndexOfAny(MultilineChars) >= 0)
+        {
+            error = $"{label} must not contain newline or carriage-return characters.";
+            return true;
+        }
+        error = null;
+        return false;
+    }
+
+    private static readonly char[] MultilineChars = { '\n', '\r' };
+
+    /// <summary>
+    /// Writes <paramref name="message"/> followed by a newline to stderr, swallowing any
+    /// stderr-write exception (<see cref="System.IO.IOException"/> from a broken pipe or
+    /// full disk; <see cref="ObjectDisposedException"/> from a host that has closed the
+    /// underlying stream during teardown). Either would otherwise convert a clean
+    /// exit-code path into a CLR unhandled-exception crash with stack trace. Diagnostic
+    /// output must be strictly weaker than the production path it reports on.
+    /// </summary>
+    private static void SafeWriteLine(string message)
+    {
+        try { Console.Error.WriteLine(message); }
+        catch (System.IO.IOException) { /* stderr unwritable — accept loss; do not mask exit code */ }
+        catch (ObjectDisposedException) { /* host tore down stderr; same rationale as IOException */ }
+    }
+
+    /// <summary>Writes <paramref name="message"/> verbatim to stderr with the same swallow behaviour as <see cref="SafeWriteLine"/>.</summary>
+    private static void SafeWrite(string message)
+    {
+        try { Console.Error.Write(message); }
+        catch (System.IO.IOException) { /* see SafeWriteLine */ }
+        catch (ObjectDisposedException) { /* see SafeWriteLine */ }
+    }
+
+    /// <summary>
+    /// Writes <paramref name="message"/> to STDOUT with the same swallow behaviour as
+    /// <see cref="SafeWriteLine"/>. Used for JSON envelopes (--json output) so they
+    /// land on stdout per the suite-wide convention — pipelines like
+    /// <c>schedule next --json X | jq</c> only work when the JSON is on stdout, not
+    /// stderr. Tier-1 smoke verification 2026-05-09 found the pre-fix code routed
+    /// JSON via <see cref="SafeWriteLine"/> to stderr, breaking that pipeline shape;
+    /// same suite-convention defect class as man F12, treex r2, whoholds, files,
+    /// less, winix.
+    /// </summary>
+    private static void SafeWriteLineToStdout(string message)
+    {
+        try { Console.Out.WriteLine(message); }
+        catch (System.IO.IOException) { /* see SafeWriteLine */ }
+        catch (ObjectDisposedException) { /* see SafeWriteLine */ }
     }
 
     /// <summary>
@@ -407,12 +523,17 @@ internal sealed class Program
     }
 
     /// <summary>
-    /// Returns the informational version from the Winix.Schedule library assembly.
+    /// Returns the informational version from the Winix.Schedule library assembly. The SDK
+    /// appends a SourceLink "+gitsha" suffix to <c>AssemblyInformationalVersion</c> by default
+    /// (e.g. "0.3.0+abc123…"); we strip it so users see "0.3.0" — matching the convention
+    /// adopted across clip / ids / digest / envvault / peep and the rest of the suite.
     /// </summary>
     private static string GetVersion()
     {
-        return typeof(ScheduledTask).Assembly
+        string raw = typeof(ScheduledTask).Assembly
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
             ?.InformationalVersion ?? "0.0.0";
+        int plus = raw.IndexOf('+');
+        return plus >= 0 ? raw.Substring(0, plus) : raw;
     }
 }

@@ -25,12 +25,53 @@ public static class Formatting
         => Wrap($"{port.ToString(CultureInfo.InvariantCulture)} timeout", AnsiColor.Yellow(useColor), useColor);
 
     /// <summary>
+    /// Computes the check-mode <c>exit_reason</c> string from a results set. Pulled out of
+    /// Program.cs so it's independently unit-testable — the <c>some_failed</c> branch (mixed
+    /// errors + successes) is hard to trigger via a real process-spawn scan (one host = one
+    /// DNS outcome), so this helper is the authoritative pin for that branch.
+    /// </summary>
+    /// <param name="results">Per-port results in scan order.</param>
+    /// <returns>
+    /// One of: <c>all_open</c>, <c>some_closed</c>, <c>some_timeout</c>, <c>all_failed</c>,
+    /// <c>some_failed</c>. Mirrors the worst-status precedence used by the console app:
+    /// Error &gt; Timeout &gt; Closed &gt; Open.
+    /// </returns>
+    public static string ComputeCheckExitReason(IReadOnlyList<PortCheckResult> results)
+    {
+        int worstStatus = 0; // 0=open, 1=closed, 2=timeout, 3=error
+        int errorCount = 0;
+        foreach (PortCheckResult r in results)
+        {
+            switch (r.Status)
+            {
+                case PortCheckStatus.Closed:
+                    if (worstStatus < 1) { worstStatus = 1; }
+                    break;
+                case PortCheckStatus.Timeout:
+                    if (worstStatus < 2) { worstStatus = 2; }
+                    break;
+                case PortCheckStatus.Error:
+                    if (worstStatus < 3) { worstStatus = 3; }
+                    errorCount++;
+                    break;
+            }
+        }
+        return worstStatus switch
+        {
+            0 => "all_open",
+            1 => "some_closed",
+            2 => "some_timeout",
+            _ => errorCount == results.Count ? "all_failed" : "some_failed",
+        };
+    }
+
+    /// <summary>
     /// Returns a JSON summary for a Check-mode run. Schema:
     /// <code>
     /// { "tool":"nc", "version":"...", "mode":"check", "host":"...",
     ///   "ports":[ { "port":int, "status":"open|closed|timeout|error",
     ///               "latency_ms":number?, "error":string? }, ... ],
-    ///   "exit_code":int, "exit_reason":"all_open|some_closed|some_timeout|all_failed" }
+    ///   "exit_code":int, "exit_reason":"all_open|some_closed|some_timeout|all_failed|some_failed" }
     /// </code>
     /// </summary>
     public static string FormatCheckJson(string version, string host, IReadOnlyList<PortCheckResult> results,
@@ -97,6 +138,35 @@ public static class Formatting
         JsonHelper.WriteFixedDecimal(writer, "duration_ms", result.DurationMilliseconds, decimals: 2);
         writer.WriteNumber("exit_code", result.ExitCode);
         writer.WriteString("exit_reason", result.ExitReason);
+        writer.WriteEndObject();
+        writer.Flush();
+        return JsonHelper.GetString(buffer);
+    }
+
+    /// <summary>
+    /// Returns a minimal JSON error envelope for cases where an unexpected exception escapes
+    /// past all per-dispatch RunResult mapping (e.g. DispatchCoreAsync throws mid-flight).
+    /// This lets automation that requested <c>--json</c> still see structured output instead of
+    /// a stderr-only crash line plus exit 126. Mirrors the schema produced by
+    /// <see cref="FormatRunJson"/> so consumers can parse it with the same fields.
+    /// </summary>
+    public static string FormatErrorJson(string version, NetCatOptions options, int exitCode, string exitReason, string errorMessage)
+    {
+        (var writer, var buffer) = JsonHelper.CreateWriter();
+        writer.WriteStartObject();
+        writer.WriteString("tool", "nc");
+        writer.WriteString("version", version);
+        writer.WriteString("mode", options.Mode == NetCatMode.Listen ? "listen" : options.Mode == NetCatMode.Check ? "check" : "connect");
+        if (options.Host is not null) { writer.WriteString("host", options.Host); }
+        if (options.Ports is { Count: > 0 } && options.Ports[0].Low == options.Ports[0].High)
+        {
+            writer.WriteNumber("port", options.Ports[0].Low);
+        }
+        writer.WriteString("protocol", options.Protocol == NetCatProtocol.Udp ? "udp" : "tcp");
+        writer.WriteBoolean("tls", options.UseTls);
+        writer.WriteNumber("exit_code", exitCode);
+        writer.WriteString("exit_reason", exitReason);
+        writer.WriteString("error", errorMessage);
         writer.WriteEndObject();
         writer.Flush();
         return JsonHelper.GetString(buffer);

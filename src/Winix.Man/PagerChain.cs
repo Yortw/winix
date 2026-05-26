@@ -95,35 +95,59 @@ public sealed class PagerChain
     /// </returns>
     private string? ResolveExternalPager()
     {
+        return ResolveExternalPager(
+            Environment.GetEnvironmentVariable("MANPAGER"),
+            Environment.GetEnvironmentVariable("PAGER"),
+            _exeDirectory,
+            siblingExists: File.Exists,
+            isOnPath: IsOnPath);
+    }
+
+    /// <summary>
+    /// Pure-function variant of <see cref="ResolveExternalPager()"/> with all environment
+    /// inputs supplied as parameters. Lives at internal visibility so tests can pin the
+    /// priority chain without manipulating real environment variables or filesystem state.
+    /// </summary>
+    /// <param name="manPagerEnv">The value of <c>$MANPAGER</c>, or <see langword="null"/>.</param>
+    /// <param name="pagerEnv">The value of <c>$PAGER</c>, or <see langword="null"/>.</param>
+    /// <param name="exeDirectory">Directory holding the running binary.</param>
+    /// <param name="siblingExists">Predicate that reports whether a candidate sibling pager file exists.</param>
+    /// <param name="isOnPath">Predicate that reports whether a command is reachable via <c>PATH</c>.</param>
+    /// <returns>The resolved pager command, or <see langword="null"/> if none is available.</returns>
+    internal static string? ResolveExternalPager(
+        string? manPagerEnv,
+        string? pagerEnv,
+        string exeDirectory,
+        Func<string, bool> siblingExists,
+        Func<string, bool> isOnPath)
+    {
         // 1. $MANPAGER takes highest precedence (man-specific override).
-        string? manPager = Environment.GetEnvironmentVariable("MANPAGER");
-        if (!string.IsNullOrWhiteSpace(manPager))
+        if (!string.IsNullOrWhiteSpace(manPagerEnv))
         {
-            return manPager;
+            return manPagerEnv;
         }
 
         // 2. $PAGER — general pager preference.
-        string? pager = Environment.GetEnvironmentVariable("PAGER");
-        if (!string.IsNullOrWhiteSpace(pager))
+        if (!string.IsNullOrWhiteSpace(pagerEnv))
         {
-            return pager;
+            return pagerEnv;
         }
 
         // 3. Sibling less/less.exe in the same directory as the man binary.
-        string siblingLess = Path.Combine(_exeDirectory, "less");
-        if (File.Exists(siblingLess))
+        string siblingLess = Path.Combine(exeDirectory, "less");
+        if (siblingExists(siblingLess))
         {
             return siblingLess;
         }
 
-        string siblingLessExe = Path.Combine(_exeDirectory, "less.exe");
-        if (File.Exists(siblingLessExe))
+        string siblingLessExe = Path.Combine(exeDirectory, "less.exe");
+        if (siblingExists(siblingLessExe))
         {
             return siblingLessExe;
         }
 
         // 4. System less on PATH.
-        if (IsOnPath("less"))
+        if (isOnPath("less"))
         {
             return "less";
         }
@@ -136,24 +160,20 @@ public sealed class PagerChain
     /// to its standard input.
     /// </summary>
     /// <param name="pagerCommand">
-    /// The pager executable path or command name. May be a bare name (resolved via PATH)
-    /// or an absolute path.
+    /// The pager executable path or command line. May be a bare name (e.g. <c>less</c>),
+    /// an absolute path, or a command line with arguments
+    /// (e.g. <c>less -R</c>, the canonical <c>$MANPAGER</c> on Linux/macOS).
     /// </param>
     /// <param name="content">The content to pipe into the pager's stdin.</param>
     /// <returns>
     /// <see langword="true"/> if the pager process started and exited normally;
     /// <see langword="false"/> if the process could not be started.
     /// </returns>
-    private static bool TryRunExternalPager(string pagerCommand, string content)
+    internal static bool TryRunExternalPager(string pagerCommand, string content)
     {
         try
         {
-            var psi = new ProcessStartInfo
-            {
-                FileName = pagerCommand,
-                UseShellExecute = false,
-                RedirectStandardInput = true,
-            };
+            ProcessStartInfo psi = BuildPagerProcessStartInfo(pagerCommand);
 
             using var process = Process.Start(psi);
             if (process is null)
@@ -166,14 +186,84 @@ public sealed class PagerChain
             process.StandardInput.Close();
 
             process.WaitForExit();
+
+            // Round-1 fresh-eyes 2026-05-09 SFH I1: when the shell-dispatched MANPAGER
+            // resolves to a missing binary (e.g. MANPAGER=this_binary_does_not_exist),
+            // cmd.exe / sh start successfully and return command-not-found exit codes
+            // (9009 on cmd.exe, 127 on sh). Process.Start does NOT throw, so the
+            // catch below never fires; pre-fix the user got the shell's "not
+            // recognized" diagnostic + an empty page + man exit 0, with the built-in
+            // pager fallback skipped. Treat any non-zero exit other than 130 (SIGINT)
+            // as launch failure so the caller falls back. 130 = user-quit, normal.
+            if (process.ExitCode != 0 && process.ExitCode != 130)
+            {
+                Console.Error.WriteLine($"man: warning: pager '{pagerCommand}' exited with code {process.ExitCode}; using built-in pager");
+                return false;
+            }
+
             return true;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
             // Process.Start can throw if the executable is not found, access is denied,
-            // or the path is malformed — treat any failure as "pager unavailable".
+            // or the path is malformed. Pre-F5 (2026-05-07 baseline) we silently fell
+            // back to the built-in pager — surprising for users who set
+            // MANPAGER='less -R' and got the wrong pager with no warning. Surface a
+            // one-line diagnostic to stderr; the caller still falls back to the built-in.
+            Console.Error.WriteLine($"man: warning: pager '{pagerCommand}' failed to launch ({ex.GetType().Name}); using built-in pager");
             return false;
         }
+    }
+
+    /// <summary>
+    /// Builds the <see cref="ProcessStartInfo"/> used to spawn an external pager.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Real <c>man(1)</c> on Linux/macOS dispatches the pager via <c>/bin/sh -c "$MANPAGER"</c>
+    /// so users can set MANPAGER to a full shell command line — including arguments
+    /// (<c>less -R</c>), pipes (<c>less | tee log</c>), and quoted paths
+    /// (<c>"/Program Files/less/less.exe" -R</c>). To match POSIX behaviour Winix man
+    /// hands the value off to a shell rather than treating it as a literal executable
+    /// path: <c>cmd /c</c> on Windows, <c>/bin/sh -c</c> elsewhere.
+    /// </para>
+    /// <para>
+    /// Both shells are guaranteed to exist on their respective platforms (cmd.exe is
+    /// built into Windows; <c>/bin/sh</c> is POSIX-required) so this is not a new
+    /// runtime dependency.
+    /// </para>
+    /// <para>
+    /// Internal-visibility for unit tests; callers should use
+    /// <see cref="TryRunExternalPager"/>.
+    /// </para>
+    /// </remarks>
+    /// <param name="pagerCommand">The raw env-var value (or sibling/system fallback path).</param>
+    /// <returns>A <see cref="ProcessStartInfo"/> ready to pass to <see cref="Process.Start(ProcessStartInfo)"/>.</returns>
+    internal static ProcessStartInfo BuildPagerProcessStartInfo(string pagerCommand)
+    {
+        var psi = new ProcessStartInfo
+        {
+            UseShellExecute = false,
+            RedirectStandardInput = true,
+        };
+
+        if (OperatingSystem.IsWindows())
+        {
+            // cmd.exe /c "<command line>" — cmd does its own tokenization, handles
+            // quoted paths, pipes, redirects, etc.
+            psi.FileName = "cmd.exe";
+            psi.ArgumentList.Add("/c");
+            psi.ArgumentList.Add(pagerCommand);
+        }
+        else
+        {
+            // /bin/sh -c "<command line>" — same approach as real man-db.
+            psi.FileName = "/bin/sh";
+            psi.ArgumentList.Add("-c");
+            psi.ArgumentList.Add(pagerCommand);
+        }
+
+        return psi;
     }
 
     /// <summary>

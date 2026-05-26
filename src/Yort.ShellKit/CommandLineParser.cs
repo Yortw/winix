@@ -179,7 +179,7 @@ public sealed class CommandLineParser
         Flag("--version", "Show version");
         Flag("--color", "Force colored output");
         Flag("--no-color", "Disable colored output");
-        Flag("--json", "JSON output to stderr");
+        Flag("--json", "JSON output");
         Flag("--describe", "Structured JSON metadata for AI agents");
         return this;
     }
@@ -458,22 +458,33 @@ public sealed class CommandLineParser
             errors.Add($"unknown option: {arg}");
         }
 
-        // Handle --help and --version
+        // Handle --help, --version, --describe. Each writes a single line to stdout.
+        // Defensive note: empirically both Windows (.NET 10) and Linux (.NET 8) silently
+        // absorb broken-pipe at the Console.Out layer for the standard `tool --help | head`
+        // idiom — see docs/plans/2026-04-26-shellkit-broken-pipe.md / tmp/iox-probe findings
+        // (gitignored). The try/catch (IOException) wrap is belt-and-braces in case a future
+        // runtime version stops absorbing, AND so the suite stays consistent with the Safe*
+        // convention. We do NOT widen to Exception — a thrown InvalidOperationException from
+        // GenerateHelp/GenerateDescribe is a real bug (parser-config defect) that MUST surface,
+        // not be hidden as "tool exits clean with no output."
         if (flagsSet.Contains("--help") && _standardFlagsRegistered)
         {
-            Console.WriteLine(GenerateHelp());
+            try { Console.WriteLine(GenerateHelp()); }
+            catch (IOException) { }
             isHandled = true;
             handledExitCode = 0;
         }
         else if (flagsSet.Contains("--version") && _standardFlagsRegistered)
         {
-            Console.WriteLine($"{_toolName} {_version}");
+            try { Console.WriteLine($"{_toolName} {_version}"); }
+            catch (IOException) { }
             isHandled = true;
             handledExitCode = 0;
         }
         else if (flagsSet.Contains("--describe") && _standardFlagsRegistered)
         {
-            Console.WriteLine(GenerateDescribe());
+            try { Console.WriteLine(GenerateDescribe()); }
+            catch (IOException) { }
             isHandled = true;
             handledExitCode = 0;
         }

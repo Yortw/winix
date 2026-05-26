@@ -1,0 +1,84 @@
+#nullable enable
+using System;
+
+namespace Winix.Url;
+
+/// <summary>Resolves a relative URL reference against an absolute base (RFC 3986 §5). Pure — no I/O.</summary>
+public static class UrlJoiner
+{
+    /// <summary>Result of a join attempt.</summary>
+    public sealed record Result(string? Url, string? Error)
+    {
+        /// <summary>True if joining succeeded.</summary>
+        public bool Success => Url is not null;
+    }
+
+    /// <summary>Resolve <paramref name="relative"/> against <paramref name="baseUrl"/>.</summary>
+    /// <remarks>
+    /// <para>
+    /// Handles dot-segments, absolute relatives, query-only refs, fragment-only refs,
+    /// and protocol-relative URLs per RFC 3986 §5. <paramref name="baseUrl"/> must be absolute
+    /// AND its scheme must appear explicitly in the input string itself.
+    /// </para>
+    /// <para>
+    /// The "scheme appeared explicitly in the input" check is load-bearing for
+    /// cross-platform consistency: <see cref="Uri.TryCreate(string, UriKind, out Uri)"/>
+    /// silently auto-converts Unix-style absolute paths (<c>/foo</c> on Linux/macOS) and
+    /// Windows drive paths (<c>C:\foo</c> on Windows) into <c>file://</c> URIs. Without
+    /// this guard, "base URL must be absolute" would be platform-dependent and the CLI
+    /// would silently accept local file paths as web bases.
+    /// </para>
+    /// </remarks>
+    public static Result Join(string baseUrl, string relative)
+    {
+        // Both conditions must hold: TryCreate parses an absolute URI AND the parsed scheme
+        // appeared verbatim in the input. The latter rejects Unix-path / Windows-drive auto-
+        // conversions to file:// — the parsed Scheme would be "file" but the input wouldn't
+        // start with "file:".
+        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out Uri? baseUri)
+            || !baseUrl.StartsWith(baseUri.Scheme + ":", StringComparison.OrdinalIgnoreCase))
+        {
+            return new Result(null, "base URL must be absolute");
+        }
+
+        // Round-1 review CR-I3 — reject opaque-scheme bases (javascript:, mailto:, data:, tel:).
+        // Uri.TryCreate accepts `javascript:foo` as a valid absolute URI, so without this guard
+        // `url join "javascript:foo" "bar"` produces `javascript:bar` — a scheme-smuggling
+        // foothold for callers wiring url-join into a less-trusted pipeline (e.g. a config-
+        // file base URL combined with a user-supplied path). We allow only hierarchical schemes
+        // that have authority semantics (host[:port][/path]) since those are the realistic
+        // use cases for url join (HTTP composition, FTP, SSH-clone-style URLs, file://).
+        if (!IsAllowedJoinScheme(baseUri.Scheme))
+        {
+            return new Result(null,
+                $"scheme not allowed for join: '{baseUri.Scheme}' (allowed: http, https, ws, wss, ftp, ftps, ssh, file)");
+        }
+
+        try
+        {
+            var resolved = new Uri(baseUri, relative);
+            // Use AbsoluteUri — ToString unescapes some characters for readability and can break round-tripping.
+            return new Result(resolved.AbsoluteUri, null);
+        }
+        catch (UriFormatException ex)
+        {
+            // Under InvariantGlobalization=true, ex.Message is an SR resource key
+            // (net_uri_BadHostName etc.), not English — see UriErrorMessage.
+            return new Result(null, $"invalid URL: {UriErrorMessage.ToEnglish(ex.Message)}");
+        }
+    }
+
+    private static bool IsAllowedJoinScheme(string scheme)
+    {
+        // Round-2 review SFH-I3 / CR-Minor-1 — ws and wss added. WebSocket URLs are
+        // hierarchical with authority semantics (mirror http/https) and are a realistic
+        // compose target — `retry -- websocat "$(url join $WS_BASE chat)"` is a normal
+        // pipeline. urn:/git:/data: rejection (which remains) is correct (opaque or
+        // non-authority); ws/wss exclusion was unintentional.
+        return scheme.ToLowerInvariant() switch
+        {
+            "http" or "https" or "ws" or "wss" or "ftp" or "ftps" or "ssh" or "file" => true,
+            _ => false,
+        };
+    }
+}

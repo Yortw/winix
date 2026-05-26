@@ -10,5 +10,16 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Yort.ShellKit\Yort.ShellKit.csproj" />
+    <!-- Build-only references so subprocess pipe tests can spawn real tool binaries.
+         Private=false / ReferenceOutputAssembly=false: the test project does NOT link to
+         these — it just shells out to the compiled exe. The references force build order. -->
+    <ProjectReference Include="..\..\src\timeit\timeit.csproj">
+      <Private>false</Private>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\src\wargs\wargs.csproj">
+      <Private>false</Private>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
   </ItemGroup>
 </Project>

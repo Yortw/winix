@@ -114,7 +114,7 @@ public class BrewAdapterTests
 
         var adapter = new BrewAdapter(FakeRun);
 
-        await adapter.EnsureTap();
+        bool added = await adapter.EnsureTap();
 
         // Should have called tap (list) and then tap yortw/winix (add).
         Assert.Equal(2, calls.Count);
@@ -122,6 +122,8 @@ public class BrewAdapterTests
         Assert.Equal(new[] { "tap" }, calls[0].Args);
         Assert.Equal("brew", calls[1].Command);
         Assert.Equal(new[] { "tap", "yortw/winix" }, calls[1].Args);
+        // F7 contract: return true so the CLI can emit the one-time first-run notice.
+        Assert.True(added);
     }
 
     [Fact]
@@ -137,11 +139,140 @@ public class BrewAdapterTests
 
         var adapter = new BrewAdapter(FakeRun);
 
-        await adapter.EnsureTap();
+        bool added = await adapter.EnsureTap();
 
         // Should only have called tap (list) — no tap add.
         (string Command, string[] Args) onlyCall = Assert.Single(calls);
         Assert.Equal("brew", onlyCall.Command);
         Assert.Equal(new[] { "tap" }, onlyCall.Args);
+        // F7 contract: return false so the CLI stays quiet when nothing changed.
+        Assert.False(added);
+    }
+
+    [Fact]
+    public async Task EnsureTap_WhenAddFails_ThrowsInsteadOfClaimingSuccess()
+    {
+        // Round-1 fresh-eyes 2026-05-09 SFH-I3 + CR-I2 closure: same defect
+        // class as ScoopAdapter.EnsureBucket — pre-fix the `brew tap` exit
+        // code was discarded; EnsureTap returned true unconditionally. Now
+        // non-zero exit surfaces as an exception so the caller's existing
+        // catch produces a "could not add brew tap" warning instead of a
+        // misleading positive notice.
+        Task<ProcessResult> FakeRun(string command, string[] args)
+        {
+            if (args.Length == 1 && args[0] == "tap")
+            {
+                return Task.FromResult(new ProcessResult(0, TapListWithoutWinix, ""));
+            }
+            // tap add fails: simulate network unreachable.
+            return Task.FromResult(new ProcessResult(1, "", "Error: Failure while executing; `git clone`"));
+        }
+
+        var adapter = new BrewAdapter(FakeRun);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => adapter.EnsureTap());
+        Assert.Contains("brew tap", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("exit code 1", ex.Message, StringComparison.Ordinal);
+    }
+
+    // ── GetInstalled / ParseListOutput ──────────────────────────────────────
+
+    [Fact]
+    public async Task GetInstalled_ConstructsListVersionsWithoutFilter()
+    {
+        // Bulk path uses `brew list --versions` (no formula). The unfiltered call
+        // returns one row per installed formula, which the parser splits on whitespace.
+        var recorder = new ProcessRecorder(new ProcessResult(0, "", ""));
+        var adapter = new BrewAdapter(recorder.RunAsync);
+
+        await adapter.GetInstalled();
+
+        Assert.Equal("brew", recorder.LastCommand);
+        Assert.Equal(new[] { "list", "--versions" }, recorder.LastArguments);
+    }
+
+    [Fact]
+    public async Task GetInstalled_NonZeroExitCode_ReturnsEmptySnapshot()
+    {
+        var recorder = new ProcessRecorder(new ProcessResult(1, "", "brew not on PATH"));
+        var adapter = new BrewAdapter(recorder.RunAsync);
+
+        IReadOnlyDictionary<string, string?> snapshot = await adapter.GetInstalled();
+
+        Assert.Empty(snapshot);
+    }
+
+    [Fact]
+    public void ParseListOutput_HappyPath_PopulatesNameAndVersion()
+    {
+        // Standard case: each line is "name version", whitespace-separated.
+        const string output =
+            "timeit 0.2.0\n" +
+            "squeeze 0.1.5\n" +
+            "git 2.43.0";
+
+        IReadOnlyDictionary<string, string?> result = BrewAdapter.ParseListOutput(output);
+
+        Assert.Equal(3, result.Count);
+        Assert.Equal("0.2.0", result["timeit"]);
+        Assert.Equal("0.1.5", result["squeeze"]);
+        Assert.Equal("2.43.0", result["git"]);
+    }
+
+    [Fact]
+    public void ParseListOutput_MultipleVersionsOnSameLine_TakesLastToken()
+    {
+        // brew can report multiple installed versions for the same formula by
+        // appending them as additional whitespace-separated tokens
+        // (e.g. "openssl@3 3.1.0 3.2.0"). The parser takes the last token to
+        // match GetInstalledVersion's "most-recently-installed" convention.
+        const string output =
+            "openssl@3 3.1.0 3.2.0\n" +
+            "python 3.11.0 3.12.0";
+
+        IReadOnlyDictionary<string, string?> result = BrewAdapter.ParseListOutput(output);
+
+        Assert.Equal("3.2.0", result["openssl@3"]);
+        Assert.Equal("3.12.0", result["python"]);
+    }
+
+    [Fact]
+    public void ParseListOutput_NameWithoutVersion_StoresNullValue()
+    {
+        // Defensive: a malformed brew output line with only a formula name and
+        // no version. Surface as "installed but no version" — null on the value,
+        // key present — rather than dropping the row entirely.
+        const string output =
+            "timeit 0.2.0\n" +
+            "broken-formula";
+
+        IReadOnlyDictionary<string, string?> result = BrewAdapter.ParseListOutput(output);
+
+        Assert.Equal("0.2.0", result["timeit"]);
+        Assert.True(result.ContainsKey("broken-formula"));
+        Assert.Null(result["broken-formula"]);
+    }
+
+    [Fact]
+    public void ParseListOutput_LookupIsCaseInsensitive()
+    {
+        const string output = "timeit 0.2.0";
+
+        IReadOnlyDictionary<string, string?> result = BrewAdapter.ParseListOutput(output);
+
+        Assert.Equal("0.2.0", result["timeit"]);
+        Assert.Equal("0.2.0", result["TIMEIT"]);
+        Assert.Equal("0.2.0", result["TimeIt"]);
+    }
+
+    [Fact]
+    public void ParseListOutput_EmptyOutput_ReturnsEmpty()
+    {
+        // brew with no installed formulae — common on a fresh machine. Empty
+        // snapshot means every Winix manifest tool resolves to "not installed",
+        // which is correct.
+        IReadOnlyDictionary<string, string?> result = BrewAdapter.ParseListOutput("");
+
+        Assert.Empty(result);
     }
 }

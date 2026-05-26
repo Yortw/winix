@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.IO;
 using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
@@ -63,6 +64,330 @@ public sealed class TlsWrapperTests
         {
             listener.Stop();
             await serverTask.WaitAsync(System.TimeSpan.FromSeconds(5));
+        }
+    }
+
+    /// <summary>
+    /// Pins the AuthenticationException arm in NetCatClient's TLS handshake split (round-1 C2).
+    /// Reverting the catch-split would either escape the exception (stack-trace crash) or
+    /// mis-label it as generic transport failure.
+    /// </summary>
+    [Fact]
+    public async Task NetCatClient_SelfSignedWithoutInsecure_ReturnsExitOne_TlsFailed()
+    {
+        using var rsa = RSA.Create(2048);
+        var req = new CertificateRequest("CN=localhost", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        using X509Certificate2 cert = req.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-5), DateTimeOffset.UtcNow.AddHours(1));
+        byte[] pfxBytes = cert.Export(X509ContentType.Pfx);
+        using var serverCert = X509CertificateLoader.LoadPkcs12(pfxBytes, password: null);
+
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+
+        Task serverTask = Task.Run(async () =>
+        {
+            try
+            {
+                using TcpClient peer = await listener.AcceptTcpClientAsync();
+                using var ssl = new SslStream(peer.GetStream(), leaveInnerStreamOpen: false);
+                await ssl.AuthenticateAsServerAsync(serverCert, clientCertificateRequired: false,
+                    enabledSslProtocols: System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13,
+                    checkCertificateRevocation: false);
+            }
+            catch { /* client will reject cert — expected */ }
+        });
+
+        try
+        {
+            var options = new NetCatOptions
+            {
+                Mode = NetCatMode.Connect,
+                Protocol = NetCatProtocol.Tcp,
+                Host = "127.0.0.1",
+                Ports = new[] { new Winix.NetCat.PortRange(port) },
+                UseTls = true,
+                InsecureTls = false,
+                Timeout = System.TimeSpan.FromSeconds(5),
+            };
+
+            using var stdin = new MemoryStream();
+            using var stdout = new MemoryStream();
+            using var stderr = new StringWriter();
+
+            RunResult result = await new NetCatClient().RunAsync(options, stdin, stdout, stderr, CancellationToken.None);
+
+            Assert.Equal(1, result.ExitCode);
+            Assert.Equal("tls_failed", result.ExitReason);
+            string err = stderr.ToString();
+            Assert.Contains("TLS", err);
+        }
+        finally
+        {
+            listener.Stop();
+            try { await serverTask.WaitAsync(System.TimeSpan.FromSeconds(5)); } catch { }
+        }
+    }
+
+    /// <summary>
+    /// Pins round-2 C2 at the TLS seam: a TLS server that accepts the TCP connection but hangs
+    /// during the handshake must time out at <c>--timeout N</c>. Before round-2 the handshake
+    /// shared <c>connectCts</c> (already consumed by the TCP connect step), so the handshake
+    /// had no deadline and <c>nc --tls -w 1 host 443</c> blocked indefinitely. Round-4 added
+    /// the fresh <c>tlsCts</c> + <c>CancelAfter</c>; this test ensures reverting that change
+    /// fails a named test rather than shipping silently.
+    /// </summary>
+    /// <summary>
+    /// Round-10 review I-1: pin the user-cancel arm of the TLS handshake catch block
+    /// (NetCatClient.cs: <c>catch (OperationCanceledException) when (ct.IsCancellationRequested)</c>).
+    /// The arm rethrows so the OCE escapes RunAsync and Main maps it to exit 130/interrupted.
+    /// Without this distinction, a Ctrl+C during a hanging TLS handshake would be caught by
+    /// the timeout arm and silently mis-classified as exit 2/timeout — the user pressing
+    /// Ctrl+C should always be exit 130, never exit 2. The contract distinguishes these via
+    /// the <c>when (ct.IsCancellationRequested)</c> guard; a refactor that merged the two
+    /// catch arms would silently violate the BSD-nc/SIGINT contract on the TLS path. This
+    /// test would fail loudly rather than ship the regression.
+    /// </summary>
+    [Fact]
+    public async Task NetCatClient_TlsHandshakeUserCancel_RethrowsOperationCanceledException()
+    {
+        // Hanging server (same fixture as TlsHandshakeHangs): accepts TCP, never responds.
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+
+        Task serverTask = Task.Run(async () =>
+        {
+            try
+            {
+                using TcpClient peer = await listener.AcceptTcpClientAsync();
+                await Task.Delay(5000); // hold the connection open, never respond to ClientHello
+            }
+            catch { /* listener shutdown */ }
+        });
+
+        try
+        {
+            var options = new NetCatOptions
+            {
+                Mode = NetCatMode.Connect,
+                Protocol = NetCatProtocol.Tcp,
+                Host = "127.0.0.1",
+                Ports = new[] { new Winix.NetCat.PortRange(port) },
+                UseTls = true,
+                InsecureTls = true,
+                // 5s gives the TLS handshake plenty of room to be in flight when we cancel —
+                // we're testing user-cancel, not timeout, so the timeout must NOT fire first.
+                Timeout = System.TimeSpan.FromSeconds(5),
+            };
+
+            using var stdin = new MemoryStream();
+            using var stdout = new MemoryStream();
+            using var stderr = new StringWriter();
+
+            using var userCts = new CancellationTokenSource();
+            // Cancel after the handshake has had time to start (so we land inside
+            // AuthenticateAsClientAsync rather than during TCP connect or pre-handshake setup).
+            userCts.CancelAfter(System.TimeSpan.FromMilliseconds(500));
+
+            // Production code: the catch arm `when (ct.IsCancellationRequested) { throw; }`
+            // rethrows OCE out of RunAsync. The library's contract is that user-initiated
+            // cancellation propagates as OCE rather than being mapped to a RunResult — Main
+            // wraps RunAsync in a top-level try/catch (OperationCanceledException) that emits
+            // exit 130. So at the library level, we expect OCE to escape.
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                new NetCatClient().RunAsync(options, stdin, stdout, stderr, userCts.Token));
+        }
+        finally
+        {
+            listener.Stop();
+            try { await serverTask.WaitAsync(System.TimeSpan.FromSeconds(10)); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task NetCatClient_TlsHandshakeHangs_ReturnsExitTwo_Timeout()
+    {
+        // Listener accepts the TCP connection but never calls AuthenticateAsServerAsync — the
+        // client-side handshake stalls waiting for ServerHello.
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+
+        Task serverTask = Task.Run(async () =>
+        {
+            try
+            {
+                using TcpClient peer = await listener.AcceptTcpClientAsync();
+                await Task.Delay(5000); // hold the connection open, never respond to ClientHello
+            }
+            catch { /* listener shutdown */ }
+        });
+
+        try
+        {
+            var options = new NetCatOptions
+            {
+                Mode = NetCatMode.Connect,
+                Protocol = NetCatProtocol.Tcp,
+                Host = "127.0.0.1",
+                Ports = new[] { new Winix.NetCat.PortRange(port) },
+                UseTls = true,
+                InsecureTls = true,
+                // Was 400ms — too aggressive for macOS CI runners under load. The same
+                // timeout value is consumed twice: connectCts.CancelAfter(timeout) for the TCP
+                // connect, then a fresh tlsCts.CancelAfter(timeout) for the TLS handshake.
+                // On a contended runner, the TCP connect itself can take >400ms even on local
+                // loopback, firing connectCts → exit-2-but-with-"connection timed out" stderr,
+                // which fails the "TLS handshake timed out" substring assertion below. 2 seconds
+                // is comfortably above realistic local-loopback accept latency on macos-latest
+                // while still short enough that the hanging-handshake path completes in test time
+                // (peer holds the connection for 5s — handshake fires its own timeout first).
+                Timeout = System.TimeSpan.FromSeconds(2),
+            };
+
+            using var stdin = new MemoryStream();
+            using var stdout = new MemoryStream();
+            using var stderr = new StringWriter();
+
+            RunResult result = await new NetCatClient().RunAsync(options, stdin, stdout, stderr, CancellationToken.None);
+
+            Assert.Equal(2, result.ExitCode);
+            Assert.Equal("timeout", result.ExitReason);
+            Assert.Contains("TLS handshake timed out", stderr.ToString());
+        }
+        finally
+        {
+            listener.Stop();
+            try { await serverTask.WaitAsync(System.TimeSpan.FromSeconds(10)); } catch { }
+        }
+    }
+
+    /// <summary>
+    /// Pins the TLS IOException catch arm — distinct from AuthenticationException (cert
+    /// validation) but mapped to the same exit_reason <c>tls_failed</c>. A peer that accepts
+    /// TCP then immediately RSTs during the handshake surfaces as IOException, not
+    /// AuthenticationException. Reverting the IOException arm would let the exception escape
+    /// to Main's 126 safety-net instead of cleanly exiting 1 / tls_failed.
+    /// </summary>
+    [Fact]
+    public async Task NetCatClient_TlsHandshakeTransportRst_ReturnsExitOne_TlsFailed()
+    {
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+
+        Task serverTask = Task.Run(async () =>
+        {
+            try
+            {
+                using TcpClient peer = await listener.AcceptTcpClientAsync();
+                // Wait for the client to send the first byte of its ClientHello before RSTing.
+                // This is the test's load-bearing synchronisation primitive: receiving any byte
+                // from the client proves (a) the TCP handshake completed cleanly on both sides,
+                // and (b) SslStream's AuthenticateAsClientAsync has progressed far enough to
+                // emit ClientHello — i.e. we are now demonstrably inside the TLS handshake.
+                // Without this, on contended CI runners the peer's RST can be observed by the
+                // CLIENT'S TCP layer DURING tcp.ConnectAsync (rather than in SslStream's first
+                // read/write), which surfaces the failure as IOException → "socket_error"
+                // instead of the "tls_failed" path this test exists to pin. Reading one byte
+                // turns timing into causality.
+                NetworkStream ns = peer.GetStream();
+                byte[] firstByte = new byte[1];
+                _ = await ns.ReadAsync(firstByte, 0, 1);
+                // Now force a hard reset: disable linger with timeout=0, then close.
+                peer.LingerState = new LingerOption(true, 0);
+                peer.Close();
+            }
+            catch { /* shutdown */ }
+        });
+
+        try
+        {
+            var options = new NetCatOptions
+            {
+                Mode = NetCatMode.Connect,
+                Protocol = NetCatProtocol.Tcp,
+                Host = "127.0.0.1",
+                Ports = new[] { new Winix.NetCat.PortRange(port) },
+                UseTls = true,
+                InsecureTls = true,
+                Timeout = System.TimeSpan.FromSeconds(5),
+            };
+
+            using var stdin = new MemoryStream();
+            using var stdout = new MemoryStream();
+            using var stderr = new StringWriter();
+
+            RunResult result = await new NetCatClient().RunAsync(options, stdin, stdout, stderr, CancellationToken.None);
+
+            Assert.Equal(1, result.ExitCode);
+            Assert.Equal("tls_failed", result.ExitReason);
+            // Stderr should mention TLS — message shape is either "handshake I/O error" OR
+            // "certificate validation failed" depending on whether the peer got far enough to
+            // present anything. We don't pin the exact wording so the test remains robust across
+            // .NET runtime SslStream behaviour variations.
+            Assert.Contains("TLS", stderr.ToString());
+        }
+        finally
+        {
+            listener.Stop();
+            try { await serverTask.WaitAsync(System.TimeSpan.FromSeconds(5)); } catch { }
+        }
+    }
+
+    /// <summary>
+    /// Pins the security-relevant stderr warning emitted when <c>--insecure --tls</c> is used.
+    /// A regression that drops the warning would silently run with cert validation disabled —
+    /// exactly the class of silent-failure flagged by round-5 test-analyzer I13.
+    /// </summary>
+    [Fact]
+    public async Task NetCatClient_InsecureTls_EmitsStderrWarning()
+    {
+        using var rsa = RSA.Create(2048);
+        var req = new CertificateRequest("CN=localhost", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        using X509Certificate2 cert = req.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-5), DateTimeOffset.UtcNow.AddHours(1));
+        byte[] pfxBytes = cert.Export(X509ContentType.Pfx);
+        using var serverCert = X509CertificateLoader.LoadPkcs12(pfxBytes, password: null);
+
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+
+        Task serverTask = Task.Run(async () =>
+        {
+            using TcpClient peer = await listener.AcceptTcpClientAsync();
+            using var ssl = new SslStream(peer.GetStream(), leaveInnerStreamOpen: false);
+            await ssl.AuthenticateAsServerAsync(serverCert, clientCertificateRequired: false,
+                enabledSslProtocols: System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13,
+                checkCertificateRevocation: false);
+        });
+
+        try
+        {
+            var options = new NetCatOptions
+            {
+                Mode = NetCatMode.Connect,
+                Protocol = NetCatProtocol.Tcp,
+                Host = "127.0.0.1",
+                Ports = new[] { new Winix.NetCat.PortRange(port) },
+                UseTls = true,
+                InsecureTls = true,
+                Timeout = System.TimeSpan.FromSeconds(5),
+            };
+
+            using var stdin = new MemoryStream();
+            using var stdout = new MemoryStream();
+            using var stderr = new StringWriter();
+
+            await new NetCatClient().RunAsync(options, stdin, stdout, stderr, CancellationToken.None);
+
+            Assert.Contains("certificate validation disabled", stderr.ToString());
+        }
+        finally
+        {
+            listener.Stop();
+            try { await serverTask.WaitAsync(System.TimeSpan.FromSeconds(5)); } catch { }
         }
     }
 }

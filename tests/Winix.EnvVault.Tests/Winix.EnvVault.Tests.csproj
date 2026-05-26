@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.*" />
+    <PackageReference Include="xunit" Version="2.*" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.*" />
+    <!-- Xunit.SkippableFact replaces silent early-return in platform-gated integration tests
+         with a proper 'Skipped' status in test output. Without it, tests that early-return on
+         the wrong OS show as 'Passed' in CI dashboards — a false positive. -->
+    <PackageReference Include="Xunit.SkippableFact" Version="1.*" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Winix.EnvVault\Winix.EnvVault.csproj" />
+    <ProjectReference Include="..\..\src\Winix.SecretStore\Winix.SecretStore.csproj" />
+    <!-- Build-time dependency on the console app so process-spawn integration tests can invoke
+         the actual compiled binary. ReferenceOutputAssembly=false prevents the app's DLL from
+         being copied into this project's output (would collide with our own assembly resolution). -->
+    <ProjectReference Include="..\..\src\envvault\envvault.csproj" ReferenceOutputAssembly="false" OutputItemType="None" />
+  </ItemGroup>
+</Project>

@@ -292,10 +292,24 @@ public class IntegrationTests : IDisposable
 
     /// <summary>
     /// Best-effort temp directory cleanup with retry for OS handle release delays.
+    /// On Windows the FileSystemWatcher's underlying I/O completion port can lag
+    /// behind <c>watcher.Dispose()</c> by hundreds of ms — Directory.Delete then
+    /// fails with "the process cannot access the file …". We give the kernel a
+    /// brief moment to flush, then retry, and on the final iteration give up
+    /// silently rather than failing the test from <c>Dispose()</c>: the leaked
+    /// dir lives under <c>%TEMP%</c> and the OS cleans it eventually.
     /// </summary>
     private static void TryDeleteDirectory(string path)
     {
-        for (int i = 0; i < 10; i++)
+        // Brief pre-delay so the kernel can release FSW I/O completion ports that
+        // lag FileSystemWatcher.Dispose(). On a fast machine this is wasted; on a
+        // slow one it lets the very first delete attempt succeed instead of paying
+        // a full 200 ms retry interval.
+        Thread.Sleep(50);
+
+        // 30 × 200 ms = 6 s budget, comfortably more than the kernel-handle drain
+        // we've observed (typically <1 s, occasionally up to ~3 s under load).
+        for (int i = 0; i < 30; i++)
         {
             try
             {
@@ -305,12 +319,14 @@ public class IntegrationTests : IDisposable
                 }
                 return;
             }
-            catch (IOException) when (i < 9)
+            catch (IOException)
             {
+                if (i == 29) return;
                 Thread.Sleep(200);
             }
-            catch (UnauthorizedAccessException) when (i < 9)
+            catch (UnauthorizedAccessException)
             {
+                if (i == 29) return;
                 Thread.Sleep(200);
             }
         }

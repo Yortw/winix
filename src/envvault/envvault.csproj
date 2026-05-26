@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AssemblyName>envvault</AssemblyName>
+    <RootNamespace>EnvVault</RootNamespace>
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>envvault</ToolCommandName>
+    <PackageId>Winix.EnvVault</PackageId>
+    <Description>Cross-platform keychain-backed env-var manager. Envchain-compatible plus a Windows backend.</Description>
+    <PackageTags>cli;command-line;cross-platform;windows;macos;linux;aot;dotnet-tool;winix;env;secrets;keychain;dpapi;libsecret;envchain</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Winix.EnvVault\Winix.EnvVault.csproj" />
+    <None Include="README.md" Pack="true" PackagePath="\" />
+    <Content Include="man\man1\envvault.1" CopyToPublishDirectory="PreserveNewest" Link="share\man\man1\envvault.1" />
+  </ItemGroup>
+</Project>

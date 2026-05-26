@@ -13,6 +13,10 @@ permissions:
 
 jobs:
   update-scoop-bucket:
+    # Only for stable versions (no pre-release dash) — RC/beta tags must not
+    # bump the scoop bucket on main, otherwise users on the stable scoop
+    # channel receive a prerelease via `scoop update`.
+    if: ${{ !contains(github.event.release.tag_name, '-') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -58,6 +62,17 @@ jobs:
           update_manifest bucket/schedule.json aot/schedule-win-x64.zip
           update_manifest bucket/winix.json aot/winix-win-x64.zip
           update_manifest bucket/nc.json aot/nc-win-x64.zip
+          update_manifest bucket/retry.json aot/retry-win-x64.zip
+          update_manifest bucket/when.json aot/when-win-x64.zip
+          update_manifest bucket/clip.json aot/clip-win-x64.zip
+          update_manifest bucket/ids.json aot/ids-win-x64.zip
+          update_manifest bucket/digest.json aot/digest-win-x64.zip
+          update_manifest bucket/notify.json aot/notify-win-x64.zip
+          update_manifest bucket/url.json aot/url-win-x64.zip
+          update_manifest bucket/qr.json aot/qr-win-x64.zip
+          update_manifest bucket/protect.json aot/protect-win-x64.zip
+          update_manifest bucket/unprotect.json aot/unprotect-win-x64.zip
+          update_manifest bucket/envvault.json aot/envvault-win-x64.zip
 
       - name: Commit and push scoop bucket
         run: |
@@ -97,6 +112,7 @@ jobs:
             local tool="$1"
             local tool_title="$2"
             local description="$3"
+            local extra_tags="$4"
             local zip="aot/${tool}-win-x64.zip"
             local hash
             hash=$(sha256sum "$zip" | awk '{print $1}' | tr '[:lower:]' '[:upper:]')
@@ -148,27 +164,51 @@ jobs:
               "License: MIT" \
               "LicenseUrl: https://github.com/Yortw/winix/blob/main/LICENSE" \
               "ShortDescription: ${description}" \
-              "Tags:" \
-              "  - cli" \
-              "  - developer-tools" \
-              "ReleaseNotesUrl: https://github.com/Yortw/winix/releases/tag/v${VERSION}" \
-              "ManifestType: defaultLocale" \
-              "ManifestVersion: 1.12.0" \
               > "${dir}/${pkg_id}.locale.en-US.yaml"
+
+            # Tag block: shared baseline + per-tool domain tags.
+            # Winget allows up to 16 tags; pattern ^[^\s:\\/]+$ (no whitespace, colons, slashes).
+            {
+              echo "Tags:"
+              echo "  - cli"
+              echo "  - developer-tools"
+              echo "  - portable"
+              echo "  - winix"
+              if [ -n "$extra_tags" ]; then
+                IFS=',' read -ra _tag_arr <<< "$extra_tags"
+                for _tag in "${_tag_arr[@]}"; do
+                  echo "  - $_tag"
+                done
+              fi
+              echo "ReleaseNotesUrl: https://github.com/Yortw/winix/releases/tag/v${VERSION}"
+              echo "ManifestType: defaultLocale"
+              echo "ManifestVersion: 1.12.0"
+            } >> "${dir}/${pkg_id}.locale.en-US.yaml"
           }
 
-          generate_manifests "timeit" "TimeIt" "Time a command — wall clock, CPU time, peak memory, exit code."
-          generate_manifests "squeeze" "Squeeze" "Compress and decompress files using gzip, brotli, or zstd."
-          generate_manifests "peep" "Peep" "Run a command repeatedly and display output on a refreshing screen."
-          generate_manifests "wargs" "Wargs" "Cross-platform xargs replacement with sane defaults."
-          generate_manifests "files" "Files" "Find files by name, size, date, type, and content. A cross-platform find replacement."
-          generate_manifests "treex" "TreeX" "Enhanced directory tree with colour, filtering, size rollups, gitignore, and clickable hyperlinks."
-          generate_manifests "man" "Man" "Cross-platform man page viewer with colour, hyperlinks, and pager support."
-          generate_manifests "less" "Less" "Native terminal pager with ANSI colour, search, follow mode, and modern defaults."
-          generate_manifests "whoholds" "WhoHolds" "Find which processes are holding a file lock or binding a network port."
-          generate_manifests "schedule" "Schedule" "Cross-platform task scheduler with cron expressions."
-          generate_manifests "winix" "Winix" "Cross-platform installer for the Winix CLI tool suite."
-          generate_manifests "nc" "NetCat" "Cross-platform netcat — TCP/UDP send/receive, port checks, TLS clients."
+          generate_manifests "timeit" "TimeIt" "Time a command — wall clock, CPU time, peak memory, exit code." "time,benchmark,timing,profiling"
+          generate_manifests "squeeze" "Squeeze" "Compress and decompress files using gzip, brotli, or zstd." "compression,gzip,zstd,brotli,archive"
+          generate_manifests "peep" "Peep" "Run a command repeatedly and display output on a refreshing screen." "watch,file-watcher,entr,monitoring"
+          generate_manifests "wargs" "Wargs" "Cross-platform xargs replacement with sane defaults." "xargs,parallel,execution,batch"
+          generate_manifests "files" "Files" "Find files by name, size, date, type, and content. A cross-platform find replacement." "find,search,glob,filesystem,fd"
+          generate_manifests "treex" "TreeX" "Enhanced directory tree with colour, filtering, size rollups, gitignore, and clickable hyperlinks." "tree,directory-listing,visualization"
+          generate_manifests "man" "Man" "Cross-platform man page viewer with colour, hyperlinks, and pager support." "man-page,groff,documentation,mdoc"
+          generate_manifests "less" "Less" "Native terminal pager with ANSI colour, search, follow mode, and modern defaults." "pager,terminal,viewer"
+          generate_manifests "whoholds" "WhoHolds" "Find which processes are holding a file lock or binding a network port." "lsof,handle,process,port-scanner,file-lock"
+          generate_manifests "schedule" "Schedule" "Cross-platform task scheduler with cron expressions." "cron,scheduler,task-scheduler,crontab,rrule"
+          generate_manifests "winix" "Winix" "Cross-platform installer for the Winix CLI tool suite." "installer,suite,package-manager"
+          generate_manifests "nc" "NetCat" "Cross-platform netcat — TCP/UDP send/receive, port checks, TLS clients." "netcat,network,tcp,udp,tls,port-scanner"
+          generate_manifests "retry" "Retry" "Run a command with automatic retries, backoff, and exit-code filtering." "retry,backoff,resilience"
+          generate_manifests "when" "When" "Convert timestamps between formats, apply time arithmetic, and calculate durations." "datetime,timezone,timestamp,date"
+          generate_manifests "clip" "Clip" "Cross-platform clipboard bridge — copy from stdin, paste to stdout, clear." "clipboard,copy,paste"
+          generate_manifests "ids" "Ids" "Cross-platform identifier generator — UUID v4, UUID v7, ULID, NanoID." "uuid,ulid,nanoid,identifier,guid"
+          generate_manifests "digest" "Digest" "Cross-platform cryptographic hashing and HMAC — SHA-2/SHA-3/BLAKE2b with safe key handling." "hash,hmac,sha256,sha512,blake2,crypto,checksum"
+          generate_manifests "notify" "Notify" "Cross-platform desktop notifications + ntfy.sh push." "notifications,toast,desktop,ntfy"
+          generate_manifests "url" "Url" "Cross-platform URL encode/decode/parse/build/join/query-edit." "url,uri,percent-encoding,encoding"
+          generate_manifests "qr" "Qr" "Cross-platform QR code generator with Wi-Fi, SMS, mailto, geo, and tel helpers." "qr-code,barcode,wifi,encoding"
+          generate_manifests "protect" "Protect" "Cross-platform encrypt-at-rest CLI using OS-native key stores." "encryption,dpapi,keychain,libsecret,at-rest,crypto"
+          generate_manifests "unprotect" "Unprotect" "Companion tool to protect — decrypts files that protect encrypted." "decryption,dpapi,keychain,libsecret,at-rest,crypto"
+          generate_manifests "envvault" "EnvVault" "Cross-platform keychain-backed env var manager; envchain-compatible with a Windows backend." "env,secrets,keychain,envchain,dpapi"
 
       - name: Upload winget manifests
         uses: actions/upload-artifact@v7

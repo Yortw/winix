@@ -61,8 +61,8 @@ files . --glob '*.log' | wargs rm
 # Structured output (NDJSON to stdout)
 files . --ndjson | jq '.name'
 
-# JSON summary to stderr
-files . --ext cs --json 2>manifest.json
+# JSON envelope to stdout (suite convention)
+files . --ext cs --json | jq .count
 
 # AI agent metadata
 files --describe
@@ -93,8 +93,8 @@ files . --glob '*.log' --print0 | xargs -0 rm
 | `--min-size SIZE` | Minimum file size (e.g. `100k`, `10M`, `1G`) |
 | `--max-size SIZE` | Maximum file size (e.g. `100k`, `10M`) |
 | `--newer DURATION` | Modified within duration (e.g. `1h`, `30m`, `7d`) |
-| `--older DURATION` | Modified before duration (e.g. `1h`, `7d`) |
-| `-d`, `--max-depth N` | Maximum directory depth (0 = search root only) |
+| `--older DURATION` | Not modified within duration (e.g. `1h`, `7d`) |
+| `-d`, `--max-depth N` | Maximum directory depth (0-based; `0` = search root only, `1` = root + immediate children, `N` = root + N levels of children) |
 | `-L`, `--follow` | Follow symlinks |
 | `--absolute` | Output absolute paths |
 | `--no-hidden` | Skip hidden files and directories |
@@ -104,7 +104,7 @@ files . --glob '*.log' --print0 | xargs -0 rm
 | `-l`, `--long` | Tab-delimited detail output (path, size, date, type) |
 | `-0`, `--print0` | Null-delimited output (for `xargs -0`) |
 | `--ndjson` | Streaming NDJSON to stdout (one JSON object per file) |
-| `--json` | JSON summary to stderr on exit |
+| `--json` | JSON envelope to stdout on exit (suite convention; pipe-friendly for `jq`) |
 | `--describe` | Print machine-readable metadata (flags, examples, composability) and exit |
 | `--no-color` | Disable colored output |
 | `--color` | Force colored output |
@@ -127,12 +127,13 @@ files . --glob '*.log' --print0 | xargs -0 rm
 | Name matching | `-name '*.cs'` | `--glob '*.cs'` or `--ext cs` |
 | Regex | `-regex` (anchored, varies by OS) | `--regex` (filename only) |
 | Type filter | `-type f/d/l` | `--type f/d/l` (same) |
+| Max depth | `-maxdepth N` (root + N levels of children) | `--max-depth N` (same; 0-based, matches `find` post-v0.3.0) |
 | Newer than | `-newer <file>` | `--newer 1h` (duration-based) |
 | Size filter | `-size +1M` | `--min-size 1M` / `--max-size 1M` |
 | Skip hidden | No built-in | `--no-hidden` |
 | Respect .gitignore | No | `--gitignore` |
 | Text/binary filter | No | `--text` / `--binary` |
-| JSON output | No | `--ndjson` / `--json` |
+| JSON output | No | `--ndjson` / `--json` (both stdout, pipe-friendly) |
 | Windows | Not available | Yes |
 
 ## Exit Codes
@@ -140,8 +141,39 @@ files . --glob '*.log' --print0 | xargs -0 rm
 | Code | Meaning |
 |------|---------|
 | 0 | Success |
-| 1 | Runtime error (permission denied, invalid path) |
+| 1 | Runtime error (permission denied, invalid path, or partial walk where one or more directories could not be enumerated) |
 | 125 | Usage error (bad arguments) |
+
+When a walk encounters unreadable directories (e.g. a chmod-denied subdirectory), each unreadable path is reported on stderr (`files: <path>: <reason>`) and the process exits 1 with `exit_reason: walk_error_partial` in the `--json` envelope, plus a populated `walk_errors[]` array.
+
+## Structured Output
+
+`files` supports two machine-readable output modes, both on stdout per suite convention:
+
+**NDJSON** (`--ndjson`) — one JSON object per matching entry:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `path` | string | File path (relative or absolute per `--absolute`) |
+| `name` | string | Filename only |
+| `type` | string | `file`, `directory`, or `symlink` |
+| `size_bytes` | int \| null | File size in bytes; `null` for directory entries |
+| `modified` | string \| null | ISO 8601 timestamp; `null` when not populated |
+| `depth` | int | Depth relative to search root (`0` = root) |
+| `is_text` | bool? | `true`/`false`; only present when `--text` or `--binary` is used |
+
+**JSON envelope** (`--json`) — single summary object emitted after the walk completes:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `tool` | string | `"files"` |
+| `version` | string | Tool version |
+| `exit_code` | int | Process exit code |
+| `exit_reason` | string | Machine-readable reason (`success`, `walk_error_partial`, `path_not_found`, `not_a_directory`, `usage_error`, `runtime_error`) |
+| `count` | int | Number of entries emitted |
+| `searched_roots` | array | Root paths that were walked (empty array on pre-walk error envelopes) |
+| `walk_errors` | array | Paths that could not be read; each entry has `path` and `reason`. Always present (empty array on success). |
+| `error` | string | Human-readable failure reason (only present on pre-walk error envelopes — `path_not_found`, `not_a_directory`) |
 
 ## Colour
 

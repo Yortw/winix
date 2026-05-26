@@ -3,6 +3,12 @@ using Xunit;
 
 namespace Winix.Peep.Tests;
 
+// R4 TA C1: GitIgnoreChecker holds process-global mutable state
+// (_gitDisabled, _gitDisabledWarned, FailureWriter). Without this collection
+// attribute xUnit runs GitIgnoreCheckerTests and GitIgnoreCheckerDisableTests
+// in parallel; the Disable tests' transient mutation of _gitDisabled corrupts
+// the cache-clear test's reads, producing an order-dependent flake.
+[Collection("GitIgnoreCheckerStatic")]
 public class GitIgnoreCheckerTests
 {
     [Fact]

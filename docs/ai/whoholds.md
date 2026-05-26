@@ -12,7 +12,7 @@ Cross-platform, but the Windows story is the primary value. On **Windows**, no b
 
 - A deployment fails because a DLL or config file is locked: `whoholds myapp.dll`
 - A server won't start because a port is already bound: `whoholds :8080`
-- An automated script needs to kill all holders before replacing a file: `whoholds myfile --pid-only | wargs kill -f {}`
+- An automated script needs to kill all holders before replacing a file: `whoholds myfile --pid-only | wargs taskkill /PID {} /F`
 - A pipeline needs structured output for further processing: `whoholds :443 --json`
 
 ## Common Patterns
@@ -44,7 +44,7 @@ whoholds myapp.dll --pid-only
 
 **Kill all lock holders:**
 ```bash
-whoholds myapp.dll --pid-only | wargs kill -f {}
+whoholds myapp.dll --pid-only | wargs taskkill /PID {} /F
 ```
 
 **Machine-readable JSON:**
@@ -64,9 +64,9 @@ whoholds --describe
 whoholds myapp.dll --pid-only | wargs taskkill /PID {} /F
 ```
 
-**whoholds + jq** — filter JSON output:
+**whoholds + jq** — filter JSON output (note the `processes[]` wrapper):
 ```bash
-whoholds :8080 --json | jq '.[].name'
+whoholds :8080 --json | jq '.processes[].name'
 ```
 
 **whoholds + timeit** — measure how long a file stays locked:
@@ -87,10 +87,10 @@ The `:` prefix is the most reliable way to query a port when you don't want to r
 
 ## Elevation Warning
 
-`whoholds` always prints a warning to stderr when not running as administrator:
+`whoholds` always prints a warning to stderr when not running elevated:
 
 ```
-Warning: not running as administrator — results may be incomplete.
+Warning: Not elevated — only showing current user's processes.
 ```
 
 Without elevation, the Restart Manager API only sees current-user processes. A file locked by a system service or another user won't appear. If you see zero holders but the error persists, re-run elevated.
@@ -112,11 +112,24 @@ myapp.dll is held by:
 
 **`--json`:**
 ```json
-[
-  { "pid": 1234, "name": "Visual Studio", "owner": "DESKTOP\\troy", "target": "C:\\path\\myapp.dll" },
-  { "pid": 5678, "name": "MsBuild.exe",   "owner": "DESKTOP\\troy", "target": "C:\\path\\myapp.dll" }
-]
+{
+  "tool": "whoholds",
+  "version": "0.3.0",
+  "exit_code": 0,
+  "exit_reason": "success",
+  "processes": [
+    { "pid": 1234, "name": "Visual Studio", "path": "C:\\Program Files\\Microsoft Visual Studio\\...\\devenv.exe", "state": "", "resource": "C:\\path\\myapp.dll" },
+    { "pid": 5678, "name": "MsBuild.exe",   "path": "",                                                              "state": "", "resource": "C:\\path\\myapp.dll" }
+  ]
+}
 ```
+
+Field notes:
+
+- The top-level shape is the standard Winix envelope (`tool`, `version`, `exit_code`, `exit_reason`) with a `processes` array — not a bare array.
+- `path` is empty when the executable path could not be resolved (system process, denied access, exited race).
+- `state` is the TCP connection state string (`LISTEN`, `ESTABLISHED`, etc.) for port queries; empty for file queries and UDP rows.
+- `resource` is the queried file path or a `TCP :port` / `UDP :port` specifier.
 
 ## Gotchas
 

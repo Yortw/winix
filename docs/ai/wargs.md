@@ -77,7 +77,7 @@ git diff --name-only HEAD | wargs dotnet format {}
 
 **wargs --ndjson + jq** — parse streaming results:
 ```bash
-cat servers.txt | wargs --ndjson ssh {} uptime 2>&1 >/dev/null | jq 'select(.exit_code != 0) | .item'
+cat servers.txt | wargs --ndjson ssh {} uptime 2>&1 >/dev/null | jq 'select(.exit_code != 0) | .input'
 ```
 
 **wargs + squeeze** — compress files found by files:
@@ -97,7 +97,7 @@ files . --ext log --older 7d | wargs squeeze --gzip --remove
 
 **Parallel output is buffered by default.** With `-P`, each job's stdout and stderr are buffered and printed atomically after the job completes, preventing interleaved output. Use `--line-buffered` to have children inherit stdio directly — output appears immediately but may interleave.
 
-**Exit code 123 means child failures, not wargs failures.** If one or more child processes exit non-zero, `wargs` exits 123. Exit 124 means `--fail-fast` triggered. Exit 125/126/127 are wargs-own errors (usage, not executable, not found).
+**Exit code 123 means child failures, not wargs failures.** If one or more child processes exit non-zero (or could not be spawned), `wargs` exits 123. Per-job spawn failures surface in `fault_message` rather than as a separate exit code — wargs intentionally collapses spawn failures into 123 + per-job diagnostic. Exit 124 means `--fail-fast` triggered. Exit 125 is usage error. Exit 126 is internal/IO failure (stdin read failed, unexpected exception). Exit 130 is Ctrl+C.
 
 ## Getting Structured Data
 
@@ -106,14 +106,39 @@ files . --ext log --older 7d | wargs squeeze --gzip --remove
 cat servers.txt | wargs --json ssh {} uptime 2>results.json
 ```
 
-Fields: `tool`, `version`, `exit_code`, `exit_reason`, `job_count`, `success_count`, `failure_count`.
+Fields: `tool`, `version`, `exit_code`, `exit_reason`, `total_jobs`, `succeeded`, `failed`, `skipped`, `wall_seconds`. When at least one job carries a fault diagnostic (spawn failure, unexpected task exception), an additional `faults` array is appended — each entry is a `{job, message}` object, where `job` is the 1-based job index and `message` is a human-readable description of the fault (e.g. `"failed to spawn 'foo': Win32Exception: No such file or directory"`).
 
-**NDJSON** (`--ndjson`, stderr) — one JSON object per job as it completes:
+`exit_reason` values:
+
+| Reason | Meaning |
+|---|---|
+| `success` | All jobs exited 0 |
+| `child_failed` | One or more child processes exited non-zero |
+| `fail_fast_abort` | `--fail-fast` triggered after a failure (some jobs were skipped) |
+| `no_input` | stdin produced no items — nothing was executed |
+| `input_read_failed` | wargs could not read items from stdin (broken pipe, encoding error) |
+| `usage_error` | A flag combination or argument was invalid (exit 125, only emitted under `--json` or `--ndjson`) |
+| `dry_run` | `--dry-run` was set; no jobs ran. `total_jobs` reports the would-be invocation count under `--json` |
+| `cancelled` | User pressed Ctrl+C; emitted under `--json` or `--ndjson` alongside exit 130 |
+| `unexpected_error` | An unexpected exception escaped to Main's safety net; emitted under `--json` or `--ndjson` alongside exit 126 |
+
+**NDJSON** (`--ndjson`, stderr) — one JSON object per executed job as it completes. Skipped jobs (fail-fast or confirm declined) are omitted from the stream; the JSON summary's `skipped` field is the source of truth for skip count.
+
 ```bash
 cat servers.txt | wargs --ndjson ssh {} uptime
 ```
 
-Each line contains: `tool`, `version`, `item`, `exit_code`, `exit_reason`, `command`, `stdout`, `stderr`.
+Each line contains: `tool`, `version`, `job` (1-based index), `exit_code`, `exit_reason`, `child_exit_code`, `input`, `wall_seconds`. The `input` field is a string when the job has one source item, or a JSON array when batched (`--batch N` with N>1). When the job's spawn failed or its task body faulted, an additional `fault_message` field carries the diagnostic.
+
+When stdin produces no items, NDJSON emits a single `{"exit_reason":"no_input", ...}` envelope so streaming consumers have a positive signal rather than an indistinguishable silent exit.
+
+**Cancellation**: pressing `Ctrl+C` cancels the run with exit code `130` (POSIX `128 + SIGINT`). In-flight child processes are killed (`Process.Kill(entireProcessTree:true)`). Under `--json` or `--ndjson`, a `{"exit_reason":"cancelled"}` envelope is emitted on stderr before the process exits. Cancellation is honoured during input reading too — pressing Ctrl+C while wargs is blocked on a slow stdin producer produces the same envelope and exit 130, not a runtime termination.
+
+**`--verbose` not allowed with structured output**: `--verbose` writes per-invocation plaintext lines to stderr; `--json` and `--ndjson` use stderr for structured envelopes. Combining the two would interleave plaintext among JSON, breaking line-discipline parsers. Wargs rejects the combination at parse time with `usage_error`.
+
+**`--confirm` not allowed with structured output**: same root reason — confirm prompts and the "no terminal available" diagnostic write plaintext to stderr. Wargs rejects `--confirm --json` and `--confirm --ndjson` at parse time with `usage_error`.
+
+**Envelope contract**: under `--json` or `--ndjson`, every exit path emits an envelope on stderr — including `success`, `child_failed`, `fail_fast_abort`, `no_input`, `input_read_failed`, `usage_error`, `dry_run`, `cancelled`, and `unexpected_error`. Streaming consumers can rely on the stream being parseable as one JSON object per line.
 
 **--describe** — machine-readable flag reference:
 ```bash

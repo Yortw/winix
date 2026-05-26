@@ -1,0 +1,131 @@
+.\" Round-11 verification follow-up: schedule shipped without a man page
+.\" (CLAUDE.md per-tool man page convention violation flagged 2026-05-02).
+.\"
+.TH "SCHEDULE" "1" "2026\-05\-02" "Winix" "User Commands"
+.SH NAME
+schedule \- cross\-platform task scheduler with cron expressions
+.SH SYNOPSIS
+\f[B]schedule\f[R] \f[I]subcommand\f[R] [\f[I]options\f[R]] [\f[I]args\f[R]\&...]
+.SH DESCRIPTION
+Unified interface for creating, listing, and managing scheduled tasks using
+standard cron syntax. On \f[B]Windows\f[R], delegates to \f[B]schtasks.exe\f[R]
+(Windows Task Scheduler). On \f[B]Linux/macOS\f[R], manages \f[B]crontab\f[R]
+entries using tagged comments (\f[B]# winix:<name>\f[R]) to track Winix\-owned
+lines non\-destructively.
+.PP
+Cron expressions support standard 5\-field syntax (minute hour day\-of\-month
+month day\-of\-week) plus the named macros \f[B]@yearly\f[R], \f[B]@monthly\f[R],
+\f[B]@weekly\f[R], \f[B]@daily\f[R], and \f[B]@hourly\f[R].
+.SH SUBCOMMANDS
+.TP
+\f[B]add\f[R] \f[B]\-\-cron\f[R] \f[I]EXPR\f[R] [\f[B]\-\-name\f[R] \f[I]NAME\f[R]] [\f[B]\-\-folder\f[R] \f[I]PATH\f[R]] \f[B]\-\-\f[R] \f[I]command\f[R] [\f[I]args\f[R]\&...]
+Create a new scheduled task.
+If \f[B]\-\-name\f[R] is omitted, a name is auto\-generated.
+.TP
+\f[B]list\f[R] [\f[B]\-\-all\f[R]] [\f[B]\-\-folder\f[R] \f[I]PATH\f[R]]
+List Winix\-managed tasks.
+\f[B]\-\-all\f[R] includes non\-Winix entries.
+.TP
+\f[B]remove\f[R] \f[I]NAME\f[R]
+Remove a task by name.
+.TP
+\f[B]enable\f[R] \f[I]NAME\f[R]
+Re\-enable a previously disabled task.
+.TP
+\f[B]disable\f[R] \f[I]NAME\f[R]
+Disable a task without removing it.
+The task definition is preserved; it will not fire until re\-enabled.
+.TP
+\f[B]run\f[R] \f[I]NAME\f[R]
+Trigger a task to run immediately, regardless of its schedule.
+.TP
+\f[B]history\f[R] \f[I]NAME\f[R]
+Show run history for a task (Windows only).
+On Linux/macOS this returns a note that history is not available via crontab.
+.TP
+\f[B]next\f[R] \f[I]EXPR\f[R] [\f[B]\-\-count\f[R] \f[I]N\f[R]]
+Show the next \f[I]N\f[R] (default 5) fire times for a cron expression
+without creating a task.
+.SH OPTIONS
+.TP
+\f[B]\-\-cron\f[R] \f[I]EXPR\f[R]
+Cron expression (required for \f[B]add\f[R]).
+.TP
+\f[B]\-\-name\f[R] \f[I]NAME\f[R]
+Task name (auto\-generated if omitted on \f[B]add\f[R]).
+.TP
+\f[B]\-\-folder\f[R] \f[I]PATH\f[R]
+Task Scheduler folder (default: \f[B]\[rs]Winix\[rs]\f[R] on Windows; ignored
+on Linux/macOS).
+.TP
+\f[B]\-\-count\f[R] \f[I]N\f[R]
+Number of fire times to show for \f[B]next\f[R] (default: 5).
+.TP
+\f[B]\-\-all\f[R]
+Show all tasks (not just Winix\-managed) under \f[B]list\f[R].
+.TP
+\f[B]\-\-json\f[R]
+JSON envelope on stdout (success or error). Usage-error envelopes (e.g. unknown subcommand) go to stderr.
+.TP
+\f[B]\-\-color\f[R]
+Force coloured output (overrides \f[B]NO_COLOR\f[R]).
+.TP
+\f[B]\-\-no\-color\f[R]
+Disable coloured output.
+.TP
+\f[B]\-\-describe\f[R]
+Structured JSON metadata for AI agents.
+.TP
+\f[B]\-\-version\f[R]
+Show version.
+.TP
+\f[B]\-h\f[R], \f[B]\-\-help\f[R]
+Show help.
+.SH EXIT CODES
+.TP
+\f[B]0\f[R]
+Success.
+.TP
+\f[B]125\f[R]
+Usage error (bad arguments, invalid cron expression).
+.TP
+\f[B]126\f[R]
+Backend failure (task not found, scheduler error).
+.SH ENVIRONMENT
+.TP
+\f[B]NO_COLOR\f[R]
+If set, disables coloured output (no\-color.org).
+.SH EXAMPLES
+.IP
+.EX
+# Create a daily backup at 2 AM
+schedule add \-\-cron "0 2 * * *" \-\- dotnet build
+
+# Create a named task running every 5 minutes
+schedule add \-\-cron "*/5 * * * *" \-\-name health\-check \-\- curl http://localhost:8080/health
+
+# Show next 5 fire times for a cron expression
+schedule next "0 2 * * *"
+
+# List Winix\-managed tasks
+schedule list
+
+# Remove a named task
+schedule remove health\-check
+
+# Trigger a task to run immediately
+schedule run health\-check
+.EE
+.SH PLATFORM NOTES
+On \f[B]Windows\f[R], the \f[B]schtasks.exe\f[R] backend creates tasks in
+\f[B]\[rs]Winix\[rs]\f[R] by default and surfaces run history via the Task
+Scheduler event log.
+.PP
+On \f[B]Linux/macOS\f[R], the \f[B]crontab\f[R] backend tags Winix\-owned
+lines with \f[B]# winix:<name>\f[R] for non\-destructive add/remove.
+History is not available via crontab.
+.SH SEE ALSO
+\f[B]crontab\f[R](5), \f[B]schtasks.exe\f[R] (Windows),
+\f[B]retry\f[R](1), \f[B]wargs\f[R](1), \f[B]peep\f[R](1)
+.SH AUTHORS
+Troy Willmot.

@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 using Winix.Wargs;
 using Xunit;
 
@@ -42,7 +43,15 @@ public class IntegrationTests
     [Fact]
     public async Task FullPipeline_ParallelWithKeepOrder_OutputInOrder()
     {
-        var input = new InputReader(new StringReader("1\n2\n3\n4"), DelimiterMode.Line);
+        // Smoke-test that the input-reader → command-builder → job-runner pipeline composes
+        // correctly under KeepOrder + parallelism. NOTE: this is not a true KeepOrder
+        // ordering pin — fast echo commands tend to complete in input order regardless of
+        // strategy, so the test would still pass if KeepOrder were a no-op. The genuine
+        // out-of-order pin lives at JobRunnerTests.RunAsync_KeepOrder_PreservesOrder_
+        // WhenJobsCompleteOutOfOrder, which uses descending sleep durations (Unix-only).
+        // Using distinct multi-char tokens here avoids the IndexOf substring false-positive
+        // a single-digit version would have.
+        var input = new InputReader(new StringReader("alpha\nbravo\ncharlie\ndelta"), DelimiterMode.Line);
 
         string[] template;
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
@@ -65,15 +74,15 @@ public class IntegrationTests
         Assert.Equal(4, result.Succeeded);
 
         string output = stdout.ToString();
-        int pos1 = output.IndexOf("1");
-        int pos2 = output.IndexOf("2");
-        int pos3 = output.IndexOf("3");
-        int pos4 = output.IndexOf("4");
+        int posAlpha = output.IndexOf("alpha");
+        int posBravo = output.IndexOf("bravo");
+        int posCharlie = output.IndexOf("charlie");
+        int posDelta = output.IndexOf("delta");
 
-        Assert.True(pos1 >= 0 && pos2 >= 0 && pos3 >= 0 && pos4 >= 0, "All items should appear in output");
-        Assert.True(pos1 < pos2, "1 before 2");
-        Assert.True(pos2 < pos3, "2 before 3");
-        Assert.True(pos3 < pos4, "3 before 4");
+        Assert.True(posAlpha >= 0 && posBravo >= 0 && posCharlie >= 0 && posDelta >= 0, "All items should appear in output");
+        Assert.True(posAlpha < posBravo, "alpha before bravo");
+        Assert.True(posBravo < posCharlie, "bravo before charlie");
+        Assert.True(posCharlie < posDelta, "charlie before delta");
     }
 
     [Fact]
@@ -92,5 +101,120 @@ public class IntegrationTests
         Assert.Contains("\"succeeded\":1", json);
         Assert.Contains("\"failed\":1", json);
         Assert.Contains("\"exit_code\":123", json);
+    }
+
+    [Fact]
+    public void ManPage_GroffSourceMatchesMarkdownSource_NoStaleExitCodesOrSections()
+    {
+        // Round-13 CR/SFH/TA C1: the markdown source `wargs.1.md` is the source of truth;
+        // the compiled groff `wargs.1` ships to users via scoop/winget/.NET tool. Round 12
+        // updated the markdown to remove exit code 127 and add a RESTRICTIONS section,
+        // but the compiled groff wasn't regenerated until round 13. This meta-test catches
+        // that drift class — every section and exit code in the markdown must appear in
+        // the compiled groff.
+        string repoRoot = LocateRepoRoot();
+        string md = File.ReadAllText(Path.Combine(repoRoot, "src", "wargs", "wargs.1.md"));
+        string groff = File.ReadAllText(Path.Combine(repoRoot, "src", "wargs", "man", "man1", "wargs.1"));
+
+        // Section parity: every "# HEADING" in markdown must appear as ".SH HEADING" in
+        // groff. Pandoc emits `.SH NAME` for short headings and `.SH "MULTI WORD"` for
+        // longer ones — accept both. Use line-based regex to avoid CRLF/LF mismatches.
+        foreach (Match m in Regex.Matches(md, @"^# (\S[^\r\n]*)$", RegexOptions.Multiline))
+        {
+            string heading = m.Groups[1].Value.Trim();
+            string escapedHeading = Regex.Escape(heading);
+            bool found = Regex.IsMatch(groff, $@"^\.SH {escapedHeading}\s*$", RegexOptions.Multiline)
+                      || Regex.IsMatch(groff, $@"^\.SH ""{escapedHeading}""\s*$", RegexOptions.Multiline);
+            Assert.True(found,
+                $"Markdown section '# {heading}' not present in compiled groff. " +
+                "Run: pandoc -s -t man src/wargs/wargs.1.md -o src/wargs/man/man1/wargs.1");
+        }
+
+        // Exit-code parity: every exit code mentioned in markdown EXIT CODES MUST appear in
+        // groff. Conversely (the round-13 CR finding): codes in groff but NOT in markdown
+        // are stale advertisements. Extract bold-formatted exit-code labels from each.
+        // Markdown: **NN** ; Groff: \f[B]NN\f[R]
+        var mdCodes = ExtractMarkdownExitCodes(md);
+        var grfCodes = ExtractGroffExitCodes(groff);
+        Assert.Equal(mdCodes, grfCodes);
+    }
+
+    [Fact]
+    public void Convention_BareCatchException_RequiresOomSoeFilterOrExplicitMarker()
+    {
+        // Round-14 SFH I2 broadening: bare `catch (Exception)` swallows OOM/StackOverflow,
+        // hiding process-wide instability under best-effort handlers. Convention is to
+        // exclude OOM/SOE via a `when` filter unless the catch is in a position where
+        // the original exception MUST propagate (dispose-in-finally) — those sites carry
+        // the marker comment "bare by design" so this test honours the exemption.
+        //
+        // Why a source-scan rather than behavioural: round-14's SafeWriteLine drift was
+        // an xmldoc-vs-code mismatch (doc claimed exclusion, code didn't have it). A
+        // behavioural test for OOM-swallow would test C# compiler semantics; a source
+        // scan catches the actual drift class.
+        string repoRoot = LocateRepoRoot();
+        string[] files = new[]
+        {
+            Path.Combine(repoRoot, "src", "Winix.Wargs", "JobRunner.cs"),
+            Path.Combine(repoRoot, "src", "wargs", "Program.cs"),
+        };
+        var bareCatchPattern = new Regex(@"catch\s*\(\s*Exception(\s+\w+)?\s*\)(?!\s*when)");
+
+        foreach (string path in files)
+        {
+            string[] lines = File.ReadAllLines(path);
+            for (int i = 0; i < lines.Length; i++)
+            {
+                if (!bareCatchPattern.IsMatch(lines[i])) { continue; }
+                int windowStart = Math.Max(0, i - 4);
+                string window = string.Join('\n', lines.Skip(windowStart).Take(i - windowStart + 1));
+                Assert.True(window.Contains("bare by design"),
+                    $"{Path.GetFileName(path)}:{i + 1} — bare catch(Exception) needs OOM/SOE filter " +
+                    "(catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)) " +
+                    "or a 'bare by design' marker comment within 4 lines preceding.");
+            }
+        }
+    }
+
+    private static string LocateRepoRoot()
+    {
+        string assemblyPath = typeof(IntegrationTests).Assembly.Location;
+        string testTfmDir = Path.GetDirectoryName(assemblyPath)!;
+        string configDir = Path.GetDirectoryName(testTfmDir)!;
+        string testProjectDir = Path.GetDirectoryName(Path.GetDirectoryName(configDir))!;
+        string testsDir = Path.GetDirectoryName(testProjectDir)!;
+        return Path.GetDirectoryName(testsDir)!;
+    }
+
+    private static int[] ExtractMarkdownExitCodes(string md)
+    {
+        // Match **NN** lines under the EXIT CODES section. The section runs until the next
+        // # heading. This is a pragmatic regex — not a full markdown parser.
+        int sectionStart = md.IndexOf("# EXIT CODES", StringComparison.Ordinal);
+        if (sectionStart < 0) { return System.Array.Empty<int>(); }
+        int sectionEnd = md.IndexOf("\n# ", sectionStart + 1, StringComparison.Ordinal);
+        string section = sectionEnd > 0 ? md.Substring(sectionStart, sectionEnd - sectionStart) : md.Substring(sectionStart);
+        return Regex.Matches(section, @"^\*\*(\d+)\*\*$", RegexOptions.Multiline)
+            .Select(m => int.Parse(m.Groups[1].Value))
+            .OrderBy(c => c)
+            .ToArray();
+    }
+
+    private static int[] ExtractGroffExitCodes(string groff)
+    {
+        // Match \f[B]NN\f[R] under .SH "EXIT CODES" until the next .SH section.
+        int sectionStart = groff.IndexOf(".SH \"EXIT CODES\"", StringComparison.Ordinal);
+        if (sectionStart < 0)
+        {
+            sectionStart = groff.IndexOf(".SH EXIT CODES", StringComparison.Ordinal);
+        }
+        if (sectionStart < 0) { return System.Array.Empty<int>(); }
+        int sectionEnd = groff.IndexOf("\n.SH ", sectionStart + 1, StringComparison.Ordinal);
+        string section = sectionEnd > 0 ? groff.Substring(sectionStart, sectionEnd - sectionStart) : groff.Substring(sectionStart);
+        return Regex.Matches(section, @"\\f\[B\](\d+)\\f\[R\]")
+            .Select(m => int.Parse(m.Groups[1].Value))
+            .OrderBy(c => c)
+            .Distinct()
+            .ToArray();
     }
 }

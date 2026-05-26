@@ -119,52 +119,104 @@ public static class ProcessHelper
     }
 
     /// <summary>
-    /// Returns <see langword="true"/> when <paramref name="command"/> can be
-    /// found and started from <c>PATH</c>; <see langword="false"/> otherwise.
+    /// Returns <see langword="true"/> when <paramref name="command"/> exists as an
+    /// executable in any directory on <c>PATH</c>; <see langword="false"/> otherwise.
     /// </summary>
     /// <remarks>
-    /// The command is started with <c>--version</c> and killed immediately — we
-    /// only care whether <see cref="Process.Start"/> succeeds, not what the
-    /// process does.
+    /// <para>
+    /// Performs a PATH walk rather than spawning the executable. The previous
+    /// implementation invoked <c>command --version</c> and killed it, which incurred
+    /// process-startup latency on every probe (multiplied by 22 manifest tools × every
+    /// adapter on every <c>winix list</c>), risked accidental side effects from the
+    /// <c>--version</c> invocation, and produced transient process-tree entries.
+    /// </para>
+    /// <para>
+    /// On Windows the probe consults <c>PATHEXT</c> to honour <c>.exe</c>, <c>.cmd</c>,
+    /// <c>.bat</c>, etc. so package-manager shims like <c>scoop.cmd</c> are recognised
+    /// even though they are not bare <c>.exe</c> files.
+    /// </para>
     /// </remarks>
-    /// <param name="command">The executable name to probe.</param>
+    /// <param name="command">The executable name (no path or extension) to probe.</param>
     public static bool IsOnPath(string command)
     {
-        var psi = new ProcessStartInfo(command)
+        if (string.IsNullOrEmpty(command))
         {
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            RedirectStandardInput = true,
-            CreateNoWindow = true,
-        };
-        psi.ArgumentList.Add("--version");
-
-        try
-        {
-            using var process = Process.Start(psi);
-            if (process is null)
-            {
-                return false;
-            }
-
-            // Kill immediately — we only needed to confirm the binary exists.
-            try
-            {
-                process.Kill(entireProcessTree: true);
-            }
-            catch (InvalidOperationException)
-            {
-                // Process already exited before we could kill it — that's fine.
-            }
-
-            return true;
-        }
-        catch (Win32Exception)
-        {
-            // Any Win32Exception here means the executable wasn't found or
-            // couldn't be launched.
             return false;
         }
+
+        string? pathEnv = Environment.GetEnvironmentVariable("PATH");
+        if (string.IsNullOrEmpty(pathEnv))
+        {
+            return false;
+        }
+
+        string[] extensions = GetExecutableExtensions();
+
+        foreach (string rawDir in pathEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            string dir = rawDir.Trim();
+            if (dir.Length == 0)
+            {
+                continue;
+            }
+
+            // Bare-name probe first — covers Linux/macOS executables and any
+            // already-extensioned name on Windows (e.g. caller passed "scoop.cmd").
+            string bare = Path.Combine(dir, command);
+            if (File.Exists(bare))
+            {
+                return true;
+            }
+
+            // Each PATHEXT extension is tested only when the bare-name probe missed,
+            // because the bare path may already match for tools the user typed with
+            // their extension included.
+            foreach (string ext in extensions)
+            {
+                string candidate = Path.Combine(dir, command + ext);
+                if (File.Exists(candidate))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Returns the list of executable extensions to try when probing <c>PATH</c>.
+    /// On Windows, parses <c>PATHEXT</c> (e.g. <c>.COM;.EXE;.BAT;.CMD;.PS1</c>) and
+    /// returns each entry lowercased and dot-prefixed. On Unix, returns an empty
+    /// array so only bare-name probes apply.
+    /// </summary>
+    private static string[] GetExecutableExtensions()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return Array.Empty<string>();
+        }
+
+        string pathExt = Environment.GetEnvironmentVariable("PATHEXT") ?? ".COM;.EXE;.BAT;.CMD";
+        string[] parts = pathExt.Split(';', StringSplitOptions.RemoveEmptyEntries);
+        var result = new List<string>(parts.Length);
+        foreach (string part in parts)
+        {
+            string trimmed = part.Trim();
+            if (trimmed.Length == 0)
+            {
+                continue;
+            }
+            // Normalise: ensure dot prefix and lowercase for case-insensitive matching
+            // on the comparing-against-File.Exists side (Windows filesystem is
+            // case-insensitive but normalising keeps the candidate set tidy).
+            if (!trimmed.StartsWith('.'))
+            {
+                trimmed = "." + trimmed;
+            }
+            result.Add(trimmed.ToLowerInvariant());
+        }
+
+        return result.ToArray();
     }
 }

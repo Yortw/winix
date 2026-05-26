@@ -9,4 +9,10 @@
   <ItemGroup>
     <ProjectReference Include="..\Yort.ShellKit\Yort.ShellKit.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Expose internal members (e.g. LsofFinder.ParseLsofOutput) to the test project so
+         platform-specific parsers can be fixture-tested on every host without spawning
+         the real lsof binary. -->
+    <InternalsVisibleTo Include="Winix.WhoHolds.Tests" />
+  </ItemGroup>
 </Project>

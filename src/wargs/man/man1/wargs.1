@@ -86,7 +86,10 @@ Use \f[B]\(enno\-shell\-fallback\f[R] to require standalone executables.
 All jobs succeeded.
 .TP
 \f[B]123\f[R]
-One or more child processes failed.
+One or more child processes failed (or could not be spawned).
+Per\-job spawn failures surface in \f[B]fault_message\f[R] rather than
+as a separate exit code \(em wargs intentionally collapses spawn
+failures into 123 + per\-job diagnostic.
 .TP
 \f[B]124\f[R]
 Aborted due to \f[B]\(enfail\-fast\f[R].
@@ -95,10 +98,26 @@ Aborted due to \f[B]\(enfail\-fast\f[R].
 Usage error (bad arguments).
 .TP
 \f[B]126\f[R]
-Command not executable.
+Internal/IO failure: stdin read failed, or unexpected exception escaped
+to safety net.
 .TP
-\f[B]127\f[R]
-Command not found.
+\f[B]130\f[R]
+Cancelled by signal (Ctrl+C / SIGINT).
+.SH RESTRICTIONS
+\f[B]\(enconfirm\f[R] (\f[B]\-p\f[R]) and \f[B]\(enverbose\f[R]
+(\f[B]\-v\f[R]) cannot be combined with \f[B]\(enjson\f[R] or
+\f[B]\(enndjson\f[R].
+Confirm prompts and verbose plaintext lines write to stderr \(em the
+same channel as structured envelopes \(em and would interleave plaintext
+among JSON output.
+Wargs rejects these combinations at parse time with
+\f[B]usage_error\f[R] (exit 125).
+.PP
+\f[B]\(enndjson\f[R] and \f[B]\(enline\-buffered\f[R] cannot be
+combined.
+.PP
+\f[B]\(enkeep\-order\f[R] and \f[B]\(enline\-buffered\f[R] cannot be
+combined.
 .SH ENVIRONMENT
 .TP
 \f[B]NO_COLOR\f[R]

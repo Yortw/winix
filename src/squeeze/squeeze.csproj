@@ -11,6 +11,7 @@
     <ToolCommandName>squeeze</ToolCommandName>
     <PackageId>Winix.Squeeze</PackageId>
     <Description>Compress and decompress files using gzip, brotli, or zstd. A cross-platform multi-format compression tool.</Description>
+    <PackageTags>cli;command-line;cross-platform;windows;macos;linux;aot;dotnet-tool;winix;compression;gzip;zstd;brotli;archive</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
   <ItemGroup>

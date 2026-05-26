@@ -6,10 +6,10 @@
   "architecture": {
     "64bit": {
       "url": "https://github.com/Yortw/winix/releases/download/v0.2.0/peep-win-x64.zip",
-      "hash": "9feb7937e6af9cc7836be8d1958b5f4b31af032ec6a96fba7bd2bcb2127596b8"
+      "hash": "9feb7937e6af9cc7836be8d1958b5f4b31af032ec6a96fba7bd2bcb2127596b8",
+      "bin": "peep.exe"
     }
   },
-  "bin": "peep.exe",
   "checkver": "github",
   "autoupdate": {
     "architecture": {

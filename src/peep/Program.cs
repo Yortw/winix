@@ -11,6 +11,7 @@ internal sealed class Program
     static async Task<int> Main(string[] args)
     {
         ConsoleEnv.EnableAnsiIfNeeded();
+        ConsoleEnv.UseUtf8Streams();
         string version = GetVersion();
 
         var parser = new CommandLineParser("peep", version)
@@ -84,7 +85,27 @@ internal sealed class Program
 
         var result = parser.Parse(args);
         if (result.IsHandled) return result.ExitCode;
-        if (result.HasErrors) return result.WriteErrors(Console.Error);
+
+        // R5 SFH I1: peep treats --json-output as JSON-implying for envelope output
+        // (line below: jsonOutput = --json || --json-output), but ShellKit's
+        // WriteError / WriteErrors only honour --json. Without bridging here,
+        //   peep --json-output             (no command)            → plain-text error
+        //   peep --json-output --exit-on-match '['                 → plain-text error
+        // breaks JSON-aware automation that decides "envelope or not" by inspecting
+        // --json-output. When the user has --json-output without --json, emit our
+        // own JSON envelope on the early-return paths.
+        bool jsonOnlyViaJsonOutput = !result.Has("--json") && result.Has("--json-output");
+
+        if (result.HasErrors)
+        {
+            if (jsonOnlyViaJsonOutput)
+            {
+                Console.Error.WriteLine(Formatting.FormatJsonError(
+                    ExitCode.UsageError, "usage_error", "peep", version));
+                return ExitCode.UsageError;
+            }
+            return result.WriteErrors(Console.Error);
+        }
 
         double intervalSeconds = result.GetDouble("--interval", defaultValue: 2.0);
         bool intervalExplicit = result.Has("--interval");
@@ -94,6 +115,12 @@ internal sealed class Program
 
         if (result.Command.Length == 0)
         {
+            if (jsonOnlyViaJsonOutput)
+            {
+                Console.Error.WriteLine(Formatting.FormatJsonError(
+                    ExitCode.UsageError, "usage_error", "peep", version));
+                return ExitCode.UsageError;
+            }
             return result.WriteError("no command specified. Run 'peep --help' for usage.", Console.Error);
         }
 
@@ -110,6 +137,12 @@ internal sealed class Program
         }
         catch (RegexParseException ex)
         {
+            if (jsonOnlyViaJsonOutput)
+            {
+                Console.Error.WriteLine(Formatting.FormatJsonError(
+                    ExitCode.UsageError, "usage_error", "peep", version));
+                return ExitCode.UsageError;
+            }
             return result.WriteError($"invalid regex pattern: {ex.Message}", Console.Error);
         }
 
@@ -150,9 +183,32 @@ internal sealed class Program
     {
         var sessionStopwatch = Stopwatch.StartNew();
 
+        // CR I4 / CR I9: --once must respect Ctrl+C and not orphan the child.
+        // Without our own CTS + CancelKeyPress handler, hitting Ctrl+C during
+        // `peep --once -- some-slow-cmd` lets the .NET default handler tear down
+        // peep without ever cancelling the token we passed to CommandExecutor —
+        // so its kill-on-cancel callback never fires and the child leaks.
+        using var cts = new CancellationTokenSource();
+        // R4 TA I6: handler body lives in SessionHelpers.RequestCancellationSilently
+        // so the "Cancel after dispose must not throw" contract is regression-pinned
+        // (Console.CancelKeyPress is a static event that doesn't compose with xunit).
+        ConsoleCancelEventHandler cancelHandler = (_, e)
+            => SessionHelpers.RequestCancellationSilently(e, cts);
+        Console.CancelKeyPress += cancelHandler;
+
+        // R6 SFH N1: hoist peepResult to the outer scope so the last-resort catch
+        // arm can recover the child's exit code if FormatJson or a Console.Error
+        // .WriteLine throws after the child has successfully run. Without the hoist,
+        // an automation script invoking `peep --once --json -- somecmd` would see
+        // exit 126 (catch-all) instead of the child's actual exit code in that
+        // narrow window. Trigger has no deterministic reproducer on .NET 10 — flag
+        // is hypothesis-class — but the defensive hoist is one line and removes the
+        // exit-code-loss failure mode entirely.
+        PeepResult? peepResult = null;
         try
         {
-            PeepResult peepResult = await CommandExecutor.RunAsync(command, commandArgs, TriggerSource.Initial);
+            peepResult = await CommandExecutor.RunAsync(
+                command, commandArgs, TriggerSource.Initial, cts.Token);
             sessionStopwatch.Stop();
 
             Console.Write(peepResult.Output);
@@ -168,10 +224,25 @@ internal sealed class Program
                     command: commandDisplay,
                     lastOutput: jsonOutputIncludeOutput ? peepResult.Output : null,
                     toolName: "peep",
-                    version: version));
+                    version: version,
+                    // TA R2-C4: --describe advertises history_retained, so emit it as 0
+                    // for once-mode rather than omitting (would fail describe-vs-actual
+                    // contract checks). Once-mode keeps zero snapshots.
+                    historyRetained: 0));
             }
 
             return peepResult.ExitCode;
+        }
+        catch (OperationCanceledException)
+        {
+            // Ctrl+C during once-mode. CommandExecutor's cancellation-Register kill
+            // already terminated the child process tree. Exit 130 (POSIX cancelled).
+            sessionStopwatch.Stop();
+            if (jsonOutput)
+            {
+                Console.Error.WriteLine(Formatting.FormatJsonError(130, "cancelled", "peep", version));
+            }
+            return 130;
         }
         catch (CommandNotFoundException ex)
         {
@@ -197,13 +268,71 @@ internal sealed class Program
             }
             return ExitCode.NotExecutable;
         }
+        catch (CommandStreamException ex)
+        {
+            // CR I9: child closed a pipe abnormally. CommandExecutor has already killed
+            // the child. The interactive path's TryRunCommandAsync handles this; once-mode
+            // previously did not, so a stream error escaped as an unhandled exception with
+            // no envelope and an unspecified exit. Mirror the typed-exception arm above.
+            if (jsonOutput)
+            {
+                Console.Error.WriteLine(Formatting.FormatJsonError(ExitCode.NotExecutable, "command_stream_failed", "peep", version));
+            }
+            else
+            {
+                Console.Error.WriteLine($"peep: {ex.Message}");
+            }
+            return ExitCode.NotExecutable;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            // R5 SFH I2: symmetry with InteractiveSession.TryRunCommandAsync's last-
+            // resort catch. Any exception escaping CommandExecutor.RunAsync that
+            // isn't one of the typed arms above (e.g. an InvalidOperationException
+            // from a process-handle race during teardown, or a CTS-Register failure
+            // at registration time) would otherwise propagate out of Main as an
+            // unhandled exception with no JSON envelope under --json — breaking
+            // automation that depends on every exit path emitting an envelope. The
+            // interactive path was given this safety net in round 2; once-mode
+            // lacked it until now. OOM/SO are deliberately not caught (they should
+            // crash the process per the project convention).
+            //
+            // R6 SFH N1: prefer the child's actual exit code if RunAsync succeeded
+            // (i.e. peepResult is non-null) and the exception fired downstream
+            // (FormatJson / Console.Error.WriteLine). Falls back to NotExecutable
+            // (126) only when RunAsync itself threw the unexpected exception.
+            int exitCode = peepResult?.ExitCode ?? ExitCode.NotExecutable;
+            if (jsonOutput)
+            {
+                Console.Error.WriteLine(Formatting.FormatJsonError(
+                    exitCode, "command_unexpected_error", "peep", version));
+            }
+            else
+            {
+                Console.Error.WriteLine($"peep: unexpected error running command: {ex.GetType().Name}: {ex.Message}");
+            }
+            return exitCode;
+        }
+        finally
+        {
+            // Unregister BEFORE the using disposes the CTS, so a late Ctrl+C cannot
+            // call Cancel() on a disposed source and surface as ObjectDisposedException
+            // (the cancel-handler swallows that, but unregistering first is cleaner).
+            Console.CancelKeyPress -= cancelHandler;
+        }
     }
 
     private static string GetVersion()
     {
-        return typeof(PeepResult).Assembly
+        // Match the convention used by clip / ids / digest / envvault — read
+        // AssemblyInformationalVersion (injected via /p:Version by the release
+        // pipeline) and strip the "+gitsha" SourceLink suffix the SDK appends
+        // by default. Users see "0.3.0", not "0.3.0+abc123…".
+        string raw = typeof(PeepResult).Assembly
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
             ?.InformationalVersion ?? "0.0.0";
+        int plus = raw.IndexOf('+');
+        return plus >= 0 ? raw[..plus] : raw;
     }
 
 }

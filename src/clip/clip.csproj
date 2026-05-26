@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <OptimizationPreference>Size</OptimizationPreference>
+    <StackTraceSupport>false</StackTraceSupport>
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>clip</ToolCommandName>
+    <PackageId>Winix.Clip</PackageId>
+    <Description>Cross-platform clipboard bridge — copy from stdin, paste to stdout, clear.</Description>
+    <PackageTags>cli;command-line;cross-platform;windows;macos;linux;aot;dotnet-tool;winix;clipboard;copy;paste</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Winix.Clip\Winix.Clip.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="man\man1\clip.1" CopyToPublishDirectory="PreserveNewest" Link="share\man\man1\clip.1" />
+  </ItemGroup>
+</Project>

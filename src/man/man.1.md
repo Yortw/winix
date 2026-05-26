@@ -18,7 +18,7 @@ Man pages are searched in the following order:
 
 1. **Bundled** pages shipped with Winix tools (always available, cross-platform).
 2. **MANPATH** — directories listed in the **MANPATH** environment variable.
-3. **Auto-detected** system locations (**\/usr\/share\/man**, **\/usr\/local\/share\/man**, etc. on Linux/macOS; no system locations on Windows).
+3. **Auto-detected** system locations (`/usr/share/man`, `/usr/local/share/man`, etc. on Linux/macOS; no system locations on Windows).
 
 Use **man --manpath** to inspect the effective search path.
 
@@ -34,10 +34,10 @@ Use **man --manpath** to inspect the effective search path.
 :   Disable coloured output.
 
 **--width** *N*
-:   Override output width in columns (default: terminal width).
+:   Override output width in columns. *N* must be at least 10. When omitted, width is taken from MANWIDTH if set, otherwise from the terminal width capped at 80 columns. The 80-column cap matches the effective behaviour of GNU man-db (which delegates rendering to groff, whose default width is 80) — set MANWIDTH or pass **--width** explicitly to render wider.
 
 **-w**, **--path**
-:   Print the path to the man page file and exit (do not render).
+:   Print the path to the man page file and exit (do not render). The path is reported on the first match that passes a structural-validity check; the file is not opened for full read, so a path that resolves successfully here may still fail to render with **--no-pager** if the content is corrupt later in the read pipeline.
 
 **--where**
 :   Alias for **--path**.
@@ -46,7 +46,7 @@ Use **man --manpath** to inspect the effective search path.
 :   Print the list of man page search directories and exit.
 
 **--json**
-:   Write a JSON summary to stderr on exit.
+:   Write a JSON summary of the page metadata to stdout and exit.
 
 **--describe**
 :   Print machine-readable metadata and exit.
@@ -74,7 +74,16 @@ Use **man --manpath** to inspect the effective search path.
 # ENVIRONMENT
 
 **MANPATH**
-:   Colon-separated list of directories to search for man pages, prepended to auto-detected locations.
+:   Platform-separated list of directories to search for man pages, prepended to auto-detected locations. The separator is **:** (colon) on Linux/macOS and **;** (semicolon) on Windows, matching the platform's <c>PATH</c> separator.
+
+**MANWIDTH**
+:   When set to a positive integer ≥ 10 and **--width** is not given, used as the rendering width. Otherwise the default applies (terminal width, capped at 80).
+
+**MANPAGER**
+:   The pager command to invoke for displaying rendered output. May be a bare executable (**less**) or a full command line with arguments (**less -R**, **less -R --ignore-case**); the value is passed to **/bin/sh -c** on Linux/macOS and **cmd /c** on Windows so any shell-syntax is honoured. Takes priority over **PAGER**.
+
+**PAGER**
+:   Fallback pager command, consulted when **MANPAGER** is unset. Same parsing rules as **MANPAGER**. If neither variable is set, man falls back (in order) to a sibling **less** binary in the same directory, the **less** found on **PATH**, or a built-in minimal pager.
 
 **NO_COLOR**
 :   If set, disables coloured output and clickable hyperlinks (no-color.org).

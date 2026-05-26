@@ -2,9 +2,15 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    # Run on main and on long-lived release/feature branches so workflow changes
+    # (e.g. the libsecret + gnome-keyring setup added in this branch) can be
+    # validated against the head-branch workflow definition. For pull_request
+    # events GitHub uses the base-branch workflow, which would not exercise
+    # in-flight CI infrastructure changes.
+    branches: [ main, 'release/**', 'fix/**' ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, 'release/**' ]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -31,8 +37,64 @@ jobs:
       - name: Build
         run: dotnet build Winix.sln --no-restore -c Release
 
+      # libsecret-tools + gnome-keyring + dbus-x11 give the Linux runner a
+      # working secret service so AeadLibsecretBackendIntegrationTests and the
+      # other libsecret-backed tests can run for real (otherwise they SkippableFact-skip).
+      # Prior CI attempts (commits bf83675 / 4d48587 / 2bf9ed7) tried gnome-keyring
+      # against the runner's pre-existing dbus and hit "discover_other_daemon: 1".
+      # The dbus-run-session wrapper below sidesteps that by spawning an isolated
+      # session bus per test invocation; verified locally in WSL Ubuntu 24.04 against
+      # the same gnome-keyring + dbus-x11 packages.
+      - name: Install Linux secret service dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y gnome-keyring dbus-x11 libsecret-tools
+
+      # macos-latest runners ship with an asymmetric keychain config: the default
+      # keychain and the search list don't agree, so `add-generic-password` writes
+      # to one keychain while `find/delete-generic-password` searches a different
+      # one — `find` reports "not found" for entries that `add` can see, and a
+      # subsequent `add` collides with the (still-present) entry as "already exists".
+      # We saw this exact failure mode in AeadKeychainBackendIntegrationTests.
+      # Configuring a single fresh build keychain as both default + search list
+      # makes all three security CLI commands target the same place, matching a
+      # normal macOS user's environment.
+      - name: Configure macOS keychain
+        if: matrix.os == 'macos-latest'
+        run: |
+          security create-keychain -p winix-ci build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p winix-ci build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security list-keychains -d user -s build.keychain login.keychain
+
       - name: Test
+        if: matrix.os != 'ubuntu-latest'
         run: dotnet test Winix.sln --no-build -c Release --logger "trx;LogFileName=results.trx"
+
+      - name: Test (Linux with libsecret service)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        # Warmup before dotnet test: the first secret-tool call right after
+        # gnome-keyring-daemon --start sometimes hits "Connection refused" because
+        # the daemon hasn't finished registering its bus name. A blocking store call
+        # absorbs that race so the first integration test doesn't flake. We
+        # deliberately skip a `secret-tool clear` cleanup of the warmup entry —
+        # that command produces a SIGPIPE-style signal that kills dbus-daemon
+        # (observed empirically: `dbus-daemon terminated by signal 13` followed by
+        # `secret-tool: Could not connect: Connection refused` on every subsequent
+        # call). A stale `winix-warmup` entry in an ephemeral session keyring is
+        # harmless; the session and its keyring evaporate when dbus-run-session exits.
+        run: |
+          dbus-run-session -- bash -c '
+            set -e
+            printf "\n" | gnome-keyring-daemon --unlock --components=secrets >/dev/null
+            eval $(printf "\n" | gnome-keyring-daemon --start --components=secrets)
+            export DBUS_SESSION_BUS_ADDRESS GNOME_KEYRING_CONTROL SSH_AUTH_SOCK
+            printf warmup | secret-tool store --label winix-warmup service winix-warmup key v
+            dotnet test Winix.sln --no-build -c Release --logger "trx;LogFileName=results.trx"
+          '
 
       - name: Upload test results
         if: always()

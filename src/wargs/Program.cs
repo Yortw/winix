@@ -9,7 +9,138 @@ internal sealed class Program
     static async Task<int> Main(string[] args)
     {
         ConsoleEnv.EnableAnsiIfNeeded();
+        ConsoleEnv.UseUtf8Streams();
         string version = GetVersion();
+
+        // Pre-scan args for the structured-output flags so Main's outer catches can honour
+        // the "envelope on every exit path" contract. The full parse happens later in
+        // RunAsync; this is a cheap forward-look for an unambiguous flag name (no value,
+        // no short alias). False-positive risk: a user passing literal "--json" as a child
+        // command argument after a `--` separator. Acceptable — the resulting envelope
+        // emission is harmless on stderr.
+        bool jsonOutput = ContainsFlag(args, "--json");
+        bool ndjsonOutput = ContainsFlag(args, "--ndjson");
+
+        // Register Console.CancelKeyPress AT MAIN SCOPE, BEFORE RunAsync — including before
+        // input materialisation. Round-4 wrongly assumed an in-RunAsync handler caught
+        // Ctrl+C-during-stdin-read; in fact .NET's default Ctrl+C handling tears the
+        // process down before any handler installed later in the call stack can fire.
+        // With this early registration, e.Cancel=true keeps the process alive long enough
+        // for InputReader to observe the cancellation (Console.In.ReadLine returns null
+        // after Ctrl+C with e.Cancel=true) and for Main's OCE catch to emit the cancelled
+        // envelope.
+        using var cts = new CancellationTokenSource();
+        ConsoleCancelEventHandler cancelHandler = (_, e) =>
+        {
+            e.Cancel = true;
+            // Round-7 SFH: broaden from ObjectDisposedException to all exceptions.
+            // CancellationTokenSource.Cancel() invokes registered callbacks synchronously
+            // and aggregates any callback throws into AggregateException. A SIGINT handler
+            // that throws ANY exception lets the runtime tear the process down — bypassing
+            // the entire envelope-emission catch in Main. Best-effort: never crash the
+            // process from the SIGINT handler.
+            try { cts.Cancel(); }
+            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException) { /* see comment */ }
+        };
+        Console.CancelKeyPress += cancelHandler;
+
+        // Round-7 SFH C1/I1: a blocked Console.In.ReadLine() on Linux may not return null
+        // after `e.Cancel=true` (the runtime may translate EINTR to IOException, restart
+        // the read, or block indefinitely depending on the .NET runtime version). The
+        // round-6 fix assumed null-return — fragile on Linux. Closing stdin on cancel
+        // forces the read to unblock with EOF; the InputReader's cancellation-aware
+        // enumerator (round-7) then propagates OCE before the empty-input branch fires.
+        //
+        // Coverage caveat: this is end-to-end pinned for Linux only via SkippableFact
+        // CtrlCDuringStdin_UnderNdjson_EmitsCancelledEnvelope. On Windows, SyncTextReader
+        // wraps Close() with `lock(this)` — same lock the read holds — so cross-thread
+        // close from the SIGINT handler is a documented synchronization concern. The
+        // fallback Windows behaviour (CancelKeyPress + e.Cancel=true alone returning null
+        // from ReadLine) is empirically observed to work for the dev-box smoke test but
+        // not regression-pinned. Round-8 SFH I2 / TA I2 — left as a known coverage gap;
+        // see project_wargs_progress.md for the planned Windows GenerateConsoleCtrlEvent
+        // integration test.
+        cts.Token.Register(() =>
+        {
+            try { Console.In.Close(); }
+            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException) { /* best-effort — Console.In may already be closed */ }
+        });
+
+        try
+        {
+            return await RunAsync(args, version, cts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // User-initiated Ctrl+C — POSIX convention is exit 128+SIGINT(2)=130. Under
+            // structured-output modes, emit a cancelled envelope before exiting so consumers
+            // parsing stderr always see a JSON object on cancel. Without this, Ctrl+C on
+            // `wargs --json ...` exited 130 with no stderr payload, indistinguishable from
+            // a SIGKILL or runtime crash for tooling.
+            if (jsonOutput || ndjsonOutput)
+            {
+                SafeWriteLine(Console.Error,
+                    Formatting.FormatJsonError(130, "cancelled", "wargs", version));
+            }
+            return 130;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            // Final safety net. Without this, an unexpected exception (e.g. IOException on
+            // stdin read, an uncaught InvalidOperationException) escapes Main with the CLR's
+            // unhandled-exception handler firing. Combined with <StackTraceSupport>false</...>
+            // in wargs.csproj that produces a near-blank "Unhandled exception" message —
+            // unactionable. Mirrors the pattern in retry/Program.cs.
+            //
+            // Mode-discriminated: under structured-output modes emit ONLY the envelope so the
+            // stream stays parseable as one JSON object per line. Mixing the plaintext
+            // diagnostic alongside the envelope (the round-4 implementation) broke strict
+            // NDJSON parsers — same defect class as the round-4 input-pipeline catch fix that
+            // was missed here.
+            (Exception surface, bool depthCapped) = ExceptionUnwrap.UnwrapTypeInit(ex);
+            if (jsonOutput || ndjsonOutput)
+            {
+                SafeWriteLine(Console.Error,
+                    Formatting.FormatJsonError(ExitCode.NotExecutable, "unexpected_error", "wargs", version));
+            }
+            else
+            {
+                string msg = string.IsNullOrEmpty(surface.Message)
+                    ? $"wargs: unexpected error: {surface.GetType().Name}"
+                    : $"wargs: unexpected error: {surface.GetType().Name}: {surface.Message}";
+                if (depthCapped)
+                {
+                    msg += " (unwrap depth limit reached — root cause may be deeper)";
+                }
+                SafeWriteLine(Console.Error, msg);
+            }
+            return ExitCode.NotExecutable;
+        }
+        finally
+        {
+            // Unregister before 'using' disposes cts, so a late Ctrl+C
+            // doesn't call Cancel() on a disposed CancellationTokenSource.
+            Console.CancelKeyPress -= cancelHandler;
+        }
+    }
+
+    /// <summary>
+    /// Pre-scans <paramref name="args"/> for an exact flag match, ignoring `--` separator
+    /// boundaries (we deliberately scan the whole array because `--` parsing happens later).
+    /// Used by Main to detect structured-output modes before parser construction so the
+    /// outer catches can emit JSON envelopes on cancellation / unexpected errors.
+    /// </summary>
+    private static bool ContainsFlag(string[] args, string flag)
+    {
+        for (int i = 0; i < args.Length; i++)
+        {
+            if (args[i] == flag) { return true; }
+        }
+        return false;
+    }
+
+    private static async Task<int> RunAsync(string[] args, string version, CancellationToken cancellationToken)
+    {
 
         var parser = new CommandLineParser("wargs", version)
             .Description("Read items from stdin and execute a command for each one.")
@@ -32,11 +163,11 @@ internal sealed class Program
             .CommandMode()
             .ExitCodes(
                 (0, "All jobs succeeded"),
-                (WargsExitCode.ChildFailed, "One or more child processes failed"),
+                (WargsExitCode.ChildFailed, "One or more child processes failed (or could not be spawned). Per-job spawn failures surface in fault_message rather than as a separate exit code — wargs intentionally collapses spawn failures into 123 + per-job diagnostic."),
                 (WargsExitCode.FailFastAbort, "Aborted due to --fail-fast"),
                 (ExitCode.UsageError, "Usage error"),
-                (ExitCode.NotExecutable, "Command not executable"),
-                (ExitCode.NotFound, "Command not found"))
+                (ExitCode.NotExecutable, "Internal/IO failure: stdin read failed, unexpected exception escaped to safety net"),
+                (130, "Cancelled by signal (Ctrl+C / SIGINT)"))
             .Platform("cross-platform",
                 replaces: new[] { "xargs" },
                 valueOnWindows: "No native xargs; Git Bash xargs has path-mangling issues with Windows paths",
@@ -50,19 +181,42 @@ internal sealed class Program
             .Example("echo 'one\\ntwo\\nthree' | wargs echo", "Basic usage")
             .ComposesWith("files", "files ... | wargs <command>", "Find then execute (find | xargs pattern)")
             .ComposesWith("squeeze", "files . --ext csv | wargs squeeze --zstd", "Batch compress")
-            .JsonField("tool", "string", "Tool name (\"wargs\")")
-            .JsonField("version", "string", "Tool version")
-            .JsonField("exit_code", "int", "Tool exit code (0 = success)")
-            .JsonField("exit_reason", "string", "Machine-readable exit reason")
-            .JsonField("total_jobs", "int", "Total number of jobs")
-            .JsonField("succeeded", "int", "Jobs that exited 0")
-            .JsonField("failed", "int", "Jobs that exited non-zero")
-            .JsonField("skipped", "int", "Jobs skipped (fail-fast)")
-            .JsonField("wall_seconds", "float", "Total wall time in seconds");
+            .JsonField("tool", "string", "Tool name (\"wargs\"). Emitted in both --json summary envelope and --ndjson per-job lines.")
+            .JsonField("version", "string", "Tool version. Emitted in both --json summary envelope and --ndjson per-job lines.")
+            .JsonField("exit_code", "int", "(--json summary) Tool exit code: 0 = success; 123 = child_failed (any child non-zero exit OR spawn failure — spawn failures surface via per-job fault_message rather than a separate exit code); 124 = fail_fast_abort; 125 = usage_error; 126 = unexpected_error / input_read_failed; 130 = cancelled. (--ndjson per-job) Restricted to 0 (job succeeded) or 123 (job's child failed or could not be spawned).")
+            .JsonField("exit_reason", "string", "(--json summary) One of: success, child_failed, fail_fast_abort, no_input, input_read_failed, usage_error, dry_run, cancelled, unexpected_error. (--ndjson per-job) Restricted to: success or child_failed.")
+            .JsonField("total_jobs", "int", "(--json summary) Total number of jobs. Reflects --dry-run plan count when emitted under exit_reason=dry_run.")
+            .JsonField("succeeded", "int", "(--json summary) Jobs that exited 0")
+            .JsonField("failed", "int", "(--json summary) Jobs that exited non-zero")
+            .JsonField("skipped", "int", "(--json summary) Jobs skipped (fail-fast or confirm declined)")
+            .JsonField("wall_seconds", "float", "(--json summary) Wall-clock duration of the wargs run in seconds — NOT the sum of per-job durations (under -P parallel jobs overlap, so wall_seconds is closer to max(per-job durations) plus dispatch overhead). (--ndjson per-job) Per-job wall-clock duration in seconds.")
+            .JsonField("faults", "object[]|null", "(--json summary) Per-job fault diagnostics; present only when at least one job carries a FaultMessage. Each entry is {job: int, message: string}.")
+            .JsonField("job", "int", "(--ndjson per-job) 1-based job index of this line")
+            .JsonField("child_exit_code", "int", "(--ndjson per-job) Child process exit code; -1 on spawn failure")
+            .JsonField("input", "string|string[]", "(--ndjson per-job) Source item(s) — string when --batch=1, array when batched")
+            .JsonField("fault_message", "string|null", "(--ndjson per-job) Spawn/task fault diagnostic; omitted on normal paths");
 
         var result = parser.Parse(args);
         if (result.IsHandled) { return result.ExitCode; }
-        if (result.HasErrors) { return result.WriteErrors(Console.Error); }
+        if (result.HasErrors)
+        {
+            // Mode discrimination on the parser-error path:
+            //  - --ndjson: emit ONLY wargs's envelope (strict NDJSON line discipline). ShellKit's
+            //    WriteErrors emits a multi-line envelope which would break parsers; suppress it.
+            //  - --json: defer to ShellKit's WriteErrors. ShellKit's --json mode emits a richer
+            //    envelope including the `errors[]` array — strictly more useful than wargs's
+            //    bare usage_error envelope. Emitting our own AS WELL (round 5) produced a
+            //    double envelope on stderr (round-6 CR/SFH I1).
+            //  - Human mode: ShellKit's plaintext error formatting.
+            bool ndjsonModeHere = ContainsFlag(args, "--ndjson");
+            if (ndjsonModeHere)
+            {
+                SafeWriteLine(Console.Error,
+                    Formatting.FormatJsonError(ExitCode.UsageError, "usage_error", "wargs", version));
+                return ExitCode.UsageError;
+            }
+            return result.WriteErrors(Console.Error);
+        }
 
         // --- Resolve options ---
         int parallelism = result.Has("--parallel") ? result.GetInt("--parallel") : 1;
@@ -85,7 +239,7 @@ internal sealed class Program
         int delimiterCount = (hasNull ? 1 : 0) + (hasDelimiter ? 1 : 0) + (hasCompat ? 1 : 0);
         if (delimiterCount > 1)
         {
-            return result.WriteError("--null, --delimiter, and --compat are mutually exclusive", Console.Error);
+            return UsageError(result, "--null, --delimiter, and --compat are mutually exclusive", jsonOutput, ndjsonOutput, version);
         }
 
         DelimiterMode delimMode = DelimiterMode.Line;
@@ -103,7 +257,7 @@ internal sealed class Program
             string delimStr = result.GetString("--delimiter");
             if (delimStr.Length != 1)
             {
-                return result.WriteError("--delimiter requires a single character", Console.Error);
+                return UsageError(result, "--delimiter requires a single character", jsonOutput, ndjsonOutput, version);
             }
             delimMode = DelimiterMode.Custom;
             customDelimiter = delimStr[0];
@@ -112,22 +266,42 @@ internal sealed class Program
         // --- Validate flag combinations ---
         if (confirm && parallelism != 1)
         {
-            return result.WriteError("--confirm cannot be used with parallel execution", Console.Error);
+            return UsageError(result, "--confirm cannot be used with parallel execution", jsonOutput, ndjsonOutput, version);
         }
 
         if (lineBuffered && keepOrder)
         {
-            return result.WriteError("--line-buffered and --keep-order cannot be combined", Console.Error);
+            return UsageError(result, "--line-buffered and --keep-order cannot be combined", jsonOutput, ndjsonOutput, version);
         }
 
         if (lineBuffered && parallelism != 1)
         {
-            return result.WriteError("--line-buffered cannot be used with parallel execution (output would interleave)", Console.Error);
+            return UsageError(result, "--line-buffered cannot be used with parallel execution (output would interleave)", jsonOutput, ndjsonOutput, version);
         }
 
         if (ndjsonOutput && lineBuffered)
         {
-            return result.WriteError("--ndjson and --line-buffered cannot be combined", Console.Error);
+            return UsageError(result, "--ndjson and --line-buffered cannot be combined", jsonOutput, ndjsonOutput, version);
+        }
+
+        if ((jsonOutput || ndjsonOutput) && confirm)
+        {
+            // Confirm prompts to stderr ("wargs: run 'X'? [y/N] ") and the
+            // "no terminal available; declining" diagnostic both write plaintext
+            // to stderr — the same channel as structured envelopes/streaming JSON.
+            // Mixing breaks line-discipline parsers. Same root reason as the
+            // --verbose rejection below and the --ndjson + --line-buffered rejection above.
+            return UsageError(result, "--confirm cannot be combined with --json or --ndjson (prompt would interleave plaintext with structured output)", jsonOutput, ndjsonOutput, version);
+        }
+
+        if ((jsonOutput || ndjsonOutput) && verbose)
+        {
+            // Verbose writes raw "wargs: <command>" lines to stderr per invocation;
+            // structured-output modes also use stderr for envelopes/streaming JSON. Mixing
+            // the two breaks line-discipline parsers (the user piping `wargs --ndjson -v ... | jq`
+            // hit interleaved plaintext among NDJSON lines). Same root reason as the
+            // --ndjson/--line-buffered rejection above.
+            return UsageError(result, "--verbose cannot be combined with --json or --ndjson (would interleave plaintext with structured output)", jsonOutput, ndjsonOutput, version);
         }
 
         // --- Resolve buffer strategy ---
@@ -154,38 +328,189 @@ internal sealed class Program
             ShellFallback: !noShellFallback);
         var jobRunner = new JobRunner(runnerOptions);
 
-        // JobRunner.RunAsync takes IReadOnlyList<CommandInvocation>, so materialise the pipeline
-        IEnumerable<string> items = inputReader.ReadItems();
-        List<CommandInvocation> invocations = commandBuilder.Build(items).ToList();
-
-        // --- Execute ---
-        // Wire Ctrl+C to a CancellationToken so the kill-on-cancel registrations in
-        // JobRunner activate and cleanly terminate child process trees.
-        // Named delegate so we can unregister before the CTS is disposed.
-        using var cts = new CancellationTokenSource();
-        ConsoleCancelEventHandler cancelHandler = (_, e) =>
-        {
-            e.Cancel = true;  // Prevent immediate process termination — let RunAsync clean up
-            cts.Cancel();
-        };
-        Console.CancelKeyPress += cancelHandler;
-
-        WargsResult wargsResult;
+        // JobRunner.RunAsync takes IReadOnlyList<CommandInvocation>, so materialise the pipeline.
+        // Materialisation does the actual stdin reads (ReadItems is a streaming enumerable).
+        // A broken stdin pipe or encoding fault here would otherwise escape to the top-level
+        // catch as "unexpected error" — which bypasses the --json/--ndjson contract that
+        // promises an envelope on every exit path. The catch matches Main's outer-catch
+        // breadth (excluding OOM, SOE, and OCE which have their own handling) so any
+        // realistic input-side failure is classified as input_read_failed.
+        List<CommandInvocation> invocations;
         try
         {
-            wargsResult = await jobRunner.RunAsync(
-                invocations, Console.Out, Console.Error, cts.Token).ConfigureAwait(false);
+            IEnumerable<string> items = inputReader.ReadItems(cancellationToken);
+            invocations = commandBuilder.Build(items).ToList();
         }
-        finally
+        catch (Exception ex) when (
+            ex is not OutOfMemoryException
+            and not StackOverflowException
+            and not OperationCanceledException)
         {
-            // Unregister before 'using' disposes cts, so a late Ctrl+C
-            // doesn't call Cancel() on a disposed CancellationTokenSource.
-            Console.CancelKeyPress -= cancelHandler;
+            // Round-7 SFH: re-check the cancellation token before classifying as
+            // input_read_failed. On Linux a SIGINT may translate to an IOException
+            // (EINTR-restart failure) on a blocked stdin read — the cancellation token
+            // is already signalled at that point. Without this re-check the user sees
+            // input_read_failed (exit 126) instead of the documented cancelled (exit
+            // 130) for a Ctrl+C-during-stdin path. Throwing OCE here lets Main's OCE
+            // catch produce the cancelled envelope.
+            if (cancellationToken.IsCancellationRequested)
+            {
+                throw new OperationCanceledException(cancellationToken);
+            }
+
+            // Mode discrimination: under --json/--ndjson, emit ONLY the envelope so the
+            // stream stays parseable as one JSON object per line. Mixing the plaintext
+            // diagnostic on the same stream broke strict NDJSON parsers (round-4 SFH).
+            if (jsonOutput || ndjsonOutput)
+            {
+                SafeWriteLine(Console.Error,
+                    Formatting.FormatJsonError(ExitCode.NotExecutable, "input_read_failed", "wargs", version));
+            }
+            else
+            {
+                SafeWriteLine(Console.Error, $"wargs: failed to read input: {ex.GetType().Name}: {ex.Message}");
+            }
+            return ExitCode.NotExecutable;
         }
+
+        // Round-6 SFH I2: if Ctrl+C fired during stdin materialisation, .NET's CancelKeyPress
+        // handler set e.Cancel=true and Console.In.ReadLine() returned null (EOF). The read
+        // loop yield-broke and we landed here with invocations.Count==0 AND the cancel token
+        // signalled. Without this check the empty-input branch below would classify the run
+        // as exit 0 / no_input — silently misclassifying a user-initiated cancel as a
+        // benign empty-input case. Throwing OCE here lets Main's OCE catch produce the
+        // documented exit 130 / cancelled envelope.
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // Empty-input diagnostic: previously `findfiles | wargs rm` with zero matches produced
+        // a silent exit 0, indistinguishable from "all jobs succeeded". Each output mode gets
+        // a positive signal — round 1 covered --json + human; --ndjson previously emitted
+        // nothing (silent-failure class L). Now NDJSON gets a single no_input envelope line,
+        // matching its "one JSON object per outcome" contract.
+        if (invocations.Count == 0 && !dryRun)
+        {
+            if (jsonOutput)
+            {
+                SafeWriteLine(Console.Error, Formatting.FormatJson(
+                    new WargsResult(0, 0, 0, 0, TimeSpan.Zero, new List<JobResult>()),
+                    exitCode: 0,
+                    exitReason: "no_input",
+                    "wargs",
+                    version));
+            }
+            else if (ndjsonOutput)
+            {
+                SafeWriteLine(Console.Error,
+                    Formatting.FormatJsonError(0, "no_input", "wargs", version));
+            }
+            else
+            {
+                SafeWriteLine(Console.Error, "wargs: no input items, nothing to do");
+            }
+            return 0;
+        }
+
+        // --- Execute ---
+        // The CancellationTokenSource and Console.CancelKeyPress handler are owned by Main
+        // (registered before input materialisation, see Main for rationale). RunAsync just
+        // observes the token. Kill-on-cancel registrations inside JobRunner cleanly terminate
+        // child process trees when the user hits Ctrl+C.
+        //
+        // Round-12: NDJSON streaming wired via OnJobCompleted callback (was emitted in a
+        // batched post-run loop in earlier rounds — that violated the documented "as it
+        // completes" contract). Round-12.5: callback contract changed to fire for EVERY
+        // job (including skipped) so reorder-buffer subscribers below can advance their
+        // next-expected pointer past skipped slots. The default callback shape filters
+        // skipped jobs in the SUBSCRIBER per the per-job-stream contract: "one line per
+        // job actually run". The --keep-order callback uses the skipped notifications to
+        // advance its next-expected pointer past skipped slots without emitting. Both
+        // callbacks are invoked from the parallel task body (any thread) or the sequential
+        // dispatch loop (caller thread), so we lock stderr writes for thread safety.
+        var ndjsonStderrLock = new object();
+        if (ndjsonOutput && !dryRun)
+        {
+            // Reconstruct JobRunnerOptions with the streaming callback wired in. The earlier
+            // construction at runnerOptions creation didn't have it because we hadn't yet
+            // resolved the output mode.
+            //
+            // Two callback shapes:
+            //   1. Default --ndjson: emit-on-receive in completion order. Skipped jobs are
+            //      omitted from the stream (per-job-stream contract).
+            //   2. --ndjson --keep-order: reorder-buffer in input order. Out-of-order
+            //      completions are held back until all earlier-indexed jobs have been
+            //      received (skipped jobs advance the next-expected pointer without
+            //      emitting). Original wargs design (2026-03-31 design doc line 219:
+            //      "With --keep-order, NDJSON lines emitted in order") explicitly required
+            //      this — round-12's first streaming attempt missed it because the agents
+            //      framed the bug as one-way "implementation doesn't match docs" without
+            //      checking whether the docs had a second clause that batched-emission
+            //      satisfied trivially.
+            if (keepOrder)
+            {
+                var ndjsonBuffer = new Dictionary<int, JobResult>();
+                int ndjsonNextExpected = 1;  // 1-based job index
+                runnerOptions = runnerOptions with { OnJobCompleted = job =>
+                {
+                    lock (ndjsonStderrLock)
+                    {
+                        ndjsonBuffer[job.JobIndex] = job;
+                        // Drain consecutive completed jobs starting from next-expected.
+                        // Skipped jobs advance the pointer without emitting.
+                        while (ndjsonBuffer.TryGetValue(ndjsonNextExpected, out JobResult? head))
+                        {
+                            ndjsonBuffer.Remove(ndjsonNextExpected);
+                            ndjsonNextExpected++;
+                            if (head.Skipped) { continue; }
+                            int jobExitCode = head.ChildExitCode == 0 ? 0 : WargsExitCode.ChildFailed;
+                            string jobExitReason = head.ChildExitCode == 0 ? "success" : "child_failed";
+                            string line = Formatting.FormatNdjsonLine(head, jobExitCode, jobExitReason, "wargs", version);
+                            SafeWriteLine(Console.Error, line);
+                        }
+                    }
+                }};
+            }
+            else
+            {
+                runnerOptions = runnerOptions with { OnJobCompleted = job =>
+                {
+                    if (job.Skipped) { return; }  // omit skipped from default stream
+                    int jobExitCode = job.ChildExitCode == 0 ? 0 : WargsExitCode.ChildFailed;
+                    string jobExitReason = job.ChildExitCode == 0 ? "success" : "child_failed";
+                    string line = Formatting.FormatNdjsonLine(job, jobExitCode, jobExitReason, "wargs", version);
+                    lock (ndjsonStderrLock)
+                    {
+                        SafeWriteLine(Console.Error, line);
+                    }
+                }};
+            }
+            jobRunner = new JobRunner(runnerOptions);
+        }
+
+        WargsResult wargsResult = await jobRunner.RunAsync(
+            invocations, Console.Out, Console.Error, cancellationToken).ConfigureAwait(false);
 
         // --- Determine exit code ---
         if (dryRun)
         {
+            // Under structured-output modes, emit a dry_run envelope so consumers always
+            // see a JSON object even on the dry-run preview path. Without this, --json or
+            // --ndjson with --dry-run produced zero stderr — indistinguishable from a crash
+            // for tooling. The envelope reports the would-be invocation count via total_jobs
+            // so callers can tell whether anything would have run.
+            if (jsonOutput)
+            {
+                SafeWriteLine(Console.Error, Formatting.FormatJson(
+                    new WargsResult(invocations.Count, 0, 0, 0, TimeSpan.Zero, new List<JobResult>()),
+                    exitCode: 0,
+                    exitReason: "dry_run",
+                    "wargs",
+                    version));
+            }
+            else if (ndjsonOutput)
+            {
+                SafeWriteLine(Console.Error,
+                    Formatting.FormatJsonError(0, "dry_run", "wargs", version));
+            }
             return 0;
         }
 
@@ -197,52 +522,115 @@ internal sealed class Program
             exitCode = WargsExitCode.ChildFailed;
             exitReason = "child_failed";
 
-            if (failFast && wargsResult.Skipped > 0)
+            // Round-12 SFH+TA I4: fail_fast_abort must fire ONLY when at least one job was
+            // skipped specifically because of fail-fast. The prior `Skipped > 0` test mis-
+            // classified runs where a confirm-declined skip happened to coexist with an
+            // unrelated child failure (or external cancel + child failure). Now we check
+            // SkipReason on each Skipped JobResult to filter for actual fail-fast skips.
+            bool actualFailFastTriggered = false;
+            foreach (JobResult j in wargsResult.Jobs)
+            {
+                if (j.Skipped && j.SkipReason == SkipReason.FailFastAbort)
+                {
+                    actualFailFastTriggered = true;
+                    break;
+                }
+            }
+            if (failFast && actualFailFastTriggered)
             {
                 exitCode = WargsExitCode.FailFastAbort;
                 exitReason = "fail_fast_abort";
             }
         }
 
-        // --- NDJSON: emit per-job lines to stderr ---
-        if (ndjsonOutput)
-        {
-            foreach (JobResult job in wargsResult.Jobs)
-            {
-                if (!job.Skipped)
-                {
-                    int jobExitCode = job.ChildExitCode == 0 ? 0 : WargsExitCode.ChildFailed;
-                    string jobExitReason = job.ChildExitCode == 0 ? "success" : "child_failed";
-                    Console.Error.WriteLine(
-                        Formatting.FormatNdjsonLine(job, jobExitCode, jobExitReason, "wargs", version));
-                }
-            }
-        }
+        // --- NDJSON per-job lines were already streamed via OnJobCompleted (see above) ---
+        // Skipped jobs are intentionally omitted from the stream to match the "one line
+        // per job actually run" contract; the JSON summary's `skipped` field is the single
+        // source of truth for skip count. Callers correlating job count with NDJSON line
+        // count must add `skipped` to the line count.
 
         // --- JSON: summary to stderr ---
         if (jsonOutput)
         {
-            Console.Error.WriteLine(
+            SafeWriteLine(Console.Error,
                 Formatting.FormatJson(wargsResult, exitCode, exitReason, "wargs", version));
         }
 
-        // --- Human: failure summary to stderr ---
+        // --- Human: surface fault diagnostics + failure summary ---
         if (!jsonOutput && !ndjsonOutput)
         {
+            // Each fault that wasn't a normal child non-zero exit (FaultMessage was set)
+            // gets a stderr line. Without this, a spawn-failure or task-body fault becomes
+            // a bare "wargs: N/M jobs failed" with no clue why — silent-failure class B.
+            foreach (JobResult job in wargsResult.Jobs)
+            {
+                if (job.FaultMessage is not null)
+                {
+                    SafeWriteLine(Console.Error, $"wargs: job {job.JobIndex}: {job.FaultMessage}");
+                }
+            }
+
             string? summary = Formatting.FormatHumanSummary(wargsResult);
             if (summary is not null)
             {
-                Console.Error.WriteLine(summary);
+                SafeWriteLine(Console.Error, summary);
             }
         }
 
         return exitCode;
     }
 
+    /// <summary>
+    /// Routes a usage error to either plaintext stderr or a JSON envelope, depending on
+    /// the active output mode. Mode discrimination:
+    /// <para>- <c>--ndjson</c>: ONLY the envelope (strict NDJSON contract — no trailing plaintext).</para>
+    /// <para>- <c>--json</c>: envelope first, then a plaintext reason (mixed output is acceptable
+    /// for --json since it's a single envelope, not a stream — humans reading stderr still see
+    /// the cause).</para>
+    /// <para>- Neither: ShellKit's standard plaintext error format.</para>
+    /// </summary>
+    private static int UsageError(ParseResult result, string message, bool jsonOutput, bool ndjsonOutput, string version)
+    {
+        if (ndjsonOutput)
+        {
+            // Strict NDJSON: envelope only, no trailing plaintext that would break parsers.
+            SafeWriteLine(Console.Error,
+                Formatting.FormatJsonError(ExitCode.UsageError, "usage_error", "wargs", version));
+            return ExitCode.UsageError;
+        }
+        if (jsonOutput)
+        {
+            SafeWriteLine(Console.Error,
+                Formatting.FormatJsonError(ExitCode.UsageError, "usage_error", "wargs", version));
+            // Plain-text reason after the single envelope so a human reading mixed output sees the cause.
+            SafeWriteLine(Console.Error, $"wargs: {message}");
+            return ExitCode.UsageError;
+        }
+        return result.WriteError(message, Console.Error);
+    }
+
+    /// <summary>
+    /// Best-effort write to <paramref name="writer"/>. Broken pipe, closed stream, disposed
+    /// writer, encoder fallback, or any other write-time fault must not convert a clean exit
+    /// code into a CLR crash. The catch is intentionally broad (excluding only OOM/SOE which
+    /// would already terminate the process) — diagnostic writes must be strictly weaker than
+    /// the production paths they diagnose. Matches the suite-wide convention.
+    /// </summary>
+    private static void SafeWriteLine(TextWriter writer, string message)
+    {
+        try { writer.WriteLine(message); }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException) { /* IOException, ObjectDisposedException, EncoderFallbackException, NotSupportedException — all best-effort-swallowed */ }
+    }
+
     private static string GetVersion()
     {
-        return typeof(WargsExitCode).Assembly
+        // SDK appends a SourceLink "+gitsha" suffix to AssemblyInformationalVersion
+        // by default; strip it so users see plain "X.Y.Z" — matches the convention
+        // adopted across clip / digest / ids / schedule / etc.
+        string raw = typeof(WargsExitCode).Assembly
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
             ?.InformationalVersion ?? "0.0.0";
+        int plus = raw.IndexOf('+');
+        return plus >= 0 ? raw.Substring(0, plus) : raw;
     }
 }

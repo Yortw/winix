@@ -93,6 +93,27 @@ public sealed class BrewAdapter : IPackageManagerAdapter
 
     /// <inheritdoc/>
     /// <remarks>
+    /// Runs <c>brew list --versions</c> (no filter) once. Output is one
+    /// <c>name version1 [version2 …]</c> per installed formula, so we don't need
+    /// fixed-width parsing — split each line on whitespace, take the first token as
+    /// the name and the second as the version.
+    /// </remarks>
+    public async Task<IReadOnlyDictionary<string, string?>> GetInstalled()
+    {
+        ProcessResult result = await _runAsync(
+            "brew",
+            new[] { "list", "--versions" }).ConfigureAwait(false);
+
+        if (result.ExitCode != 0)
+        {
+            return new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        return ParseListOutput(result.Stdout);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
     /// Runs <c>brew install yortw/winix/&lt;packageId&gt;</c> using the fully-qualified
     /// tap path so brew can locate the formula without requiring a prior tap.
     /// </remarks>
@@ -124,10 +145,15 @@ public sealed class BrewAdapter : IPackageManagerAdapter
     /// <summary>
     /// Ensures the <c>yortw/winix</c> Homebrew tap is registered on this machine.
     /// Runs <c>brew tap</c> to list current taps; if <c>yortw/winix</c> is not present,
-    /// runs <c>brew tap yortw/winix</c> to add it. If the tap already exists this
-    /// method returns without making any further calls.
+    /// runs <c>brew tap yortw/winix</c> to add it and returns <see langword="true"/>.
+    /// If the tap already exists this method returns <see langword="false"/> without
+    /// making any further calls so callers can surface a one-time notice.
     /// </summary>
-    public async Task EnsureTap()
+    /// <returns>
+    /// <see langword="true"/> when the tap was just registered by this call;
+    /// <see langword="false"/> when it was already present.
+    /// </returns>
+    public async Task<bool> EnsureTap()
     {
         ProcessResult listResult = await _runAsync(
             "brew",
@@ -139,12 +165,61 @@ public sealed class BrewAdapter : IPackageManagerAdapter
         {
             if (line.Trim().Equals(TapName, StringComparison.OrdinalIgnoreCase))
             {
-                return;
+                return false;
             }
         }
 
-        await _runAsync(
+        ProcessResult addResult = await _runAsync(
             "brew",
             new[] { "tap", TapName }).ConfigureAwait(false);
+
+        // Round-1 fresh-eyes 2026-05-09 SFH-I3 + CR-I2 closure: same defect
+        // class as ScoopAdapter.EnsureBucket — the result was discarded and
+        // EnsureTap unconditionally returned true. The caller emitted
+        // "registered brew tap 'yortw/winix'" on stderr even when the
+        // underlying `brew tap` failed (network down, github unreachable).
+        // Throw on non-zero so the caller's existing catch surfaces a
+        // "could not add brew tap" warning instead.
+        if (addResult.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"brew tap returned exit code {addResult.ExitCode}");
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Parses the <c>brew list --versions</c> output into a dictionary keyed by
+    /// formula name (case-insensitive). Each output line is
+    /// <c>name version1 [version2 …]</c>; multiple installed versions on the same
+    /// formula get the most-recent (last whitespace-separated) value, matching
+    /// <see cref="GetInstalledVersion"/>'s "last token" convention.
+    /// </summary>
+    internal static IReadOnlyDictionary<string, string?> ParseListOutput(string stdout)
+    {
+        var result = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        string[] lines = stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+
+        foreach (string line in lines)
+        {
+            string trimmed = line.Trim();
+            if (string.IsNullOrEmpty(trimmed))
+            {
+                continue;
+            }
+
+            string[] parts = trimmed.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0)
+            {
+                continue;
+            }
+
+            string name = parts[0];
+            string? version = parts.Length >= 2 ? parts[parts.Length - 1] : null;
+            result[name] = version;
+        }
+
+        return result;
     }
 }

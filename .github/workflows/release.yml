@@ -65,8 +65,54 @@ jobs:
       - name: Build
         run: dotnet build Winix.sln --no-restore -c Release
 
+      # libsecret-tools + gnome-keyring + dbus-x11 give the Linux runner a
+      # working secret service so AeadLibsecretBackendIntegrationTests and the
+      # other libsecret-backed tests can run for real (otherwise they fail
+      # with "no available secret service backend"). Mirrors ci.yml step.
+      - name: Install Linux secret service dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y gnome-keyring dbus-x11 libsecret-tools
+
+      # macos-latest runners ship with an asymmetric keychain config: default
+      # keychain and search list don't agree, so add-generic-password writes
+      # to one keychain while find/delete-generic-password searches a different
+      # one. Configure a single fresh build keychain as both default + search
+      # list to make the security CLI commands target the same place. Mirrors
+      # ci.yml step.
+      - name: Configure macOS keychain
+        if: matrix.os == 'macos-latest'
+        run: |
+          security create-keychain -p winix-ci build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p winix-ci build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security list-keychains -d user -s build.keychain login.keychain
+
       - name: Test
+        if: matrix.os != 'ubuntu-latest'
         run: dotnet test Winix.sln --no-build -c Release --logger "trx;LogFileName=results.trx"
+
+      # Linux Test wrapped in dbus-run-session + gnome-keyring warmup so
+      # libsecret-backed integration tests have a working secret service.
+      # Skip the secret-tool clear cleanup of the warmup entry — that command
+      # produces a SIGPIPE-style signal that kills dbus-daemon. A stale
+      # winix-warmup entry in an ephemeral session keyring is harmless;
+      # the session and its keyring evaporate when dbus-run-session exits.
+      # Mirrors ci.yml step.
+      - name: Test (Linux with libsecret service)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          dbus-run-session -- bash -c '
+            set -e
+            printf "\n" | gnome-keyring-daemon --unlock --components=secrets >/dev/null
+            eval $(printf "\n" | gnome-keyring-daemon --start --components=secrets)
+            export DBUS_SESSION_BUS_ADDRESS GNOME_KEYRING_CONTROL SSH_AUTH_SOCK
+            printf warmup | secret-tool store --label winix-warmup service winix-warmup key v
+            dotnet test Winix.sln --no-build -c Release --logger "trx;LogFileName=results.trx"
+          '
 
       - name: Upload test results
         if: always()
@@ -122,6 +168,39 @@ jobs:
 
       - name: Pack nc
         run: dotnet pack src/nc/nc.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
+
+      - name: Pack retry
+        run: dotnet pack src/retry/retry.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
+
+      - name: Pack when
+        run: dotnet pack src/when/when.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
+
+      - name: Pack clip
+        run: dotnet pack src/clip/clip.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
+
+      - name: Pack ids
+        run: dotnet pack src/ids/ids.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
+
+      - name: Pack digest
+        run: dotnet pack src/digest/digest.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
+
+      - name: Pack notify
+        run: dotnet pack src/notify/notify.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
+
+      - name: Pack url
+        run: dotnet pack src/url/url.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
+
+      - name: Pack qr
+        run: dotnet pack src/qr/qr.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
+
+      - name: Pack protect
+        run: dotnet pack src/protect/protect.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
+
+      - name: Pack unprotect
+        run: dotnet pack src/unprotect/unprotect.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
+
+      - name: Pack envvault
+        run: dotnet pack src/envvault/envvault.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
 
       - name: Upload NuGet packages
         uses: actions/upload-artifact@v7
@@ -183,11 +262,56 @@ jobs:
       - name: Publish schedule
         run: dotnet publish src/schedule/schedule.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
 
+      - name: Stamp release version into bundled winix manifest
+        shell: bash
+        run: |
+          # The checked-in src/winix/winix-manifest.json carries a placeholder dev version
+          # ("0.1.0"). At release time the published binary should ship a manifest whose
+          # version field matches the actual release version, so winix --describe and any
+          # tool that introspects manifest.version see the correct value. This step
+          # rewrites the file in-place before the publish step copies it into share/winix/.
+          VERSION="${{ needs.resolve-version.outputs.version }}"
+          jq --arg version "$VERSION" '.version = $version' src/winix/winix-manifest.json > src/winix/winix-manifest.json.tmp
+          mv src/winix/winix-manifest.json.tmp src/winix/winix-manifest.json
+
       - name: Publish winix
         run: dotnet publish src/winix/winix.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
 
       - name: Publish nc
         run: dotnet publish src/nc/nc.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
+
+      - name: Publish retry
+        run: dotnet publish src/retry/retry.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
+
+      - name: Publish when
+        run: dotnet publish src/when/when.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
+
+      - name: Publish clip (${{ matrix.rid }})
+        run: dotnet publish src/clip/clip.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
+
+      - name: Publish ids (${{ matrix.rid }})
+        run: dotnet publish src/ids/ids.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
+
+      - name: Publish digest (${{ matrix.rid }})
+        run: dotnet publish src/digest/digest.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
+
+      - name: Publish notify (${{ matrix.rid }})
+        run: dotnet publish src/notify/notify.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
+
+      - name: Publish url (${{ matrix.rid }})
+        run: dotnet publish src/url/url.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
+
+      - name: Publish qr (${{ matrix.rid }})
+        run: dotnet publish src/qr/qr.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
+
+      - name: Publish protect (${{ matrix.rid }})
+        run: dotnet publish src/protect/protect.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
+
+      - name: Publish unprotect (${{ matrix.rid }})
+        run: dotnet publish src/unprotect/unprotect.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
+
+      - name: Publish envvault (${{ matrix.rid }})
+        run: dotnet publish src/envvault/envvault.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
 
       - name: Bundle man pages alongside man binary
         shell: bash
@@ -219,6 +343,17 @@ jobs:
           cd src/schedule/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/schedule-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
           cd src/winix/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/winix-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
           cd src/nc/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/nc-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
+          cd src/retry/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/retry-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
+          cd src/when/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/when-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
+          cd src/clip/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/clip-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
+          cd src/ids/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/ids-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
+          cd src/digest/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/digest-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
+          cd src/notify/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/notify-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
+          cd src/url/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/url-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
+          cd src/qr/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/qr-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
+          cd src/protect/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/protect-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
+          cd src/unprotect/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/unprotect-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
+          cd src/envvault/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/envvault-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
 
       - name: Zip binaries (Windows)
         if: runner.os == 'Windows'
@@ -236,6 +371,17 @@ jobs:
           Compress-Archive -Path src/schedule/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath schedule-${{ matrix.rid }}.zip
           Compress-Archive -Path src/winix/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath winix-${{ matrix.rid }}.zip
           Compress-Archive -Path src/nc/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath nc-${{ matrix.rid }}.zip
+          Compress-Archive -Path src/retry/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath retry-${{ matrix.rid }}.zip
+          Compress-Archive -Path src/when/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath when-${{ matrix.rid }}.zip
+          Compress-Archive -Path src/clip/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath clip-${{ matrix.rid }}.zip
+          Compress-Archive -Path src/ids/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath ids-${{ matrix.rid }}.zip
+          Compress-Archive -Path src/digest/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath digest-${{ matrix.rid }}.zip
+          Compress-Archive -Path src/notify/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath notify-${{ matrix.rid }}.zip
+          Compress-Archive -Path src/url/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath url-${{ matrix.rid }}.zip
+          Compress-Archive -Path src/qr/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath qr-${{ matrix.rid }}.zip
+          Compress-Archive -Path src/protect/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath protect-${{ matrix.rid }}.zip
+          Compress-Archive -Path src/unprotect/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath unprotect-${{ matrix.rid }}.zip
+          Compress-Archive -Path src/envvault/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath envvault-${{ matrix.rid }}.zip
 
       - name: Create combined Winix zip (Windows)
         if: runner.os == 'Windows' && matrix.rid == 'win-x64'
@@ -254,6 +400,17 @@ jobs:
           Copy-Item src/schedule/bin/Release/net10.0/${{ matrix.rid }}/publish/schedule.exe winix-combined/
           Copy-Item src/winix/bin/Release/net10.0/${{ matrix.rid }}/publish/winix.exe winix-combined/
           Copy-Item src/nc/bin/Release/net10.0/${{ matrix.rid }}/publish/nc.exe winix-combined/
+          Copy-Item src/retry/bin/Release/net10.0/${{ matrix.rid }}/publish/retry.exe winix-combined/
+          Copy-Item src/when/bin/Release/net10.0/${{ matrix.rid }}/publish/when.exe winix-combined/
+          Copy-Item src/clip/bin/Release/net10.0/${{ matrix.rid }}/publish/clip.exe winix-combined/
+          Copy-Item src/ids/bin/Release/net10.0/${{ matrix.rid }}/publish/ids.exe winix-combined/
+          Copy-Item src/digest/bin/Release/net10.0/${{ matrix.rid }}/publish/digest.exe winix-combined/
+          Copy-Item src/notify/bin/Release/net10.0/${{ matrix.rid }}/publish/notify.exe winix-combined/
+          Copy-Item src/url/bin/Release/net10.0/${{ matrix.rid }}/publish/url.exe winix-combined/
+          Copy-Item src/qr/bin/Release/net10.0/${{ matrix.rid }}/publish/qr.exe winix-combined/
+          Copy-Item src/protect/bin/Release/net10.0/${{ matrix.rid }}/publish/protect.exe winix-combined/
+          Copy-Item src/unprotect/bin/Release/net10.0/${{ matrix.rid }}/publish/unprotect.exe winix-combined/
+          Copy-Item src/envvault/bin/Release/net10.0/${{ matrix.rid }}/publish/envvault.exe winix-combined/
           Copy-Item src/man/bin/Release/net10.0/${{ matrix.rid }}/publish/share -Recurse -Destination winix-combined/share
           Compress-Archive -Path winix-combined/* -DestinationPath winix-${{ matrix.rid }}.zip -Force
 
@@ -305,27 +462,16 @@ jobs:
           name: aot-osx-arm64
           path: aot
 
-      - name: Generate winix-manifest.json
+      - name: Stage winix-manifest.json with release version
         run: |
+          # The checked-in src/winix/winix-manifest.json is the single source of truth
+          # for the suite's tool list. We stamp the actual release version into a copy
+          # at the workflow root so 'gh release create' uploads it as a release asset.
+          # The publish-aot job applies the same in-place stamp before bundling the
+          # file into the winix binary, so the asset uploaded here and the bundled
+          # copy inside the binary have identical content.
           VERSION="${{ needs.resolve-version.outputs.version }}"
-          jq -n \
-            --arg version "$VERSION" \
-            '{
-              version: $version,
-              tools: {
-                timeit:  { description: "Time a command \u2014 wall clock, CPU time, peak memory, exit code.",                                      packages: { winget: "Winix.TimeIt",  scoop: "timeit",  brew: "timeit",  dotnet: "Winix.TimeIt"  } },
-                squeeze: { description: "Compress and decompress files using gzip, brotli, or zstd.",                                              packages: { winget: "Winix.Squeeze", scoop: "squeeze", brew: "squeeze", dotnet: "Winix.Squeeze" } },
-                peep:    { description: "Run a command repeatedly and display output on a refreshing screen.",                                      packages: { winget: "Winix.Peep",    scoop: "peep",    brew: "peep",    dotnet: "Winix.Peep"    } },
-                wargs:   { description: "Cross-platform xargs replacement with sane defaults.",                                                    packages: { winget: "Winix.Wargs",   scoop: "wargs",   brew: "wargs",   dotnet: "Winix.Wargs"   } },
-                files:   { description: "Find files by name, size, date, type, and content.",                                                      packages: { winget: "Winix.Files",   scoop: "files",   brew: "files",   dotnet: "Winix.Files"   } },
-                treex:   { description: "Enhanced directory tree with colour, filtering, size rollups, and clickable hyperlinks.",                  packages: { winget: "Winix.TreeX",   scoop: "treex",   brew: "treex",   dotnet: "Winix.TreeX"   } },
-                man:     { description: "Cross-platform man page viewer with colour, hyperlinks, and pager support.",                                packages: { winget: "Winix.Man",     scoop: "man",     brew: "man",     dotnet: "Winix.Man"     } },
-                less:     { description: "Native terminal pager with ANSI colour, search, follow mode, and modern defaults.",                              packages: { winget: "Winix.Less",     scoop: "less",     brew: "less",     dotnet: "Winix.Less"     } },
-                whoholds: { description: "Find which processes are holding a file lock or binding a network port.",                                         packages: { winget: "Winix.WhoHolds", scoop: "whoholds", brew: "whoholds", dotnet: "Winix.WhoHolds" } },
-                schedule: { description: "Cross-platform task scheduler with cron expressions.",                                                             packages: { winget: "Winix.Schedule", scoop: "schedule", brew: "schedule", dotnet: "Winix.Schedule" } },
-                nc:       { description: "Cross-platform netcat \u2014 TCP/UDP send/receive, port checks, TLS clients.",                                     packages: { winget: "Winix.NetCat",   scoop: "nc",       brew: "nc",       dotnet: "Winix.NetCat"   } }
-              }
-            }' > winix-manifest.json
+          jq --arg version "$VERSION" '.version = $version' src/winix/winix-manifest.json > winix-manifest.json
 
       - name: Create GitHub Release
         env:
@@ -343,10 +489,19 @@ jobs:
             fi
           fi
 
+          # Mark hyphenated tags (e.g. v0.3.0-rc1) as prerelease so the GitHub
+          # release UI flags them and the post-publish workflow's prerelease
+          # guards engage correctly.
+          PRERELEASE_FLAG=""
+          if [[ "$VERSION" == *-* ]]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+
           gh release create "$TAG" \
             --title "v${VERSION}" \
             --generate-notes \
             --draft \
+            $PRERELEASE_FLAG \
             packages/*.nupkg \
             aot/*.zip \
             winix-manifest.json

@@ -86,7 +86,7 @@ On Linux and macOS, **whoholds** delegates to **lsof**, which must be installed.
 
     whoholds myapp.dll --pid-only
 
-    whoholds myapp.dll --pid-only | wargs kill -f {}
+    whoholds myapp.dll --pid-only | wargs taskkill /PID {} /F
 
     whoholds :8080 --json
 

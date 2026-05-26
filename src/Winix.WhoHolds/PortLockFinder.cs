@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.Net;
 using System.Runtime.InteropServices;
 
@@ -11,7 +12,7 @@ namespace Winix.WhoHolds;
 /// <summary>
 /// Finds processes that hold a binding on a given TCP or UDP port using the Windows
 /// IP Helper API (iphlpapi.dll). Does not require elevated privileges.
-/// Returns an empty list on non-Windows platforms.
+/// Returns an empty success result on non-Windows platforms.
 /// </summary>
 public static class PortLockFinder
 {
@@ -30,17 +31,19 @@ public static class PortLockFinder
     private const uint ERROR_INSUFFICIENT_BUFFER = 122;
 
     /// <summary>
-    /// Returns all processes currently bound to <paramref name="port"/> on any protocol
-    /// (TCP IPv4, TCP IPv6, UDP IPv4, UDP IPv6).
-    /// Returns an empty list when not running on Windows.
-    /// Never throws — API failures are silently swallowed.
+    /// Returns the lock-query outcome for <paramref name="port"/> across the four kernel
+    /// tables (TCP IPv4, TCP IPv6, UDP IPv4, UDP IPv6).
+    /// On non-Windows platforms returns <see cref="FindResult.Empty"/> (success-empty).
+    /// On Windows, returns <see cref="FindResult.Failed"/> if any IP Helper call returned
+    /// a non-zero, non-"insufficient buffer" status, or if an unexpected exception was
+    /// thrown — and a successful result with the deduplicated holders otherwise.
     /// </summary>
     /// <param name="port">Port number to query (1–65535).</param>
-    public static List<LockInfo> Find(int port)
+    public static FindResult Find(int port)
     {
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            return new List<LockInfo>();
+            return FindResult.Empty;
         }
 
         var results = new List<LockInfo>();
@@ -56,25 +59,48 @@ public static class PortLockFinder
             ScanUdpTable(port, AF_INET, results, seen);
             ScanUdpTable(port, AF_INET6, results, seen);
         }
-        catch
+        catch (BackendQueryException ex)
         {
-            // Swallow all exceptions — callers must never crash because of a port query.
+            // Surfaced from any of the four scans when an IP Helper call returned a real
+            // error (not "buffer too small" — that's expected and handled). Pre-FindResult
+            // these were silently swallowed and the empty list was returned, conflating
+            // "no holders" with "API errored" (SFH I2 in the 2026-05-08 round-1 review).
+            return FindResult.Failed(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            return FindResult.Failed($"Port query crashed: {ex.GetType().Name}: {ex.Message}");
         }
 
-        return results;
+        return FindResult.Success(results);
     }
 
     /// <summary>
     /// Scans a TCP owner-PID table (IPv4 or IPv6) and appends matching entries to
     /// <paramref name="results"/>, deduplicating via <paramref name="seen"/>.
     /// </summary>
+    /// <exception cref="BackendQueryException">
+    /// Thrown when the IP Helper API returns a real error (not <c>ERROR_INSUFFICIENT_BUFFER</c>
+    /// from the sizing probe, which is expected). Caught at the <see cref="Find"/> boundary
+    /// and converted into <see cref="FindResult.Failed"/>.
+    /// </exception>
     private static void ScanTcpTable(int port, uint af, List<LockInfo> results, HashSet<int> seen)
     {
         uint size = 0;
 
         // First call with a null buffer obtains the required buffer size.
         uint ret = GetExtendedTcpTable(IntPtr.Zero, ref size, false, af, TCP_TABLE_OWNER_PID_ALL, 0);
-        if (ret != ERROR_INSUFFICIENT_BUFFER || size == 0)
+        if (ret != ERROR_INSUFFICIENT_BUFFER)
+        {
+            // ret == 0 with size == 0 is the "kernel table is empty" case on dual-stack
+            // boxes — a clean success-empty for this address family. Anything else is real.
+            if (ret == 0)
+            {
+                return;
+            }
+            throw new BackendQueryException(FormatRetFailure("GetExtendedTcpTable (sizing)", ret, af));
+        }
+        if (size == 0)
         {
             return;
         }
@@ -85,7 +111,7 @@ public static class PortLockFinder
             ret = GetExtendedTcpTable(tablePtr, ref size, false, af, TCP_TABLE_OWNER_PID_ALL, 0);
             if (ret != 0)
             {
-                return;
+                throw new BackendQueryException(FormatRetFailure("GetExtendedTcpTable (fetch)", ret, af));
             }
 
             int numEntries = Marshal.ReadInt32(tablePtr);
@@ -132,12 +158,24 @@ public static class PortLockFinder
     /// Scans a UDP owner-PID table (IPv4 or IPv6) and appends matching entries to
     /// <paramref name="results"/>, deduplicating via <paramref name="seen"/>.
     /// </summary>
+    /// <exception cref="BackendQueryException">
+    /// Thrown when the IP Helper API returns a real error. Caught at the
+    /// <see cref="Find"/> boundary.
+    /// </exception>
     private static void ScanUdpTable(int port, uint af, List<LockInfo> results, HashSet<int> seen)
     {
         uint size = 0;
 
         uint ret = GetExtendedUdpTable(IntPtr.Zero, ref size, false, af, UDP_TABLE_OWNER_PID, 0);
-        if (ret != ERROR_INSUFFICIENT_BUFFER || size == 0)
+        if (ret != ERROR_INSUFFICIENT_BUFFER)
+        {
+            if (ret == 0)
+            {
+                return;
+            }
+            throw new BackendQueryException(FormatRetFailure("GetExtendedUdpTable (sizing)", ret, af));
+        }
+        if (size == 0)
         {
             return;
         }
@@ -148,7 +186,7 @@ public static class PortLockFinder
             ret = GetExtendedUdpTable(tablePtr, ref size, false, af, UDP_TABLE_OWNER_PID, 0);
             if (ret != 0)
             {
-                return;
+                throw new BackendQueryException(FormatRetFailure("GetExtendedUdpTable (fetch)", ret, af));
             }
 
             int numEntries = Marshal.ReadInt32(tablePtr);
@@ -237,6 +275,8 @@ public static class PortLockFinder
         catch
         {
             // Process may have exited or access may be denied — leave name and path empty.
+            // Distinct from the SFH-class swallow: this is enrichment for an already-found
+            // PID, not a query primitive that needs to surface failure.
         }
 
         string state = TcpStateToString(dwState);
@@ -265,6 +305,30 @@ public static class PortLockFinder
             12 => "DELETE_TCB",
             _  => string.Empty,
         };
+    }
+
+    private static string FormatRetFailure(string apiName, uint ret, uint af)
+    {
+        string family = af == AF_INET ? "IPv4" : af == AF_INET6 ? "IPv6" : "AF=" + af.ToString(CultureInfo.InvariantCulture);
+        return string.Format(
+            CultureInfo.InvariantCulture,
+            "IP Helper API {0} ({1}) failed: status=0x{2:X8} ({3}).",
+            apiName,
+            family,
+            ret,
+            ret);
+    }
+
+    /// <summary>
+    /// Internal sentinel exception thrown by Scan*Table when the IP Helper API returns a
+    /// real error (not <c>ERROR_INSUFFICIENT_BUFFER</c>). Caught at the <see cref="Find"/>
+    /// boundary and converted into <see cref="FindResult.Failed"/>. Not part of the public
+    /// surface — a private exception type avoids out-parameter plumbing through the
+    /// per-address-family scan helpers.
+    /// </summary>
+    private sealed class BackendQueryException : Exception
+    {
+        public BackendQueryException(string message) : base(message) { }
     }
 
     // -------------------------------------------------------------------------

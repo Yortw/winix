@@ -14,7 +14,7 @@ files - find files by name, size, date, type, and content
 
 Walks one or more directories (default: **.** ) and prints matching file paths to stdout, one per line. Supports glob and regex name matching, type filtering, size and date ranges, text/binary detection, and structured output.
 
-Results are printed to stdout; the **--json** summary goes to stderr so it does not pollute piped output.
+Results are printed to stdout; the **--json** envelope is also emitted to stdout (suite convention) and is structured so it composes cleanly with **jq**.
 
 # OPTIONS
 
@@ -49,7 +49,7 @@ Results are printed to stdout; the **--json** summary goes to stderr so it does 
 :   Not modified within *DURATION* (e.g. **1h**, **7d**).
 
 **-d**, **--max-depth** *N*
-:   Maximum directory depth (0 = search root only).
+:   Maximum directory depth (0-based; **0** = search root only, **1** = root and immediate children, **N** = root and N levels of children).
 
 **-L**, **--follow**
 :   Follow symbolic links.
@@ -79,7 +79,7 @@ Results are printed to stdout; the **--json** summary goes to stderr so it does 
 :   Streaming NDJSON to stdout, one JSON object per file.
 
 **--json**
-:   JSON summary to stderr on exit.
+:   JSON envelope to stdout on exit (suite convention).
 
 **--describe**
 :   Print machine-readable metadata and exit.
@@ -110,10 +110,22 @@ Results are printed to stdout; the **--json** summary goes to stderr so it does 
 :   Success.
 
 **1**
-:   Runtime error (permission denied, invalid path).
+:   Runtime error (permission denied, invalid path, or partial walk with one or more unreadable directories).
 
 **125**
 :   Usage error (bad arguments).
+
+When directories cannot be enumerated, each unreadable path is reported on stderr and the process exits **1** with **exit_reason: walk_error_partial** in the **--json** envelope, plus a populated **walk_errors[]** array.
+
+# STRUCTURED OUTPUT
+
+Both **--ndjson** and **--json** write to **stdout** per suite convention.
+
+**--ndjson** emits one JSON object per matching entry with fields **path** (relative or absolute per **--absolute**), **name**, **type** (**file** | **directory** | **symlink**), **size_bytes** (integer, or **null** for directory entries), **modified** (ISO 8601, or **null** when not populated), **depth** (integer; **0** = root), and **is_text** (boolean, only present when **--text** or **--binary** is used).
+
+**--json** emits a single envelope after the walk: **tool**, **version**, **exit_code**, **exit_reason**, **count**, **searched_roots**, **walk_errors** (array of **{path, reason}** for unreadable paths; empty on success). Pre-walk error envelopes (**path_not_found**, **not_a_directory**) additionally carry **error** (human-readable detail) with empty **searched_roots** and **walk_errors** arrays for shape parity.
+
+The **exit_reason** values are: **success**, **walk_error_partial**, **path_not_found**, **not_a_directory**, **usage_error**, **runtime_error**.
 
 # ENVIRONMENT
 
@@ -142,4 +154,4 @@ Results are printed to stdout; the **--json** summary goes to stderr so it does 
 
 # SEE ALSO
 
-**treex**(1), **wargs**(1), **timeit**(1), **man**(1)
+**treex**(1), **wargs**(1), **timeit**(1), **peep**(1), **man**(1)

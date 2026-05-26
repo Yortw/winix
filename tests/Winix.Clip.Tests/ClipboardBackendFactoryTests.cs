@@ -1,0 +1,185 @@
+using Xunit;
+using Winix.Clip;
+
+namespace Winix.Clip.Tests;
+
+public class ClipboardBackendFactoryTests
+{
+    [Fact]
+    public void Windows_ReturnsWindowsBackend()
+    {
+        var probe = new FakePlatformProbe { Os = ClipPlatform.Windows };
+
+        var backend = ClipboardBackendFactory.Create(probe, primary: false, out string? error);
+
+        Assert.NotNull(backend);
+        Assert.Null(error);
+        Assert.IsType<WindowsClipboardBackend>(backend);
+    }
+
+    [Fact]
+    public void MacOs_ReturnsShellOutPbBackend()
+    {
+        var probe = new FakePlatformProbe { Os = ClipPlatform.MacOS };
+
+        var backend = ClipboardBackendFactory.Create(probe, primary: false, out string? error);
+
+        Assert.NotNull(backend);
+        Assert.Null(error);
+        Assert.IsType<ShellOutClipboardBackend>(backend);
+    }
+
+    [Fact]
+    public void Linux_WaylandWithWlCopy_ReturnsWlClipboardBackend()
+    {
+        var probe = new FakePlatformProbe { Os = ClipPlatform.Linux };
+        probe.Env["WAYLAND_DISPLAY"] = "wayland-0";
+        probe.PresentBinaries.Add("wl-copy");
+
+        var backend = ClipboardBackendFactory.Create(probe, primary: false, out string? error);
+
+        Assert.NotNull(backend);
+        Assert.Null(error);
+        Assert.IsType<ShellOutClipboardBackend>(backend);
+    }
+
+    [Fact]
+    public void Linux_NoWayland_WithXclip_ReturnsXclipBackend()
+    {
+        var probe = new FakePlatformProbe { Os = ClipPlatform.Linux };
+        probe.PresentBinaries.Add("xclip");
+
+        var backend = ClipboardBackendFactory.Create(probe, primary: false, out string? error);
+
+        Assert.NotNull(backend);
+        Assert.Null(error);
+        Assert.IsType<ShellOutClipboardBackend>(backend);
+    }
+
+    [Fact]
+    public void Linux_OnlyXsel_ReturnsXselBackend()
+    {
+        var probe = new FakePlatformProbe { Os = ClipPlatform.Linux };
+        probe.PresentBinaries.Add("xsel");
+
+        var backend = ClipboardBackendFactory.Create(probe, primary: false, out string? error);
+
+        Assert.NotNull(backend);
+        Assert.Null(error);
+        Assert.IsType<ShellOutClipboardBackend>(backend);
+    }
+
+    [Fact]
+    public void Linux_XclipPreferredOverXsel_ObservedViaFakeRunner()
+    {
+        var probe = new FakePlatformProbe { Os = ClipPlatform.Linux };
+        probe.PresentBinaries.Add("xclip");
+        probe.PresentBinaries.Add("xsel");
+        var runner = new FakeProcessRunner();
+
+        var backend = ClipboardBackendFactory.Create(probe, primary: false, out _, runner);
+        Assert.NotNull(backend);
+
+        backend!.CopyText("x");
+        Assert.Equal("xclip", runner.Invocations[0].File);
+    }
+
+    [Fact]
+    public void Linux_WaylandSetButNoWlCopy_FallsBackToXclip()
+    {
+        var probe = new FakePlatformProbe { Os = ClipPlatform.Linux };
+        probe.Env["WAYLAND_DISPLAY"] = "wayland-0";
+        probe.PresentBinaries.Add("xclip");
+        var runner = new FakeProcessRunner();
+
+        var backend = ClipboardBackendFactory.Create(probe, primary: false, out string? error, runner);
+
+        Assert.NotNull(backend);
+        Assert.Null(error);
+
+        backend!.CopyText("x");
+        Assert.Equal("xclip", runner.Invocations[0].File);
+    }
+
+    [Fact]
+    public void Linux_NoHelpers_ReturnsNullWithInstallHint()
+    {
+        var probe = new FakePlatformProbe { Os = ClipPlatform.Linux };
+
+        var backend = ClipboardBackendFactory.Create(probe, primary: false, out string? error);
+
+        Assert.Null(backend);
+        Assert.NotNull(error);
+        Assert.Contains("wl-clipboard", error, StringComparison.Ordinal);
+        Assert.Contains("xclip", error, StringComparison.Ordinal);
+        Assert.Contains("xsel", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UnknownPlatform_ReturnsNullWithError()
+    {
+        var probe = new FakePlatformProbe { Os = ClipPlatform.Unknown };
+
+        var backend = ClipboardBackendFactory.Create(probe, primary: false, out string? error);
+
+        Assert.Null(backend);
+        Assert.NotNull(error);
+    }
+
+    [Fact]
+    public void Primary_MacOs_PbWithPrimary_IsNoOp()
+    {
+        var probe = new FakePlatformProbe { Os = ClipPlatform.MacOS };
+        var runner = new FakeProcessRunner();
+
+        var backend = ClipboardBackendFactory.Create(probe, primary: true, out _, runner);
+        Assert.NotNull(backend);
+
+        backend!.CopyText("x");
+        // pbcopy has no primary concept — args vector unchanged (empty).
+        Assert.Empty(runner.Invocations[0].Args);
+    }
+
+    [Fact]
+    public void Primary_Linux_WlClipboard_AppliesWithPrimary()
+    {
+        var probe = new FakePlatformProbe { Os = ClipPlatform.Linux };
+        probe.Env["WAYLAND_DISPLAY"] = "wayland-0";
+        probe.PresentBinaries.Add("wl-copy");
+        var runner = new FakeProcessRunner();
+
+        var backend = ClipboardBackendFactory.Create(probe, primary: true, out _, runner);
+        Assert.NotNull(backend);
+
+        backend!.CopyText("x");
+        Assert.Equal(new[] { "--primary" }, runner.Invocations[0].Args);
+    }
+
+    [Fact]
+    public void Primary_Linux_Xclip_AppliesWithPrimary()
+    {
+        var probe = new FakePlatformProbe { Os = ClipPlatform.Linux };
+        probe.PresentBinaries.Add("xclip");
+        var runner = new FakeProcessRunner();
+
+        var backend = ClipboardBackendFactory.Create(probe, primary: true, out _, runner);
+        Assert.NotNull(backend);
+
+        backend!.CopyText("x");
+        Assert.Equal(new[] { "-selection", "primary", "-i" }, runner.Invocations[0].Args);
+    }
+
+    [Fact]
+    public void Primary_Linux_Xsel_AppliesWithPrimary()
+    {
+        var probe = new FakePlatformProbe { Os = ClipPlatform.Linux };
+        probe.PresentBinaries.Add("xsel");
+        var runner = new FakeProcessRunner();
+
+        var backend = ClipboardBackendFactory.Create(probe, primary: true, out _, runner);
+        Assert.NotNull(backend);
+
+        backend!.CopyText("x");
+        Assert.Equal(new[] { "--primary", "--input" }, runner.Invocations[0].Args);
+    }
+}

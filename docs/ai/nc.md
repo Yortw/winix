@@ -138,7 +138,7 @@ Emitted to stderr after the run.
 ```json
 {
   "tool": "nc",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "mode": "check",
   "host": "target.com",
   "ports": [
@@ -155,7 +155,7 @@ Emitted to stderr after the run.
 ```json
 {
   "tool": "nc",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "mode": "connect",
   "host": "target.com",
   "port": 80,
@@ -169,6 +169,34 @@ Emitted to stderr after the run.
   "exit_reason": "success"
 }
 ```
+
+### `exit_reason` values
+
+Automation switching on `exit_reason` should handle the full enumeration below. Unknown values should be treated as synonyms for `unexpected_error` — new reasons may be added in future versions without a major bump.
+
+| exit_reason | Mode | Meaning |
+|---|---|---|
+| `success` | connect, listen, check | Normal completion. |
+| `all_open` | check | Every probed port opened. |
+| `some_closed` | check | Mix of open and closed ports. |
+| `some_timeout` | check | At least one probe timed out; no errors. |
+| `all_failed` | check | Every probe hit a non-SocketException classification error. |
+| `some_failed` | check | Mix of errors and non-error statuses. |
+| `connection_refused` | connect | Peer RSTed the connect. |
+| `host_not_found` | connect | DNS lookup returned no result (or no address of the requested family when `-4`/`-6` is set). In check mode, per-port DNS errors surface under `ports[].error`, not as a top-level `exit_reason`. |
+| `host_unreachable` | connect | OS returned EHOSTUNREACH. |
+| `network_unreachable` | connect | OS returned ENETUNREACH. |
+| `timeout` | connect, listen | Connection / handshake / accept / UDP receive did not complete within `--timeout`. |
+| `interrupted` | connect, listen | Ctrl-C or equivalent cancellation. |
+| `stdout_closed` | connect, listen | Downstream pipe (`nc host port \| head -c N`) closed. Exit 0 per BSD nc semantics. |
+| `socket_error` | connect, listen | Post-connect transport failure (RST mid-transfer, IOException, unexpected peer disconnect before stream ready). Fallback socket classification. |
+| `bind_failed` | listen | TcpListener/UdpClient could not bind the requested address+port. Exit 126 when the underlying error is AccessDenied (privileged port); otherwise exit 1. |
+| `accept_failed` | listen | Unexpected non-SocketException from AcceptTcpClientAsync (racy disposal, etc.). Defensive safety-net. |
+| `tls_failed` | connect | TLS handshake failed (cert validation OR transport I/O error mid-handshake). |
+| `io_error` | connect | IOException from stdin read (broken pipe from upstream). |
+| `connect_failed` | connect | Unexpected non-SocketException at the connect step (ArgumentException on bad host chars, etc.). Defensive safety-net. |
+| `pump_failed` | connect, listen | Unexpected non-OCE/IOException/SocketException from the bidirectional relay (ObjectDisposedException / InvalidOperationException during half-close race, etc.). Defensive safety-net. |
+| `unexpected_error` | any | An exception escaped every per-site handler to `Main`'s catch-all. This envelope also carries a top-level `error` field with the exception type + message. |
 
 ## Gotchas
 

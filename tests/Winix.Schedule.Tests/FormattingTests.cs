@@ -184,4 +184,51 @@ public sealed class FormattingTests
         Assert.Contains("\"occurrences\"", json);
         Assert.Contains("\"cron\"", json);
     }
+
+    // --- Round-12 verification follow-up: pin FormatHistoryNotAvailable ---
+    //
+    // Adding the man page in commit 9a919c0 created a contract on this function's
+    // platform-branched output: schedule.1's `history` section claims that on
+    // Linux/macOS this returns "a note that history is not available via crontab",
+    // and the production text additionally references syslog. Without these pins,
+    // a future refactor that condenses both branches to a single string would
+    // silently break the man-page guarantee on whichever platform loses its hint.
+    // pr-test-analyzer round-7 finding I-1 (6/10).
+
+    [Fact]
+    public void FormatHistoryNotAvailable_ReturnsNonEmptyString()
+    {
+        // Existence + non-empty guard: Program.RunHistory writes this verbatim and
+        // a regression that returned null/empty would render as a blank line plus
+        // exit 0, which is indistinguishable from "no history yet" — the man page
+        // promises a specific message.
+        string result = Formatting.FormatHistoryNotAvailable();
+        Assert.False(string.IsNullOrEmpty(result));
+    }
+
+    [Fact]
+    public void FormatHistoryNotAvailable_PlatformBranchedHints_AreActionable()
+    {
+        // Each platform's message must include an actionable next-step the man page
+        // implicitly commits to:
+        //   - Windows: taskschd.msc + "Tasks History" guidance
+        //   - Unix: syslog hint (where cron output actually goes)
+        // A regression that condensed both branches to a single string would lose the
+        // actionable text on whichever platform's branch was dropped.
+        // SkippableFact would let us split this into two named tests but the
+        // Winix.Schedule.Tests project doesn't currently reference Xunit.SkippableFact;
+        // single-Fact-with-branching is the lower-friction option for a 5-LOC pin.
+        string result = Formatting.FormatHistoryNotAvailable();
+
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Contains("taskschd.msc", result);
+            Assert.Contains("Tasks History", result);
+        }
+        else
+        {
+            Assert.Contains("not available", result);
+            Assert.Contains("syslog", result);
+        }
+    }
 }

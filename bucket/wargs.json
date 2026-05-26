@@ -6,10 +6,10 @@
   "architecture": {
     "64bit": {
       "url": "https://github.com/Yortw/winix/releases/download/v0.2.0/wargs-win-x64.zip",
-      "hash": "0bb52b27cd35f64c6b35effbaa3fa1e6e981a8904e1ae19327d4608345158d8a"
+      "hash": "0bb52b27cd35f64c6b35effbaa3fa1e6e981a8904e1ae19327d4608345158d8a",
+      "bin": "wargs.exe"
     }
   },
-  "bin": "wargs.exe",
   "checkver": "github",
   "autoupdate": {
     "architecture": {

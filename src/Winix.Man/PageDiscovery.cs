@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 
 namespace Winix.Man;
 
@@ -30,6 +31,7 @@ public sealed class PageDiscovery
     private static readonly int[] SectionSearchOrder = { 1, 8, 6, 2, 3, 4, 5, 7 };
 
     private readonly IReadOnlyList<string> _searchPaths;
+    private readonly List<string> _lastRejectedPaths = new();
 
     /// <summary>
     /// Initialises a new <see cref="PageDiscovery"/> instance with the given search paths.
@@ -44,6 +46,23 @@ public sealed class PageDiscovery
     }
 
     /// <summary>
+    /// Paths that <see cref="FindPage(string, int?)"/> visited during its most recent call
+    /// and rejected because <see cref="LooksLikeManPage"/> returned <see langword="false"/>
+    /// (the file did not contain a groff macro line within its first 64 source lines).
+    /// </summary>
+    /// <remarks>
+    /// Round-2 fresh-eyes 2026-05-09 SFH-H4 closure: when <see cref="FindPage"/> returns
+    /// <see langword="null"/>, callers can check this list to distinguish "no candidate
+    /// file existed at all" (empty list → emit standard "no manual entry") from
+    /// "candidate files were found but every one was rejected as malformed" (non-empty
+    /// list → emit a more useful "found but appears corrupt" diagnostic). Without this,
+    /// a corrupt-but-decompressible bundled <c>.gz</c> page would be silently shadowed
+    /// out of discovery and the user would see a misleading "no manual entry" error.
+    /// The list is reset at the start of every <see cref="FindPage"/> call.
+    /// </remarks>
+    public IReadOnlyList<string> LastRejectedPaths => _lastRejectedPaths;
+
+    /// <summary>
     /// Searches for a man page by name, optionally restricting the search to a specific section.
     /// </summary>
     /// <param name="name">The page name to search for (e.g. <c>"ls"</c>).</param>
@@ -56,6 +75,8 @@ public sealed class PageDiscovery
     /// </returns>
     public string? FindPage(string name, int? section = null)
     {
+        _lastRejectedPaths.Clear();
+
         if (section.HasValue)
         {
             return FindInSection(name, section.Value);
@@ -102,17 +123,74 @@ public sealed class PageDiscovery
             string plain = Path.Combine(sectionDir, $"{name}.{section}");
             if (File.Exists(plain))
             {
-                return plain;
+                if (LooksLikeManPage(plain))
+                {
+                    return plain;
+                }
+                _lastRejectedPaths.Add(plain);
             }
 
             string gz = Path.Combine(sectionDir, $"{name}.{section}.gz");
             if (File.Exists(gz))
             {
-                return gz;
+                if (LooksLikeManPage(gz))
+                {
+                    return gz;
+                }
+                _lastRejectedPaths.Add(gz);
             }
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Performs a cheap structural-validity check so a corrupt or non-groff file in a
+    /// higher-priority search root (e.g. a truncated bundled page) does not silently
+    /// shadow a valid copy further down the search path.
+    /// </summary>
+    /// <param name="filePath">The candidate man page path.</param>
+    /// <returns>
+    /// <see langword="true"/> if the file appears to contain at least one groff macro
+    /// directive (a line starting with <c>.</c> or <c>'</c>) within the first 64 lines.
+    /// <see langword="true"/> on any read error — a real read failure should surface
+    /// from the actual page-read path with the F2-class English diagnostic, not be
+    /// hidden behind a structural skip.
+    /// </returns>
+    private static bool LooksLikeManPage(string filePath)
+    {
+        try
+        {
+            using Stream raw = File.OpenRead(filePath);
+            using Stream stream = filePath.EndsWith(".gz", StringComparison.OrdinalIgnoreCase)
+                ? (Stream)new GZipStream(raw, CompressionMode.Decompress)
+                : raw;
+            using var reader = new StreamReader(stream);
+
+            for (int i = 0; i < 64; i++)
+            {
+                string? line = reader.ReadLine();
+                if (line is null)
+                {
+                    return false;
+                }
+
+                // groff macro lines begin with '.' or '\'' in column 1. Comment lines
+                // (`.\"`) start with '.', so they count — empty pages with only comments
+                // are unusual but not invalid.
+                if (line.Length > 0 && (line[0] == '.' || line[0] == '\''))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+        catch
+        {
+            // Defer to the page-read path for diagnostics — don't shadow.
+            return true;
+        }
     }
 
     /// <summary>
@@ -137,7 +215,12 @@ public sealed class PageDiscovery
         var paths = new List<string>();
 
         // 1. Bundled pages shipped alongside the binary take highest priority.
-        string bundled = Path.Combine(exeDirectory, "man");
+        // Path matches the POSIX <prefix>/share/man convention used by /usr/share/man,
+        // /usr/local/share/man, etc. — and matches the Link= path every Winix tool csproj
+        // uses for its bundled man page (`Link="share\man\man1\<tool>.1"`). The two MUST
+        // agree; the F1 finding (2026-05-07 baseline) was a path mismatch where the
+        // discovery used `<exeDir>/man` but every csproj published to `<exeDir>/share/man`.
+        string bundled = Path.Combine(exeDirectory, "share", "man");
         if (Directory.Exists(bundled))
         {
             paths.Add(bundled);

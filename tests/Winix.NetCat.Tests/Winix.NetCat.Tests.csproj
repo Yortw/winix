@@ -10,5 +10,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Winix.NetCat\Winix.NetCat.csproj" />
+    <!-- Force-build the console app so ProgramMainTests can spawn nc.dll. -->
+    <ProjectReference Include="..\..\src\nc\nc.csproj" ReferenceOutputAssembly="false" OutputItemType="None" />
   </ItemGroup>
 </Project>

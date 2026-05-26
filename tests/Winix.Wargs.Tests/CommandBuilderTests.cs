@@ -64,6 +64,27 @@ public class CommandBuilderTests
     }
 
     [Fact]
+    public void IsSubstitutionMode_PlaceholderInCommandName_NotTreatedAsSubstitution()
+    {
+        // Round-17 TA I2: xargs-compatible behaviour — a placeholder in template[0] (the
+        // command name itself) is NOT treated as substitution. Today the user gets the
+        // literal string "{}" as the command name, which fails to spawn. A "helpful" future
+        // refactor that scanned the full template for {} would silently change behaviour:
+        // items would substitute into the command name and the run would either succeed (or
+        // fail differently). Either direction is observable to users; pin the current shape.
+        var builder = new CommandBuilder(new[] { "{}", "arg" });
+        Assert.False(builder.IsSubstitutionMode);
+
+        var invocations = builder.Build(new[] { "item1" }).ToList();
+        Assert.Single(invocations);
+        // template[0] is the command — passed through verbatim, NOT substituted.
+        Assert.Equal("{}", invocations[0].Command);
+        // template[1..] become the arguments. With no substitution mode, the input item is
+        // appended as a trailing arg (xargs default behaviour).
+        Assert.Equal(new[] { "arg", "item1" }, invocations[0].Arguments);
+    }
+
+    [Fact]
     public void Build_EmptyTemplate_DefaultsToEcho()
     {
         var builder = new CommandBuilder(Array.Empty<string>());
@@ -124,5 +145,63 @@ public class CommandBuilderTests
         // DisplayString should quote args containing spaces
         Assert.Contains("hello world", invocations[0].DisplayString);
         Assert.StartsWith("echo ", invocations[0].DisplayString);
+    }
+
+    // Pin the shell-fallback safety contract: items containing newline / control / glob /
+    // tilde / hash characters MUST be single-quoted in DisplayString. The string is fed to
+    // `sh -c` on Unix when the command is not a standalone executable; an unquoted newline
+    // would become a command separator (injection class).
+    [Theory]
+    [InlineData("safe\nrm -rf /")]                  // newline injection
+    [InlineData("safe\rrm -rf /")]                  // CR injection
+    [InlineData("foo*.txt")]                        // glob *
+    [InlineData("foo?bar")]                         // glob ?
+    [InlineData("[abc]")]                           // glob char class
+    [InlineData("~user")]                           // tilde expansion
+    [InlineData("# comment")]                       // hash (POSIX comment)
+    [InlineData("!history")]                        // history expansion
+    [InlineData("^carret")]                         // caret (history quick sub on Windows cmd)
+    public void DisplayString_DangerousChars_AreQuoted(string item)
+    {
+        var builder = new CommandBuilder(new[] { "echo" });
+        var invocations = builder.Build(new[] { item }).ToList();
+        string display = invocations[0].DisplayString;
+
+        // The argument segment must be wrapped in single quotes; the bare value must NOT
+        // appear unquoted at the start of any space-delimited token after the command.
+        Assert.Contains("'", display);
+        // Verify the quoted form begins after "echo ".
+        string argPart = display["echo ".Length..];
+        Assert.StartsWith("'", argPart);
+    }
+
+    // Control bytes use runtime char construction rather than InlineData escape sequences:
+    // C# `\x` escapes are variable-length up to 4 hex digits, so `"safe\x01bel"` is parsed
+    // as `safe(0x1B)el` (greedy hex match), not `safe(0x01)bel` — and then xUnit display
+    // mangles the resulting ESC byte further. Building the string at runtime is unambiguous.
+    [Theory]
+    [InlineData(0x00, "NUL")]
+    [InlineData(0x01, "SOH")]
+    [InlineData(0x07, "BEL")]
+    [InlineData(0x1B, "ESC")]
+    [InlineData(0x1F, "US")]
+    public void DisplayString_C0Control_IsQuoted(int codePoint, string label)
+    {
+        string item = "safe" + (char)codePoint + "tail";
+        var builder = new CommandBuilder(new[] { "echo" });
+        var invocations = builder.Build(new[] { item }).ToList();
+        string display = invocations[0].DisplayString;
+
+        Assert.True(display.Contains('\''),
+            $"Control byte {label} (0x{codePoint:X2}) should force quoting, but display was: {display}");
+        Assert.StartsWith("'", display["echo ".Length..]);
+    }
+
+    [Fact]
+    public void DisplayString_PlainAlnumItem_IsNotQuoted()
+    {
+        var builder = new CommandBuilder(new[] { "echo" });
+        var invocations = builder.Build(new[] { "filename" }).ToList();
+        Assert.Equal("echo filename", invocations[0].DisplayString);
     }
 }

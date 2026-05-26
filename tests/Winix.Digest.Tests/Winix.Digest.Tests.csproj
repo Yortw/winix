@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.*" />
+    <PackageReference Include="xunit" Version="2.*" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.*" />
+    <!-- Xunit.SkippableFact replaces silent early-return in capability-gated tests
+         with a proper 'Skipped' status. The SHA-3 tests in HashFactoryTests previously
+         used `if (!IsSupported) return;`, which let a typo'd expected vector silently
+         pass on Windows 10 dev boxes (no SymCrypt SHA-3) for an unknown period. -->
+    <PackageReference Include="Xunit.SkippableFact" Version="1.*" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Winix.Digest\Winix.Digest.csproj" />
+    <ProjectReference Include="..\..\src\Winix.Codec\Winix.Codec.csproj" />
+  </ItemGroup>
+</Project>

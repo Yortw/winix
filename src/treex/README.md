@@ -76,8 +76,8 @@ treex --describe
 | `--min-size SIZE` | Minimum file size (e.g. `100k`, `10M`, `1G`) |
 | `--max-size SIZE` | Maximum file size (e.g. `100k`, `10M`) |
 | `--newer DURATION` | Modified within duration (e.g. `1h`, `30m`, `7d`) |
-| `--older DURATION` | Modified before duration (e.g. `1h`, `7d`) |
-| `-d`, `--max-depth N` | Maximum directory depth (0 = root only) |
+| `--older DURATION` | Not modified within duration (e.g. `1h`, `7d`) |
+| `-d`, `--max-depth N` | Maximum directory depth (0-based; `0` = root only, `1` = root + immediate children, `N` = root + N levels of children) |
 | `--no-hidden` | Skip hidden files and directories |
 | `--gitignore` | Respect `.gitignore` rules |
 | `-i`, `--ignore-case` | Case-insensitive matching |
@@ -88,7 +88,7 @@ treex --describe
 | `-D`, `--dirs-only` | Show only directories |
 | `--no-links` | Disable clickable terminal hyperlinks |
 | `--ndjson` | Streaming NDJSON to stdout (one JSON object per node) |
-| `--json` | JSON summary to stderr on exit |
+| `--json` | JSON envelope to stdout on exit (suite convention; pipe-friendly for `jq`) |
 | `--describe` | Print machine-readable metadata (flags, examples, composability) and exit |
 | `--no-color` | Disable colored output |
 | `--color` | Force colored output |
@@ -118,15 +118,46 @@ treex --describe
 | Skip hidden | No | `--no-hidden` |
 | Size rollups | No | `--size` |
 | JSON output | No | `--ndjson` / `--json` |
-| Sort order | Fixed | `name`, `size`, `modified` |
+| Sort order | `name` only by default (most builds) | `name`, `size`, `modified` |
 
 ## Exit Codes
 
 | Code | Meaning |
 |------|---------|
 | 0 | Success |
-| 1 | Runtime error (permission denied, invalid path) |
+| 1 | Runtime error (permission denied, invalid path, or partial walk where one or more directories could not be enumerated) |
 | 125 | Usage error (bad arguments) |
+
+When a walk encounters unreadable directories (e.g. a chmod-denied subdirectory), each unreadable path is reported on stderr (`treex: <path>: <reason>`), the rendered tree marks the directory with `[error opening dir]`, and the process exits 1 with `exit_reason: walk_error_partial` in the `--json` envelope. This matches `tree(1)` behaviour.
+
+## Structured Output
+
+`treex` supports two machine-readable output modes, both on stdout per suite convention:
+
+**NDJSON** (`--ndjson`) — one JSON object per tree node, suitable for streaming consumers and `jq`:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `path` | string | File path relative to the search root (forward-slash separated) |
+| `name` | string | Filename only |
+| `type` | string | `file`, `dir`, or `link` |
+| `size_bytes` | int \| null | File size in bytes; `null` for directories without `--size` rollup |
+| `modified` | string | ISO 8601 timestamp |
+| `depth` | int | Depth relative to root (0 = root, 1 = immediate child) |
+
+**JSON envelope** (`--json`) — single summary object emitted after the walk completes:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `tool` | string | `"treex"` |
+| `version` | string | Tool version |
+| `exit_code` | int | Process exit code |
+| `exit_reason` | string | Machine-readable reason (`success`, `walk_error_partial`, `path_not_found`, `not_a_directory`, `usage_error`, `runtime_error`) |
+| `directories` | int | Number of directories walked (excluding root) |
+| `files` | int | Number of files walked |
+| `total_size_bytes` | int | Sum of file sizes (only present when `--size` is on) |
+| `walk_errors` | array | Paths that could not be read during the walk; each entry has `path` and `reason`. Always present (empty array on success). |
+| `error` | string | Human-readable failure reason (only present on pre-walk error envelopes — path_not_found, not_a_directory) |
 
 ## Colour
 

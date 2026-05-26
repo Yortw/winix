@@ -2,6 +2,11 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <IsTestProject>true</IsTestProject>
+    <!-- Round-1 review CR-C2 — squeeze csproj sets IsAotCompatible/IsTrimmable.
+         Mirror InvariantGlobalization=true on the test project so test process
+         exception messages render under the same runtime config as the AOT binary.
+         Per `feedback_invariant_globalization_resource_keys`. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.*" />

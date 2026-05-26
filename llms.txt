@@ -12,9 +12,20 @@ Cross-platform CLI tool suite for the gaps between Windows and *nix. Native bina
 - [less](docs/ai/less.md): Native terminal pager with ANSI colour passthrough, search, follow mode, and modern defaults. Replaces `less` on Windows and improves defaults on all platforms.
 - [man](docs/ai/man.md): Cross-platform man page viewer with colour, hyperlinks, and pager support. Fills the gap on Windows where no `man` command exists.
 - [treex](docs/ai/treex.md): Enhanced directory tree with colour, filtering, sizes, and clickable links. Replaces `tree`.
+- [when](docs/ai/when.md): Convert timestamps between formats, apply time arithmetic, and calculate durations. Cross-platform date/time conversion tool.
 - [whoholds](docs/ai/whoholds.md): Find which processes are holding a file lock or binding a network port. Replaces `handle.exe` (Sysinternals) on Windows and wraps `lsof` on Linux/macOS.
 - [schedule](docs/ai/schedule.md): Cross-platform task scheduler with cron expressions. Unified interface over Windows Task Scheduler (`schtasks.exe`) and Unix `crontab`.
 - [nc](docs/ai/nc.md): Cross-platform netcat replacement — TCP/UDP send/receive, port checks (single/range/list), and TLS clients. Replaces verbose `Test-NetConnection` on Windows and normalises behaviour across BSD/GNU/ncat forks on Unix.
+- [retry](docs/ai/retry.md): Run a command with automatic retries, backoff, and exit-code filtering. Replaces ad-hoc shell retry loops.
+- [clip](docs/ai/clip.md): Cross-platform clipboard bridge — copy from stdin, paste to stdout, clear. Replaces the write-only Windows `clip.exe`, unifies Linux `xclip`/`xsel`/`wl-copy`, wraps macOS `pbcopy`/`pbpaste`.
+- [ids](docs/ai/ids.md): Generate identifiers — UUID v4, UUID v7, ULID, NanoID. Cross-platform successor to `uuidgen` with modern ID types (v7, ULID, NanoID) that existing tools can't produce.
+- [digest](docs/ai/digest.md): Cryptographic hashing and HMAC — SHA-2/SHA-3/BLAKE2b with safe HMAC key handling (env/file/stdin/literal). Cross-platform replacement for sha256sum/md5sum/openssl dgst with first-class HMAC on Windows.
+- [envvault](docs/ai/envvault.md): Cross-platform keychain-backed env-var manager — envchain-compatible bare form (`envvault <NS> <cmd>`) plus a Windows DPAPI/Credential Manager backend. Stores secrets in the OS key store and injects them into child process environments on demand. See `docs/ai/envvault.md`.
+- [notify](docs/ai/notify.md): Cross-platform desktop notifications + ntfy.sh push. Windows toast (no PowerShell module install), Linux notify-send, macOS osascript, and ntfy.sh in the same call. Pairs with timeit/peep/retry for "long task done" alerts.
+- [protect](docs/ai/protect.md): Cross-platform encrypt-at-rest using OS-native key stores (DPAPI/Keychain/libsecret). Offline, no user key management, files are NOT portable between machines. See `docs/ai/protect.md`.
+- [qr](docs/ai/qr.md): Cross-platform QR code generator with Wi-Fi, SMS, mailto, geo, and tel helpers. Offline-only, privacy-safe. See `docs/ai/qr.md` for AI agent guide.
+- [unprotect](docs/ai/unprotect.md): Companion to `protect`; decrypts .prot files. See `docs/ai/unprotect.md`.
+- [url](docs/ai/url.md): URL encode/decode/parse/build/join/query-edit. Cross-shell gap-filler for URL assembly — cmd.exe has no clean subprocess-substitution, shells differ on built-in URL primitives. `url build`, `url join` (RFC 3986 §5), query editing with order + duplicate preservation.
 - [winix](docs/ai/winix.md): Installer and lifecycle manager for the Winix CLI tool suite. Installs, updates, and uninstalls all tools via your platform's native package manager.
 
 ## Key Features for AI Agents

@@ -110,33 +110,59 @@ public sealed class SuiteManager
     /// <returns>
     /// <c>0</c> when all uninstalls succeed (or dry-run); <c>1</c> when at least one fails.
     /// </returns>
-    public async Task<int> UninstallAsync(string[]? toolNames, bool dryRun, bool useColor, Action<string> output)
+    public async Task<int> UninstallAsync(string[]? toolNames, bool dryRun, bool useColor, Action<string> output, Action<string>? onPmQuery = null)
     {
         string[] targets = ResolveTargets(toolNames);
         string[] chain = PlatformDetector.GetDefaultChain(_platform);
         int failures = 0;
 
+        // Bulk-snapshot every available adapter UP FRONT — one subprocess per PM rather
+        // than per-tool. Pre-bulk this method called IsInstalled per (tool, PM) pair to
+        // discover ownership before uninstalling, which on real winget took ~7-19 seconds
+        // per call and pushed `winix uninstall --dry-run` past the 60 s smoke timeout
+        // after only ~9 tools. The snapshot's value (version string) is discarded —
+        // ownership is just a key-membership check — but reusing the same shape as
+        // ListAsync keeps a single bulk method on the adapter interface.
+        var snapshots = new Dictionary<string, IReadOnlyDictionary<string, string?>>(
+            StringComparer.OrdinalIgnoreCase);
+        foreach (string pmName in chain)
+        {
+            if (!_adapters.TryGetValue(pmName, out IPackageManagerAdapter? adapter))
+            {
+                continue;
+            }
+
+            if (!adapter.IsAvailable())
+            {
+                continue;
+            }
+
+            if (!snapshots.ContainsKey(pmName))
+            {
+                onPmQuery?.Invoke(pmName);
+                snapshots[pmName] = await adapter.GetInstalled().ConfigureAwait(false);
+            }
+        }
+
         foreach (string toolName in targets)
         {
             if (!_manifest.Tools.TryGetValue(toolName, out ToolEntry? entry))
             {
-                output(Formatting.FormatToolResult(toolName, "?", success: false, error: "not in manifest", useColor));
+                // No adapter to attribute — this is a user-input error (typo or wrong
+                // tool name), not a per-PM failure. Emit without "(via X)".
+                output(Formatting.FormatToolError(toolName, "not in manifest", useColor));
                 failures++;
                 continue;
             }
 
-            // Walk the platform chain to find which PM owns this tool.
+            // Walk the platform chain to find which PM owns this tool, using the
+            // pre-built snapshot (O(1) hash lookup, no subprocess).
             IPackageManagerAdapter? owningAdapter = null;
             string? packageId = null;
 
             foreach (string pmName in chain)
             {
-                if (!_adapters.TryGetValue(pmName, out IPackageManagerAdapter? adapter))
-                {
-                    continue;
-                }
-
-                if (!adapter.IsAvailable())
+                if (!snapshots.TryGetValue(pmName, out IReadOnlyDictionary<string, string?>? snapshot))
                 {
                     continue;
                 }
@@ -147,10 +173,11 @@ public sealed class SuiteManager
                     continue;
                 }
 
-                bool installed = await adapter.IsInstalled(pkgId).ConfigureAwait(false);
-                if (installed)
+                if (snapshot.ContainsKey(pkgId))
                 {
-                    owningAdapter = adapter;
+                    // _adapters is guaranteed to have pmName here because the snapshot
+                    // was built by walking the same chain through _adapters.
+                    owningAdapter = _adapters[pmName];
                     packageId = pkgId;
                     break;
                 }
@@ -158,8 +185,12 @@ public sealed class SuiteManager
 
             if (owningAdapter is null || packageId is null)
             {
-                output(Formatting.FormatToolResult(toolName, "?", success: false, error: "not installed", useColor));
-                failures++;
+                // Idempotent uninstall: a tool that was never installed is treated as a
+                // successful no-op rather than a failure. CI workflows that call
+                // 'winix uninstall' for cleanup should succeed even when the tool was
+                // never installed, matching apt's "nothing to do" behaviour. The ○
+                // glyph distinguishes "no action needed" from the ✗ used for real errors.
+                output(Formatting.FormatNoOpResult(toolName, "not installed", useColor));
                 continue;
             }
 
@@ -183,7 +214,7 @@ public sealed class SuiteManager
             }
         }
 
-        return failures > 0 ? 1 : 0;
+        return failures > 0 ? WinixExitCode.ToolFailure : WinixExitCode.Success;
     }
 
     /// <summary>
@@ -194,10 +225,48 @@ public sealed class SuiteManager
     /// <returns>
     /// A list of <see cref="ToolStatus"/> records, one per tool in manifest order.
     /// </returns>
-    public async Task<List<ToolStatus>> ListAsync()
+    public async Task<List<ToolStatus>> ListAsync(Action<string>? onPmQuery = null)
     {
         string[] chain = PlatformDetector.GetDefaultChain(_platform);
         var statuses = new List<ToolStatus>();
+
+        // Bulk-snapshot every available adapter UP FRONT — one subprocess per PM rather
+        // than per-tool. The pre-bulk path called IsInstalled then GetInstalledVersion
+        // on every tool against every PM in the chain (44+ filtered subprocess calls
+        // for a 22-tool manifest with 2 available PMs); each `winget list --id X` was
+        // measured at ~7-19 seconds against a real machine, so `winix list` could take
+        // 5-7 minutes before timing out at 60 s. The bulk path runs `winget list` once
+        // (no filter) and then performs O(1) hash lookups per tool.
+        //
+        // The optional onPmQuery callback fires immediately before each adapter's
+        // bulk subprocess is spawned. Cli passes a writer that emits "winix: querying
+        // winget…" lines so the user sees progress during the (still-multi-second)
+        // wait — without this the tool sits silent for ~8s on Windows and the user
+        // can't tell whether it hung. Suppressed under --json to avoid contaminating
+        // the JSON output stream.
+        var snapshots = new Dictionary<string, IReadOnlyDictionary<string, string?>>(
+            StringComparer.OrdinalIgnoreCase);
+        foreach (string pmName in chain)
+        {
+            if (!_adapters.TryGetValue(pmName, out IPackageManagerAdapter? adapter))
+            {
+                continue;
+            }
+
+            if (!adapter.IsAvailable())
+            {
+                continue;
+            }
+
+            // Cache snapshots so a chain that mentions the same PM twice (shouldn't
+            // happen in current PlatformDetector output, but cheap defence-in-depth)
+            // doesn't re-spawn the subprocess.
+            if (!snapshots.ContainsKey(pmName))
+            {
+                onPmQuery?.Invoke(pmName);
+                snapshots[pmName] = await adapter.GetInstalled().ConfigureAwait(false);
+            }
+        }
 
         foreach (var kvp in _manifest.Tools)
         {
@@ -208,12 +277,7 @@ public sealed class SuiteManager
 
             foreach (string pmName in chain)
             {
-                if (!_adapters.TryGetValue(pmName, out IPackageManagerAdapter? adapter))
-                {
-                    continue;
-                }
-
-                if (!adapter.IsAvailable())
+                if (!snapshots.TryGetValue(pmName, out IReadOnlyDictionary<string, string?>? snapshot))
                 {
                     continue;
                 }
@@ -224,13 +288,11 @@ public sealed class SuiteManager
                     continue;
                 }
 
-                bool installed = await adapter.IsInstalled(packageId).ConfigureAwait(false);
-                if (!installed)
+                if (!snapshot.TryGetValue(packageId, out string? version))
                 {
                     continue;
                 }
 
-                string? version = await adapter.GetInstalledVersion(packageId).ConfigureAwait(false);
                 statuses.Add(new ToolStatus(toolName, isInstalled: true, version: version, packageManager: pmName));
                 found = true;
                 break;
@@ -285,7 +347,7 @@ public sealed class SuiteManager
                 output(Formatting.FormatToolResult(toolName, "?", success: false, error: "no package manager available", useColor));
             }
 
-            return 1;
+            return WinixExitCode.NoPackageManager;
         }
 
         int failures = 0;
@@ -293,7 +355,9 @@ public sealed class SuiteManager
         {
             if (!_manifest.Tools.TryGetValue(toolName, out ToolEntry? entry))
             {
-                output(Formatting.FormatToolResult(toolName, adapter.Name, success: false, error: "not in manifest", useColor));
+                // Tool name isn't in the manifest — user-input error rather than
+                // per-PM failure. Emit without the misleading "(via X)" annotation.
+                output(Formatting.FormatToolError(toolName, "not in manifest", useColor));
                 failures++;
                 continue;
             }
@@ -329,7 +393,7 @@ public sealed class SuiteManager
             }
         }
 
-        return failures > 0 ? 1 : 0;
+        return failures > 0 ? WinixExitCode.ToolFailure : WinixExitCode.Success;
     }
 
     /// <summary>

@@ -1,0 +1,168 @@
+.TH ENVVAULT 1 "2026-04-23" "Winix" "User Commands"
+.SH NAME
+envvault \- cross-platform keychain-backed environment variable manager
+.SH SYNOPSIS
+.B envvault
+\fINAMESPACE\fR[,\fINAMESPACE\fR...] \fICOMMAND\fR [\fIARGS\fR...]
+.br
+.B envvault
+\fB\-\-set\fR \fINAMESPACE\fR \fIKEY\fR [\fIKEY\fR...]
+.br
+.B envvault
+\fB\-\-value\fR \fIVALUE\fR \fB\-\-set\fR \fINAMESPACE\fR \fIKEY\fR
+.br
+.B envvault
+\fB\-\-get\fR \fINAMESPACE\fR \fIKEY\fR
+.br
+.B envvault
+\fB\-\-unset\fR \fINAMESPACE\fR \fIKEY\fR
+.br
+.B envvault
+\fB\-\-list\fR [\fINAMESPACE\fR]
+
+.SH DESCRIPTION
+.B envvault
+stores named environment variables in the OS key store and merges them into the environment of child processes on demand.
+It is wire-compatible with \fBenvchain\fR(1) on macOS and Linux and adds a native Windows backend.
+
+Values are stored per-user in the OS key store:
+.IP \(bu 3
+\fBWindows\fR: Credential Manager (DPAPI-protected).
+.IP \(bu 3
+\fBmacOS\fR: login Keychain via \fBsecurity\fR(1).
+.IP \(bu 3
+\fBLinux\fR: libsecret via \fBsecret-tool\fR(1).
+.PP
+Secrets never leave the OS key store except when:
+.IP \(bu 3
+merged into a child process environment by the exec form, or
+.IP \(bu 3
+explicitly printed by \fB\-\-get\fR.
+
+.SH OPTIONS
+.TP
+.BR \-\-set " " \fINAMESPACE\fR " " \fIKEY\fR " [" \fIKEY\fR "..." "]"
+Store one or more keys in \fINAMESPACE\fR.
+Prompts for each value on the controlling terminal with input hidden.
+If stdin is piped, one line per key is read.
+
+.TP
+.BR \-\-value " " \fIVALUE\fR
+Non-interactive value for \fB\-\-set\fR.
+Only valid with a single key.
+Exposes the value on the process argv and in shell history; prefer the interactive prompt for real secrets.
+
+.TP
+.B \-\-allow\-empty
+Permit \fB\-\-set\fR to store an empty string.
+Refused by default because a silent empty-store is the exact footgun envvault exists to prevent: a child command then fails hours later with \(dqcredentials invalid\(dq.
+Pass this flag only when an empty value is deliberate (envchain-compatibility scenarios).
+
+.TP
+.BR \-\-get " " \fINAMESPACE\fR " " \fIKEY\fR
+Print the stored value to stdout.
+Exits with status 127 if the namespace or key is not found.
+
+.TP
+.BR \-\-unset " " \fINAMESPACE\fR " " \fIKEY\fR
+Remove \fIKEY\fR from \fINAMESPACE\fR.
+Exits with status 127 if the key does not exist.
+
+.TP
+.BR \-\-list " [" \fINAMESPACE\fR "]"
+With no argument, print the list of namespaces.
+With a namespace, print the list of keys in that namespace.
+Values are never printed.
+
+.TP
+.B \-\-json
+Produce JSON output for \fB\-\-list\fR.
+
+.TP
+.B \-\-noecho
+Accepted for envchain compatibility.
+\fB\-\-set\fR already hides interactive input by default.
+
+.TP
+.B \-\-require\-passphrase
+Deferred to v1.1.
+Currently exits with status 125 and a clear message.
+
+.TP
+.BR \-\-color ", " \-\-no\-color
+Force or disable ANSI colour output.
+Without either flag, colour is auto-detected and honours the \fBNO_COLOR\fR environment variable.
+
+.TP
+.B \-\-describe
+Emit structured JSON metadata for AI agents.
+
+.TP
+.B \-\-help
+Show help and exit.
+
+.TP
+.B \-\-version
+Show version and exit.
+
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 125
+Usage error \(em bad flags, missing required arguments, conflicting options, empty value without \fB\-\-allow\-empty\fR, deferred feature requested (\fB\-\-require\-passphrase\fR).
+.TP
+.B 126
+Runtime error \(em key store unavailable, permission denied launching \fICOMMAND\fR.
+.TP
+.B 127
+Not found \(em namespace or key missing on \fB\-\-get\fR / \fB\-\-unset\fR; \fICOMMAND\fR not on PATH for exec form.
+.TP
+.B 130
+Interrupted \(em user pressed Ctrl+C during an interactive value prompt (POSIX 128 + SIGINT).
+.PP
+Exec form: the exit code of \fICOMMAND\fR is passed through verbatim when the child runs to completion.
+
+.SH ENVIRONMENT
+.TP
+.B NO_COLOR
+When set to any non-empty value, disables ANSI colour output.
+See <https://no-color.org>.
+
+.SH EXAMPLES
+.TP
+Store a GitHub token (interactive, hidden input):
+.B envvault \-\-set github GITHUB_TOKEN
+.TP
+Run a command with a namespace's variables injected:
+.B envvault github gh pr list
+.TP
+Merge multiple namespaces in order (later wins on collisions):
+.B envvault github,aws ./deploy.sh
+.TP
+Script-friendly non-interactive set:
+.B envvault \-\-value "ghp_xxx..." \-\-set github GITHUB_TOKEN
+.TP
+List all namespaces:
+.B envvault \-\-list
+.TP
+List keys in one namespace:
+.B envvault \-\-list github
+.TP
+Alias for envchain muscle memory:
+.B alias envchain=envvault
+
+.SH BUGS
+macOS enumeration uses a self-healing index that reconciles at read time: entries added via the raw \fBsecurity\fR(1) CLI bypassing \fBenvvault\fR will be discovered by subsequent \fB\-\-list\fR calls as the index is updated.
+Pre-v1.0 entries that predate the index format may require one envvault write in the namespace to register.
+
+.SH SEE ALSO
+.BR envchain (1),
+.BR secret-tool (1),
+.BR security (1),
+.BR keychain (1),
+.BR protect (1)
+
+.SH AUTHOR
+Troy Willmot

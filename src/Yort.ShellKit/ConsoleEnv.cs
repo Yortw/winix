@@ -1,4 +1,6 @@
+using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace Yort.ShellKit;
 
@@ -51,6 +53,32 @@ public static partial class ConsoleEnv
         }
 
         SetConsoleMode(handle, mode | EnableVirtualTerminalProcessing);
+    }
+
+    /// <summary>
+    /// Sets <see cref="Console.OutputEncoding"/> and <see cref="Console.InputEncoding"/>
+    /// to UTF-8 so non-ASCII output (em-dashes in help text, emoji, CJK) round-trips
+    /// correctly through Windows <c>cmd.exe</c> pipes and non-ASCII stdin (e.g. text
+    /// copied via <c>clip</c>) decodes correctly. On Windows this calls
+    /// <c>SetConsoleCP/SetConsoleOutputCP(65001)</c>. On *nix the setters are effectively
+    /// no-ops (the console is already UTF-8). Call alongside
+    /// <see cref="EnableAnsiIfNeeded"/> at process startup.
+    /// </summary>
+    /// <remarks>
+    /// Both setters can throw <see cref="IOException"/> when the underlying handle
+    /// rejects a code-page change (unusual redirection chains, locked-down containers).
+    /// Failing silently is intentional — worst case is the terminal decoding our UTF-8
+    /// output in its native code page, which is the same as pre-fix behaviour.
+    /// <para/>
+    /// Does not rescue the <c>cmd.exe echo X | tool</c> path — cmd replaces non-OEM
+    /// chars with <c>?</c> BEFORE piping, so the bytes never reach us. Users still
+    /// need <c>chcp 65001</c> in cmd.exe for that case. Git Bash and Windows Terminal
+    /// are unaffected.
+    /// </remarks>
+    public static void UseUtf8Streams()
+    {
+        try { Console.OutputEncoding = Encoding.UTF8; } catch (IOException) { }
+        try { Console.InputEncoding = Encoding.UTF8; } catch (IOException) { }
     }
 
     private const int StdOutputHandle = -11;

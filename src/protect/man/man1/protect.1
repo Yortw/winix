@@ -1,0 +1,170 @@
+.TH PROTECT 1 "2026-04-21" "Winix" "User Commands"
+.SH NAME
+protect \- cross-platform encrypt-at-rest using native OS key stores
+.SH SYNOPSIS
+.B protect
+[\fIOPTIONS\fR] [\fIFILE\fR]
+.br
+.B protect
+[\fIOPTIONS\fR]
+
+.SH DESCRIPTION
+.B protect
+encrypts files or streams using the native key-storage primitive of the current OS.
+On Windows, it wraps DPAPI (\fBDataProtectionScope.CurrentUser\fR or \fBLocalMachine\fR).
+On macOS, it uses AES-256-GCM with a key stored in the Keychain.
+On Linux, it uses AES-256-GCM with a key stored in libsecret.
+
+Encrypted files are scoped to the current user and machine by default.
+Moving an encrypted file to a different user or machine fails — the OS key is no longer available.
+This is deliberate: zero key management means no portability.
+
+Output is a \fB.prot\fR file (or stdout if piping).
+Input can be a file, stdin (default), or explicit \fB-\fR for stdin.
+
+.SH OPTIONS
+.TP
+.BR \-o " " \fIPATH\fR ", " \-\-output " " \fIPATH\fR
+Write encrypted output to \fIPATH\fR instead of the default \fIFILE\fR\fB.prot\fR (file mode) or stdout (stdin mode).
+Mutually exclusive with \fB--in-place\fR.
+Cannot be equal to the input path.
+
+.TP
+.B \-\-in\-place
+Encrypt the file in place using atomic rename (temp write → verify → rename).
+Mutually exclusive with \fB-o\fR / \fB--output\fR.
+The \fB--rm\fR / \fB--remove-source\fR flag is implicit (the source is atomically renamed).
+
+.TP
+.BR \-\-rm ", " \-\-remove\-source
+Delete the source file after successful round-trip verification.
+Paired with explicit output path, keeps the source.
+Implied by \fB--in-place\fR.
+
+.TP
+.BR \-\-scope " " [\fBuser\fR | \fBmachine\fR]
+Key-derivation scope.
+Default: \fBuser\fR (encrypt for the current OS user).
+.RS
+.IP \fBuser\fR 8
+Windows: DPAPI \fBCurrentUser\fR scope.
+macOS: login Keychain (user-accessible).
+Linux: user session (default, only option).
+.IP \fBmachine\fR 8
+Windows: DPAPI \fBLocalMachine\fR scope.
+macOS: System Keychain (requires root/admin).
+Linux: not supported; \fBprotect\fR fails with exit 125.
+.RE
+
+.TP
+.B \-\-no\-verify
+Skip round-trip verification.
+After encryption, the tool normally re-opens the encrypted file, decrypts it, and compares the hash.
+This catches bugs in framing, key derivation, or AEAD logic.
+\fB--no-verify\fR is faster but provides less assurance.
+
+.TP
+.BR \-f ", " \-\-force
+Overwrite an existing destination file.
+By default \fBprotect\fR refuses to clobber an existing destination and exits 125.
+With \fB--force\fR the existing destination is removed and re-created exclusively (POSIX \fBO_EXCL\fR).
+This is symlink-safe: a symlink at the destination is unlinked itself rather than written through to its target,
+so an attacker cannot redirect the write by planting a symlink (e.g. to \fI/etc/passwd\fR) at the output path.
+
+.TP
+.B \-\-color \fBwhen\fR
+Emit ANSI colour codes: \fBalways\fR, \fBnever\fR, or \fBauto\fR (default: respect \fBNO_COLOR\fR).
+
+.TP
+.B \-\-describe
+Emit structured JSON metadata for AI discoverability.
+
+.TP
+.B \-\-help
+Show help and exit.
+
+.TP
+.B \-\-version
+Show version and exit.
+
+.SH FILE MODES
+.TP
+.B Positional file argument
+.B protect FILE
+encrypts \fIFILE\fR to \fIFILE\fR\fB.prot\fR (keeps the original).
+Use \fB-o\fR, \fB--in-place\fR, or \fB--rm\fR to customize.
+
+.TP
+.B Stdin (default or explicit \fB-\fR)
+.B protect < FILE
+or
+.B protect -
+reads from stdin and writes to stdout (or \fB-o PATH\fR).
+
+.SH EXAMPLES
+.TP
+Encrypt a config file, keep the original:
+.B protect config.json
+.TP
+Encrypt in place (atomic):
+.B protect config.json \-\-in\-place
+.TP
+Encrypt and delete the original after verification:
+.B protect api.key \-\-rm
+.TP
+Encrypt for the machine (Windows/macOS only):
+.B protect \-\-scope machine service\-config.xml
+.TP
+Encrypt from stdin to an output file:
+.B cat secret.txt | protect \-o secret.prot
+.TP
+Compose with digest: encrypt an HMAC key:
+.B protect api.key \-\-rm
+.TP
+Decrypt and pipe to another tool:
+.B unprotect < api.key.prot | digest \-\-hmac sha256 \-\-key\-stdin "payload"
+
+.SH EXIT CODES
+.TP
+.B 0
+Success.
+.TP
+.B 125
+Usage error: bad flags, output path equals input, unsupported scope on Linux, format mismatch.
+.TP
+.B 126
+Runtime error: encryption failed, key store unavailable, round-trip verification failed, permission denied.
+
+.SH PLATFORM NOTES
+.SS Windows
+Both user and machine scopes are supported.
+Machine scope requires the process to have DPAPI LocalMachine access (typically admin or SYSTEM context).
+Files encrypted with user scope cannot be decrypted by a different user.
+.SS macOS
+User scope uses the login Keychain (user-accessible).
+Machine scope uses the System Keychain and requires root or admin privileges.
+The key is auto-generated on first encryption and stored in Keychain; subsequent operations retrieve it.
+.SS Linux
+Only user scope is supported.
+Machine scope fails with exit 125.
+libsecret-tools must be installed: \fBsudo apt install libsecret-tools\fR (Debian/Ubuntu) or equivalent.
+The key is auto-generated and stored in the libsecret store (typically `~/.local/share/secrets` or systemd user service).
+
+.SH FILE FORMAT
+Encrypted files start with a 22-byte header: magic (\fBWPRT\fR), version (1), backend marker, and a 16-byte random FileId.
+The backend-marker byte identifies which key store encrypted the file
+(\fB0x01\fR DPAPI-user, \fB0x02\fR DPAPI-machine, \fB0x10\fR Keychain-user, \fB0x11\fR Keychain-machine, \fB0x20\fR libsecret-user).
+Files are then chunked (64 KB per chunk) and each chunk is encrypted with either DPAPI (Windows) or AES-256-GCM (macOS/Linux).
+Every chunk is bound to its specific file and position via the FileId, chunk index, and final-chunk flag (in AEAD AAD on Keychain/libsecret;
+inside the protected blob on DPAPI). This detects truncation, chunk reorder, and cross-file substitution.
+
+.SH INTEGRITY MODEL
+The per-chunk binding defends against an attacker with write access to the \fB.prot\fR file but no key access
+(untrusted backup software, cloud sync, shared NAS). It does not defend against an attacker who already has
+key access — the OS keystore, not the file format, is the trust boundary in that case.
+
+.SH SEE ALSO
+.BR unprotect (1) \- decrypt files encrypted by protect
+.BR digest (1) \- cryptographic hashing and HMAC
+.BR protect \-\-describe \- structured metadata
+.BR protect \-\-help \- human-readable help

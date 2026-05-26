@@ -54,13 +54,18 @@ public sealed class JobRunner
 
     /// <summary>
     /// Prints each command without executing. Returns a result with zero TotalJobs
-    /// (no jobs were actually executed).
+    /// (no jobs were actually executed). Stdout writes use broken-pipe protection so
+    /// `wargs --dry-run --json | head -1` aborts cleanly and Main can still emit the
+    /// dry_run envelope on stderr — without protection, the IOException escaped to
+    /// Main's broad catch and surfaced as unexpected_error/exit 126 (round-8 SFH C1).
     /// </summary>
     private static WargsResult RunDryRun(IReadOnlyList<CommandInvocation> invocations, TextWriter stdout)
     {
         foreach (CommandInvocation invocation in invocations)
         {
-            stdout.WriteLine(invocation.DisplayString);
+            try { stdout.WriteLine(invocation.DisplayString); }
+            catch (IOException) { break; }              // downstream pipe closed
+            catch (ObjectDisposedException) { break; }  // writer already disposed
         }
 
         return new WargsResult(
@@ -98,13 +103,16 @@ public sealed class JobRunner
             // Fail-fast: skip remaining jobs after a failure
             if (abort)
             {
-                jobs.Add(new JobResult(
+                JobResult skippedResult = new JobResult(
                     JobIndex: jobIndex,
                     ChildExitCode: -1,
                     Output: null,
                     Duration: TimeSpan.Zero,
                     SourceItems: invocation.SourceItems,
-                    Skipped: true));
+                    Skipped: true,
+                    SkipReason: SkipReason.FailFastAbort);
+                jobs.Add(skippedResult);
+                InvokeJobCompleted(skippedResult);
                 skipped++;
                 continue;
             }
@@ -113,45 +121,96 @@ public sealed class JobRunner
             if (_options.Confirm)
             {
                 Func<string, bool> prompt = _options.ConfirmPrompt ?? DefaultConfirmPrompt;
-                if (!prompt(invocation.DisplayString))
+                // Round-13 SFH I3 / TA I2: a custom ConfirmPrompt delegate (test-seam) that
+                // throws would otherwise escape RunSequentialAsync entirely and land in
+                // Main's broad catch as unexpected_error/exit 126 — taking down the entire
+                // run for one prompt fault. Symmetric with OnJobCompleted's swallow rule
+                // (callback faults must not abort the run). Treat throws as decline so the
+                // run continues — preserves the Skipped ⇔ FaultMessage=null invariant pinned
+                // at RunAsync_SkippedJobs_NeverCarryFaultMessage. The default in-tree
+                // DefaultConfirmPrompt has its own broad catch; this guard exists only for
+                // custom delegates injected via the test seam / library API.
+                bool proceed;
+                try { proceed = prompt(invocation.DisplayString); }
+                catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException) { proceed = false; }
+                if (!proceed)
                 {
-                    jobs.Add(new JobResult(
+                    JobResult declinedResult = new JobResult(
                         JobIndex: jobIndex,
                         ChildExitCode: -1,
                         Output: null,
                         Duration: TimeSpan.Zero,
                         SourceItems: invocation.SourceItems,
-                        Skipped: true));
+                        Skipped: true,
+                        SkipReason: SkipReason.ConfirmDeclined);
+                    jobs.Add(declinedResult);
+                    InvokeJobCompleted(declinedResult);
                     skipped++;
                     continue;
                 }
             }
 
-            // Verbose: print command before execution
+            // Verbose: print command before execution. SafeWriteAsync swallows IOException
+            // on broken stderr — a closed stderr (e.g. `wargs -v ... 2>&1 | head -1`) is not
+            // a job failure; letting the IOException escape would misattribute the
+            // pipe-closed condition as a fault on the next job's FaultMessage.
             if (_options.Verbose)
             {
-                await stderr.WriteLineAsync($"wargs: {invocation.DisplayString}")
+                await SafeWriteAsync(stderr, $"wargs: {invocation.DisplayString}{Environment.NewLine}")
                     .ConfigureAwait(false);
             }
 
             JobResult result;
-            if (_options.Strategy == BufferStrategy.LineBuffered)
+            try
             {
-                result = await ExecuteJobLineBufferedAsync(invocation, jobIndex, cancellationToken)
-                    .ConfigureAwait(false);
+                if (_options.Strategy == BufferStrategy.LineBuffered)
+                {
+                    result = await ExecuteJobLineBufferedAsync(invocation, jobIndex, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                else
+                {
+                    result = await ExecuteJobAsync(invocation, jobIndex, cancellationToken)
+                        .ConfigureAwait(false);
+                }
             }
-            else
+            catch (OperationCanceledException)
             {
-                result = await ExecuteJobAsync(invocation, jobIndex, cancellationToken)
-                    .ConfigureAwait(false);
+                // External cancel — propagate so the caller can finalise. Other jobs added
+                // to the result list so far survive.
+                throw;
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+            {
+                // Unexpected fault inside a single job — preserve partial history rather
+                // than crashing the whole sequential run. Capture the exception on
+                // FaultMessage so the user can diagnose.
+                result = new JobResult(
+                    JobIndex: jobIndex,
+                    ChildExitCode: -1,
+                    Output: null,
+                    Duration: TimeSpan.Zero,
+                    SourceItems: invocation.SourceItems,
+                    Skipped: false,
+                    FaultMessage: $"{ex.GetType().Name}: {ex.Message}");
             }
 
             jobs.Add(result);
+            // Round-12 streaming: notify subscribers as each job completes (Program.cs uses
+            // this for true NDJSON streaming). Fires for every job — skipped subscribers
+            // filter on JobResult.Skipped if they want to omit. Reorder-buffer subscribers
+            // (--keep-order) need ALL completions to advance their next-expected pointer.
+            InvokeJobCompleted(result);
 
-            // Flush captured output to stdout
+            // Flush captured output to stdout. SafeWriteAsync swallows IOException (broken
+            // downstream pipe — `wargs ... | head -1` is a normal usage pattern, not an
+            // error) and signals abort so subsequent jobs don't re-trigger the same failure.
             if (result.Output != null)
             {
-                await stdout.WriteAsync(result.Output).ConfigureAwait(false);
+                if (!await SafeWriteAsync(stdout, result.Output).ConfigureAwait(false))
+                {
+                    abort = true;
+                }
             }
 
             if (result.ChildExitCode == 0)
@@ -218,13 +277,16 @@ public sealed class JobRunner
             // Fail-fast: skip remaining jobs after a failure (checked before acquiring semaphore)
             if (Volatile.Read(ref aborted))
             {
-                tasks[i] = Task.FromResult(new JobResult(
+                JobResult abortSkipped = new JobResult(
                     JobIndex: jobIndex,
                     ChildExitCode: -1,
                     Output: null,
                     Duration: TimeSpan.Zero,
                     SourceItems: invocation.SourceItems,
-                    Skipped: true));
+                    Skipped: true,
+                    SkipReason: SkipReason.FailFastAbort);
+                tasks[i] = Task.FromResult(abortSkipped);
+                InvokeJobCompleted(abortSkipped);
                 continue;
             }
 
@@ -232,15 +294,25 @@ public sealed class JobRunner
             if (_options.Confirm)
             {
                 Func<string, bool> prompt = _options.ConfirmPrompt ?? DefaultConfirmPrompt;
-                if (!prompt(invocation.DisplayString))
+                // Round-13 SFH I3 / TA I2: see sequential equivalent. Custom prompt fault
+                // → treat as decline so the run continues. Production --confirm is rejected
+                // with parallel mode at parse time; this branch exists only for library
+                // consumers who construct JobRunner directly (and the test seam).
+                bool proceed;
+                try { proceed = prompt(invocation.DisplayString); }
+                catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException) { proceed = false; }
+                if (!proceed)
                 {
-                    tasks[i] = Task.FromResult(new JobResult(
+                    JobResult declinedSkipped = new JobResult(
                         JobIndex: jobIndex,
                         ChildExitCode: -1,
                         Output: null,
                         Duration: TimeSpan.Zero,
                         SourceItems: invocation.SourceItems,
-                        Skipped: true));
+                        Skipped: true,
+                        SkipReason: SkipReason.ConfirmDeclined);
+                    tasks[i] = Task.FromResult(declinedSkipped);
+                    InvokeJobCompleted(declinedSkipped);
                     continue;
                 }
             }
@@ -251,84 +323,150 @@ public sealed class JobRunner
             int capturedIndex = jobIndex;
             CommandInvocation capturedInvocation = invocation;
 
+            // Don't pass cancellationToken to Task.Run — if the token is signalled between
+            // semaphore acquisition and Task.Run scheduling the body, the task transitions to
+            // Canceled and the finally block (semaphore.Release) never runs, leaking slots and
+            // potentially deadlocking subsequent jobs. Letting the body always run means the
+            // try/finally always executes; the body itself checks the token and returns Skipped.
             tasks[i] = Task.Run(async () =>
             {
+                // Round-12.5: result is set by every code path (try, all catches) so the
+                // single InvokeJobCompleted call after the try/finally fires for EVERY task
+                // body completion — happy path, fail-fast OCE, external-cancel OCE, and
+                // unexpected-fault. Reorder-buffer subscribers (--keep-order NDJSON) need
+                // notifications for ALL completions to advance their next-expected pointer
+                // past skipped/cancelled slots.
+                JobResult result;
                 try
                 {
-                    // Race check: abort may have been set while we waited for the semaphore
-                    if (Volatile.Read(ref aborted))
+                    // Race check: abort or external cancel may have fired while we waited
+                    // for the semaphore (or while Task.Run scheduled this body).
+                    if (Volatile.Read(ref aborted) || cancellationToken.IsCancellationRequested)
                     {
-                        return new JobResult(
+                        result = new JobResult(
                             JobIndex: capturedIndex,
                             ChildExitCode: -1,
                             Output: null,
                             Duration: TimeSpan.Zero,
                             SourceItems: capturedInvocation.SourceItems,
-                            Skipped: true);
-                    }
-
-
-                    if (_options.Verbose)
-                    {
-                        lock (outputLock)
-                        {
-                            stderr.WriteLine($"wargs: {capturedInvocation.DisplayString}");
-                        }
-                    }
-
-                    JobResult result;
-                    if (_options.Strategy == BufferStrategy.LineBuffered)
-                    {
-                        result = await ExecuteJobLineBufferedAsync(capturedInvocation, capturedIndex, jobToken)
-                            .ConfigureAwait(false);
+                            Skipped: true,
+                            SkipReason: cancellationToken.IsCancellationRequested
+                                ? SkipReason.ExternalCancel
+                                : SkipReason.FailFastAbort);
                     }
                     else
                     {
-                        result = await ExecuteJobAsync(capturedInvocation, capturedIndex, jobToken)
-                            .ConfigureAwait(false);
-                    }
-
-                    // JobBuffered: flush captured output atomically as each job completes.
-                    // KeepOrder: defer output until all jobs finish (written in input order below).
-                    // LineBuffered: Output is null (children wrote directly to inherited stdio).
-                    if (_options.Strategy == BufferStrategy.JobBuffered && result.Output != null)
-                    {
-                        lock (outputLock)
+                        if (_options.Verbose)
                         {
-                            stdout.Write(result.Output);
+                            lock (outputLock)
+                            {
+                                // See sequential equivalent: a broken stderr in verbose mode must
+                                // not become a misattributed FaultMessage on this job.
+                                SafeWrite(stderr, $"wargs: {capturedInvocation.DisplayString}{Environment.NewLine}");
+                            }
+                        }
+
+                        if (_options.Strategy == BufferStrategy.LineBuffered)
+                        {
+                            result = await ExecuteJobLineBufferedAsync(capturedInvocation, capturedIndex, jobToken)
+                                .ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            result = await ExecuteJobAsync(capturedInvocation, capturedIndex, jobToken)
+                                .ConfigureAwait(false);
+                        }
+
+                        // JobBuffered: flush captured output atomically as each job completes.
+                        // KeepOrder: defer output until all jobs finish (written in input order below).
+                        // LineBuffered: Output is null (children wrote directly to inherited stdio).
+                        if (_options.Strategy == BufferStrategy.JobBuffered && result.Output != null)
+                        {
+                            bool written;
+                            lock (outputLock)
+                            {
+                                written = SafeWrite(stdout, result.Output);
+                            }
+                            if (!written)
+                            {
+                                // Broken downstream pipe — set the abort flag so subsequent jobs
+                                // skip rather than each rediscover the failure.
+                                Volatile.Write(ref aborted, true);
+                                try { failFastCts.Cancel(); }
+                                catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException) { /* race with end-of-run dispose */ }
+                            }
+                        }
+
+                        // Check for fail-fast trigger — cancel the linked CTS so in-flight
+                        // jobs are killed rather than running to completion. Cancel synchronously
+                        // fires registered callbacks; if any of those callbacks throw, Cancel
+                        // wraps them in AggregateException. Catch broadly so a callback fault
+                        // doesn't clobber this job's captured result via the body's outer catch.
+                        if (result.ChildExitCode != 0 && _options.FailFast)
+                        {
+                            Volatile.Write(ref aborted, true);
+                            try { failFastCts.Cancel(); }
+                            catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException) { /* race with end-of-run dispose */ }
                         }
                     }
-
-                    // Check for fail-fast trigger — cancel the linked CTS so in-flight
-                    // jobs are killed rather than running to completion.
-                    if (result.ChildExitCode != 0 && _options.FailFast)
-                    {
-                        Volatile.Write(ref aborted, true);
-                        failFastCts.Cancel();
-                    }
-
-                    return result;
                 }
                 catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
                 {
                     // Cancelled by fail-fast, not by the caller — treat as skipped
-                    return new JobResult(
+                    result = new JobResult(
                         JobIndex: capturedIndex,
                         ChildExitCode: -1,
                         Output: null,
                         Duration: TimeSpan.Zero,
                         SourceItems: capturedInvocation.SourceItems,
-                        Skipped: true);
+                        Skipped: true,
+                        SkipReason: SkipReason.FailFastAbort);
+                }
+                catch (OperationCanceledException)
+                {
+                    // External cancel — preserve as skipped so the result row exists.
+                    result = new JobResult(
+                        JobIndex: capturedIndex,
+                        ChildExitCode: -1,
+                        Output: null,
+                        Duration: TimeSpan.Zero,
+                        SourceItems: capturedInvocation.SourceItems,
+                        Skipped: true,
+                        SkipReason: SkipReason.ExternalCancel);
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+                {
+                    // Unexpected fault — capture the exception type/message so the user can
+                    // diagnose, rather than seeing a bare child_failed with no clue. Without
+                    // this, the catch at WhenAll below would swallow silently (silent-failure
+                    // class B). Surfacing FaultMessage means the JSON envelope and human
+                    // summary can include it later.
+                    result = new JobResult(
+                        JobIndex: capturedIndex,
+                        ChildExitCode: -1,
+                        Output: null,
+                        Duration: TimeSpan.Zero,
+                        SourceItems: capturedInvocation.SourceItems,
+                        Skipped: false,
+                        FaultMessage: $"{ex.GetType().Name}: {ex.Message}");
                 }
                 finally
                 {
                     semaphore.Release();
                 }
-            }, cancellationToken);
+
+                // Notify the streaming subscriber for every task body completion (happy,
+                // skipped, cancelled, faulted). Reorder-buffer subscribers depend on this
+                // to advance their next-expected pointer past every slot.
+                InvokeJobCompleted(result);
+                return result;
+            });
         }
 
-        // Some tasks may have been cancelled by fail-fast or faulted unexpectedly.
-        // Collect results without letting the aggregate exception propagate.
+        // Some tasks may have been cancelled by fail-fast — task bodies handled the OCE
+        // internally and returned Skipped, so WhenAll should complete without throwing.
+        // The try/catch below is defence-in-depth: a future change that lets an exception
+        // escape the body shouldn't take down the run.
         try
         {
             await Task.WhenAll(tasks).ConfigureAwait(false);
@@ -337,14 +475,33 @@ public sealed class JobRunner
         {
             // Fail-fast cancellation — tasks already returned Skipped results
         }
-        catch (Exception)
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
             // Unexpected exception from a task body. Faulted tasks are handled below
             // by checking task status before accessing .Result.
         }
 
-        // Keep-order: write all output in input order after all jobs complete.
-        // Check task status before accessing .Result — a faulted task would re-throw.
+        // External Ctrl+C: each task body's external-cancel arm caught the OCE and returned
+        // Skipped, so Task.WhenAll completed normally. Without this throw the run would
+        // return a "successful" all-skipped WargsResult and Program.Main would emit exit 0
+        // with exit_reason="success" — silently violating the documented "Ctrl+C → exit 130"
+        // contract. Sequential mode achieves the same propagation via the rethrowing catch
+        // at line 151; the parallel path needs an explicit re-check at the join point.
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // Keep-order: write all output in input order after all jobs complete. SafeWrite
+        // swallows broken-pipe IOException so a downstream `| head -1` doesn't crash the run
+        // out of an otherwise complete pipeline.
+        //
+        // Round-15 SFH I1: defence-in-depth for IsFaulted/IsCanceled tasks. The body's broad
+        // catch keeps us in IsCompletedSuccessfully today, so this branch is unreachable in
+        // practice. If a future change narrows the body's catch and a task lands faulted/
+        // cancelled, we'd otherwise silently skip it during the flush — the JSON summary
+        // would still report it, but a keep-order user reading stdout would see a hole with
+        // no evidence of why job N produced no output. Surface a stderr diagnostic so the
+        // contract "every dispatched job has user-visible evidence" holds even if the body
+        // changes. Stdout output is never available for these arms (the synthesised JobResult
+        // sets Output=null below), so the diagnostic is stderr-only.
         if (_options.Strategy == BufferStrategy.KeepOrder)
         {
             for (int i = 0; i < tasks.Length; i++)
@@ -354,15 +511,35 @@ public sealed class JobRunner
                     JobResult r = tasks[i].Result;
                     if (r.Output != null)
                     {
-                        stdout.Write(r.Output);
+                        if (!SafeWrite(stdout, r.Output))
+                        {
+                            // Pipe closed — stop flushing remaining captures; the JSON/NDJSON
+                            // path on stderr is unaffected.
+                            break;
+                        }
                     }
+                }
+                else if (tasks[i].IsFaulted)
+                {
+                    Exception? rootEx = tasks[i].Exception?.GetBaseException();
+                    string detail = rootEx is null
+                        ? "no exception details"
+                        : $"{rootEx.GetType().Name}: {rootEx.Message}";
+                    SafeWrite(stderr, $"wargs: job {i + 1}: faulted ({detail}){Environment.NewLine}");
+                }
+                else if (tasks[i].IsCanceled)
+                {
+                    SafeWrite(stderr, $"wargs: job {i + 1}: cancelled{Environment.NewLine}");
                 }
             }
         }
 
         wallStopwatch.Stop();
 
-        // Collect results sorted by JobIndex (tasks array is already in order)
+        // Collect results sorted by JobIndex (tasks array is already in order). The body's
+        // broad catch should mean tasks always land in IsCompletedSuccessfully; the
+        // IsCanceled / IsFaulted branches are defence-in-depth and must still classify
+        // correctly so a future change to the body doesn't silently degrade observability.
         var jobs = new List<JobResult>(invocations.Count);
         int succeeded = 0;
         int failed = 0;
@@ -375,16 +552,47 @@ public sealed class JobRunner
             {
                 result = tasks[i].Result;
             }
-            else
+            else if (tasks[i].IsCanceled)
             {
-                // Task faulted with an unexpected exception — treat as failed
+                // Task was cancelled before its body ran or its body's OCE arms were bypassed
+                // by a future change. Logically a skip, not a failure — counting as Failed
+                // would inflate the failure metric for a user-initiated cancel.
                 result = new JobResult(
                     JobIndex: i + 1,
                     ChildExitCode: -1,
                     Output: null,
                     Duration: TimeSpan.Zero,
                     SourceItems: invocations[i].SourceItems,
-                    Skipped: false);
+                    Skipped: true,
+                    SkipReason: SkipReason.ExternalCancel);
+                // Round-13 CR/SFH/TA I1: round-12.5 contract is "callback fires for EVERY job".
+                // The body's broad catch keeps us out of this branch in practice, but if a
+                // future change narrows the body's catch and a task lands here, the
+                // --keep-order NDJSON reorder buffer would stall on the missing index and
+                // silently truncate every higher-indexed line. Defence-in-depth: notify here
+                // so the contract holds even if the body changes.
+                InvokeJobCompleted(result);
+            }
+            else
+            {
+                // Task faulted. Surface the underlying exception on FaultMessage so the user
+                // can diagnose. Without this the silent-failure regression class B re-opens:
+                // the body's catch is broad but if a future change narrows it, an escaping
+                // exception lands here with no observable evidence.
+                Exception? rootEx = tasks[i].Exception?.GetBaseException();
+                string fault = rootEx is null
+                    ? "task faulted with no exception details"
+                    : $"{rootEx.GetType().Name}: {rootEx.Message}";
+                result = new JobResult(
+                    JobIndex: i + 1,
+                    ChildExitCode: -1,
+                    Output: null,
+                    Duration: TimeSpan.Zero,
+                    SourceItems: invocations[i].SourceItems,
+                    Skipped: false,
+                    FaultMessage: fault);
+                // Round-13 CR/SFH/TA I1: see IsCanceled branch above.
+                InvokeJobCompleted(result);
             }
 
             jobs.Add(result);
@@ -431,8 +639,16 @@ public sealed class JobRunner
             process = Process.Start(startInfo)
                 ?? throw new Win32Exception("Process.Start returned null");
         }
-        catch (Win32Exception)
+        catch (Exception ex) when (IsSpawnFailure(ex))
         {
+            // Process.Start can throw more than Win32Exception: empty FileName produces
+            // InvalidOperationException, AOT trim edges produce PlatformNotSupportedException,
+            // and FileNotFoundException is plausible on stripped runtimes. Catching only
+            // Win32Exception leaves the others to escape into the parallel-loop catch with
+            // no observable evidence (silent-failure class A). Capture the original message
+            // on FaultMessage so the user can diagnose the failure rather than seeing a bare
+            // child_failed exit.
+            string directFault = FormatSpawnFault(ex, invocation);
             if (_options.ShellFallback)
             {
                 // Command not found as standalone executable — retry via platform shell
@@ -443,7 +659,7 @@ public sealed class JobRunner
                     process = Process.Start(startInfo)
                         ?? throw new Win32Exception("Process.Start returned null");
                 }
-                catch (Win32Exception)
+                catch (Exception ex2) when (IsSpawnFailure(ex2))
                 {
                     stopwatch.Stop();
                     return new JobResult(
@@ -452,7 +668,8 @@ public sealed class JobRunner
                         Output: null,
                         Duration: stopwatch.Elapsed,
                         SourceItems: invocation.SourceItems,
-                        Skipped: false);
+                        Skipped: false,
+                        FaultMessage: $"{directFault}; shell fallback: {FormatSpawnFault(ex2, invocation)}");
                 }
             }
             else
@@ -464,15 +681,23 @@ public sealed class JobRunner
                     Output: null,
                     Duration: stopwatch.Elapsed,
                     SourceItems: invocation.SourceItems,
-                    Skipped: false);
+                    Skipped: false,
+                    FaultMessage: directFault);
             }
         }
 
-        // Close stdin immediately — child commands don't read interactive input
-        process.StandardInput.Close();
-
         try
         {
+            // Close stdin immediately — child commands don't read interactive input. Wrap
+            // in try/swallow: if the child exited fast enough that its end of the pipe is
+            // already torn down, Close throws IOException/InvalidOperationException — that's
+            // not a real failure of THIS job, and letting it escape would bury the real
+            // exit code under a misleading FaultMessage. Done inside the outer try so we
+            // still hit the finally that disposes the process.
+            try { process.StandardInput.Close(); }
+            catch (IOException) { /* child exited before stdin closed — benign */ }
+            catch (InvalidOperationException) { /* same — also covers ObjectDisposedException */ }
+
             // Kill the child process tree if cancellation is requested, so we don't
             // leak long-running children after wargs exits.
             using var killReg = cancellationToken.Register(() =>
@@ -484,14 +709,18 @@ public sealed class JobRunner
                         process.Kill(entireProcessTree: true);
                     }
                 }
-                catch (InvalidOperationException)
+                catch (Exception ex) when (
+                    ex is InvalidOperationException
+                    || ex is Win32Exception
+                    || ex is NotSupportedException
+                    || ex is AggregateException)
                 {
-                    // Process already exited between the check and the kill — safe to ignore.
-                }
-                catch (Win32Exception)
-                {
-                    // Kill failed (e.g. access denied on elevated child, zombie process on Linux).
-                    // Swallow to avoid tearing down the process from an unhandled callback exception.
+                    // Process already exited, kill failed (access denied / zombie), platform
+                    // can't kill the process tree, or the kill produced an aggregate of child
+                    // failures. A CancellationToken callback that throws causes Cancel() at
+                    // the call site to throw an aggregate, which would then escape the parallel
+                    // task body's broad catch — silently broken. Swallow here so the kill is
+                    // strictly best-effort.
                 }
             });
 
@@ -530,24 +759,71 @@ public sealed class JobRunner
         }
         finally
         {
-            process.Dispose();
+            // Dispose-in-finally: must not mask the original exception. Process.Dispose can
+            // throw on Windows when the underlying handle is in an unusual state during
+            // process-tree teardown after Kill; if that happened, swallowing here keeps the
+            // real exception (cancellation, WaitForExit failure) propagating. Bare catch is
+            // deliberate (no OOM/SOE filter): if Dispose throws OOM/SOE, the original
+            // exception still matters more than the disposal failure — the process is
+            // already terminating, surface what triggered it.
+            try { process.Dispose(); }
+            catch (Exception) { /* dispose-in-finally — original exception must propagate; bare by design */ }
         }
     }
 
     /// <summary>
-    /// Reads a redirected stream in chunks and appends to the shared <see cref="StringBuilder"/>.
-    /// The lock serialises interleaved stdout/stderr writes so chunks don't get torn.
+    /// Reads a redirected stream and emits one line at a time into the shared
+    /// <paramref name="output"/> StringBuilder, holding the lock only across each line
+    /// flush. This prevents cross-stream chunk interleaving from landing mid-line.
+    /// <para/>
+    /// Pre-fix this method appended each ReadAsync chunk under a lock — the lock
+    /// prevented torn appends but DID NOT prevent one stream's chunk landing
+    /// mid-line of the other. This is the same defect-class the peep R6 manual smoke
+    /// caught (memory: <c>feedback_concurrent_stream_merge_corruption.md</c>) and that
+    /// the round-19 verification (2026-05-03) flagged for wargs after pattern-matching
+    /// against the confirmed peep defect. Reproducer in
+    /// <c>JobRunnerStreamMergeTests.ReadStreamAsync_ChunkSplitsAcrossLines_OutputIsLineAtomic</c>
+    /// (mutation-tested: pre-fix code produces "AAABBB\nCCC\n" — interleaved corruption —
+    /// while post-fix produces "BBB\n" then "AAACCC\n").
+    /// <para/>
+    /// Lines from stdout and stderr can still interleave at LINE boundaries (true
+    /// chronological merge across two pipes is impossible without OS-level support),
+    /// but the granularity is line-atomic instead of chunk-atomic.
     /// </summary>
-    private static async Task ReadStreamAsync(StreamReader reader, StringBuilder output, object outputLock)
+    // Internal (not private) so the deterministic chunk-pattern test can drive this
+    // directly via TextReader subclasses. Parameter is the TextReader base type
+    // (StreamReader inherits from it) so a custom test reader can return controlled
+    // char-buffer chunks. Production call sites pass `process.StandardOutput` /
+    // `process.StandardError` (StreamReader) — unchanged.
+    internal static async Task ReadStreamAsync(TextReader reader, StringBuilder output, object outputLock)
     {
         char[] buffer = new char[4096];
+        var lineBuffer = new StringBuilder();
         int charsRead;
 
         while ((charsRead = await reader.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false)) > 0)
         {
+            for (int i = 0; i < charsRead; i++)
+            {
+                char c = buffer[i];
+                lineBuffer.Append(c);
+                if (c == '\n')
+                {
+                    lock (outputLock)
+                    {
+                        output.Append(lineBuffer);
+                    }
+                    lineBuffer.Clear();
+                }
+            }
+        }
+
+        // Final partial line at EOF (no trailing newline) — flush so it isn't lost.
+        if (lineBuffer.Length > 0)
+        {
             lock (outputLock)
             {
-                output.Append(buffer, 0, charsRead);
+                output.Append(lineBuffer);
             }
         }
     }
@@ -573,8 +849,10 @@ public sealed class JobRunner
             process = Process.Start(startInfo)
                 ?? throw new Win32Exception("Process.Start returned null");
         }
-        catch (Win32Exception)
+        catch (Exception ex) when (IsSpawnFailure(ex))
         {
+            // See ExecuteJobAsync for rationale on the broader catch set.
+            string directFault = FormatSpawnFault(ex, invocation);
             if (_options.ShellFallback)
             {
                 startInfo = BuildShellFallbackStartInfo(invocation, redirectIo: false);
@@ -583,7 +861,7 @@ public sealed class JobRunner
                     process = Process.Start(startInfo)
                         ?? throw new Win32Exception("Process.Start returned null");
                 }
-                catch (Win32Exception)
+                catch (Exception ex2) when (IsSpawnFailure(ex2))
                 {
                     stopwatch.Stop();
                     return new JobResult(
@@ -592,7 +870,8 @@ public sealed class JobRunner
                         Output: null,
                         Duration: stopwatch.Elapsed,
                         SourceItems: invocation.SourceItems,
-                        Skipped: false);
+                        Skipped: false,
+                        FaultMessage: $"{directFault}; shell fallback: {FormatSpawnFault(ex2, invocation)}");
                 }
             }
             else
@@ -604,7 +883,8 @@ public sealed class JobRunner
                     Output: null,
                     Duration: stopwatch.Elapsed,
                     SourceItems: invocation.SourceItems,
-                    Skipped: false);
+                    Skipped: false,
+                    FaultMessage: directFault);
             }
         }
 
@@ -621,14 +901,18 @@ public sealed class JobRunner
                         process.Kill(entireProcessTree: true);
                     }
                 }
-                catch (InvalidOperationException)
+                catch (Exception ex) when (
+                    ex is InvalidOperationException
+                    || ex is Win32Exception
+                    || ex is NotSupportedException
+                    || ex is AggregateException)
                 {
-                    // Process already exited between the check and the kill — safe to ignore.
-                }
-                catch (Win32Exception)
-                {
-                    // Kill failed (e.g. access denied on elevated child, zombie process on Linux).
-                    // Swallow to avoid tearing down the process from an unhandled callback exception.
+                    // Process already exited, kill failed (access denied / zombie), platform
+                    // can't kill the process tree, or the kill produced an aggregate of child
+                    // failures. A CancellationToken callback that throws causes Cancel() at
+                    // the call site to throw an aggregate, which would then escape the parallel
+                    // task body's broad catch — silently broken. Swallow here so the kill is
+                    // strictly best-effort.
                 }
             });
 
@@ -647,7 +931,15 @@ public sealed class JobRunner
         }
         finally
         {
-            process.Dispose();
+            // Dispose-in-finally: must not mask the original exception. Process.Dispose can
+            // throw on Windows when the underlying handle is in an unusual state during
+            // process-tree teardown after Kill; if that happened, swallowing here keeps the
+            // real exception (cancellation, WaitForExit failure) propagating. Bare catch is
+            // deliberate (no OOM/SOE filter): if Dispose throws OOM/SOE, the original
+            // exception still matters more than the disposal failure — the process is
+            // already terminating, surface what triggered it.
+            try { process.Dispose(); }
+            catch (Exception) { /* dispose-in-finally — original exception must propagate; bare by design */ }
         }
     }
 
@@ -731,10 +1023,82 @@ public sealed class JobRunner
             string? response = tty.ReadLine();
             return string.Equals(response?.Trim(), "y", StringComparison.OrdinalIgnoreCase);
         }
-        catch (IOException)
+        catch (Exception ex) when (
+            ex is IOException
+            || ex is UnauthorizedAccessException
+            || ex is PlatformNotSupportedException
+            || ex is ArgumentException)
         {
-            // No terminal available — default to skip
+            // No terminal available (CI, daemon, sandbox) — surface a diagnostic so the user
+            // doesn't get a silent "all jobs skipped, exit 0". --confirm was deliberately
+            // requested; silently no-op'ing it is a footgun.
+            try
+            {
+                Console.Error.WriteLine("wargs: --confirm requested but no terminal available; declining.");
+            }
+            catch (Exception ex2) when (ex2 is not OutOfMemoryException and not StackOverflowException) { /* stderr also unavailable — best-effort */ }
             return false;
         }
+    }
+
+    /// <summary>
+    /// Identifies <see cref="Process.Start"/> exceptions that should be classified as a spawn
+    /// failure (and converted to a JobResult with FaultMessage) rather than escaping into the
+    /// parallel-loop broad catch. Catching only <see cref="Win32Exception"/> leaves
+    /// <see cref="InvalidOperationException"/> (empty FileName), <see cref="FileNotFoundException"/>,
+    /// and <see cref="PlatformNotSupportedException"/> escaping with no observable evidence.
+    /// </summary>
+    private static bool IsSpawnFailure(Exception ex)
+        => ex is Win32Exception
+        || ex is InvalidOperationException
+        || ex is FileNotFoundException
+        || ex is PlatformNotSupportedException
+        || ex is ObjectDisposedException;
+
+    /// <summary>
+    /// Renders a spawn-failure exception as a one-line diagnostic for <see cref="JobResult.FaultMessage"/>.
+    /// </summary>
+    private static string FormatSpawnFault(Exception ex, CommandInvocation invocation)
+        => $"failed to spawn '{invocation.Command}': {ex.GetType().Name}: {ex.Message}";
+
+    /// <summary>
+    /// Best-effort synchronous write to <paramref name="writer"/>. A broken downstream pipe
+    /// (`wargs ... | head -1`) raises <see cref="IOException"/> on Write; that's a normal
+    /// end-of-stream condition for an xargs-style tool, not a wargs error. Returns true if
+    /// the write succeeded; false if the pipe is closed and the caller should stop flushing.
+    /// </summary>
+    private static bool SafeWrite(TextWriter writer, string value)
+    {
+        try { writer.Write(value); return true; }
+        catch (IOException) { return false; }
+        catch (ObjectDisposedException) { return false; }
+    }
+
+    /// <summary>
+    /// Best-effort asynchronous write. See <see cref="SafeWrite"/> for the pipe-closed
+    /// rationale. Returns true on success, false on broken-pipe / disposed-writer.
+    /// </summary>
+    private static async Task<bool> SafeWriteAsync(TextWriter writer, string value)
+    {
+        try { await writer.WriteAsync(value).ConfigureAwait(false); return true; }
+        catch (IOException) { return false; }
+        catch (ObjectDisposedException) { return false; }
+    }
+
+    /// <summary>
+    /// Invokes the optional <see cref="JobRunnerOptions.OnJobCompleted"/> callback with
+    /// best-effort semantics: any exception from the callback is swallowed so a buggy
+    /// streaming subscriber cannot abort the run. The callback fires for EVERY job
+    /// completion — including skipped jobs (so reorder-buffer subscribers like Program.cs's
+    /// keep-order NDJSON emitter can advance their next-expected-index pointer past
+    /// skipped slots). Subscribers that want to ignore skipped jobs in their own emission
+    /// (the default --ndjson contract: "one line per job actually run") must filter on
+    /// <see cref="JobResult.Skipped"/> themselves.
+    /// </summary>
+    private void InvokeJobCompleted(JobResult result)
+    {
+        if (_options.OnJobCompleted is null) { return; }
+        try { _options.OnJobCompleted(result); }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException) { /* streaming subscriber must not abort the run */ }
     }
 }

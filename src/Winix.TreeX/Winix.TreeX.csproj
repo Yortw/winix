@@ -10,4 +10,10 @@
     <ProjectReference Include="..\Winix.FileWalk\Winix.FileWalk.csproj" />
     <ProjectReference Include="..\Yort.ShellKit\Yort.ShellKit.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Expose internal helpers (e.g. TreeBuilder.IsMatchSafe) to the test project so the
+         RegexMatchTimeoutException swallow path can be exercised with a 1-tick timeout
+         regex without going through the full Build pipeline. -->
+    <InternalsVisibleTo Include="Winix.TreeX.Tests" />
+  </ItemGroup>
 </Project>

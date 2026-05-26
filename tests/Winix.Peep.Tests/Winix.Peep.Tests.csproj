@@ -7,8 +7,16 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.*" />
     <PackageReference Include="xunit" Version="2.*" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.*" />
+    <PackageReference Include="Xunit.SkippableFact" Version="1.*" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Winix.Peep\Winix.Peep.csproj" />
+    <!-- Build-order dependency only: ProgramMainTests launches src/peep/bin/.../peep.dll
+         as a child process via Process.Start. Without this reference the peep console
+         app is a sibling project (not a build input of the test) and parallel solution
+         builds can race the test execution against a stale peep.dll on disk.
+         ReferenceOutputAssembly=false keeps it as a build-graph hint without pulling
+         peep into the test's runtime closure. -->
+    <ProjectReference Include="..\..\src\peep\peep.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 </Project>

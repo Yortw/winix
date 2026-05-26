@@ -79,13 +79,13 @@ timeit some-command 2>&1 | less
 
 **`-R` is on by default.** ANSI codes are passed through unless `NO_COLOR` is set or `--no-color` is passed. If you see raw escape sequences, check whether `NO_COLOR` is set in the environment.
 
-**`LESS` env var replaces defaults entirely.** If `LESS` is set to any non-empty value, the built-in defaults (`FRX`) are not applied. This matches traditional `less` behaviour. Unset `LESS` or set it to empty to restore Winix defaults.
+**`LESS` env var has three distinct states.** `LESS` unset → Winix `less` applies the modern defaults `FRX`. `LESS` set to a non-empty value → that value replaces the defaults entirely (parsed as a list of options, unknown flags ignored). `LESS=` (set but empty) → all defaults are disabled, so every option must come from the CLI. Pre-v0.3.0 conflated unset with empty; in v0.3.0 they have different meanings.
 
 **`+F` follow mode stays active until `q` is pressed.** Unlike `tail -f`, pressing `q` in follow mode returns to normal paging rather than exiting. Press `q` a second time to quit from normal mode.
 
 **`-F` quit-if-one-screen is on by default.** If output fits on a single screen, `less` exits without waiting for a keypress. This is part of the default `FRX` settings. Pass `-F-` (or set `LESS=RX`) to disable this if you always want interactive paging.
 
-**Multiple files are paged in sequence.** When invoked with multiple file arguments, `less` shows them one after another. The `:n` and `:p` bindings navigate between files (next/previous).
+**At most one file argument is currently accepted.** Passing two or more file arguments exits with usage error 2 and a message naming both files (`less: too many file arguments...`). For concatenated paging, pipe through `cat`: `cat file1 file2 | less`. Multi-file paging with `:n` / `:p` navigation is tracked for a future v0.5+ release; the bindings do not exist in v0.3.0.
 
 **stdin is consumed on first open.** When reading from stdin, the content is buffered in memory. Very large stdin streams may cause high memory usage. For large file viewing, prefer passing the file path directly.
 
@@ -110,7 +110,10 @@ timeit some-command 2>&1 | less
 
 ## LESS Environment Variable
 
-- **Unset or empty**: Winix `less` applies `FRX` defaults (quit-if-one-screen, raw colour passthrough, no-init screen clear)
-- **Non-empty**: replaces defaults entirely — set carefully to avoid losing colour passthrough
+Three distinct states (v0.3.0 semantics — pre-fix conflated unset and empty):
+
+- **Unset**: Winix `less` applies the modern defaults `FRX` (quit-if-one-screen, raw colour passthrough, no-init screen clear)
+- **Set, non-empty**: the value replaces the defaults entirely, parsed as a list of options (unknown flags ignored). Set carefully — `LESS=N` (line numbers only) loses colour passthrough.
+- **Set, empty (`LESS=`)**: disables all defaults. Every option must come from CLI flags.
 
 Recommended: leave `LESS` unset and use flags explicitly when you need different behaviour.

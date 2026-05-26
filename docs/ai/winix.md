@@ -86,6 +86,8 @@ winix status --no-color
 
 **Exit code 126 means no package manager was found.** On a minimal system with no supported package manager, `winix` cannot operate. Install Scoop, Winget, or Homebrew first, or use `--via dotnet` to fall back to .NET global tool installation.
 
+**`winix list` / `status` work offline.** Every released `winix` binary bundles the suite manifest at `<install-dir>/share/winix/winix-manifest.json`, so the catalogue-lookup commands (`list` and `status`) succeed without network access. A per-user cache layer (`%LOCALAPPDATA%\winix\` on Windows; `$XDG_CACHE_HOME/winix/` or `~/.cache/winix/` elsewhere) layers on top when an explicit refresh has happened since the binary's release. There is no automatic network refresh on `LoadAsync`; agents should not assume the manifest is up-to-the-minute. Note: `winix uninstall` mutates installed state — it consults the bundled manifest to resolve tool names, but it is not a read-only / query-safe command and should not be invoked speculatively.
+
 ## Getting Structured Data
 
 **--describe** — machine-readable flag reference and metadata:
@@ -93,7 +95,7 @@ winix status --no-color
 winix --describe
 ```
 
-Output is JSON to stdout and always exits 0. Use this when you need to verify exact flag names, available commands, and supported package managers before constructing a command.
+Output is JSON to stdout and always exits 0. Use this when you need to verify exact flag names, available commands, and supported package managers before constructing a command. Note: `--describe` lists `--json` as a top-level flag (inherited from the suite-wide `StandardFlags()`); `--json` is only meaningful on the `list` and `status` subcommands — install/update/uninstall ignore it.
 
 **status command** — per-tool install state and version:
 ```bash

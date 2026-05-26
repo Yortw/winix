@@ -57,7 +57,7 @@ whoholds 8080
 whoholds myapp.dll --pid-only
 
 # Kill everything holding the file (pipe PIDs to wargs)
-whoholds myapp.dll --pid-only | wargs kill -f {}
+whoholds myapp.dll --pid-only | wargs taskkill /PID {} /F
 
 # Machine-readable output for scripting
 whoholds :8080 --json
@@ -72,7 +72,7 @@ whoholds --describe
 |--------|-------------|
 | `--pid-only` | Output only PIDs (one per line). Suitable for piping to `wargs` or `kill`. |
 | `--full-path`, `-l` | Show the full executable path instead of just the process name. Requires elevation for system processes. |
-| `--json` | Output results as a JSON object. Each process entry includes `pid`, `name`, `path`, `state`, and `resource`. |
+| `--json` | Output results as a JSON object on **stdout** (suite convention — pipe-friendly for `jq`). Envelope fields: `tool`, `version`, `exit_code`, `exit_reason`, plus `processes` array on success or `error` string on failure. Each process entry includes `pid`, `name`, `path`, `state`, and `resource`. |
 | `--describe` | Output structured tool metadata as JSON (flags, examples, composability). |
 | `--color` | Force coloured output (overrides `NO_COLOR`). |
 | `--no-color` | Disable coloured output. |
@@ -89,12 +89,12 @@ whoholds --describe
 
 ## Elevation Warning
 
-`whoholds` always prints a warning to stderr when it is not running as administrator. This is deliberate: without elevation, the Restart Manager API (Windows) and `lsof` (Linux/macOS) may only see processes belonging to the current user. A file held by a system service or another user's process will not appear in the results.
+`whoholds` always prints a warning to stderr when it is not running elevated (administrator on Windows, root on Linux/macOS). This is deliberate: without elevation, the Restart Manager API (Windows) and `lsof` (Linux/macOS) may only see processes belonging to the current user. A file held by a system service or another user's process will not appear in the results.
 
 The warning reads:
 
 ```
-Warning: not running as administrator — results may be incomplete.
+Warning: Not elevated — only showing current user's processes.
 ```
 
 This prevents the frustrating "it says nothing is holding the file, but I still can't delete it" scenario. If you see no holders but the problem persists, re-run elevated.

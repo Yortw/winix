@@ -48,7 +48,9 @@ Overwrite existing output files.
 Delete the input file after a successful operation.
 .TP
 \f[B]\-k\f[R], \f[B]\(enkeep\f[R]
-Keep the original file (default; accepted for gzip compatibility).
+Keep the original file (default).
+Takes precedence over \f[B]\(enremove\f[R] when both are supplied; a
+warning is emitted to stderr.
 .TP
 \f[B]\-v\f[R], \f[B]\(enverbose\f[R]
 Show stats even when piped.
@@ -119,10 +121,31 @@ T}
 Success.
 .TP
 \f[B]1\f[R]
-Compression or decompression error.
+Compression or decompression error: corrupt input, truncated gzip stream
+(ISIZE mismatch), multi\-member gzip (concatenated gzip is rejected \(em
+see BUGS), unknown format, write failed.
 .TP
 \f[B]2\f[R]
-Usage error (bad arguments).
+Usage error: bad arguments, missing input, \f[B]\(enbrotli\f[R] with
+\f[B]\(enzstd\f[R], \f[B]\(enoutput\f[R] empty/whitespace,
+\f[B]\(enoutput\f[R] with multiple inputs, level out of range.
+.SH BUGS
+Multi\-member gzip (concatenated gzip streams produced by
+\f[CR]cat a.gz b.gz\f[R] or \f[CR]gzip file1 file2 && cat *.gz\f[R]) is
+rejected with exit 1 and \(lqdata is corrupt or truncated\(rq, even
+though the decompressed content is correct.
+This is because squeeze validates the final ISIZE field against the
+cumulative decompressed byte count, and for multi\-member streams ISIZE
+only represents the last member\(cqs size.
+.PP
+Workaround: pipe through system gzip (\f[CR]gzip \-dc concat.gz\f[R])
+which handles multi\-member natively, or split the concatenation back
+into individual \f[CR].gz\f[R] files.
+.PP
+This trade\-off was made to prefer loud false\-positives on rare
+multi\-member input over silent corruption on common
+incompressible\-truncation input.
+A future release may add proper member\-by\-member parsing.
 .SH ENVIRONMENT
 .TP
 \f[B]NO_COLOR\f[R]

@@ -39,10 +39,19 @@ public static class CrontabParser
             {
                 string name = line.Substring(WinixTagPrefix.Length).Trim();
 
-                // The next line should be the cron entry (possibly commented-out if disabled).
-                if (i + 1 < lines.Length)
+                int next = FindCronLineIndex(lines, i);
+                if (next < 0)
                 {
-                    string cronLine = lines[i + 1].TrimEnd('\r');
+                    // Orphan tag — either ran off EOF with nothing but blanks, or the next
+                    // non-blank line is another winix tag. Either way: emit a placeholder
+                    // so the listing surfaces the corruption rather than silently dropping
+                    // the user's task name.
+                    tasks.Add(new ScheduledTask(name, "", null, "Unknown (no cron line)", "", ""));
+                    continue;
+                }
+
+                string cronLine = lines[next].TrimEnd('\r');
+                {
                     bool disabled = cronLine.StartsWith("# ", StringComparison.Ordinal);
                     string activeLine = disabled ? cronLine.Substring(2) : cronLine;
 
@@ -53,20 +62,25 @@ public static class CrontabParser
                     DateTime? nextRun = null;
                     if (!disabled)
                     {
+                        // Catch only the exceptions CronExpression.Parse and GetNextOccurrence
+                        // can produce (FormatException for bad syntax, InvalidOperationException
+                        // when no occurrence is found within 8 years). A bare catch here would
+                        // also swallow OutOfMemoryException / StackOverflowException / runtime
+                        // errors elsewhere and leave the user with no diagnostic at all.
                         try
                         {
                             var expr = CronExpression.Parse(cronFields);
-                            // Convert to local DateTime for ScheduledTask.
                             nextRun = expr.GetNextOccurrence(DateTimeOffset.Now).LocalDateTime;
                         }
-                        catch
-                        {
-                            // Unparseable cron — leave nextRun as null.
-                        }
+                        catch (FormatException) { /* unparseable cron — leave nextRun null */ }
+                        catch (InvalidOperationException) { /* no occurrence within 8 years */ }
                     }
 
                     tasks.Add(new ScheduledTask(name, cronFields, nextRun, status, command, ""));
-                    i++; // Skip the cron line — we already consumed it.
+                    // Advance the index PAST the cron line we just consumed (which lived at
+                    // 'next', possibly several lines ahead of i+1 due to blank-line spacing).
+                    // The for-loop's i++ then moves us to next+1.
+                    i = next;
                 }
 
                 continue;
@@ -84,10 +98,8 @@ public static class CrontabParser
                     var expr = CronExpression.Parse(cronFields);
                     nextRun = expr.GetNextOccurrence(DateTimeOffset.Now).LocalDateTime;
                 }
-                catch
-                {
-                    // Unparseable cron — leave nextRun as null.
-                }
+                catch (FormatException) { /* unparseable cron — leave nextRun null */ }
+                catch (InvalidOperationException) { /* no occurrence within 8 years */ }
 
                 // Use the command as the display name since there is no winix name tag.
                 tasks.Add(new ScheduledTask(command, cronFields, nextRun, "Enabled", command, ""));
@@ -97,19 +109,51 @@ public static class CrontabParser
         return tasks;
     }
 
-    /// <summary>Appends a winix-tagged cron entry to the crontab content.</summary>
+    /// <summary>Adds a winix-tagged cron entry to the crontab content, overwriting any
+    /// existing entry with the same name. Match the schtasks <c>/F</c> semantic: schedule
+    /// add is idempotent — running it twice with the same name results in one entry, not two.</summary>
     /// <param name="crontabContent">The existing crontab text.</param>
-    /// <param name="name">The winix task name.</param>
-    /// <param name="cronExpression">The 5-field cron expression (e.g. <c>*/5 * * * *</c>).</param>
-    /// <param name="command">The shell command to run.</param>
-    /// <returns>The updated crontab text with the new entry appended.</returns>
+    /// <param name="name">The winix task name. Must not contain newlines, carriage returns, or the <c># winix:</c> tag prefix.</param>
+    /// <param name="cronExpression">The 5-field cron expression (e.g. <c>*/5 * * * *</c>). Must not contain newlines.</param>
+    /// <param name="command">The shell command to run. Must not contain newlines.</param>
+    /// <returns>The updated crontab text with the entry added or updated.</returns>
+    /// <exception cref="ArgumentException">
+    /// Thrown when <paramref name="name"/>, <paramref name="cronExpression"/>, or
+    /// <paramref name="command"/> contains a newline / carriage-return character, or when
+    /// <paramref name="name"/> would forge an additional <c># winix:</c> tag. Without this
+    /// check, a user-supplied newline in any of the three could inject a second cron entry
+    /// into the user's crontab — the literal task is registered, AND a hidden second task
+    /// runs alongside it.
+    /// </exception>
+    /// <remarks>
+    /// Pre-R4, AddEntry unconditionally appended. On Linux/macOS two identically-named
+    /// entries could co-exist; <c>remove</c>/<c>disable</c>/<c>enable</c>/<c>run</c> would
+    /// only act on the first match, so a duplicate <c>add</c> followed by <c>remove</c>
+    /// silently left the second entry firing forever. The schtasks side already used
+    /// <c>/F</c> to overwrite — this brings crontab semantics in line.
+    /// </remarks>
     public static string AddEntry(string crontabContent, string name, string cronExpression, string command)
     {
-        var sb = new StringBuilder();
-        if (!string.IsNullOrEmpty(crontabContent))
+        ValidateNoNewlines(name, nameof(name));
+        ValidateNoNewlines(cronExpression, nameof(cronExpression));
+        ValidateNoNewlines(command, nameof(command));
+        if (name.Contains(WinixTagPrefix, StringComparison.Ordinal))
         {
-            sb.Append(crontabContent);
-            if (!crontabContent.EndsWith('\n'))
+            throw new ArgumentException(
+                $"Task name must not contain '{WinixTagPrefix}' — would forge an additional crontab tag.",
+                nameof(name));
+        }
+
+        // Idempotent overwrite: if a winix entry with this name already exists, drop it
+        // before appending the new one. RemoveEntry is a no-op when no match is found,
+        // so the fresh-add path pays only one extra string scan.
+        string baseline = RemoveEntry(crontabContent, name);
+
+        var sb = new StringBuilder();
+        if (!string.IsNullOrEmpty(baseline))
+        {
+            sb.Append(baseline);
+            if (!baseline.EndsWith('\n'))
             {
                 sb.Append('\n');
             }
@@ -145,12 +189,13 @@ public static class CrontabParser
 
             if (line.Equals(tag, StringComparison.Ordinal))
             {
-                // Skip this tag line and the following cron line.
-                if (i + 1 < lines.Length)
-                {
-                    i++; // Skip cron line.
-                }
-
+                // Skip the tag line, any blank lines between tag and cron line (legitimate
+                // readability spacing), and the cron line itself. Without the blank-line
+                // skip, RemoveEntry would leave the user's actual cron line orphaned in
+                // the crontab — the user would see 'Removed task X.' but the task would
+                // continue to fire from the un-tagged cron line.
+                int next = FindCronLineIndex(lines, i);
+                i = next >= 0 ? next : i;
                 continue;
             }
 
@@ -245,6 +290,30 @@ public static class CrontabParser
         return cronLine.Substring(start, endOfFields - start);
     }
 
+    /// <summary>
+    /// Throws <see cref="ArgumentException"/> when <paramref name="value"/> contains a newline
+    /// or carriage-return character. Crontab lines are newline-delimited, so any unfiltered
+    /// newline in name/cron/command would split a single entry into multiple lines —
+    /// silently registering an extra winix-or-not task in the user's crontab.
+    /// </summary>
+    private static void ValidateNoNewlines(string value, string paramName)
+    {
+        if (value is null)
+        {
+            throw new ArgumentNullException(paramName);
+        }
+
+        if (value.IndexOfAny(NewlineChars) >= 0)
+        {
+            throw new ArgumentException(
+                $"{paramName} must not contain newline or carriage-return characters " +
+                "(would inject additional crontab entries).",
+                paramName);
+        }
+    }
+
+    private static readonly char[] NewlineChars = { '\n', '\r' };
+
     /// <summary>Comments out or uncomments the cron line following a winix tag.</summary>
     private static string ToggleEntry(string crontabContent, string name, bool disable)
     {
@@ -262,34 +331,88 @@ public static class CrontabParser
                 sb.Append('\n');
             }
 
-            if (line.Equals(tag, StringComparison.Ordinal) && i + 1 < lines.Length)
+            if (!line.Equals(tag, StringComparison.Ordinal))
             {
-                i++;
-                string cronLine = lines[i].TrimEnd('\r');
-                sb.Append('\n');
-
-                if (disable && !cronLine.StartsWith("# ", StringComparison.Ordinal))
-                {
-                    sb.Append("# ");
-                    sb.Append(cronLine);
-                }
-                else if (!disable && cronLine.StartsWith("# ", StringComparison.Ordinal))
-                {
-                    sb.Append(cronLine.Substring(2));
-                }
-                else
-                {
-                    // Already in the desired state — leave unchanged.
-                    sb.Append(cronLine);
-                }
-
-                if (i < lines.Length - 1)
-                {
-                    sb.Append('\n');
-                }
+                continue;
             }
+
+            int cronIndex = FindCronLineIndex(lines, i);
+            if (cronIndex < 0)
+            {
+                // Orphan tag (no cron line, or next non-blank is another tag). Nothing to
+                // toggle — leave the surrounding content untouched and let the next loop
+                // iteration handle subsequent lines.
+                continue;
+            }
+
+            // Emit any intervening blank lines verbatim so they survive the round-trip.
+            for (int j = i + 1; j < cronIndex; j++)
+            {
+                sb.Append(lines[j].TrimEnd('\r'));
+                sb.Append('\n');
+            }
+
+            // Now toggle the actual cron line at cronIndex.
+            string cronLine = lines[cronIndex].TrimEnd('\r');
+            if (disable && !cronLine.StartsWith("# ", StringComparison.Ordinal))
+            {
+                sb.Append("# ");
+                sb.Append(cronLine);
+            }
+            else if (!disable && cronLine.StartsWith("# ", StringComparison.Ordinal))
+            {
+                sb.Append(cronLine.Substring(2));
+            }
+            else
+            {
+                // Already in the desired state — leave unchanged.
+                sb.Append(cronLine);
+            }
+
+            if (cronIndex < lines.Length - 1)
+            {
+                sb.Append('\n');
+            }
+
+            // Advance past the cron line so the for-loop's i++ moves to the line after.
+            i = cronIndex;
         }
 
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Given the index of a <see cref="WinixTagPrefix"/> line, returns the index of the cron
+    /// line that belongs to it — skipping any intervening blank/whitespace-only lines, which
+    /// users frequently insert as visual separators when hand-editing crontabs. Returns
+    /// <c>-1</c> for an orphan tag (next non-blank is another winix tag, or end of file).
+    /// </summary>
+    /// <remarks>
+    /// Centralising this logic ensures all four call sites (<see cref="ParseEntries"/>,
+    /// <see cref="RemoveEntry"/>, <see cref="DisableEntry"/>, <see cref="EnableEntry"/>)
+    /// agree on which line is "the cron line" for a given tag. Without this, R3's blank-
+    /// line tolerance in <see cref="ParseEntries"/> diverged from <c>RemoveEntry</c> and
+    /// <c>ToggleEntry</c> — which still hard-coded strict adjacency — producing visible
+    /// task lifecycle corruption (a 'list' that showed the task healthy paired with a
+    /// 'disable' that left it firing).
+    /// </remarks>
+    private static int FindCronLineIndex(string[] lines, int tagIndex)
+    {
+        for (int i = tagIndex + 1; i < lines.Length; i++)
+        {
+            string line = lines[i].TrimEnd('\r');
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                continue;
+            }
+            if (line.StartsWith(WinixTagPrefix, StringComparison.Ordinal))
+            {
+                // Adjacent winix tag — current tag is orphan, return so the caller can
+                // emit/skip-as-orphan and the for-loop can pick up the next tag fresh.
+                return -1;
+            }
+            return i;
+        }
+        return -1;
     }
 }

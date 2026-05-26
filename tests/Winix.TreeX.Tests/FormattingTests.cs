@@ -53,23 +53,29 @@ public class FormattingTests
 
     // --- FormatNdjsonLine ---
 
+    // Tier-2 baseline 2026-05-06 finding F2: NDJSON records previously duplicated
+    // tool/version/exit_code/exit_reason envelope fields per record. Stream-level
+    // metadata now lives only in --json summary; per-record output is record-only.
+    // Tier-2 baseline 2026-05-06 finding F3: directories without rolled-up sizes
+    // now emit `"size_bytes":null` instead of the `-1` sentinel.
+
     [Fact]
-    public void FormatNdjsonLine_ContainsStandardEnvelopeFields()
+    public void FormatNdjsonLine_DoesNotContainEnvelopeFields()
     {
         TreeNode node = MakeFile("app.cs", 2340);
-        string line = Formatting.FormatNdjsonLine(node, 1, "/tmp", ToolName, Version);
+        string line = Formatting.FormatNdjsonLine(node, 1, "/tmp");
 
-        Assert.Contains("\"tool\":\"treex\"", line);
-        Assert.Contains("\"version\":\"0.1.0\"", line);
-        Assert.Contains("\"exit_code\":0", line);
-        Assert.Contains("\"exit_reason\":\"success\"", line);
+        Assert.DoesNotContain("\"tool\"", line);
+        Assert.DoesNotContain("\"version\"", line);
+        Assert.DoesNotContain("\"exit_code\"", line);
+        Assert.DoesNotContain("\"exit_reason\"", line);
     }
 
     [Fact]
     public void FormatNdjsonLine_ContainsAllNodeFields()
     {
         TreeNode node = MakeFile("app.cs", 2340);
-        string line = Formatting.FormatNdjsonLine(node, 3, "/tmp", ToolName, Version);
+        string line = Formatting.FormatNdjsonLine(node, 3, "/tmp");
 
         Assert.Contains("\"path\":\"app.cs\"", line);
         Assert.Contains("\"name\":\"app.cs\"", line);
@@ -83,16 +89,41 @@ public class FormattingTests
     public void FormatNdjsonLine_DirectoryType_EmitsDir()
     {
         TreeNode node = MakeDir("src");
-        string line = Formatting.FormatNdjsonLine(node, 0, "/tmp", ToolName, Version);
+        string line = Formatting.FormatNdjsonLine(node, 0, "/tmp");
 
         Assert.Contains("\"type\":\"dir\"", line);
+    }
+
+    [Fact]
+    public void FormatNdjsonLine_DirectoryWithoutRollup_EmitsNullSize()
+    {
+        // Per finding F3: directories whose SizeBytes is the no-rollup sentinel (-1)
+        // emit `"size_bytes":null` rather than the raw sentinel. JSON convention.
+        TreeNode node = MakeDir("src"); // MakeDir sets SizeBytes = -1 (no rollup)
+        string line = Formatting.FormatNdjsonLine(node, 0, "/tmp");
+
+        Assert.Contains("\"size_bytes\":null", line);
+        Assert.DoesNotContain("\"size_bytes\":-1", line);
+    }
+
+    [Fact]
+    public void FormatNdjsonLine_DirectoryWithRollup_EmitsRolledSize()
+    {
+        // When --size is enabled the builder rolls up directory sizes; the resulting
+        // non-negative SizeBytes should serialise as a number, not null.
+        TreeNode node = MakeDir("src");
+        node.SizeBytes = 49356;
+        string line = Formatting.FormatNdjsonLine(node, 0, "/tmp");
+
+        Assert.Contains("\"size_bytes\":49356", line);
+        Assert.DoesNotContain("null", line);
     }
 
     [Fact]
     public void FormatNdjsonLine_SymlinkType_EmitsLink()
     {
         TreeNode node = MakeSymlink("latest");
-        string line = Formatting.FormatNdjsonLine(node, 1, "/tmp", ToolName, Version);
+        string line = Formatting.FormatNdjsonLine(node, 1, "/tmp");
 
         Assert.Contains("\"type\":\"link\"", line);
     }
@@ -101,7 +132,7 @@ public class FormattingTests
     public void FormatNdjsonLine_IsValidJson()
     {
         TreeNode node = MakeFile("app.cs", 2340);
-        string line = Formatting.FormatNdjsonLine(node, 1, "/tmp", ToolName, Version);
+        string line = Formatting.FormatNdjsonLine(node, 1, "/tmp");
 
         // Will throw if invalid
         JsonDocument.Parse(line);
@@ -111,7 +142,7 @@ public class FormattingTests
     public void FormatNdjsonLine_ContainsNoNewlines()
     {
         TreeNode node = MakeFile("app.cs", 2340);
-        string line = Formatting.FormatNdjsonLine(node, 1, "/tmp", ToolName, Version);
+        string line = Formatting.FormatNdjsonLine(node, 1, "/tmp");
 
         Assert.DoesNotContain('\n', line);
     }
@@ -128,7 +159,7 @@ public class FormattingTests
             Modified = FixedDate
         };
 
-        string line = Formatting.FormatNdjsonLine(node, 0, "/tmp", ToolName, Version);
+        string line = Formatting.FormatNdjsonLine(node, 0, "/tmp");
 
         // Must be valid JSON even with quote in the path
         JsonDocument.Parse(line);
@@ -138,7 +169,7 @@ public class FormattingTests
     public void FormatNdjsonLine_RootNode_EmitsDotPath()
     {
         TreeNode node = MakeDir("myproject");
-        string line = Formatting.FormatNdjsonLine(node, 0, "/tmp/myproject", ToolName, Version);
+        string line = Formatting.FormatNdjsonLine(node, 0, "/tmp/myproject");
 
         Assert.Contains("\"path\":\".\"", line);
     }
@@ -155,7 +186,7 @@ public class FormattingTests
             Modified = FixedDate
         };
 
-        string line = Formatting.FormatNdjsonLine(node, 2, "/tmp/myproject", ToolName, Version);
+        string line = Formatting.FormatNdjsonLine(node, 2, "/tmp/myproject");
 
         Assert.Contains("\"path\":\"src/app.cs\"", line);
     }

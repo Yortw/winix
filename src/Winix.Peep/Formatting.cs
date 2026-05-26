@@ -61,7 +61,11 @@ public static partial class Formatting
 
             if (lastOutput is not null)
             {
-                writer.WriteString("last_output", StripAnsi(lastOutput));
+                // Trim trailing newlines from last_output. Most CLI tools terminate
+                // output with a final '\n'; including it in the JSON envelope is
+                // noise for consumers (jq, automation). Matches bash $(cmd) semantics
+                // which strips all trailing newlines from captured output.
+                writer.WriteString("last_output", StripAnsi(lastOutput).TrimEnd('\n'));
             }
 
             if (historyRetained.HasValue)
@@ -118,10 +122,17 @@ public static partial class Formatting
 
     /// <summary>
     /// Source-generated regex for matching ANSI escape sequences.
-    /// Matches ESC[ followed by any number of parameter bytes (digits, semicolons)
-    /// and a final letter.
+    /// Two alternatives:
+    /// (a) CSI: <c>ESC [ ...params... letter</c> — colours, cursor moves, SGR.
+    /// (b) OSC: <c>ESC ] ...payload... ST</c> — window titles (<c>\x1b]0;title\x07</c>),
+    ///     OSC-8 hyperlinks (<c>\x1b]8;;url\x1b\\</c>) used by gcc, ripgrep, modern shells.
+    /// String terminator (ST) is either <c>\x07</c> (BEL, common short form) or
+    /// <c>\x1b\\</c> (ESC + backslash, the spec form).
+    /// Without the OSC alternative, <c>--exit-on-match</c> patterns fail to match
+    /// lines carrying a leading title-set escape, and <c>--json-output last_output</c>
+    /// leaks raw escape bytes into the JSON envelope.
     /// </summary>
-    [GeneratedRegex(@"\x1b\[[0-9;]*[a-zA-Z]")]
+    [GeneratedRegex(@"\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")]
     private static partial Regex AnsiEscapeRegex();
 
 }

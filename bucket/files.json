@@ -6,10 +6,10 @@
   "architecture": {
     "64bit": {
       "url": "https://github.com/Yortw/winix/releases/download/v0.2.0/files-win-x64.zip",
-      "hash": "90647ab41db8e19d09ffd43fc25289166391e4ca4e12f0b87711f2df9f4463d8"
+      "hash": "90647ab41db8e19d09ffd43fc25289166391e4ca4e12f0b87711f2df9f4463d8",
+      "bin": "files.exe"
     }
   },
-  "bin": "files.exe",
   "checkver": "github",
   "autoupdate": {
     "architecture": {

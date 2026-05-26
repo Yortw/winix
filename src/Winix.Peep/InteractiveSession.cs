@@ -28,6 +28,13 @@ public sealed class InteractiveSession
     private int _historyOverlaySelection;
     private bool _diffEnabled;
 
+    // Tracks --exit-on-match regex instances that have already produced a one-shot
+    // timeout warning. Without this, a pathological pattern that times out on every
+    // run would silently never trigger the auto-exit AND emit no diagnostic — the user
+    // would see peep run forever with no idea why their match isn't firing. We warn
+    // once per pattern (not per run) to avoid stderr spam during long sessions.
+    private readonly HashSet<Regex> _regexTimeoutWarned = new();
+
     /// <summary>
     /// Creates a new interactive session with the specified configuration.
     /// </summary>
@@ -55,11 +62,15 @@ public sealed class InteractiveSession
         // Set up Ctrl+C handler -- cancel cleanly instead of killing the process.
         // Must be a named delegate so we can unregister in the finally block to avoid
         // calling Cancel() on a disposed CTS if Ctrl+C fires after RunAsync returns.
+        // Even with the unregister, there's a small race: Console.CancelKeyPress -=
+        // does NOT synchronise with in-flight handler invocations, so a Ctrl+C that
+        // started invoking just before the unregister can still execute against a
+        // disposed CTS. Swallow ObjectDisposedException to keep the handler silent in
+        // that race — same pattern as RunOnceAsync's once-mode handler.
         ConsoleCancelEventHandler cancelHandler = (_, e) =>
         {
-            e.Cancel = true;
             _exitReason = "interrupted";
-            cts.Cancel();
+            SessionHelpers.RequestCancellationSilently(e, cts);
         };
         Console.CancelKeyPress += cancelHandler;
 
@@ -79,8 +90,20 @@ public sealed class InteractiveSession
             fileWatcher = new FileWatcher(_config.WatchPatterns, _config.DebounceMs, excludeFilter);
             fileWatcher.FileChanged += () =>
             {
-                // Release the semaphore to signal the main loop
-                fileChangeSemaphore.Release();
+                // Release the semaphore to signal the main loop. Wrap in try/catch
+                // because FileChanged can fire from the FSW callback thread or the
+                // debounce Timer callback during shutdown — after the finally block
+                // disposed the semaphore but before FileWatcher.Dispose drained
+                // in-flight callbacks. ObjectDisposedException at this point is the
+                // benign shutdown race; lost change is fine because peep is exiting.
+                try
+                {
+                    fileChangeSemaphore.Release();
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Shutdown race — see comment above.
+                }
             };
             fileWatcher.WatchError += (message) =>
             {
@@ -149,15 +172,56 @@ public sealed class InteractiveSession
                     }
                     catch (OperationCanceledException)
                     {
-                        // Expected on shutdown
+                        // Expected on shutdown.
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        // Shutdown race — finally block disposed the semaphore before
+                        // this task observed cancellation. Benign during shutdown.
+                    }
+                    catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+                    {
+                        // Fallback: monitor task crashed unexpectedly. Without this catch the
+                        // exception would be silently swallowed by the unobserved-task handler
+                        // and file-change triggering would silently stop working — peep would
+                        // keep running on interval-only (or appear frozen if interval is
+                        // disabled). Surface to stderr so the user can see the regression.
+                        // Diagnostic strictly weaker than production: a failing stderr write
+                        // must not crash the watch loop.
+                        try
+                        {
+                            Console.Error.WriteLine(
+                                $"[peep] warning: file-change monitor crashed; file-change triggering disabled: " +
+                                $"{ex.GetType().Name}: {ex.Message}");
+                        }
+                        catch
+                        {
+                            // best effort
+                        }
                     }
                 }, ct);
             }
 
+            // Console.KeyAvailable throws InvalidOperationException with the SR-key
+            // 'InvalidOperation_ConsoleKeyAvailableOnFile' when stdin is redirected
+            // (pipe, /dev/null, file). Watch-mode invocations from CI / pipelines /
+            // scripts that don't allocate a tty would otherwise crash on the second
+            // loop iteration with an unhandled exception + raw resource key. Probe
+            // once at loop entry so the per-tick check is a cheap field read.
+            //
+            // Tier-1 smoke verification 2026-05-09 (Critical, with reproducer at
+            // tmp/peepprobe/): peep was built assuming an interactive terminal but
+            // the watch-mode contract doesn't require one — refresh-on-interval is
+            // useful even when stdin has nothing for it. Skip the keyboard branch
+            // when stdin is redirected; the loop continues to refresh on interval
+            // and to react to file-change signals; SIGINT (Ctrl-C) still terminates
+            // via cts because that's signal-driven, not key-driven.
+            bool keyboardAvailable = !Console.IsInputRedirected;
+
             while (!ct.IsCancellationRequested)
             {
-                // Check for key presses (non-blocking)
-                while (Console.KeyAvailable)
+                // Check for key presses (non-blocking) — only when stdin is a tty.
+                while (keyboardAvailable && Console.KeyAvailable)
                 {
                     var key = Console.ReadKey(intercept: true);
 
@@ -175,22 +239,14 @@ public sealed class InteractiveSession
                     break;
                 }
 
-                // Check if we should trigger a run
-                bool shouldRun = false;
-                TriggerSource trigger = TriggerSource.Interval;
-
-                if (Interlocked.CompareExchange(ref fileChangeFlag, 0, 1) == 1 && !_running)
-                {
-                    shouldRun = true;
-                    trigger = TriggerSource.FileChange;
-                }
-                else if (_config.UseInterval && DateTime.UtcNow >= nextRunTime && !_running)
-                {
-                    shouldRun = true;
-                    trigger = TriggerSource.Interval;
-                }
-
-                if (shouldRun)
+                // R4 TA I4: dispatch decision extracted to SessionHelpers.ShouldDispatch
+                // so the CR R2-C1 contract (check _running BEFORE consuming the file-
+                // change flag) is regression-pinned. _running mutates only inside
+                // RunAndProcessResultAsync awaited from this loop, so reading it here
+                // is single-threaded and a stale read isn't possible.
+                if (SessionHelpers.ShouldDispatch(
+                        _running, _config.UseInterval, ref fileChangeFlag,
+                        DateTime.UtcNow, nextRunTime, out TriggerSource trigger))
                 {
                     await RunAndProcessResultAsync(trigger, cts, ct);
                     nextRunTime = DateTime.UtcNow.AddSeconds(_config.IntervalSeconds);
@@ -582,6 +638,29 @@ public sealed class InteractiveSession
         {
             return null;
         }
+        catch (CommandStreamException ex)
+        {
+            // Stream-read failure: the child closed a pipe abnormally or the OS handle
+            // became invalid mid-read. CommandExecutor has already killed the child;
+            // surface a clean diagnostic so the watch loop can continue / exit cleanly
+            // rather than crash the alternate-screen-buffer session.
+            Console.Error.WriteLine($"peep: {ex.Message}");
+            _failedExitCode = ExitCode.NotExecutable;
+            _exitReason = "command_stream_failed";
+            return null;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
+        {
+            // Last-resort safety net. Without this, an unexpected exception (e.g. a
+            // future runtime IOException class we didn't anticipate, or a misuse bug)
+            // escapes the watch loop and crashes peep with a stack trace overlapping
+            // the alternate-screen-buffer exit, leaving the user's terminal corrupt.
+            // Diagnostic strictly weaker than production: emit type + message only.
+            Console.Error.WriteLine($"peep: unexpected error running command: {ex.GetType().Name}: {ex.Message}");
+            _failedExitCode = ExitCode.NotExecutable;
+            _exitReason = "command_unexpected_error";
+            return null;
+        }
     }
 
     /// <summary>
@@ -596,52 +675,17 @@ public sealed class InteractiveSession
     /// <returns>True if the session should exit.</returns>
     private bool CheckAutoExit(string? prevOutput)
     {
-        if (_lastResult is null)
+        // R4 TA I3: pure logic lives in SessionHelpers.TryGetAutoExit so all four
+        // exit-on-X branches plus the regex-timeout one-shot warning policy can be
+        // unit-pinned. Wrapper just promotes the out-param to the session field
+        // when the predicate fires.
+        if (SessionHelpers.TryGetAutoExit(
+                _config, _lastResult, prevOutput, _regexTimeoutWarned,
+                Console.Error, out string reason))
         {
-            return false;
-        }
-
-        if (_config.ExitOnSuccess && _lastResult.ExitCode == 0)
-        {
-            _exitReason = "exit_on_success";
+            _exitReason = reason;
             return true;
         }
-
-        if (_config.ExitOnError && _lastResult.ExitCode != 0)
-        {
-            _exitReason = "exit_on_error";
-            return true;
-        }
-
-        if (_config.ExitOnChange && prevOutput is not null
-            && !string.Equals(_lastResult.Output, prevOutput, StringComparison.Ordinal))
-        {
-            _exitReason = "exit_on_change";
-            return true;
-        }
-
-        if (_config.ExitOnMatchRegexes.Length > 0 && _lastResult.Output is not null)
-        {
-            string stripped = Formatting.StripAnsi(_lastResult.Output);
-            foreach (Regex regex in _config.ExitOnMatchRegexes)
-            {
-                try
-                {
-                    if (regex.IsMatch(stripped))
-                    {
-                        _exitReason = "exit_on_match";
-                        return true;
-                    }
-                }
-                catch (RegexMatchTimeoutException)
-                {
-                    // Pattern timed out against this output — treat as non-match rather
-                    // than hanging the session. Only fires for patterns that fell back to
-                    // the standard engine (NonBacktracking never times out).
-                }
-            }
-        }
-
         return false;
     }
 
@@ -706,13 +750,10 @@ public sealed class InteractiveSession
     {
         sessionStopwatch.Stop();
 
-        int exitCode = _lastResult?.ExitCode ?? _failedExitCode;
-
-        // For auto-exit conditions that represent success, use exit code 0
-        if (_exitReason == "exit_on_change" || _exitReason == "exit_on_success")
-        {
-            exitCode = 0;
-        }
+        // R4 TA I3: exit-code override extracted to SessionHelpers.ResolveExitCode
+        // so the round-2 CR I2 fix (exit_on_match → 0) is regression-pinned.
+        int exitCode = SessionHelpers.ResolveExitCode(
+            _exitReason, _lastResult?.ExitCode, _failedExitCode);
 
         if (_config.JsonOutput)
         {

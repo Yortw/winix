@@ -109,6 +109,15 @@ internal sealed class Screen : IDisposable
         for (int sourceIndex = topLine; sourceIndex < lines.Count && rowsWritten < ViewHeight; sourceIndex++)
         {
             string line = lines[sourceIndex];
+
+            // Tier-2 baseline 2026-05-07 finding F2: when StripAnsi is set (NO_COLOR /
+            // --no-color / --color resolved off), remove SGR sequences before wrap/chop so
+            // line-numbers gutter, wrap math, and final terminal output all see clean text.
+            if (_options.StripAnsi)
+            {
+                line = AnsiText.StripAnsi(line);
+            }
+
             IReadOnlyList<string> displayRows;
 
             if (_options.ChopLongLines)
@@ -240,13 +249,38 @@ internal sealed class Screen : IDisposable
     /// <summary>
     /// Releases terminal resources: shows the cursor and optionally clears the screen.
     /// </summary>
+    /// <remarks>
+    /// Round-1 fresh-eyes 2026-05-09 silent-failure-hunter C01: each terminal write
+    /// must be guarded against IOException. If the pager loop crashed because the
+    /// console handle became invalid mid-render, this Dispose runs during stack unwind
+    /// and writes to the same broken handle — Console.Clear is documented to throw on
+    /// a non-tty handle. An unguarded throw inside Dispose during exception unwind
+    /// either masks the original IOException or surfaces a Console.Clear-domain stack
+    /// trace at the user. Per CLAUDE.md "diagnostic logging must never fail the
+    /// caller" — Dispose is strictly weaker than the operation it cleans up.
+    /// </remarks>
     public void Dispose()
     {
-        Console.Write(ShowCursorSeq);
+        try
+        {
+            Console.Write(ShowCursorSeq);
+        }
+        catch (IOException)
+        {
+            // Console handle invalid; can't restore cursor visibility. The terminal
+            // may be left in a hidden-cursor state but exit unwind continues cleanly.
+        }
 
         if (!_options.NoClearOnExit)
         {
-            Console.Clear();
+            try
+            {
+                Console.Clear();
+            }
+            catch (IOException)
+            {
+                // Same rationale as above.
+            }
         }
     }
 
