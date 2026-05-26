@@ -44,7 +44,7 @@ These detections are heuristic, not signature-based — the scanner's ML model c
 
 **If you encounter a detection:** add a Windows Defender exclusion for the binary or the Winix install directory, or submit the file to [Microsoft Security Intelligence](https://www.microsoft.com/en-us/wdsi/filesubmission) as a false positive. We submit binaries for review with each release but new detections can appear as Microsoft updates their ML models.
 
-**Why not code sign?** Authenticode code signing would significantly reduce false positives, but current certificate authority requirements (hardware security modules since June 2023) combined with limited CI-friendly options for individual developers outside the US/Canada make this impractical for now. We plan to sign binaries when Azure Trusted Signing becomes available in more regions.
+**Code signing.** Windows x64 binaries *are* Authenticode-signed (Certum certificate, RFC 3161 timestamped) as part of the release process: the draft release is signed locally before publishing via `scripts/sign-release.sh`. Signing reduces these heuristic false positives but does not eliminate ML-based ones, so a detection can still occasionally surface. Linux/macOS binaries and the `-symbols.zip` assets are not code-signed (Authenticode is Windows-only, and macOS notarization is not currently part of the pipeline).
 
 ## CI: GitHub Actions not pinned to commit SHAs
 
