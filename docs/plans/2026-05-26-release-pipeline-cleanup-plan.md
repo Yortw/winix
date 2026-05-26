@@ -412,3 +412,24 @@ A fresh-subagent adversarial review (15-category taxonomy) produced 2 blockers, 
 | F8 | Defer | macOS `-symbols.zip` = managed pdbs only | Documented in Task 5 known-issues note; per ADR Decision 1, kept for uniformity. |
 
 Single pass; no structural rework required, so no second adversarial pass needed.
+
+## Execution outcome (2026-05-26)
+
+All five tasks implemented on `release/v0.4.0` and verified:
+
+- **Task 1 — divergence recorded.** The `+gitsha` premise was empirically falsified at execution
+  time: shipped v0.3.0 `timeit`/`when` print clean `X.Y.Z` (no SourceLink → SDK never appends a
+  SHA). The property was retained per user decision as a **forward-guard** (no-op today), not an
+  active-bug fix. Verified the build succeeds and `timeit`/`digest`/`qr --version` stay clean.
+  Commit `8f815cc`. See design doc "Execution finding" + ADR Decision 3 amendment.
+- **Task 2** — `when.csproj` Content Include added; non-AOT publish confirmed
+  `share/man/man1/when.1` lands in output. Commit `80c50a8`.
+- **Task 3** — Linux/macOS zip loop; `bash -n` passed. Full zip behaviour deferred to the ship
+  gate (Info-ZIP `zip` not installed locally — only 7-Zip, which differs). Commit `5ad411d`.
+- **Task 4** — Windows zip loop; synthetic-publish-dir functional test passed (main zip = binary
+  + man page, no pdb; symbols zip = pdbs). Commit `172265a`.
+- **Task 5** — known-issues "Release artifacts" note added; no existing entries needed resolving.
+  Commit `377722a`.
+
+Outstanding: the ship-gate checks above run at v0.4.0 tag time (draft inspection), not during
+this implementation.

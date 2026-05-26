@@ -52,6 +52,11 @@
 5. **Options considered.** *Per-tool `GetVersion()` strip on the 13 laggards* — keeps the SHA in
    metadata but is 13× the change and leaves two mechanisms in the tree. Rejected as more work
    for a downside (SHA retention) of little value here.
+6. **Amendment (2026-05-26, at implementation).** The premise was empirically falsified: shipped
+   v0.3.0 `timeit`/`when` binaries print clean `X.Y.Z` (no SourceLink in the repo, so the SDK
+   never appends a SHA). The decision stands but its **status changes from "fix" to
+   "forward-guard"** — a no-op today, kept (per user direction) to prevent a future SourceLink
+   addition from reintroducing the suffix. Not attributable to any observed defect.
 
 ## Decision 4 — Refactor the per-tool zip steps to a loop
 

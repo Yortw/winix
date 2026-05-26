@@ -97,6 +97,15 @@ Add to `Directory.Build.props`:
 Stops the SDK appending `+<sha>`. The 9 tools that already strip become harmless no-ops
 (`IndexOf('+')` returns -1). Trade-off: the commit SHA no longer appears in assembly metadata.
 
+> **Execution finding (2026-05-26): premise falsified — retained as a forward-guard.** During
+> implementation, the shipped v0.3.0 binaries were inspected: `timeit 0.3.0` and `when 0.3.0`
+> (both on the memory's "doesn't strip" list) print clean `X.Y.Z` with **no** `+sha`. The repo
+> has no SourceLink, so the SDK never populates `SourceRevisionId` and never appends the suffix
+> — the `+gitsha` "drift" does not actually manifest. The 29-day-old memory
+> (`project_version_strip_drift`) was stale. Per user decision the property is kept anyway as a
+> **forward-guard** (a no-op today that prevents a future SourceLink addition from reintroducing
+> the suffix), not as an active-bug fix. Commit `8f815cc`.
+
 ## Out of scope (explicit)
 
 - **NuGet package managed pdbs (~52 KB).** Tiny, and they aid stack-trace symbolication on the
