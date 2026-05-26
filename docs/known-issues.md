@@ -26,6 +26,13 @@ Waiting on GitHub Actions `linux-arm64` runners reaching GA in the free tier.
 
 The combined `winix-win-x64.zip` (all tools in one download) is only built for Windows (for the Scoop `winix` manifest). Other platforms get per-tool zip files. This is a conscious design choice — add combined zips for other platforms if there's demand.
 
+## Release artifacts: debug symbols ship separately
+
+As of v0.4.0, each GitHub release `<tool>-<rid>.zip` contains the binary and man pages only. Debug symbols (`.pdb` on all platforms, plus the native `.dbg` on Linux) are published in a companion `<tool>-<rid>-symbols.zip`. This keeps the default download small — native symbols were 64–85% of each pre-v0.4.0 zip — while preserving symbolication for crash/dump analysis.
+
+- **`-symbols.zip` assets are checksummed but not Authenticode-signed.** Only the executable-bearing `*-win-x64.zip` tool zips are signed; symbols zips are debug-only and never executed. They are listed in `SHA256SUMS` for integrity.
+- **macOS `-symbols.zip` contains managed `.pdb`s only.** NativeAOT produces no separate native symbol file on macOS, so these zips do not enable native symbolication of the shipped binary; they are emitted for cross-platform uniformity.
+
 ## Windows Defender false positives on AOT binaries
 
 Windows Defender may flag one or more Winix native binaries as malicious. These are false positives. Known detections include:
