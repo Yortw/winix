@@ -330,30 +330,46 @@ jobs:
 
       - name: Zip binaries (Linux/macOS)
         if: runner.os != 'Windows'
+        shell: bash
         run: |
-          cd src/timeit/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/timeit-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
-          cd src/squeeze/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/squeeze-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
-          cd src/peep/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/peep-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
-          cd src/wargs/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/wargs-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
-          cd src/files/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/files-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
-          cd src/treex/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/treex-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
-          cd src/man/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/man-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
-          cd src/less/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/less-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
-          cd src/whoholds/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/whoholds-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
-          cd src/schedule/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/schedule-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
-          cd src/winix/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/winix-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
-          cd src/nc/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/nc-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
-          cd src/retry/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/retry-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
-          cd src/when/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/when-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
-          cd src/clip/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/clip-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
-          cd src/ids/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/ids-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
-          cd src/digest/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/digest-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
-          cd src/notify/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/notify-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
-          cd src/url/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/url-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
-          cd src/qr/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/qr-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
-          cd src/protect/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/protect-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
-          cd src/unprotect/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/unprotect-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
-          cd src/envvault/bin/Release/net10.0/${{ matrix.rid }}/publish && zip -j $GITHUB_WORKSPACE/envvault-${{ matrix.rid }}.zip * && cd $GITHUB_WORKSPACE
+          set -euo pipefail
+          RID="${{ matrix.rid }}"
+          TOOLS="timeit squeeze peep wargs files treex man less whoholds schedule winix nc retry when clip ids digest notify url qr protect unprotect envvault"
+          for t in $TOOLS; do
+            pubdir="src/$t/bin/Release/net10.0/$RID/publish"
+            main="$GITHUB_WORKSPACE/$t-$RID.zip"
+            syms_zip="$GITHUB_WORKSPACE/$t-$RID-symbols.zip"
+            # Info-ZIP `zip` *updates* an existing archive in place rather than replacing it,
+            # so remove any stale artifact first — otherwise a job re-run could merge stale
+            # entries. (Compress-Archive uses -Force on the Windows side for the same reason.)
+            rm -f "$main" "$syms_zip"
+            (
+              cd "$pubdir"
+              # Split debug symbols into a separate artifact: managed .pdb (all platforms) plus
+              # native .dbg (Linux). nullglob so a missing pattern expands to nothing rather
+              # than a literal glob. macOS has no native symbol file — only the small managed
+              # .pdb files match here.
+              shopt -s nullglob
+              syms=( *.pdb *.dbg )
+              if [ "${#syms[@]}" -gt 0 ]; then
+                zip -j "$syms_zip" "${syms[@]}" > /dev/null
+                rm -f "${syms[@]}"
+              fi
+              shopt -u nullglob
+              # Main zip: -r so the share/man/man1/<tool>.1 subtree is included. The previous
+              # `zip -j ... *` had no -r and never recursed into share/, so every tool shipped
+              # without a man page on Linux/macOS. Glob explicit members (the binary + share/)
+              # rather than `.` so entry names are root-relative with no "./" prefix, matching
+              # the Windows Compress-Archive layout.
+              zip -r "$main" * > /dev/null
+            )
+            # Guard against the silent-drop class that hid the original missing-man-page bug:
+            # every tool must produce a non-empty main zip.
+            if [ ! -s "$main" ]; then
+              echo "::error::Main zip missing or empty for $t ($RID): $main" >&2
+              exit 1
+            fi
+          done
 
       - name: Zip binaries (Windows)
         if: runner.os == 'Windows'
