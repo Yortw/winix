@@ -375,29 +375,29 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Compress-Archive -Path src/timeit/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath timeit-${{ matrix.rid }}.zip
-          Compress-Archive -Path src/squeeze/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath squeeze-${{ matrix.rid }}.zip
-          Compress-Archive -Path src/peep/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath peep-${{ matrix.rid }}.zip
-          Compress-Archive -Path src/wargs/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath wargs-${{ matrix.rid }}.zip
-          Compress-Archive -Path src/files/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath files-${{ matrix.rid }}.zip
-          Compress-Archive -Path src/treex/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath treex-${{ matrix.rid }}.zip
-          Compress-Archive -Path src/man/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath man-${{ matrix.rid }}.zip
-          Compress-Archive -Path src/less/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath less-${{ matrix.rid }}.zip
-          Compress-Archive -Path src/whoholds/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath whoholds-${{ matrix.rid }}.zip
-          Compress-Archive -Path src/schedule/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath schedule-${{ matrix.rid }}.zip
-          Compress-Archive -Path src/winix/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath winix-${{ matrix.rid }}.zip
-          Compress-Archive -Path src/nc/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath nc-${{ matrix.rid }}.zip
-          Compress-Archive -Path src/retry/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath retry-${{ matrix.rid }}.zip
-          Compress-Archive -Path src/when/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath when-${{ matrix.rid }}.zip
-          Compress-Archive -Path src/clip/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath clip-${{ matrix.rid }}.zip
-          Compress-Archive -Path src/ids/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath ids-${{ matrix.rid }}.zip
-          Compress-Archive -Path src/digest/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath digest-${{ matrix.rid }}.zip
-          Compress-Archive -Path src/notify/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath notify-${{ matrix.rid }}.zip
-          Compress-Archive -Path src/url/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath url-${{ matrix.rid }}.zip
-          Compress-Archive -Path src/qr/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath qr-${{ matrix.rid }}.zip
-          Compress-Archive -Path src/protect/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath protect-${{ matrix.rid }}.zip
-          Compress-Archive -Path src/unprotect/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath unprotect-${{ matrix.rid }}.zip
-          Compress-Archive -Path src/envvault/bin/Release/net10.0/${{ matrix.rid }}/publish/* -DestinationPath envvault-${{ matrix.rid }}.zip
+          # pwsh does not stop on error by default in GitHub Actions; set it so a failed
+          # Compress-Archive / Remove-Item fails the step instead of silently continuing.
+          $ErrorActionPreference = 'Stop'
+          $rid = '${{ matrix.rid }}'
+          $tools = @('timeit','squeeze','peep','wargs','files','treex','man','less','whoholds','schedule','winix','nc','retry','when','clip','ids','digest','notify','url','qr','protect','unprotect','envvault')
+          foreach ($t in $tools) {
+            $pub = "src/$t/bin/Release/net10.0/$rid/publish"
+            $main = "$t-$rid.zip"
+            # Split debug symbols (Windows has native + managed .pdb, no .dbg) into a separate
+            # artifact, then remove them so the main zip ships only the binary + man pages.
+            $pdbs = Get-ChildItem -Path $pub -Filter *.pdb -File
+            if ($pdbs) {
+              Compress-Archive -Path $pdbs.FullName -DestinationPath "$t-$rid-symbols.zip" -Force
+              Remove-Item $pdbs.FullName -Force
+            }
+            # Main zip: Compress-Archive recurses the share/ subtree (unchanged behaviour), now
+            # pdb-free. The native .pdb was ~85% of each Windows download.
+            Compress-Archive -Path "$pub/*" -DestinationPath $main -Force
+            # Silent-drop guard: every tool must produce a non-empty main zip.
+            if (-not (Test-Path $main) -or (Get-Item $main).Length -eq 0) {
+              throw "Main zip missing or empty for $t ($rid): $main"
+            }
+          }
 
       - name: Create combined Winix zip (Windows)
         if: runner.os == 'Windows' && matrix.rid == 'win-x64'
