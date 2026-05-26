@@ -6,7 +6,7 @@
   "architecture": {
     "64bit": {
       "url": "https://github.com/Yortw/winix/releases/download/v0.3.0/qr-win-x64.zip",
-      "hash": "",
+      "hash": "4fbfa7df8de851b7bfd00c4e4ca8d510289aa5bd55cc8cb3c7fd7c98fea4140b",
       "bin": "qr.exe"
     }
   },

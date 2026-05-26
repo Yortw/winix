@@ -6,7 +6,7 @@
   "architecture": {
     "64bit": {
       "url": "https://github.com/Yortw/winix/releases/download/v0.3.0/protect-win-x64.zip",
-      "hash": "",
+      "hash": "c38b024444eafa62360b14e427ef398eb5584c99dd137e2f773186e4cb0ebe1e",
       "bin": "protect.exe"
     }
   },

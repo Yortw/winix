@@ -1,12 +1,12 @@
 {
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Winix CLI tool suite installer — installs, updates, and manages all Winix tools.",
   "homepage": "https://github.com/Yortw/winix",
   "license": "MIT",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/Yortw/winix/releases/download/v0.2.0/winix-win-x64.zip",
-      "hash": "5f6d9f1cb71334950379aa4d60287f1dfa1c5149336ac5a204456912dc350c5e",
+      "url": "https://github.com/Yortw/winix/releases/download/v0.3.0/winix-win-x64.zip",
+      "hash": "a899e32fdc7bd912117877f99ada10f94a2dea29d61beceb3540884b61071392",
       "bin": "winix.exe"
     }
   },

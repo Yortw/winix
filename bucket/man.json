@@ -1,12 +1,12 @@
 {
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Cross-platform man page viewer with colour, hyperlinks, and pager support.",
   "homepage": "https://github.com/Yortw/winix",
   "license": "MIT",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/Yortw/winix/releases/download/v0.2.0/man-win-x64.zip",
-      "hash": "2c453ffd287b3ef55f86e7c5170983a93b65e21ccd0bf3b10d159f113505781c",
+      "url": "https://github.com/Yortw/winix/releases/download/v0.3.0/man-win-x64.zip",
+      "hash": "b31bb808025fc90ad673135da2b4a4450e3c8c4ab91721c7555e2fd1ff323029",
       "bin": "man.exe"
     }
   },

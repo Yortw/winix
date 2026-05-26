@@ -6,7 +6,7 @@
   "architecture": {
     "64bit": {
       "url": "https://github.com/Yortw/winix/releases/download/v0.3.0/envvault-win-x64.zip",
-      "hash": "",
+      "hash": "c149a913102b2285159ff4a7f3fb8f1f1170d65d2cd9a685241f82368484baa5",
       "bin": "envvault.exe"
     }
   },

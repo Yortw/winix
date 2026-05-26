@@ -6,7 +6,7 @@
   "architecture": {
     "64bit": {
       "url": "https://github.com/Yortw/winix/releases/download/v0.3.0/when-win-x64.zip",
-      "hash": "",
+      "hash": "50991c9823e9f2233ffa40b0d6a381724607886d9ea4b8d639f82bb100751bf9",
       "bin": "when.exe"
     }
   },

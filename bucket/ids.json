@@ -6,7 +6,7 @@
   "architecture": {
     "64bit": {
       "url": "https://github.com/Yortw/winix/releases/download/v0.3.0/ids-win-x64.zip",
-      "hash": "",
+      "hash": "3884630b6432bd8816e3329ff2cf4971171523cacc344e9899767b591843aab6",
       "bin": "ids.exe"
     }
   },

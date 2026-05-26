@@ -6,7 +6,7 @@
   "architecture": {
     "64bit": {
       "url": "https://github.com/Yortw/winix/releases/download/v0.3.0/digest-win-x64.zip",
-      "hash": "",
+      "hash": "fe6cddb19032f4f6b6a6c032067ed945731c85867be33444b4046d3e521e7fd2",
       "bin": "digest.exe"
     }
   },

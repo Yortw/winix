@@ -6,7 +6,7 @@
   "architecture": {
     "64bit": {
       "url": "https://github.com/Yortw/winix/releases/download/v0.3.0/unprotect-win-x64.zip",
-      "hash": "",
+      "hash": "094475bba0962c3c9fed1c9b8e6aebe0f6e64cbab961a71647a8d7de5be1bc36",
       "bin": "unprotect.exe"
     }
   },

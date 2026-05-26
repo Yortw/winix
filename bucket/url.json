@@ -6,7 +6,7 @@
   "architecture": {
     "64bit": {
       "url": "https://github.com/Yortw/winix/releases/download/v0.3.0/url-win-x64.zip",
-      "hash": "",
+      "hash": "9c66f767d03407cbcde651735a38040123d3efe52191244c8212029fbb5c92b3",
       "bin": "url.exe"
     }
   },

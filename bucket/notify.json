@@ -6,7 +6,7 @@
   "architecture": {
     "64bit": {
       "url": "https://github.com/Yortw/winix/releases/download/v0.3.0/notify-win-x64.zip",
-      "hash": "",
+      "hash": "3623748d86c3fe8684cef999bc9e566baecd69afc7f28a352ff6801ee1ae8e66",
       "bin": "notify.exe"
     }
   },
