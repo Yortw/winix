@@ -7,6 +7,13 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
     <RollForward>LatestMinor</RollForward>
+    <!-- Forward-guard: keep the commit SHA out of AssemblyInformationalVersion so the version
+         output stays clean (X.Y.Z) suite-wide. As of v0.3.0 the SDK does NOT append a "+sha"
+         suffix here (the repo has no SourceLink / populated SourceRevisionId, verified against
+         the shipped v0.3.0 timeit/when binaries, which print "X.Y.Z" with no suffix), so this
+         is currently a no-op. It exists to stop a future SourceLink addition from silently
+         reintroducing a "+sha" suffix into version output. -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Authors>Troy Willmot</Authors>
     <Copyright>Copyright (c) Troy Willmot</Copyright>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
