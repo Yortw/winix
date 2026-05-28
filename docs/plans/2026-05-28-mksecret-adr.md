@@ -235,3 +235,5 @@ re-validating a CSPRNG is out of scope and worse than trusting the platform prim
 | Password strength scoring (zxcvbn-style) | v1 reports raw entropy bits only; dictionary scoring is a separate feature. |
 | Shared `RejectionSampler` extraction | Two consumers (`ids`, `mksecret`) don't justify extraction yet — rule of three (§6). |
 | Structured-record secrets (TOTP seed, etc.) | Out of the generate-a-random-secret scope for v1. |
+| Zeroing generated secrets from process memory | Managed `string`s are immutable and the process is short-lived (generate → print → exit); zeroing is impossible for `string` and low-value here. Note in `docs/known-issues.md`. (adversarial-review F8) |
+| Encode-only key output (no decode-round-trip guarantee for non-aligned `--bytes`) | `mksecret` never decodes; the guarantee is encode-only. Note in `docs/known-issues.md`. (adversarial-review F7) |

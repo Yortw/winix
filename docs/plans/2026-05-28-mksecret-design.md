@@ -229,6 +229,11 @@ CSPRNG and varies (liveness); we delegate cryptographic strength to the platform
 - Password strength estimation beyond raw entropy bits (no zxcvbn-style dictionary scoring).
 - Structured-record secrets (vCard/TOTP-seed/etc).
 - Reading a custom wordlist from a file (`--wordlist PATH`) — embedded EFF long only for v1.
+- Key output is **encode-only** — `mksecret` never decodes, so non-byte-aligned `--bytes` under
+  base32/base64url is not guaranteed to decode-round-trip. Irrelevant in practice (nothing decodes
+  mksecret output); noted so the encode-only guarantee isn't mistaken for a round-trip guarantee.
+- Zeroing generated secrets from process memory — managed `string`s are immutable and the process
+  is short-lived; out of scope for v1 (see ADR deferred decisions).
 
 ---
 

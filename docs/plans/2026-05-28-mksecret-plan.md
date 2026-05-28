@@ -365,6 +365,13 @@ public sealed class SequenceRandom : ISecureRandom
         }
     }
 }
+
+/// <summary>ISecureRandom whose Fill always throws — exercises Cli.Run's catch-all error path.</summary>
+public sealed class ThrowingRandom : Winix.Codec.ISecureRandom
+{
+    public void Fill(System.Span<byte> destination)
+        => throw new System.InvalidOperationException("simulated CSPRNG failure");
+}
 ```
 
 - [ ] **Step 2: Write the failing sampling test**
@@ -400,6 +407,16 @@ public class SamplingTests
     {
         // count=7776 -> mask=8191 -> 2 bytes, big-endian. 0x00,0x05 -> 5.
         var rng = new SequenceRandom(0x00, 0x05);
+        Assert.Equal(5, Sampling.UniformIndex(rng, 7776));
+    }
+
+    [Fact]
+    public void UniformIndex_rejects_at_the_multibyte_boundary()
+    {
+        // SECURITY-CRITICAL: this is the path the phrase word-selection uses. count=7776 -> mask=8191.
+        // 0x1F,0xFF = 8191 survives the mask but is >= 7776, so it MUST be rejected (a modulo-folding
+        // bug would map it into range). Then 0x00,0x05 -> 5.
+        var rng = new SequenceRandom(0x1F, 0xFF, 0x00, 0x05);
         Assert.Equal(5, Sampling.UniformIndex(rng, 7776));
     }
 }
@@ -776,8 +793,30 @@ public class PhraseGeneratorTests
         Assert.EndsWith("7", result);
         Assert.Equal(EffWordList.Words[0] + "-" + EffWordList.Words[5] + "7", result);
     }
+
+    [Fact]
+    public void Empty_separator_concatenates_words_on_one_line()
+    {
+        var rng = new SequenceRandom(0, 0, 0, 5);
+        var gen = new PhraseGenerator(rng);
+        string result = gen.Generate(Opts(2, ""));
+        Assert.Equal(EffWordList.Words[0] + EffWordList.Words[5], result);
+        Assert.DoesNotContain("\n", result);
+    }
+
+    [Fact]
+    public void Multi_char_separator_joins_words()
+    {
+        var rng = new SequenceRandom(0, 0, 0, 5);
+        var gen = new PhraseGenerator(rng);
+        Assert.Equal(EffWordList.Words[0] + "::" + EffWordList.Words[5], gen.Generate(Opts(2, "::")));
+    }
 }
 ```
+
+> `--sep` is taken literally (any string). A separator that itself contains a newline would split a
+> single passphrase across lines — this is the user's explicit choice, documented in the README, not
+> rejected (rejecting arbitrary separators would be more surprising than honouring them).
 
 - [ ] **Step 2: Run to verify it fails**
 
@@ -1284,6 +1323,19 @@ public class ArgParserTests
         var r = ArgParser.Parse(args);
         Assert.False(r.Success);
     }
+
+    [Theory]
+    [InlineData("password", "--length", "99999999")]
+    [InlineData("key", "--bytes", "99999999")]
+    [InlineData("phrase", "--words", "99999999")]
+    [InlineData("password", "--count", "99999999")]
+    public void Oversized_sizes_are_usage_errors(params string[] args)
+    {
+        // Guards against OOM from a mistyped count/length/bytes (extra zeros). The bounded
+        // IntOption validators reject these as usage errors rather than allocating gigabytes.
+        var r = ArgParser.Parse(args);
+        Assert.False(r.Success);
+    }
 }
 ```
 
@@ -1415,15 +1467,16 @@ public static class ArgParser
             .StdinDescription("Not used.")
             .StdoutDescription("The generated secret(s), one per line; or a JSON envelope under --json.")
             .StderrDescription("Entropy note (≈ N bits) unless --quiet/--json; errors.")
-            .Option("--count", "-n", "N", "Number of secrets to emit, one per line. Default 1.")
+            .IntOption("--count", "-n", "N", "Number of secrets to emit, one per line. Default 1 (max 100000).",
+                v => v > 0 && v <= 100000 ? null : "must be between 1 and 100000")
             .Flag("--json", "Emit a JSON envelope to stdout instead of plain lines.")
             .Flag("--quiet", "Suppress the stderr entropy note.");
 
     private static CommandLineParser BuildPasswordParser(string version)
         => CommonShell("mksecret", version,
                 "Generate a random secret. Default mode: a random-character password. Subcommands: phrase, key.")
-            .IntOption("--length", "-l", "N", "Password length in characters. Default 20.",
-                v => v > 0 ? null : "must be a positive integer")
+            .IntOption("--length", "-l", "N", "Password length in characters. Default 20 (max 4096).",
+                v => v > 0 && v <= 4096 ? null : "must be between 1 and 4096")
             .Option("--charset", "-c", "NAME", "Character set: alphanumeric (default), full, alpha, digits, safe.")
             .Example("mksecret", "20-char alphanumeric password")
             .Example("mksecret --length 32 --charset full", "32 chars including symbols")
@@ -1439,8 +1492,8 @@ public static class ArgParser
     private static CommandLineParser BuildPhraseParser(string version)
         => CommonShell("mksecret phrase", version,
                 "Generate a diceware passphrase from the EFF long wordlist (7776 words, ~12.9 bits/word).")
-            .IntOption("--words", "-w", "N", "Number of words. Default 6 (~77 bits).",
-                v => v > 0 ? null : "must be a positive integer")
+            .IntOption("--words", "-w", "N", "Number of words. Default 6 (~77 bits, max 1024).",
+                v => v > 0 && v <= 1024 ? null : "must be between 1 and 1024")
             .Option("--sep", "-s", "STR", "Separator between words. Default '-'.")
             .Flag("--capitalize", "Capitalise the first letter of each word.")
             .Flag("--number", "Append a random digit to the passphrase.")
@@ -1452,8 +1505,8 @@ public static class ArgParser
     private static CommandLineParser BuildKeyParser(string version)
         => CommonShell("mksecret key", version,
                 "Generate an encoded high-entropy key (API key, OAuth secret, HMAC key) from random bytes.")
-            .IntOption("--bytes", "-b", "N", "Number of random bytes. Default 32 (256-bit).",
-                v => v > 0 ? null : "must be a positive integer")
+            .IntOption("--bytes", "-b", "N", "Number of random bytes. Default 32 (256-bit, max 65536).",
+                v => v > 0 && v <= 65536 ? null : "must be between 1 and 65536")
             .Option("--encoding", "-e", "NAME", "Encoding: base64url (default, unpadded), base64, hex, base32.")
             .Example("mksecret key", "32 random bytes as unpadded base64url")
             .Example("mksecret key --bytes 64 --encoding hex", "64 bytes as hex")
@@ -1505,12 +1558,12 @@ public static class ArgParser
 }
 ```
 
-> Verify against the real ShellKit API while implementing: confirm `IntOption(long, short, metavar, help, validator)`, `Option(long, short, metavar, help)`, `Flag(long, help)`, `.Section(title, body)`, `ParseResult.GetInt/GetString/Has/Positionals/HasErrors/Errors/IsHandled/ExitCode/ResolveColor` all match the signatures used in `Winix.Qr.ArgParser`. If `--count`'s `IntOption` validator is the place to reject `< 1`, add `v => v > 0 ? null : "must be positive"` there so the `--count 0` test passes via the parser rather than a manual check.
+> Verify against the real ShellKit API while implementing: confirm `IntOption(long, short, metavar, help, validator)`, `Option(long, short, metavar, help)`, `Flag(long, help)`, `.Section(title, body)`, `ParseResult.GetInt/GetString/Has/Positionals/HasErrors/Errors/IsHandled/ExitCode/ResolveColor` all match the signatures used in `Winix.Qr.ArgParser`. (`--count` is an `IntOption` with the same bounded validator pattern as `--length`/`--bytes`/`--words`, so both non-positive and oversized values are rejected by the parser — no manual guard needed.)
 
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `dotnet test tests/Winix.MkSecret.Tests --filter ArgParserTests`
-Expected: PASS. If `--count 0` / `--length 0` slip through, add the `v > 0` validator to each `IntOption` (and for `--count`, register it as an `IntOption` with that validator instead of a bare `Option`).
+Expected: PASS. All four size flags (`--length`, `--bytes`, `--words`, `--count`) are bounded `IntOption`s, so both non-positive and oversized values are rejected by the parser as usage errors.
 
 - [ ] **Step 5: Commit**
 
@@ -1590,6 +1643,37 @@ public class CliTests
         Assert.Equal(ExitCode.UsageError, code);
         Assert.Contains("mksecret:", errText);
     }
+
+    [Fact]
+    public void Csprng_failure_returns_NotExecutable_with_no_secret_or_stacktrace()
+    {
+        var so = new StringWriter();
+        var se = new StringWriter();
+        int code = Cli.Run(new[] { "password", "--length", "8" }, so, se, new ThrowingRandom());
+        Assert.Equal(ExitCode.NotExecutable, code);
+        Assert.Contains("mksecret: error:", se.ToString());
+        Assert.DoesNotContain("   at ", se.ToString());   // no leaked stack trace (AOT has none anyway)
+        Assert.Equal("", so.ToString());                  // no partial secret on stdout
+    }
+
+    [Fact]
+    public void Broken_pipe_is_swallowed_and_returns_success()
+    {
+        // Downstream reader closed the pipe (e.g. `mksecret --count 100000 | head -1`).
+        var se = new StringWriter();
+        int code = Cli.Run(new[] { "password", "--length", "8", "--quiet" },
+            new ThrowingWriter(), se, new SequenceRandom(new byte[64]));
+        Assert.Equal(ExitCode.Success, code);
+    }
+}
+
+/// <summary>TextWriter that throws IOException on every write — simulates a closed downstream pipe.</summary>
+internal sealed class ThrowingWriter : TextWriter
+{
+    public override System.Text.Encoding Encoding => System.Text.Encoding.UTF8;
+    public override void Write(char value) => throw new IOException("broken pipe");
+    public override void Write(string? value) => throw new IOException("broken pipe");
+    public override void WriteLine(string? value) => throw new IOException("broken pipe");
 }
 ```
 
@@ -1837,6 +1921,8 @@ git commit -m "feat(mksecret): console shim; full suite + AOT smoke verified"
 
 - [ ] **Step 5: Write `src/mksecret/CHANGELOG.md`** (Keep-a-Changelog) with a single `- Initial release.` under the first version heading (per the CLAUDE.md rule: CHANGELOG only at first stable tag).
 
+- [ ] **Step 5b: Add deferred-limitation notes to `docs/known-issues.md`** (adversarial-review F7, F8). Append a short `mksecret` subsection documenting: (a) key output is **encode-only** — non-byte-aligned `--bytes` under base32/base64url is not guaranteed to decode-round-trip (irrelevant, nothing decodes mksecret output); and (b) generated secrets are **not zeroed** from process memory (managed strings are immutable; the process is short-lived). Mirror the wording style of the existing entries in that file.
+
 - [ ] **Step 6: Verify the man page packages into publish output**
 
 ```bash
@@ -1916,3 +2002,24 @@ git commit -m "build(mksecret): scoop manifest, release + post-publish wiring, C
 **Type consistency:** `MkSecretOptions` fields, `Charsets.ToChars`, `Sampling.UniformIndex(rng,count)`, `ISecretGenerator.Generate(options)`, `Entropy.BitsFor`, `Formatting.EntropyNote/JsonEnvelope`, `ArgParser.Result.Success`, `Cli.Run(args,out,err,override?)` are used identically across tasks. ✓
 
 **Known verification points to confirm during execution (not gaps, but pin them):** exact ShellKit method signatures (`IntOption` validator arg, `.Section`, `ResolveColor`), `SecureRandom` construction shape, the `"0.0#"` bits formatting yielding `119.1`, and the EFF file URL/availability.
+
+---
+
+## Adversarial review integration (2026-05-28)
+
+A fresh-subagent adversarial review (15-category taxonomy, single pass) produced **1 blocker, 6 test
+gaps, 3 explicit defers, 5 N/A**. Dispositions:
+
+| ID | Bucket | Finding | Integrated as |
+|----|--------|---------|---------------|
+| F1 | Blocker | `--count` was a string `Option` read as int with no validator — contradicted the `--count 0` usage-error test; silent no-op on a typo'd/negative count | `--count` is now a bounded `IntOption` (1–100000) in `CommonShell`; the "if it slips through" hedging is removed. |
+| F2 | Blocker | No upper bound on `--length`/`--bytes`/`--words`/`--count` → OOM on a mistyped extra-zeros value | All four are bounded `IntOption`s (length ≤ 4096, words ≤ 1024, bytes ≤ 65536, count ≤ 100000); added `ArgParserTests.Oversized_sizes_are_usage_errors`. |
+| F3 | Test gap | Catch-all error path (`NotExecutable` + short message, no secret/stack trace) untested | Added `ThrowingRandom` double + `CliTests.Csprng_failure_returns_NotExecutable_with_no_secret_or_stacktrace`. |
+| F4 | Test gap | Broken-pipe `IOException` → success untested | Added `ThrowingWriter` double + `CliTests.Broken_pipe_is_swallowed_and_returns_success`. |
+| F5 | Test gap | Rejection proven at 1-byte but only acceptance at 2-byte — the phrase word-selection path's unbiasedness was unguarded | Added `SamplingTests.UniformIndex_rejects_at_the_multibyte_boundary` (8191 rejected at the 7776 range). |
+| F6 | Test gap | `--sep` unconstrained/untested | Added `PhraseGeneratorTests` for empty and multi-char separators; documented that a newline-bearing `--sep` is honoured literally (user's choice), not rejected. |
+| F7 | Defer | Non-aligned base32/base64url decode-round-trip | Encode-only — noted in design "Out of scope" and ADR deferred table; `docs/known-issues.md` note in Task 15 Step 5b. |
+| F8 | Defer | Generated secrets not zeroed from memory | Documented (immutable strings, short-lived process) in ADR deferred table; `docs/known-issues.md` note in Task 15 Step 5b. |
+
+Single pass; the two blockers were plan-text fixes (not structural rework), so no second adversarial
+pass is required.
