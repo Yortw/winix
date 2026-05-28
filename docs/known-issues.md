@@ -49,3 +49,11 @@ These detections are heuristic, not signature-based — the scanner's ML model c
 ## CI: GitHub Actions not pinned to commit SHAs
 
 Third-party actions (`actions/checkout@v6`, `actions/setup-dotnet@v5`, etc.) use version tags rather than pinned commit SHAs. This is standard practice for open-source projects and Dependabot monitors for updates, but pinned SHAs would provide stronger supply-chain protection. Additionally, `actions/upload-artifact@v7` and `actions/download-artifact@v8` are on different major versions — functionally compatible but worth aligning when upload v8 ships.
+
+## mksecret: key output is encode-only — non-byte-aligned sizes are not round-trip decodable
+
+`mksecret key` encodes N raw random bytes; it does not guarantee that the encoded output decodes back to exactly N bytes when the byte count is not aligned to the encoding's natural block size. For example, base32 encodes in 5-byte blocks, so `--bytes 17` under `--encoding base32` pads internally but decoding the output yields different byte-level behaviour depending on the decoder. This is irrelevant in practice — nothing is expected to decode `mksecret key` output back to raw bytes; the encoded string is the secret — but scripts that treat the encoding as a lossless round-trip should use a byte count aligned to the encoding's block size (multiples of 3 for base64/base64url, multiples of 5 for base32).
+
+## mksecret: generated secrets are not zeroed from process memory
+
+`mksecret` generates secrets as managed .NET strings. Managed strings are immutable and cannot be zeroed on demand — the GC may retain copies in memory until the next collection. As the tool is short-lived (exits immediately after output), the exposure window is the process lifetime only. This is acceptable for the intended use cases (generate-and-pipe) but means `mksecret` is not suitable for contexts that require memory-secure secret handling (e.g. HSM or in-process key derivation pipelines). Use an appropriate library with `SecureString` or `MemoryMarshal.AsBytes` zeroing semantics for those cases.
