@@ -202,8 +202,9 @@ meaning, not merely that they run.
   never silently become the production default. This is the inverse of the seam-failure-test rule
   (`feedback_ship_readiness_seam_failure_tests`): fakes-everywhere can hide whether the real seam
   works at all, which for an RNG is the scariest regression.
-- **Wordlist integrity** — `EffWordList` has exactly 7776 entries, no duplicates, no whitespace,
-  matches a checksum of the canonical EFF file.
+- **Wordlist integrity** — `EffWordList` has exactly 7776 entries, no duplicates, and every entry
+  is lowercase ASCII `a–z` plus the legitimately-hyphenated EFF compounds (e.g. `drop-down`,
+  `t-shirt`). (Implemented as count/uniqueness/charset assertions rather than a pinned file checksum.)
 - **Entropy math** — `Entropy` returns the documented bit values for representative params.
 - **Key encodings** — round-trip each encoding (`Decode(Encode(bytes)) == bytes`); `base64url`
   output has no `=`.
