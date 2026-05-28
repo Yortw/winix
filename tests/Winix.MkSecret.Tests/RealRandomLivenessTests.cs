@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.IO;
+using Winix.Codec;
 using Winix.MkSecret;
 using Xunit;
 
@@ -36,5 +37,14 @@ public class RealRandomLivenessTests
         {
             Assert.Contains(c, sample);
         }
+    }
+
+    [Fact]
+    public void Production_default_random_is_SecureRandom()
+    {
+        // ADR §8 layer-2 guard: the production default CSPRNG must be the real SecureRandom,
+        // so a stub/seeded RNG can never silently become the default. Cli.Run uses
+        // SecureRandom.Default when no override is passed.
+        Assert.IsType<SecureRandom>(SecureRandom.Default);
     }
 }
