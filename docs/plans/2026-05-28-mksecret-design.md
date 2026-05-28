@@ -31,13 +31,14 @@ avoids the word "secret-store" territory.
   multi-line `RandomNumberGenerator` + encoding. PowerShell **7.4+** added `Get-SecureRandom`
   (CSPRNG-backed), but (a) it is a *primitive* — you still hand-roll character selection and
   encoding — and (b) it is not present in default Windows. **This is the primary gap mksecret fills.**
-- **`pwgen` (Linux) is insecure-by-default and context-sensitive.** Its default mode produces
+- **`pwgen` (Unix) is insecure-by-default and context-sensitive.** Its default mode produces
   *pronounceable* passwords the man page explicitly says "should not be used in places where the
   password could be attacked via an off-line brute-force attack." Security requires the `-s` flag —
   and pwgen *additionally* downgrades to weaker output when stdout is not a TTY (the scripted / CI
-  case) unless `-s` was passed. It is also install-required and Linux-only.
-- **Diceware is missing on every mainstream platform.** No OS ships a passphrase generator;
-  alternatives (`diceware`, `xkcdpass`) are pip installs.
+  case) unless `-s` was passed. It also has no first-class Windows build (it's a Unix tool).
+- **Diceware is missing on every mainstream platform.** No OS ships a passphrase generator, and the
+  alternatives (`diceware`, `xkcdpass`) carry a **Python runtime** dependency — fine on a dev box,
+  but a heavy thing to drag onto a minimal CI image or a stock Windows machine.
 - **Cross-platform uniformity.** One binary, identical flags + output on Windows / macOS / Linux,
   with no Python or PowerShell runtime. Install scripts and CI matrices stop branching per-OS
   (`openssl` here, PowerShell there, `pwgen` if-present elsewhere).
@@ -58,7 +59,9 @@ consistently," not "this didn't exist."
 - Generate a password: `mksecret password` → 20-char alphanumeric on stdout, `≈ 119 bits` on stderr.
 - Generate a passphrase: `mksecret phrase` → `correct-horse-battery-staple-anchor-medal`.
 - Generate an API key: `mksecret key --bytes 32` → unpadded base64url, 256 bits.
-- Feed an HMAC key into `digest`: `mksecret key --bytes 32 --encoding base64 | digest --hmac sha256 --key-stdin "payload"`.
+- Generate a signing key, **store it**, then sign with it later — the key must persist or the HMAC
+  is unverifiable: `mksecret key --bytes 32 > signing.key` (then `digest --hmac sha256 --key-file
+  signing.key "payload"` signs/verifies against the stored key).
 - Copy without scrollback (composition, no `--copy` flag): `mksecret password | clip`.
 - Batch for a fixture: `mksecret password --count 5`.
 
@@ -170,10 +173,14 @@ for `--help/--version/--describe`, `ExitCode` conventions, `IOException` pipe-cl
 success, catch-all → short message (AOT has `StackTraceSupport=false`). The `randomOverride`
 parameter lets tests inject a deterministic `ISecureRandom` and pin exact output bytes.
 
-**`--describe`** advertises `.ComposesWith()` snippets — `mksecret key --bytes 32 --encoding base64
-| digest --hmac sha256 --key-stdin`, `mksecret password | clip`. Per
-`feedback_composes_with_snippets_must_be_verified`, these snippets are **executed against the real
-`digest` / `clip` parsers** as a review gate before round-stop, not just eyeballed.
+**`--describe`** advertises `.ComposesWith()` snippets — but only **logically sound** ones. The
+valid pipe is `mksecret <mode> | clip` (capture a generated secret somewhere you keep it). The
+`digest` relationship is **not** a pipe: a generated HMAC/signing key must be *persisted* to be
+verifiable, so it's expressed as "generate → store → `digest --key-file`/`--key-env`", never
+`mksecret key | digest --key-stdin` (that consumes and discards the key in the same pipe, leaving an
+unverifiable MAC). Per `feedback_composes_with_snippets_must_be_verified`, snippets are **executed
+against the real `clip` / `digest` parsers** as a review gate — and additionally checked for logical
+meaning, not merely that they run.
 
 ---
 
@@ -183,8 +190,18 @@ parameter lets tests inject a deterministic `ISecureRandom` and pin exact output
   password/phrase/key output, byte-for-byte. This is the core correctness guard.
 - **Charset correctness** — every named charset contains exactly the expected members; `safe`
   excludes `l 1 I O 0 o`.
-- **Rejection-sampling distribution** — feed bytes that land outside the alphabet/word-index range
-  and assert they're rejected (no bias, no out-of-range index).
+- **Rejection-sampling distribution (unbiasedness — our code)** — feed the fake bytes that land
+  outside the alphabet/word-index range and assert they're *rejected*, not folded via modulo. This
+  deterministically proves the mask eliminates bias without needing real randomness.
+- **Real-CSPRNG liveness / no-stub guard (the production seam actually works)** — using the
+  *production* `ISecureRandom` (no override), generate many values and assert they are essentially
+  all distinct (catches a constant/seeded/stuck production RNG), and for `password` that the full
+  charset appears across a large sample (catches "emits only a subset"). Non-flaky — collision /
+  missing-char probabilities are astronomically small (e.g. a 32-byte key colliding ≈ 2⁻²⁵⁶). Also
+  assert the generator factory's default `ISecureRandom` *is* `SecureRandom`, so a test stub can
+  never silently become the production default. This is the inverse of the seam-failure-test rule
+  (`feedback_ship_readiness_seam_failure_tests`): fakes-everywhere can hide whether the real seam
+  works at all, which for an RNG is the scariest regression.
 - **Wordlist integrity** — `EffWordList` has exactly 7776 entries, no duplicates, no whitespace,
   matches a checksum of the canonical EFF file.
 - **Entropy math** — `Entropy` returns the documented bit values for representative params.
@@ -196,6 +213,13 @@ parameter lets tests inject a deterministic `ISecureRandom` and pin exact output
   emits a short message and no stack trace.
 - Test csproj sets `InvariantGlobalization=true` so framework exception messages don't leak SR keys
   (per `feedback_invariant_globalization_resource_keys`).
+
+**Explicit trust boundary (what we deliberately do NOT test):** the *cryptographic quality* —
+unpredictability — of the underlying random bytes is not re-tested. No finite output sample can
+prove a stream is CSPRNG-grade, and the bytes come from `RandomNumberGenerator` (the OS CSPRNG:
+BCryptGenRandom on Windows, getrandom/urandom on Linux/macOS), which is not our code. We test that
+our *reduction* is unbiased (deterministic) and that the production path is *wired to* the real
+CSPRNG and varies (liveness); we delegate cryptographic strength to the platform. See ADR §8.
 
 ---
 

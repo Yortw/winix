@@ -188,6 +188,44 @@ base64`. Documented.
 
 ---
 
+## 8. Randomness Testing Boundary — Test the Reduction and the Wiring, Delegate Strength to the Platform
+
+**Context:** mksecret is a security tool, so "are the generated values actually good?" is the
+sharpest question. The implementation uses an injectable `ISecureRandom` so deterministic fakes can
+pin exact output — but that raises the worry that the *real* generator is never exercised, and that
+a bad/constant/biased real generator would pass every fake-driven test.
+
+**Decision:** Split "randomness correctness" into three layers and test the two we own; explicitly
+delegate the third:
+
+1. **Reduction unbiasedness (ours)** — deterministic test: feed the fake out-of-range bytes and
+   assert rejection (no modulo fold). Proven without real randomness.
+2. **Production-seam liveness (ours)** — run the *real* `SecureRandom` (no override), assert outputs
+   vary and (for `password`) cover the charset; assert the factory default is `SecureRandom`. Guards
+   against a stub/seed silently becoming the production default.
+3. **CSPRNG cryptographic strength (the platform's)** — **not tested.** No finite sample proves a
+   stream is CSPRNG-grade, and the bytes come from `RandomNumberGenerator` (OS CSPRNG), which is not
+   our code.
+
+**Rationale:** This closes the genuinely-dangerous, genuinely-testable gap (a degraded production
+seam — the inverse of `feedback_ship_readiness_seam_failure_tests`) while refusing to ship
+theatrical "randomness tests" that can't prove what they claim and would be flaky. The honest
+boundary is recorded so a future reviewer doesn't either (a) assume cryptographic quality is tested
+or (b) add a brittle statistical suite believing there's a hole.
+
+**Trade-offs Accepted:** We rely on the OS/BCL CSPRNG being correct. Acceptable — re-implementing or
+re-validating a CSPRNG is out of scope and worse than trusting the platform primitive.
+
+**Options Considered:**
+- **A statistical suite (chi-square / NIST STS / dieharder) on real output.** Rejected — validates
+  the BCL's RNG (not our code), is flaky at any tight threshold, and still can't prove
+  unpredictability. The loose charset-coverage check in layer 2 catches gross failures without the
+  flakiness.
+- **No real-generator test at all (fakes only).** Rejected — leaves the scariest regression (a
+  stubbed/seeded production default) completely unguarded.
+
+---
+
 ## Decisions Explicitly Deferred
 
 | Topic | Why deferred |
