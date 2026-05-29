@@ -1,6 +1,5 @@
 #nullable enable
 using System;
-using System.Collections.Generic;
 using System.IO;
 using Winix.Codec;
 using Yort.ShellKit;
@@ -8,9 +7,8 @@ using Yort.ShellKit;
 namespace Winix.MkSecret;
 
 /// <summary>Library entry point. Program.cs is a thin shim around <see cref="Run"/> so the JSON
-/// shape, pipe-close handling, and error path are unit-testable. <paramref name="randomOverride"/>
-/// lets tests inject a deterministic CSPRNG; production passes null and the real
-/// <see cref="SecureRandom"/> is used.</summary>
+/// shape and error path are unit-testable. <paramref name="randomOverride"/> lets tests inject a
+/// deterministic CSPRNG; production passes null and the real <see cref="SecureRandom"/> is used.</summary>
 public static class Cli
 {
     /// <summary>Runs the pipeline: parse, generate, format, return exit code.</summary>
@@ -34,26 +32,26 @@ public static class Cli
             ISecureRandom rng = randomOverride ?? SecureRandom.Default;
             ISecretGenerator gen = SecretGeneratorFactory.Create(o.Mode, rng);
 
-            var values = new List<string>(o.Count);
-            for (int i = 0; i < o.Count; i++) { values.Add(gen.Generate(o)); }
-
+            // Stream one secret at a time — never materialise all Count values. At the documented maxima
+            // (--count 100000 --length 4096) buffering would cost ~800 MB; generate-and-write keeps it flat.
             if (o.Json)
             {
-                stdout.WriteLine(Formatting.JsonEnvelope(o, values, Entropy.BitsFor(o)));
+                stdout.Write(Formatting.JsonOpen(o, Entropy.BitsFor(o)));
+                for (int i = 0; i < o.Count; i++)
+                {
+                    if (i > 0) { stdout.Write(','); }
+                    stdout.Write(Formatting.JsonValue(gen.Generate(o)));
+                }
+                stdout.WriteLine(Formatting.JsonClose());
             }
             else
             {
-                foreach (string v in values) { stdout.WriteLine(v); }
+                for (int i = 0; i < o.Count; i++) { stdout.WriteLine(gen.Generate(o)); }
                 if (!o.Quiet)
                 {
                     stderr.WriteLine(Formatting.EntropyNote(Entropy.BitsFor(o)));
                 }
             }
-            return ExitCode.Success;
-        }
-        catch (IOException)
-        {
-            // Downstream reader closed the pipe (e.g. `mksecret --count 100000 | head -1`). Not our error.
             return ExitCode.Success;
         }
         catch (Exception ex)

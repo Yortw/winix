@@ -72,16 +72,33 @@ public class CliTests
     }
 
     [Fact]
-    public void Broken_pipe_is_swallowed_and_returns_success()
+    public void Write_failure_surfaces_as_NotExecutable()
     {
+        // A genuine output write failure (disk full, device removed, redirected-file error) throws
+        // IOException from the writer, and the contract maps that to NotExecutable — it is NOT swallowed
+        // as success. A *closed downstream pipe* does not throw in production (the runtime absorbs it at
+        // the Console.Out layer on both Windows and Linux), so a throwing writer is the real-error path.
         var se = new StringWriter();
         int code = Cli.Run(new[] { "password", "--length", "8", "--quiet" },
             new ThrowingWriter(), se, new SequenceRandom(new byte[64]));
-        Assert.Equal(ExitCode.Success, code);
+        Assert.Equal(ExitCode.NotExecutable, code);
+        Assert.Contains("mksecret: error:", se.ToString());
+    }
+
+    [Fact]
+    public void Json_streams_a_wellformed_envelope_for_multiple_values()
+    {
+        // Locks the streamed JSON bytes (Cli no longer buffers all values before emitting the envelope).
+        // length 2, count 2, all-zero RNG -> alphanumeric[0]='A'; bits = 2*log2(62) = 11.9.
+        var rng = new SequenceRandom(new byte[64]);
+        var (code, outText, _) = Run(new[] { "password", "--length", "2", "--count", "2", "--json" }, rng);
+        Assert.Equal(0, code);
+        Assert.Equal("{\"mode\":\"password\",\"bits\":11.9,\"values\":[\"AA\",\"AA\"]}", outText.Trim());
     }
 }
 
-/// <summary>TextWriter that throws IOException on every write — simulates a closed downstream pipe.</summary>
+/// <summary>TextWriter that throws IOException on every write — simulates a genuine write failure
+/// (disk full / device error). A closed downstream pipe does NOT throw in production.</summary>
 internal sealed class ThrowingWriter : TextWriter
 {
     public override System.Text.Encoding Encoding => System.Text.Encoding.UTF8;
