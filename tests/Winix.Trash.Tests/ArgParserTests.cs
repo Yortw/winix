@@ -46,6 +46,29 @@ public class ArgParserTests
     }
 
     [Fact]
+    public void Case_differing_paths_dedup_behaviour_matches_filesystem_case_sensitivity()
+    {
+        // On case-insensitive filesystems (Windows/macOS), "a.txt" and "A.txt" normalise to
+        // the same path, so only one entry is kept.
+        // On case-sensitive filesystems (Linux), they are genuinely distinct and both are kept.
+        ArgParser.Result r = ArgParser.Parse(new[] { "a.txt", "A.txt" });
+
+        Assert.True(r.Success);
+        Assert.Equal(TrashMode.Trash, r.Mode);
+
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
+        {
+            // Case-insensitive FS: the two paths resolve to the same canonical path.
+            Assert.Single(r.Paths);
+        }
+        else
+        {
+            // Case-sensitive FS: genuinely different files — both must be kept.
+            Assert.Equal(2, r.Paths.Count);
+        }
+    }
+
+    [Fact]
     public void Dot_path_resolves_to_cwd_without_rejection()
     {
         // "." canonicalises to the current directory; must not be rejected.

@@ -111,8 +111,13 @@ public static class ArgParser
                 }
             }
 
-            // Normalise to full paths and de-duplicate (keep first occurrence)
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            // Normalise to full paths and de-duplicate (keep first occurrence).
+            // Use case-insensitive comparison only on case-insensitive filesystems (Windows/macOS).
+            // OrdinalIgnoreCase on Linux would merge genuinely distinct paths (e.g. a.txt vs A.txt).
+            StringComparer pathComparer = (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
+                ? StringComparer.OrdinalIgnoreCase
+                : StringComparer.Ordinal;
+            var seen = new HashSet<string>(pathComparer);
             var normalised = new List<string>(parsed.Positionals.Length);
             foreach (string raw in parsed.Positionals)
             {
