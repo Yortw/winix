@@ -61,7 +61,7 @@ mksecret --count 5
 
 # JSON envelope
 mksecret --count 3 --json
-# {"mode":"password","bits":119.1,"values":["a3Rk8Qz2nTpL","...",...]}
+# {"mode":"password","bits":119.1,"values":["a3Rk8Qz2nTpLvW7yX1mB","...",...]}
 ```
 
 #### password options
@@ -206,9 +206,9 @@ The key is discarded as soon as the pipe closes. You get a valid-looking MAC but
 
 | Code | Meaning |
 |---|---|
-| 0 | Success. |
+| 0 | Success. A closed downstream pipe (e.g. `mksecret --count 100000 \| head -1`) also exits 0 — it is not an error. |
 | 125 | Usage error — unknown subcommand, invalid flag, bad `--charset`/`--encoding` value, non-positive or oversized count/length/bytes/words, unexpected positional. Stderr carries the message. |
-| 126 | Runtime error — OS CSPRNG failure or output write failure. Stderr carries the message. |
+| 126 | Runtime error — OS CSPRNG failure or output write failure (disk full, device error). Stderr carries the message. |
 
 ## Colour
 

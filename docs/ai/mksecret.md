@@ -129,9 +129,9 @@ The `--key-stdin` flag on `digest` is for supplying a *known* key from a secure 
 
 | Code | Meaning |
 |---|---|
-| 0 | Success. |
+| 0 | Success. A closed downstream pipe (e.g. `mksecret --count 100000 \| head -1`) also exits 0 — not an error. |
 | 125 | Usage error — unknown flag, bad `--charset`/`--encoding`, non-positive or oversized limit, unexpected positional. Stderr carries the message. |
-| 126 | Runtime error — OS CSPRNG failure or output write failure. Stderr carries the message. |
+| 126 | Runtime error — OS CSPRNG failure or output write failure (disk full, device error). Stderr carries the message. |
 
 ## Metadata
 

@@ -110,9 +110,9 @@ public static class ArgParser
                 valueOnWindows: "Windows ships no secure generator out of the box; the common Get-Random idiom is non-cryptographic. mksecret is secure-by-default with no PowerShell-version dependency.",
                 valueOnUnix: "One self-contained binary covering passwords, diceware passphrases (missing on every OS), and encoded keys — secure-by-default (no pwgen -s footgun, no Python runtime for diceware).")
             .ExitCodes(
-                (0, "Success"),
+                (0, "Success (a closed downstream pipe, e.g. | head -1, also exits 0 — not an error)"),
                 (ExitCode.UsageError, "Usage error: unknown subcommand flag, bad --charset/--encoding value, non-positive or oversized --length/--bytes/--words/--count, unexpected positional"),
-                (ExitCode.NotExecutable, "Runtime error: OS CSPRNG failure or output write failure"))
+                (ExitCode.NotExecutable, "Runtime error: OS CSPRNG failure or output write failure (disk full, device error)"))
             .StdinDescription("Not used.")
             .StdoutDescription("The generated secret(s), one per line; or a JSON envelope under --json.")
             .StderrDescription("Entropy note (≈ N bits) unless --quiet/--json; errors.")
