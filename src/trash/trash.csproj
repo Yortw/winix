@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <OptimizationPreference>Size</OptimizationPreference>
+    <StackTraceSupport>false</StackTraceSupport>
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>trash</ToolCommandName>
+    <PackageId>Winix.Trash</PackageId>
+    <Description>Cross-platform safe-delete to the OS recycle bin / Trash — list and empty included.</Description>
+    <PackageTags>cli;command-line;cross-platform;windows;macos;linux;aot;dotnet-tool;winix;trash;recycle-bin;rm;delete;undo</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Winix.Trash\Winix.Trash.csproj" />
+    <ProjectReference Include="..\Yort.ShellKit\Yort.ShellKit.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="man\man1\trash.1" CopyToPublishDirectory="PreserveNewest" Link="share\man\man1\trash.1" />
+  </ItemGroup>
+</Project>
