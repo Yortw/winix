@@ -641,6 +641,27 @@ public sealed class CommandLineParser
             }
         }
 
+        // Examples (same data the --describe JSON carries; rendered here so --help is self-contained)
+        if (_examples.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("Examples:");
+            int maxCmd = _examples.Max(e => e.Command.Length);
+            int exampleAlign = maxCmd + 2; // minimum 2-space gap, matching the options table
+            foreach (var (command, description) in _examples)
+            {
+                if (description.Length > 0)
+                {
+                    sb.Append("  ").Append(command.PadRight(exampleAlign));
+                    sb.AppendLine(description);
+                }
+                else
+                {
+                    sb.AppendLine($"  {command}");
+                }
+            }
+        }
+
         // Exit codes
         if (_exitCodes.Count > 0)
         {

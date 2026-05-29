@@ -746,6 +746,34 @@ public class HelpGenerationTests
     }
 
     [Fact]
+    public void GenerateHelp_IncludesExamples()
+    {
+        var writer = new StringWriter();
+        Console.SetOut(writer);
+
+        try
+        {
+            var parser = new CommandLineParser("mytool", "1.0.0")
+                .StandardFlags()
+                .Example("mytool --verbose", "Run with verbose output")
+                .Example("mytool file.txt", "Process a file");
+
+            parser.Parse(new[] { "--help" });
+            string help = writer.ToString();
+
+            Assert.Contains("Examples:", help);
+            Assert.Contains("mytool --verbose", help);
+            Assert.Contains("Run with verbose output", help);
+            Assert.Contains("mytool file.txt", help);
+            Assert.Contains("Process a file", help);
+        }
+        finally
+        {
+            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+        }
+    }
+
+    [Fact]
     public void GenerateHelp_IncludesExitCodes()
     {
         var writer = new StringWriter();
