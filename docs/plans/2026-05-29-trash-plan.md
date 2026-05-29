@@ -235,6 +235,16 @@ public class TrashInfoTests
     {
         Assert.Null(TrashInfo.Parse("[Trash Info]\nDeletionDate=2023-01-02T03:04:05\n"));
     }
+
+    [Theory]   // F12: malformed percent-escapes must never throw (corrupt file must not crash --list)
+    [InlineData("[Trash Info]\nPath=/x/%\nDeletionDate=2023-01-02T03:04:05\n")]
+    [InlineData("[Trash Info]\nPath=/x/%A\nDeletionDate=2023-01-02T03:04:05\n")]
+    [InlineData("[Trash Info]\nPath=/x/%ZZ\nDeletionDate=2023-01-02T03:04:05\n")]
+    public void Parse_DoesNotThrow_OnMalformedPercentEscape(string body)
+    {
+        TrashInfoRecord? r = TrashInfo.Parse(body);   // must not throw
+        Assert.NotNull(r);                             // bad escapes pass through literally, not fatal
+    }
 }
 ```
 
@@ -315,12 +325,15 @@ public static class TrashInfo
 
     private static string Decode(string s)
     {
+        // Defensive (F12): a trailing bare '%', a single-hex-digit '%A', or a non-hex pair '%ZZ' must
+        // NOT throw — a corrupt .trashinfo must not crash --list. Emit the '%' literally in those cases.
         var bytes = new System.Collections.Generic.List<byte>(s.Length);
         for (int i = 0; i < s.Length; i++)
         {
-            if (s[i] == '%' && i + 2 < s.Length + 1 && i + 2 <= s.Length - 0 && i + 2 < s.Length + 1)
+            if (s[i] == '%' && i + 2 < s.Length
+                && Uri.IsHexDigit(s[i + 1]) && Uri.IsHexDigit(s[i + 2]))
             {
-                bytes.Add(Convert.ToByte(s.Substring(i + 1, 2), 16));
+                bytes.Add((byte)((Uri.FromHex(s[i + 1]) << 4) | Uri.FromHex(s[i + 2])));
                 i += 2;
             }
             else { bytes.Add((byte)s[i]); }
@@ -329,8 +342,6 @@ public static class TrashInfo
     }
 }
 ```
-
-> **Note for implementer:** the `Decode` bounds check above is deliberately written to be corrected — simplify to `if (s[i] == '%' && i + 2 < s.Length)`. Verify decode of a trailing bare `%` does not throw (add a test if needed).
 
 - [ ] **Step 4: Run — Expected: PASS.** Fix the `Decode` bounds expression until green.
 
@@ -382,10 +393,35 @@ public class RecycleMetadataTests
         w.Write((ushort)0);                // null terminator
         w.Flush();
 
-        RecycleEntry e = RecycleMetadata.ParseIFile(buf.ToArray());
-        Assert.Equal(path, e.OriginalPath);
+        RecycleEntry? e = RecycleMetadata.TryParseIFile(buf.ToArray());
+        Assert.NotNull(e);
+        Assert.Equal(path, e!.OriginalPath);
         Assert.Equal(1234L, e.SizeBytes);
         Assert.Equal(new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc), e.DeletedUtc);
+    }
+
+    [Fact] // F17: v1/pre-Win10 header → skipped (null), not misparsed as v2
+    public void TryParse_ReturnsNull_OnNonV2Header()
+    {
+        byte[] bytes = new byte[64];
+        bytes[0] = 1;   // header version 1
+        Assert.Null(RecycleMetadata.TryParseIFile(bytes));
+    }
+
+    [Fact] // F8: garbage FILETIME must yield null, not a raw ArgumentOutOfRangeException
+    public void TryParse_ReturnsNull_OnOutOfRangeFiletime()
+    {
+        var buf = new System.IO.MemoryStream();
+        var w = new System.IO.BinaryWriter(buf);
+        w.Write(2L); w.Write(0L); w.Write(long.MaxValue); w.Write(2); w.Write((ushort)'x'); w.Write((ushort)0);
+        w.Flush();
+        Assert.Null(RecycleMetadata.TryParseIFile(buf.ToArray()));
+    }
+
+    [Fact] // F9: a truncated $I must not throw
+    public void TryParse_ReturnsNull_OnShortBuffer()
+    {
+        Assert.Null(RecycleMetadata.TryParseIFile(new byte[10]));
     }
 }
 ```
@@ -408,18 +444,25 @@ public sealed record RecycleEntry(string OriginalPath, long SizeBytes, DateTime 
 /// Pure byte-level parsing — no Shell COM — so it is AOT-clean and unit-testable on any OS.</summary>
 public static class RecycleMetadata
 {
-    /// <summary>Parses one <c>$I</c> file's bytes.</summary>
-    /// <exception cref="FormatException">If the buffer is too short or malformed.</exception>
-    public static RecycleEntry ParseIFile(byte[] bytes)
+    /// <summary>Parses one <c>$I</c> file's bytes, returning null if the buffer is too short, not
+    /// format version 2 (v1/pre-Win10 entries are skipped — F17), the path length is invalid, or the
+    /// deletion FILETIME is out of range (F8). Returning null rather than throwing lets <c>List()</c>
+    /// skip a single corrupt entry without aborting the whole enumeration (F9).</summary>
+    public static RecycleEntry? TryParseIFile(byte[] bytes)
     {
-        if (bytes.Length < 28) { throw new FormatException("$I file too short"); }
+        if (bytes.Length < 28) { return null; }
+        long header = BinaryPrimitives.ReadInt64LittleEndian(bytes.AsSpan(0, 8));
+        if (header != 2) { return null; }   // F17: only Win10+ v2 parsed; older entries skipped
         long size = BinaryPrimitives.ReadInt64LittleEndian(bytes.AsSpan(8, 8));
         long filetime = BinaryPrimitives.ReadInt64LittleEndian(bytes.AsSpan(16, 8));
         int charCount = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(24, 4));
         int pathByteLen = (charCount - 1) * 2; // exclude null terminator
-        if (pathByteLen < 0 || 28 + pathByteLen > bytes.Length) { throw new FormatException("$I path length invalid"); }
+        if (charCount < 1 || pathByteLen < 0 || 28 + pathByteLen > bytes.Length) { return null; }
         string path = Encoding.Unicode.GetString(bytes, 28, pathByteLen);
-        return new RecycleEntry(path, size, DateTime.FromFileTimeUtc(filetime));
+        DateTime deleted;
+        try { deleted = DateTime.FromFileTimeUtc(filetime); }
+        catch (ArgumentOutOfRangeException) { return null; }   // F8: garbage/negative FILETIME
+        return new RecycleEntry(path, size, deleted);
     }
 }
 ```
@@ -457,6 +500,11 @@ already registers `--json` — **do NOT re-add it**, per the mksecret duplicate-
   exclusive"); if `(Has("--list")||Has("--empty"))` && `Positionals.Length>0` → Fail; if neither mode
   flag && `Positionals.Length==0` → Fail("no paths given; see --help"). Reuse `ResolveVersion()` from
   mksecret verbatim.
+  **Path hygiene (F5):** before returning the Trash-mode `Result`, (a) Fail on any empty/whitespace-only
+  positional ("empty path argument"); (b) de-duplicate exact duplicates after `Path.GetFullPath`
+  normalisation, keeping first occurrence (must not act on the same target twice). Do NOT reject `.`/`..`
+  (they canonicalise to a real path; the backend trash-root/system-root guard from F1 is the safety net).
+  Add tests: `trash a a` → one path; `trash ""` → usage error; `trash .` → resolves to the cwd path.
 
 - [ ] **Step 4: Run — Expected: PASS.**
 - [ ] **Step 5: Commit** — `git commit -m "feat(trash): ShellKit arg parser with flag-mode dispatch"`
@@ -495,10 +543,15 @@ already registers `--json` — **do NOT re-add it**, per the mksecret duplicate-
   - Trash with one failed path → exit 1; all-fail → exit 1.
   - `--list` → table to stdout (exit 0); `--json` → items envelope to stdout, nothing to stderr.
   - `--empty` with `--yes` → calls `Empty()`, summary, exit 0.
+  - Trash with one fake `PathOutcome` carrying a permission error → exit 1, error surfaced on stderr (F7).
   - `--empty` non-interactive **without** `--yes` → does NOT call `Empty()`, exit 0 with a stderr
-    notice ("refusing to empty without --yes when not interactive"). (Interactive prompt path is
-    covered by manual smoke — see Task 18; the unit test pins the non-interactive gate.)
-  - Backend throws → exit 126, `trash: error:` on stderr, nothing on stdout.
+    notice ("refusing to empty without --yes when not interactive"). (Uses `isInteractiveOverride`.)
+  - `--empty` interactive (via `isInteractiveOverride`+`readLineOverride`): reads `"n"`/empty/EOF →
+    `Empty()` NOT called, exit 0; reads `"y"` → `Empty()` called, exit 0 (F14 — the seam is injectable,
+    so this is a unit test, not deferred to manual).
+  - Backend throws a generic `Exception` → exit 126, `trash: error:` on stderr, nothing on stdout.
+  - **Backend throws `IOException` specifically → exit 126 (NOT swallowed as 0)** (F10 — this is the test
+    that actually locks the mksecret lesson; a write-path pipe-close is the only thing that may map to 0).
   - Usage error from ArgParser → exit 125.
 
 - [ ] **Step 3: Run — Expected: FAIL.**
@@ -555,11 +608,23 @@ already registers `--json` — **do NOT re-add it**, per the mksecret duplicate-
 - [ ] **Step 3:** Implement `MountResolver` (pure; uses injected device lookup). Real device id comes
   from `stat`'s `st_dev` via `File.GetUnixFileInfo`/`LibraryImport stat` in the backend (Task 12 covers
   multi-volume integration; home-volume uses `Directory.Move`/`File.Move`).
-- [ ] **Step 4:** Implement `LinuxFreeDesktopBackend.Trash` for the **home-volume** case: ensure
-  `files/` + `info/` exist; pick a collision-free name; write `<name>.trashinfo` via `TrashInfo.Write`
-  with `DateTime.Now`; move the file into `files/`. On per-path failure, record in `TrashResult` (no throw).
-  `List()` reads every `.trashinfo` in `info/` → `TrashedItem`. `Empty()` deletes `files/*` + `info/*`,
-  returns count.
+- [ ] **Step 4:** Implement `LinuxFreeDesktopBackend.Trash` for the **home-volume** case, in the
+  **spec-mandated order** (F3/F4):
+  1. Refuse any input path that, once canonicalised (`Path.GetFullPath` + resolve symlinks), equals or
+     is under any of this backend's trash roots → record a per-path error, do not proceed (F1 guard).
+  2. **Reserve the name atomically:** create `info/<name>.trashinfo` with `O_EXCL` (via
+     `new FileStream(path, FileMode.CreateNew)`). On collision (`IOException`/`already exists`),
+     increment a numeric suffix (`name`, `name.2`, …) and retry — this is the name-reservation
+     primitive, NOT a check-then-create (TOCTOU-safe, and safe against GUI managers sharing the dir).
+  3. Write the `TrashInfo.Write(originalFullPath, DateTime.Now)` body into that reserved file.
+  4. Move the file into `files/<name>` (`File.Move`/`Directory.Move`).
+  5. **Rollback:** if step 4 throws, delete the `.trashinfo` written in step 2/3 and record a per-path
+     error — never leave an orphaned `.trashinfo` or a `files/` entry with no metadata.
+  On per-path failure record in `TrashResult` (no throw out of `Trash`).
+  `List()` reads every `.trashinfo` in `info/`; **skip (don't abort on) any entry where `TrashInfo.Parse`
+  returns null or the sibling `files/` entry is missing** (F9 — a corrupt/orphaned entry must not crash
+  the whole listing). `Empty()` deletes `files/*` + `info/*`, continuing past per-item failures, returns
+  the count actually removed.
 - [ ] **Step 5: Run — Expected: PASS** (MountResolver tests; backend covered by Task 11 integration).
 - [ ] **Step 6: Commit** — `git commit -m "feat(trash): Linux FreeDesktop backend (home volume) + mount resolver"`
 
@@ -586,7 +651,13 @@ already registers `--json` — **do NOT re-add it**, per the mksecret duplicate-
   (b) present in `files/`, (c) a `.trashinfo` exists with the correct decoded original path; then
   self-clean (remove the trashed file + its `.trashinfo`). A second test: `List()` includes the item.
   A third (multi-volume): create a tmpfs/bind-mount under a temp dir if creatable (else `Skip`), trash a
-  file on it, assert `$topdir/.Trash-$uid` used. **Deterministic, self-cleaning, no timing/signals.**
+  file on it, assert `$topdir/.Trash-$uid` used.
+  A fourth (F9 corrupt-store): drop a malformed `.trashinfo` (no `Path=`) into `info/` alongside a valid
+  pair → `List()` returns only the valid item and does not throw; self-clean.
+  A fifth (F4 collision): trash two distinct files sharing a base name → assert two distinct entries in
+  `files/`+`info/` (numeric-suffix reservation worked, no overwrite); self-clean.
+  A sixth (F1 guard): `trash` the trash root itself → per-path error, exit 1, store intact.
+  **Deterministic, self-cleaning, no timing/signals.**
 - [ ] **Step 2: Run in WSL** — Run: `wsl bash -lc "dotnet test /mnt/d/projects/winix/tests/Winix.Trash.Tests/Winix.Trash.Tests.csproj --filter FullyQualifiedName~IntegrationTests_Linux -v q"` — Expected: PASS.
 - [ ] **Step 3: Commit** — `git commit -m "test(trash): Linux integration tests (trash/list/multi-volume)"`
 
@@ -609,12 +680,19 @@ already registers `--json` — **do NOT re-add it**, per the mksecret duplicate-
   `char[]`/`string` with embedded `\0` + trailing `\0\0`; pin it). Document why string `pFrom` is used
   rather than `ArgumentList` (this is a Win32 struct field, not a process arg — the CLAUDE.md
   `ArgumentList` rule is about child processes and does not apply).
-- [ ] **Step 2:** Implement `Trash(paths)`: resolve each to a full path; build the double-null buffer;
-  call `SHFileOperationW` with the four flags; on non-zero return, record a per-path error (the API is
-  batch — if it fails, attribute to the batch). `Empty()`: `SHEmptyRecycleBinW(IntPtr.Zero, null, flags)`,
-  return a best-effort count (count items via `List()` before emptying). `List()`: enumerate
-  `<drive>\$Recycle.Bin\<currentSID>\$I*` across fixed drives, `RecycleMetadata.ParseIFile` each, pair
-  with `TrashedItem` (Name from the `$R` sibling). Skip drives/dirs that throw access-denied.
+- [ ] **Step 2:** Implement `Trash(paths)` with **per-path attribution** (F2 — do NOT batch all paths
+  into one `SHFileOperationW` call, because its single return code can't be attributed to a path and
+  would falsely mark trashed paths as failed). For each path: (a) canonicalise and refuse any path equal
+  to/under `$Recycle.Bin` or a system root → per-path error (F1 guard); (b) if it doesn't exist →
+  per-path error "not found" (don't call the API); (c) else call `SHFileOperationW` for that single path
+  (double-null buffer = one path + `\0\0`) with the four flags; on non-zero HRESULT record a per-path
+  error **including the raw HRESULT** (the only diagnostic, since `FOF_NOERRORUI` suppresses the dialog
+  — F14 observability). `Empty()`: count the user's items via `List()` first (document this is an
+  approximation — `SHEmptyRecycleBinW(null)` may affect bins `List()` doesn't enumerate, F6), then
+  `SHEmptyRecycleBinW(IntPtr.Zero, null, flags)`; return that count. `List()`: enumerate
+  `<drive>\$Recycle.Bin\<currentSID>\$I*` across fixed drives; for each, call `RecycleMetadata.TryParseIFile`
+  and **skip entries that return null** (corrupt/short, or non-v2 header — F9/F17); pair survivors with
+  the `$R` sibling for `Name`. Skip drives/dirs that throw access-denied.
 - [ ] **Step 3:** Get current SID via `System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value`
   (**⚠VERIFY** AOT/trim-safe; if not, enumerate readable `<SID>` subfolders).
 - [ ] **Step 4: Build** — `dotnet build src/Winix.Trash/Winix.Trash.csproj` — Expected: succeeded.
@@ -654,8 +732,10 @@ already registers `--json` — **do NOT re-add it**, per the mksecret duplicate-
   `sel_registerName`, and the needed `objc_msgSend` overloads (IntPtr-returning for the object sends;
   a BOOL-returning overload with an `out IntPtr error` for `trashItemAtURL:...`). A helper
   `TrashViaFoundation(string fullPath) -> (bool ok, string? error)`.
-- [ ] **Step 2:** Implement `MacOsTrashBackend.Trash(paths)`: for each, call `TrashViaFoundation`;
-  record per-path error on failure (no throw). `List()`: enumerate `~/.Trash` (+ `/Volumes/*/.Trashes/<uid>`
+- [ ] **Step 2:** Implement `MacOsTrashBackend.Trash(paths)`: for each, (a) canonicalise and refuse any
+  path equal to/under `~/.Trash` or a volume `.Trashes` → per-path error (F1 guard); (b) else call
+  `TrashViaFoundation`; record per-path error on failure (no throw). When `trashItem` fails, unwrap the
+  `NSError` (send `localizedDescription`, UTF8) into the per-path error string. `List()`: enumerate `~/.Trash` (+ `/Volumes/*/.Trashes/<uid>`
   if readable) → `TrashedItem` with `OriginalPath = null` (documented limitation), `DeletedUtc` from the
   file's mtime, `SizeBytes` from the entry. `Empty()`: delete contents of `~/.Trash` (+ volume `.Trashes/<uid>`),
   return count.
@@ -675,6 +755,9 @@ already registers `--json` — **do NOT re-add it**, per the mksecret duplicate-
   uniquely-named temp file under `$HOME`, `Trash` it, assert (a) gone from origin, (b) a same-named entry
   appears in `~/.Trash`; then self-clean (remove it from `~/.Trash`). Second test: `List()` includes it
   with `OriginalPath == null`. **This is the proof the Obj-C interop works** — it runs on macOS CI.
+  Third test (F13 — failure-path): `Trash` a nonexistent path → asserts a non-empty per-path error
+  string was produced (the `NSError` was unwrapped, not swallowed) and the overall exit is 1. This
+  exercises the error-marshalling arm, which no fake can cover and which the ADR flags as the top risk.
 - [ ] **Step 2:** Push and confirm the macOS CI job is green for this test (cannot run locally on Windows).
 - [ ] **Step 3: Commit** — `git commit -m "test(trash): macOS integration tests (trashItem interop, CI-verified)"`
 
@@ -700,7 +783,10 @@ already registers `--json` — **do NOT re-add it**, per the mksecret duplicate-
 - [ ] **Step 1:** `README.md` (follow `src/mksecret/README.md`): description, install (scoop/nuget/winget),
   usage/examples (trash, `--list`, `--empty`, `--yes`, `--json`), options table, exit codes table (0/125/1/126
   with the closed-pipe-is-0 note), colour section, **Known limitations** (macOS `--list` no original paths;
-  Windows glob; no `--restore` in v1), and acknowledge `trash-cli`/`macos-trash` as the established native tools.
+  Windows glob; no `--restore` in v1; `--empty` count is approximate per F6; Ctrl+C mid-batch is
+  non-atomic/`rm`-like per F11; disk-full mid-move surfaces as a per-path error with no partial-tree
+  rollback per F15), and acknowledge `trash-cli`/`macos-trash` as the established native tools. Note in the
+  `--json` field docs that `emptied` is an approximate count (F6).
 - [ ] **Step 2:** `man/man1/trash.1` (groff; follow `src/mksecret/man/man1/mksecret.1`). Keep exit codes +
   limitations in sync with README + `--describe`.
 - [ ] **Step 3:** `docs/ai/trash.md` (follow `docs/ai/mksecret.md`) and add the `llms.txt` entry.
