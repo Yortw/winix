@@ -617,7 +617,8 @@ already registers `--json` — **do NOT re-add it**, per the mksecret duplicate-
      increment a numeric suffix (`name`, `name.2`, …) and retry — this is the name-reservation
      primitive, NOT a check-then-create (TOCTOU-safe, and safe against GUI managers sharing the dir).
   3. Write the `TrashInfo.Write(originalFullPath, DateTime.Now)` body into that reserved file.
-  4. Move the file into `files/<name>` (`File.Move`/`Directory.Move`).
+  4. Move the file into `files/<name>` using the **same `<name>` reserved in step 2** (so `files/` and
+     `info/` always share the suffixed name) — `File.Move`/`Directory.Move`.
   5. **Rollback:** if step 4 throws, delete the `.trashinfo` written in step 2/3 and record a per-path
      error — never leave an orphaned `.trashinfo` or a `files/` entry with no metadata.
   On per-path failure record in `TrashResult` (no throw out of `Trash`).
