@@ -13,11 +13,12 @@ namespace Winix.TimeIt.Tests;
 //
 // 1. Calling NativeMetrics.CaptureBaseline + GetMetrics directly (rather than via
 //    CommandRunner), so the platform-specific conversion is the load-bearing logic.
-// 2. Asserting peak memory is in a *plausible-magnitude* range for a real .NET process
-//    (~5 MB to ~10 GB). A regression that treats Linux KB-as-bytes would report ~50 KB
-//    for a process whose actual peak is ~50 MB — would fall below the lower bound.
-// 3. Asserting wall time / CPU time relationships hold (CPU <= wall for a single-thread
-//    short process; both > 0 for a process that did real work).
+// 2. Pinning the ru_maxrss→bytes conversion contract deterministically via the pure
+//    LinuxPeakBytes_*/MacOsPeakBytes_* tests. (The live *_PeakMemoryInPlausibleByteRange
+//    tests are now only no-throw/sanity smokes — a magnitude floor on the RUSAGE_CHILDREN
+//    delta flaked, because the cross-child high-water-mark delta can be a legitimately tiny
+//    positive in a multi-child test process. See those tests for the full explanation.)
+// 3. Asserting CPU times are non-negative for a process that did real work.
 //
 // Each platform's branch is gated via SkippableFact + Skip.IfNot per CLAUDE.md (not the
 // silent-early-return pattern, which would CI-pass on the wrong OS).
@@ -50,14 +51,13 @@ public class NativeMetricsTests
         var metrics = NativeMetrics.GetMetrics(process, baseline);
         process.Dispose();
 
-        // Linux ru_maxrss is documented in KB on Linux. The conversion in NativeMetrics.Linux.cs
-        // multiplies by 1024 to get bytes. A regression treating it as bytes-already would
-        // report < 1 MB for a real process; treating bytes-as-KB would report >100 GB.
-        // Both fall outside [1 MB, 10 GB]. (null is acceptable when ru_maxrss high-water-mark
-        // tied with previous waited child — the reviewer noted this is intended.)
+        // Live smoke: the getrusage P/Invoke + struct layout must run without throwing and return
+        // a sane value. The KB→bytes conversion contract is pinned deterministically by
+        // LinuxPeakBytes_* above — NOT by a magnitude floor here, which flaked because the
+        // RUSAGE_CHILDREN delta can be a legitimately tiny positive in a multi-child test process.
         if (metrics.PeakMemoryBytes is long peak)
         {
-            Assert.InRange(peak, 1_000_000L, 10_000_000_000L);
+            Assert.True(peak > 0, "a non-null delta is positive by construction");
         }
     }
 
@@ -73,12 +73,12 @@ public class NativeMetricsTests
         var metrics = NativeMetrics.GetMetrics(process, baseline);
         process.Dispose();
 
-        // macOS ru_maxrss is documented in BYTES (BSD-derived, unlike Linux's KB). The
-        // conversion in NativeMetrics.macOS.cs is identity. A regression that multiplied
-        // by 1024 (treating it as KB-on-Linux) would inflate to >100 GB.
+        // Live smoke only (see Linux twin): the bytes-identity conversion contract is pinned
+        // deterministically by MacOsPeakBytes_IsIdentityNotKilobytes above. The old magnitude
+        // floor flaked on the RUSAGE_CHILDREN cross-child delta in a multi-child test process.
         if (metrics.PeakMemoryBytes is long peak)
         {
-            Assert.InRange(peak, 1_000_000L, 10_000_000_000L);
+            Assert.True(peak > 0, "a non-null delta is positive by construction");
         }
     }
 
@@ -153,6 +153,36 @@ public class NativeMetricsTests
         Assert.NotNull(metrics.SystemCpuTime);
         Assert.True(metrics.UserCpuTime!.Value >= TimeSpan.Zero);
         Assert.True(metrics.SystemCpuTime!.Value >= TimeSpan.Zero);
+    }
+
+    // Deterministic, cross-platform pins for the ru_maxrss→bytes conversion contract. These
+    // replace the old reliance on a live-process magnitude floor, which was flaky: ru_maxrss
+    // (RUSAGE_CHILDREN) is a high-water mark across ALL waited children, so in a multi-child
+    // test process the per-child delta can be a legitimately tiny positive value (a CI run
+    // produced 896 KB → 917504 bytes, below the old 1 MB floor). The conversion itself is what
+    // matters, and it's now pinned here without depending on live process memory.
+    [Fact]
+    public void LinuxPeakBytes_ConvertsKilobyteDeltaToBytes()
+    {
+        // Linux ru_maxrss is in KB → ×1024. 896 KB is the exact delta the flaky CI run saw.
+        Assert.Equal(917504L, NativeMetrics.LinuxPeakBytesFromDeltaKb(896));
+    }
+
+    [Fact]
+    public void LinuxPeakBytes_NonPositiveDeltaIsNull()
+    {
+        // Delta ≤ 0 means a previously-waited child had an equal/greater peak — can't attribute.
+        Assert.Null(NativeMetrics.LinuxPeakBytesFromDeltaKb(0));
+        Assert.Null(NativeMetrics.LinuxPeakBytesFromDeltaKb(-5));
+    }
+
+    [Fact]
+    public void MacOsPeakBytes_IsIdentityNotKilobytes()
+    {
+        // macOS ru_maxrss is already in BYTES (BSD-derived) — identity, NOT ×1024. Pins the
+        // platform difference a "treat-like-Linux" regression would break.
+        Assert.Equal(917504L, NativeMetrics.MacOsPeakBytesFromDelta(917504));
+        Assert.Null(NativeMetrics.MacOsPeakBytesFromDelta(0));
     }
 
     [Fact]

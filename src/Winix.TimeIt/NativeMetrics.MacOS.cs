@@ -76,16 +76,12 @@ public static partial class NativeMetrics
 
         // ru_maxrss (RUSAGE_CHILDREN) is a high-water mark across all waited children,
         // not per-child. Use the baseline delta so we attribute only the child we just
-        // timed. If the delta is zero, a previously-waited child had equal or higher
-        // peak RSS and we can't determine the current child's peak — report null.
-        long peakDeltaBytes = usage.ru_maxrss - baseline.PeakRssRaw;
-
+        // timed; the conversion (bytes identity, non-positive→null) lives in the pure helper.
         return new ProcessMetrics
         {
             UserCpuTime = postUser - baseUser,
             SystemCpuTime = postSys - baseSys,
-            // ru_maxrss is in bytes on macOS (not KB like Linux)
-            PeakMemoryBytes = peakDeltaBytes > 0 ? peakDeltaBytes : null,
+            PeakMemoryBytes = MacOsPeakBytesFromDelta(usage.ru_maxrss - baseline.PeakRssRaw),
         };
     }
 }

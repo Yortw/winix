@@ -85,6 +85,18 @@ public static partial class NativeMetrics
         return default;
     }
 
+    /// <summary>Converts a Linux <c>RUSAGE_CHILDREN.ru_maxrss</c> delta (kilobytes) to peak bytes.
+    /// ru_maxrss is a high-water mark across all waited children, so the caller passes the delta
+    /// against a pre-spawn baseline to attribute only the just-waited child. A non-positive delta
+    /// means a prior child had an equal/greater peak (can't attribute) → null. Linux reports KB → ×1024.</summary>
+    internal static long? LinuxPeakBytesFromDeltaKb(long deltaKb)
+        => deltaKb > 0 ? deltaKb * 1024 : null;
+
+    /// <summary>macOS variant of <see cref="LinuxPeakBytesFromDeltaKb"/>: <c>ru_maxrss</c> is already
+    /// in bytes (BSD-derived), so the conversion is identity — no ×1024.</summary>
+    internal static long? MacOsPeakBytesFromDelta(long deltaBytes)
+        => deltaBytes > 0 ? deltaBytes : null;
+
     // Platform-specific partial methods — implemented in per-platform files
     private static partial MetricsBaseline CaptureBaselineLinux();
     private static partial MetricsBaseline CaptureBaselineMacOS();
