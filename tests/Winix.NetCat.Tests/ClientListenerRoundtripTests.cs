@@ -469,6 +469,40 @@ public sealed class ClientListenerRoundtripTests
         Assert.Equal("stdout_closed", result.ExitReason);
     }
 
+    // Deterministic, cross-platform pins for the cancellation classifier the UDP receive paths use.
+    // On Unix, cancelling an in-flight UDP ReceiveAsync aborts the socket and surfaces as a
+    // SocketException rather than OperationCanceledException, so the SocketException catch must
+    // consult the same classifier — otherwise Ctrl-C on a UDP listener returns exit 1 instead of 130
+    // (the macOS CI flake this fixes). The live UdpListener_CtrlC test exercises this end-to-end on
+    // Unix CI; these pin the decision logic without needing the platform-specific socket behaviour.
+    [Fact]
+    public void ClassifyCancellation_UserCancel_ReturnsInterrupted130()
+    {
+        RunResult? r = NetCatListener.ClassifyCancellation(
+            userCancelRequested: true, anyCancelRequested: true, durationMs: 5.0, localAddress: "127.0.0.1:1234");
+        Assert.NotNull(r);
+        Assert.Equal(130, r!.ExitCode);
+        Assert.Equal("interrupted", r.ExitReason);
+        Assert.Equal("127.0.0.1:1234", r.LocalAddress);
+    }
+
+    [Fact]
+    public void ClassifyCancellation_TimeoutCancel_ReturnsTimeout2()
+    {
+        RunResult? r = NetCatListener.ClassifyCancellation(
+            userCancelRequested: false, anyCancelRequested: true, durationMs: 5.0, localAddress: "127.0.0.1:1234");
+        Assert.NotNull(r);
+        Assert.Equal(2, r!.ExitCode);
+        Assert.Equal("timeout", r.ExitReason);
+    }
+
+    [Fact]
+    public void ClassifyCancellation_NoCancellation_ReturnsNull()
+    {
+        Assert.Null(NetCatListener.ClassifyCancellation(
+            userCancelRequested: false, anyCancelRequested: false, durationMs: 5.0, localAddress: "x"));
+    }
+
     /// <summary>
     /// Pins round-3 SFH-I2: the UDP listener path must return RunResult(130) on user-cancel
     /// so --json consumers see a complete envelope with duration/LocalAddress. The TCP listen
@@ -503,7 +537,10 @@ public sealed class ClientListenerRoundtripTests
 
         RunResult result = await listenerTask.WaitAsync(System.TimeSpan.FromSeconds(5));
 
-        Assert.Equal(130, result.ExitCode);
+        // Diagnostic message so a future flake is self-explaining: distinguishes a cancellation
+        // mis-mapping (reason "connection_*"/socket error) from a port-handoff bind race ("bind_failed").
+        Assert.True(result.ExitCode == 130,
+            $"expected 130 (interrupted) but got {result.ExitCode}/{result.ExitReason}; LocalAddress={result.LocalAddress}");
         Assert.Equal("interrupted", result.ExitReason);
         Assert.NotNull(result.LocalAddress);
     }

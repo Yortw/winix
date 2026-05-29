@@ -214,6 +214,23 @@ public sealed class NetCatListener
         }
     }
 
+    /// <summary>Classifies a receive failure by cancellation state, returning the matching
+    /// <see cref="RunResult"/>, or <c>null</c> when no cancellation was requested (a genuine error
+    /// the caller should report itself). Used by both the <see cref="OperationCanceledException"/>
+    /// arms and the <see cref="System.Net.Sockets.SocketException"/> arm: on Unix, cancelling an
+    /// in-flight UDP <c>ReceiveAsync</c> aborts the socket and surfaces as a SocketException rather
+    /// than an OCE, so without consulting this, Ctrl-C on a UDP listener would return exit 1 instead
+    /// of 130 (the macOS behaviour this guards). <paramref name="userCancelRequested"/> is the outer
+    /// (Ctrl-C) token; <paramref name="anyCancelRequested"/> is the linked receive token (true also
+    /// when only the receive-timeout fired).</summary>
+    internal static RunResult? ClassifyCancellation(bool userCancelRequested, bool anyCancelRequested, double durationMs, string localAddress)
+    {
+        if (!anyCancelRequested) { return null; }
+        return userCancelRequested
+            ? new RunResult { ExitCode = 130, ExitReason = "interrupted", DurationMilliseconds = durationMs, LocalAddress = localAddress }
+            : new RunResult { ExitCode = 2, ExitReason = "timeout", DurationMilliseconds = durationMs, LocalAddress = localAddress };
+    }
+
     private static async Task<RunResult> RunUdpAsync(NetCatOptions options, Stream stdout, TextWriter stderr, CancellationToken ct)
     {
         var sw = Stopwatch.StartNew();
@@ -264,6 +281,15 @@ public sealed class NetCatListener
             catch (SocketException ex)
             {
                 sw.Stop();
+                // On Unix, cancelling an in-flight UDP ReceiveAsync aborts the socket and surfaces
+                // here as a SocketException rather than an OCE. A cancellation-induced abort is the
+                // same interrupted(130)/timeout(2) outcome the OCE arms produce — not a socket error.
+                // Without this, Ctrl-C on a UDP listener returns exit 1 instead of 130 on macOS.
+                RunResult? cancelled = ClassifyCancellation(
+                    ct.IsCancellationRequested, receiveCts.IsCancellationRequested,
+                    sw.Elapsed.TotalMilliseconds, $"{bind}:{port}");
+                if (cancelled is RunResult cr) { return cr; }
+
                 stderr.WriteLine(Formatting.FormatErrorLine($"listen {bind}:{port} — {ex.Message}", options.UseColor));
                 return new RunResult { ExitCode = 1, ExitReason = NetCatClient.MapSocketError(ex),
                     DurationMilliseconds = sw.Elapsed.TotalMilliseconds, LocalAddress = $"{bind}:{port}" };
