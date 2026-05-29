@@ -18,6 +18,19 @@ public class KeyGeneratorTests
     }
 
     [Fact]
+    public void Base64Url_matches_a_known_vector()
+    {
+        // Defence-in-depth wire pin. Only ONE literal-pinned encoding test lives here: the byte-level
+        // correctness of every encoder is already pinned in Winix.Codec.Tests (Base64Tests /
+        // Base32CrockfordTests / HexTests). These KeyGenerator tests need only confirm the correct
+        // encoder is wired and that base64url is emitted unpadded. Vector: bytes 0x01..0x10 ->
+        // unpadded base64url, computed with Python base64.urlsafe_b64encode (independent oracle).
+        byte[] src = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 };
+        var gen = new KeyGenerator(new SequenceRandom(src));
+        Assert.Equal("AQIDBAUGBwgJCgsMDQ4PEA", gen.Generate(Opts(src.Length, KeyEncoding.Base64Url)));
+    }
+
+    [Fact]
     public void Base64Url_has_no_padding()
     {
         var rng = new SequenceRandom(new byte[32]); // 32 zero bytes
