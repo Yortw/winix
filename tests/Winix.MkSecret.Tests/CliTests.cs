@@ -86,6 +86,29 @@ public class CliTests
     }
 
     [Fact]
+    public void Help_lists_json_flag_exactly_once()
+    {
+        // Regression: CommonShell called StandardFlags() (which already registers --json) and then
+        // re-added --json via .Flag(), so --help and --describe listed --json twice. ShellKit writes
+        // --help to Console.Out (not the injected writer), so capture it there. No other test touches
+        // Console, so the redirect is collision-safe under xUnit parallelism.
+        var original = System.Console.Out;
+        var sw = new StringWriter();
+        try
+        {
+            System.Console.SetOut(sw);
+            Cli.Run(new[] { "--help" }, sw, new StringWriter());
+        }
+        finally
+        {
+            System.Console.SetOut(original);
+        }
+
+        int jsonCount = sw.ToString().Split(new[] { "--json" }, System.StringSplitOptions.None).Length - 1;
+        Assert.Equal(1, jsonCount);
+    }
+
+    [Fact]
     public void Json_streams_a_wellformed_envelope_for_multiple_values()
     {
         // Locks the streamed JSON bytes (Cli no longer buffers all values before emitting the envelope).

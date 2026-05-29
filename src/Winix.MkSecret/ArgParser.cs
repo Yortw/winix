@@ -118,7 +118,8 @@ public static class ArgParser
             .StderrDescription("Entropy note (≈ N bits) unless --quiet/--json; errors.")
             .IntOption("--count", "-n", "N", "Number of secrets to emit, one per line. Default 1 (max 100000).",
                 v => v > 0 && v <= 100000 ? null : "must be between 1 and 100000")
-            .Flag("--json", "Emit a JSON envelope to stdout instead of plain lines.")
+            // --json is already registered by StandardFlags() above (description "JSON output"); do not
+            // re-add it or it appears twice in --help/--describe. The tool reads it via parsed.Has("--json").
             .Flag("--quiet", "Suppress the stderr entropy note.");
 
     private static CommandLineParser BuildPasswordParser(string version)
