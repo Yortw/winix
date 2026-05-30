@@ -171,7 +171,7 @@ public static class Formatting
         bool first = true;
         foreach (PathOutcome outcome in result.Outcomes)
         {
-            if (outcome.Error is null) { continue; }
+            if (outcome.Succeeded) { continue; }
             if (!first) { sb.Append(','); }
             first = false;
             sb.Append("{\"path\":");

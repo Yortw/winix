@@ -91,7 +91,7 @@ public static class Cli
             stderr.WriteLine(Formatting.TrashSummary(result.SuccessCount));
             foreach (PathOutcome outcome in result.Outcomes)
             {
-                if (outcome.Error is not null)
+                if (!outcome.Succeeded)
                 {
                     stderr.WriteLine($"trash: {outcome.Path}: {outcome.Error}");
                 }
