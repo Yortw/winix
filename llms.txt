@@ -28,6 +28,7 @@ Cross-platform CLI tool suite for the gaps between Windows and *nix. Native bina
 - [unprotect](docs/ai/unprotect.md): Companion to `protect`; decrypts .prot files. See `docs/ai/unprotect.md`.
 - [url](docs/ai/url.md): URL encode/decode/parse/build/join/query-edit. Cross-shell gap-filler for URL assembly — cmd.exe has no clean subprocess-substitution, shells differ on built-in URL primitives. `url build`, `url join` (RFC 3986 §5), query editing with order + duplicate preservation.
 - [winix](docs/ai/winix.md): Installer and lifecycle manager for the Winix CLI tool suite. Installs, updates, and uninstalls all tools via your platform's native package manager.
+- [trash](docs/ai/trash.md): Move files to the OS recycle bin / Trash instead of permanently deleting them — recoverable, cross-platform. `trash <path>...` to remove, `trash --list` to inspect, `trash --empty` to purge. Replaces `rm -i`, `trash-cli` (Linux), `macos-trash`, and PowerShell `Remove-Item`. See `docs/ai/trash.md`.
 
 ## Key Features for AI Agents
 

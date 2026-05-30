@@ -1,1 +1,164 @@
-.\" placeholder
+.TH TRASH 1 "2026-05-30" "Winix" "User Commands"
+.SH NAME
+trash \- move files to the recycle bin or Trash instead of deleting them
+
+.SH SYNOPSIS
+.B trash
+\fIpath\fR...
+[\fB\-\-json\fR]
+
+.B trash \-\-list
+[\fB\-\-json\fR]
+
+.B trash \-\-empty
+[\fB\-\-yes\fR]
+[\fB\-\-json\fR]
+
+.SH DESCRIPTION
+.B trash
+moves files and directories to the operating system's recycle bin or Trash
+instead of deleting them permanently, so they can be restored later through the
+file manager's normal "Put Back" / "Restore" action.
+It uses the Windows Recycle Bin, the FreeDesktop Trash on Linux, and the macOS Trash.
+
+The default mode moves each \fIpath\fR to the trash. A one-line summary
+(\fBtrash: moved N item(s) to trash\fR) is written to stderr; on success nothing
+is written to stdout.
+
+.B \-\-list
+lists the current trash contents as a table (name, original path, deletion
+timestamp in UTC ISO 8601, size, and trash location). The table goes to stdout.
+
+.B \-\-empty
+permanently empties the trash. When run interactively it prompts \fB[y/N]\fR and
+defaults to no. When stdin is not a terminal it refuses to proceed unless
+\fB\-\-yes\fR is given, so an unattended run cannot wipe the trash by accident.
+
+.SH OPTIONS
+.TP
+.B \-\-list
+List current trash contents instead of trashing paths.
+.TP
+.B \-\-empty
+Permanently empty the trash.
+.TP
+.BR \-y ", " \-\-yes
+Skip the \fB\-\-empty\fR confirmation prompt. Required to empty non-interactively.
+.TP
+.B \-\-json
+Emit a JSON envelope to stdout. Works with the default mode, \fB\-\-list\fR
+(\fB{"items":[...]}\fR with \fBname\fR, \fBoriginal_path\fR, \fBdeleted\fR,
+\fBsize\fR, \fBtrash\fR keys) and \fB\-\-empty\fR (\fB{"emptied":N}\fR). The
+\fBemptied\fR count is approximate \(em it reflects what was enumerated.
+.TP
+.B \-\-describe
+Emit structured JSON metadata for AI discoverability.
+.TP
+.B \-\-color " " \fIWHEN\fR
+\fBauto\fR, \fBalways\fR, or \fBnever\fR. Respects \fBNO_COLOR\fR.
+.TP
+.B \-\-no\-color
+Equivalent to \fB--color never\fR.
+.TP
+.BR \-h ", " \-\-help
+Show help and exit.
+.TP
+.BR \-v ", " \-\-version
+Show version and exit.
+
+.SH EXIT STATUS
+.TP
+.B 0
+Success. A closed downstream pipe (e.g.
+.B trash --list | head -1
+) also exits 0 \(em it is not an error.
+.TP
+.B 1
+One or more paths failed (missing path, permission denied) \(em partial failure,
+like \fBrm\fR. Stderr carries the per-path message.
+.TP
+.B 125
+Usage error \(em unknown flag, \fB\-\-list\fR/\fB\-\-empty\fR misuse, empty or
+duplicate path, or no paths given. Stderr carries the message.
+.TP
+.B 126
+Backend failure \(em the OS recycle-bin / Trash API returned an error. Stderr
+carries the message.
+
+.SH EXAMPLES
+Move a single file to the recycle bin / Trash:
+.RS
+.nf
+trash notes.txt
+.fi
+.RE
+
+Move several files and directories at once:
+.RS
+.nf
+trash old.log build/ tmp.cache
+.fi
+.RE
+
+List current trash contents:
+.RS
+.nf
+trash --list
+.fi
+.RE
+
+List as a JSON envelope:
+.RS
+.nf
+trash --list --json
+.fi
+.RE
+
+Empty the trash, prompting for confirmation:
+.RS
+.nf
+trash --empty
+.fi
+.RE
+
+Empty the trash without prompting (required non-interactively):
+.RS
+.nf
+trash --empty --yes
+.fi
+.RE
+
+.SH LIMITATIONS
+.IP \(bu 2
+macOS \fB\-\-list\fR shows no original paths (\fBoriginal_path\fR is null); the
+Put-Back source is in a private binary store not read in v1.
+.IP \(bu 2
+No \fB\-\-restore\fR / put-back in v1 \(em restore through your file manager.
+.IP \(bu 2
+The \fB\-\-empty\fR count is approximate (it counts what was enumerated; the OS
+empty API may clear bins the listing could not enumerate).
+.IP \(bu 2
+On Windows, \fBcmd\fR and PowerShell do not expand globs such as \fB*.log\fR.
+.IP \(bu 2
+Ctrl+C mid-batch is non-atomic \(em like \fBrm\fR, already-trashed items stay trashed.
+.IP \(bu 2
+A failure mid-move surfaces as a per-path error; there is no partial-tree rollback
+beyond the single-item \fB.trashinfo\fR cleanup on Linux.
+
+.SH ENVIRONMENT
+.TP
+.B NO_COLOR
+Disables colour output.
+
+.SH CREDITS
+.B trash
+follows the established native safe-delete tools:
+.BR trash-cli (1)
+on Linux and
+.B macos-trash
+on macOS. It replaces \fBrm -i\fR, those tools, and PowerShell \fBRemove-Item\fR
+with one cross-platform binary.
+
+.SH SEE ALSO
+.BR rm (1),
+.BR files (1)
