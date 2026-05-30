@@ -174,7 +174,7 @@ public static class ArgParser
             .StdoutDescription("Plain mode: nothing on success (summary to stderr); --list: the listing; --json: a JSON envelope.")
             .StderrDescription("Per-path/operation summary and errors.")
             .Example("trash file.txt", "Send a file to the recycle bin / Trash")
-            .Example("trash *.log", "Trash multiple files")
+            .Example("trash old.log build/", "Trash multiple paths (a file and a directory)")
             .Example("trash --list", "Show what's in the trash")
             .Example("trash --empty", "Permanently empty the trash");
     }
