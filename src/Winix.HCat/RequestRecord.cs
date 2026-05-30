@@ -16,6 +16,12 @@ public sealed record RequestRecord(
     [property: JsonPropertyName("timestamp")] string Timestamp,
     [property: JsonPropertyName("remote")] string RemoteAddr)
 {
+    /// <summary>True when the request body exceeded the inspect/pipe body cap and was truncated to the cap.
+    /// An <c>init</c>-only property (not a positional ctor parameter) so existing 7-arg constructions still
+    /// compile; only the inspect handler sets it via <c>with { BodyTruncated = true }</c>. Serialised as
+    /// <c>bodyTruncated</c> (camelCase) by the source-gen context.</summary>
+    public bool BodyTruncated { get; init; }
+
     /// <summary>Serialises to a single JSONL line (no embedded newline; control chars escaped).</summary>
     public static string ToJsonl(RequestRecord r)
         => JsonSerializer.Serialize(r, HCatJsonContext.Default.RequestRecord);

@@ -51,4 +51,49 @@ public class IntegrationTests
         }
         finally { await stop(); Directory.Delete(dir, true); }
     }
+
+    [Fact]
+    public async Task Inspect_echoes_the_request_as_json()
+    {
+        var (baseUrl, stop) = await StartAsync(new HCatOptions { Mode = HCatMode.Inspect });
+        try
+        {
+            using var http = new HttpClient();
+            var resp = await http.PostAsync($"{baseUrl}/hook?a=1",
+                new StringContent("{\"k\":1}", System.Text.Encoding.UTF8, "application/json"));
+            string body = await resp.Content.ReadAsStringAsync();
+            Assert.Contains("\"method\":\"POST\"", body);
+            Assert.Contains("\"path\":\"/hook\"", body);
+            Assert.Contains("\"query\":\"a=1\"", body);
+        }
+        finally { await stop(); }
+    }
+
+    [Fact]
+    public async Task Inspect_status_override_is_honoured()
+    {
+        var (baseUrl, stop) = await StartAsync(new HCatOptions { Mode = HCatMode.Inspect, InspectStatus = 202 });
+        try
+        {
+            using var http = new HttpClient();
+            var resp = await http.GetAsync(baseUrl + "/");
+            Assert.Equal(202, (int)resp.StatusCode);
+        }
+        finally { await stop(); }
+    }
+
+    [Fact]   // F8: an over-cap body is truncated (not rejected) and still gets a 2xx echo.
+    public async Task Inspect_oversized_body_is_truncated_not_rejected()
+    {
+        var (baseUrl, stop) = await StartAsync(new HCatOptions { Mode = HCatMode.Inspect });
+        try
+        {
+            using var http = new HttpClient();
+            var resp = await http.PostAsync(baseUrl + "/", new StringContent(new string('y', 2 * 1024 * 1024)));
+            Assert.Equal(200, (int)resp.StatusCode);
+            string body = await resp.Content.ReadAsStringAsync();
+            Assert.Contains("\"bodyTruncated\":true", body);
+        }
+        finally { await stop(); }
+    }
 }
