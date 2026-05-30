@@ -27,8 +27,9 @@ This design assumes the prior scoping in project memory (positioning, four-bucke
 ### Global flags
 
 - `--port <n>` — listen port (default `8080`).
-- `--lan` — bind `0.0.0.0` (expose to the LAN) and print a QR + LAN URL(s) on bind. **The only way to expose to the network.**
-- `--host <addr>` — bind a specific address (e.g. one NIC). Implies network exposure if non-loopback.
+- `--lan` — bind `0.0.0.0` (expose to the LAN) and print a QR + LAN URL(s) on bind.
+- `--host <addr>` — bind a specific address (e.g. one NIC); exposes the network if non-loopback.
+- **Network exposure is always explicit** — it requires `--lan` or a non-loopback `--host`, never the default.
 - `--local` — explicit alias for the default loopback bind.
 - `--https` — enable TLS with a self-signed certificate generated fresh in-memory per run.
 - `--json` — emit structured JSONL on stdout instead of human output (see Output routing): the request-record line for `inspect`; a per-request access-log line (method/path/status) for `serve` and `pipe`.
@@ -48,7 +49,16 @@ On bind, a banner always prints the actual URL(s):
 
 Static file server rooted at `[dir]` (default cwd) via `UseStaticFiles` + `UseDirectoryBrowser` (automatic listing for directories without an index).
 
-- `--upload` (opt-in, off by default) enables a POST receiver that saves uploaded files into the served directory. **Path safety:** the uploaded filename is reduced to its base name (no directory components), `..` and absolute paths are rejected, and the resolved target must remain under the served root (canonicalise + prefix check). On name collision, a numeric suffix is appended (never overwrite). Uploading-to-disk is a sharper edge than read-only serving, hence opt-in.
+**Uploads** (opt-in, off by default) follow one invariant: **uploaded files are downloadable iff they physically sit inside the served tree.** Everything else falls out of that, with no contradictions.
+
+- `--upload` enables a POST receiver. Default target is a dedicated `./uploads` directory, **created if missing** and **kept out of the served view** (excluded from `UseStaticFiles`/`UseDirectoryBrowser`) — the secure default: uploads land but are not downloadable or listed.
+- `--upload-dir <path>` relocates the target (also created if missing). Per the invariant:
+  - a path **outside** the served tree → never downloadable;
+  - a subfolder **inside** the served tree → excluded from serving (hidden), like the default;
+  - the **served root itself** (`--upload-dir .`) → cannot be hidden, so uploads are inherently downloadable. This is the explicit "shared drop folder" escape hatch, and the bind banner warns (`uploads land in the served root and will be downloadable`).
+- **Path safety** (always): the uploaded filename is reduced to its base name (no directory components), `..` and absolute paths are rejected, and the resolved target must remain under the upload root (canonicalise + prefix check). On name collision, a numeric suffix is appended (never overwrite).
+
+Uploading-to-disk is a sharper edge than read-only serving, hence opt-in and secure-by-default.
 
 ### inspect
 
@@ -114,9 +124,9 @@ hcat is *more* testable than the platform-native tools — a localhost HTTP serv
 
 ## 6. v1 scope
 
-**In:** the four invocations above; loopback-default + `--lan`/`--host` exposure with QR; `serve` static + listing + opt-in `--upload`; `inspect` echo + `--status` + JSONL record; `pipe` single-command CGI; `--https` self-signed; CI flags `--capture`/`--exit-on`/`--timeout`; `--json`; `--describe`; full docs + suite wiring.
+**In:** the four invocations above; loopback-default + `--lan`/`--host` exposure with QR; `serve` static + listing + opt-in secure-by-default `--upload`/`--upload-dir`; `inspect` echo + `--status` + JSONL record; `pipe` single-command CGI; `--https` self-signed; CI flags `--capture`/`--exit-on`/`--timeout`; `--json`; `--describe`; full docs + suite wiring.
 
-**Deferred to v2 (non-goals for v1):** pipe path-routing tables; finer pipe status control (command-set status); `--cert <file>` bring-your-own cert; latency/fault injection; basic auth; IP allowlist; mDNS advertise; reverse proxy (YARP — verify AOT first); request replay; HAR / `.http` export formats; markdown rendering; Windows temporary firewall rule.
+**Deferred to v2 (non-goals for v1):** pipe path-routing tables; finer pipe status control (command-set status); `--cert <file>` bring-your-own cert; `--serve-uploads` (serve uploads from a *named visible* subfolder while keeping them out of the main listing — the `--upload-dir .` escape hatch already covers the downloadable case); latency/fault injection; basic auth; IP allowlist; mDNS advertise; reverse proxy (YARP — verify AOT first); request replay; HAR / `.http` export formats; markdown rendering; Windows temporary firewall rule.
 
 ## 7. Open items to confirm at implementation
 
