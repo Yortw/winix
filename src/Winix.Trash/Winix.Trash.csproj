@@ -5,6 +5,7 @@
     <IsAotCompatible>true</IsAotCompatible>
     <IsPackable>false</IsPackable>
     <PackageId>Winix.Trash.Library</PackageId>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Yort.ShellKit\Yort.ShellKit.csproj" />
