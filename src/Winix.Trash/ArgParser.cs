@@ -47,8 +47,6 @@ public static class ArgParser
         public bool Success => Error is null && !IsHandled;
     }
 
-    private static readonly CommandLineParser _parser = BuildParser();
-
     /// <summary>Parse argv (without the executable name).</summary>
     /// <param name="argv">The raw argument vector.</param>
     /// <returns>A <see cref="Result"/> describing the parse outcome.</returns>
@@ -57,7 +55,11 @@ public static class ArgParser
         string[] slice = new string[argv.Count];
         for (int i = 0; i < slice.Length; i++) { slice[i] = argv[i]; }
 
-        ParseResult parsed = _parser.Parse(slice);
+        // Build a fresh parser per call: ShellKit's CommandLineParser.Parse mutates instance
+        // state and is not reentrant. A shared static instance races when two callers parse
+        // concurrently (observed as a usage-error misparse under xUnit's parallel collections).
+        // Matches the per-call build used by mksecret and the rest of the suite.
+        ParseResult parsed = BuildParser().Parse(slice);
         bool useColor = parsed.ResolveColor(checkStdErr: true);
 
         if (parsed.IsHandled) { return new Result(TrashMode.Trash, Array.Empty<string>(), false, false, null, true, parsed.ExitCode, useColor); }
