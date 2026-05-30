@@ -51,7 +51,8 @@ public static class HCatServer
                 InspectHandler.Apply(app, options, static _ => { });
                 break;
             case HCatMode.Pipe:
-                // Wired in Task 13.
+                // Task 16 wires onRecord to JSONL-stdout + the CaptureController; no-op for now.
+                PipeHandler.Apply(app, options, static _ => { });
                 break;
         }
 

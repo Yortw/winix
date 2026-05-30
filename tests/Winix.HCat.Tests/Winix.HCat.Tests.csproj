@@ -12,5 +12,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Winix.HCat\Winix.HCat.csproj" />
+    <ProjectReference Include="..\HCatEcho\HCatEcho.csproj" ReferenceOutputAssembly="false"
+                      OutputItemType="Content" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

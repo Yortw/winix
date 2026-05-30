@@ -96,4 +96,58 @@ public class IntegrationTests
         }
         finally { await stop(); }
     }
+
+    private static string[] EchoCmd()
+        => new[] { "dotnet", System.IO.Path.Combine(System.AppContext.BaseDirectory, "HCatEcho.dll") };
+
+    [Fact]
+    public async Task Pipe_runs_command_body_to_stdout()
+    {
+        var (baseUrl, stop) = await StartAsync(new HCatOptions { Mode = HCatMode.Pipe, PipeCommand = EchoCmd() });
+        try
+        {
+            using var http = new HttpClient();
+            var resp = await http.PostAsync(baseUrl + "/", new StringContent("ping-body"));
+            string body = await resp.Content.ReadAsStringAsync();
+            Assert.Contains("ping-body", body);
+            Assert.Equal(200, (int)resp.StatusCode);
+        }
+        finally { await stop(); }
+    }
+
+    [Fact]   // F3: a body larger than the OS pipe buffer must not deadlock (concurrent stdin/stdout copy).
+    public async Task Pipe_handles_body_larger_than_pipe_buffer_without_deadlock()
+    {
+        var (baseUrl, stop) = await StartAsync(new HCatOptions { Mode = HCatMode.Pipe, PipeCommand = EchoCmd() });
+        try
+        {
+            string big = new string('x', 256 * 1024);
+            using var http = new HttpClient();
+            var resp = await http.PostAsync(baseUrl + "/", new StringContent(big))
+                .WaitAsync(TimeSpan.FromSeconds(15));   // a deadlock would hang past this
+            string echoed = await resp.Content.ReadAsStringAsync();
+            Assert.Equal(big.Length, echoed.Length);
+        }
+        finally { await stop(); }
+    }
+
+    [Fact]   // F7: a command that cannot launch must surface as HTTP 500, server stays up.
+    public async Task Pipe_command_not_found_returns_500_and_server_survives()
+    {
+        var (baseUrl, stop) = await StartAsync(new HCatOptions
+        {
+            Mode = HCatMode.Pipe,
+            PipeCommand = new[] { "definitely-not-a-real-command-xyz" },
+        });
+        try
+        {
+            using var http = new HttpClient();
+            var resp1 = await http.PostAsync(baseUrl + "/", new StringContent("a"));
+            Assert.Equal(500, (int)resp1.StatusCode);
+            // server still serving:
+            var resp2 = await http.PostAsync(baseUrl + "/", new StringContent("b"));
+            Assert.Equal(500, (int)resp2.StatusCode);
+        }
+        finally { await stop(); }
+    }
 }
