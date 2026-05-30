@@ -1,4 +1,6 @@
 using System;
+using Winix.Trash;
+using Yort.ShellKit;
 
 namespace Trash;
 
@@ -6,7 +8,8 @@ internal sealed class Program
 {
     static int Main(string[] args)
     {
-        Console.WriteLine("trash: not yet implemented");
-        return 0;
+        ConsoleEnv.EnableAnsiIfNeeded();
+        ConsoleEnv.UseUtf8Streams();
+        return Cli.Run(args, Console.Out, Console.Error);
     }
 }
