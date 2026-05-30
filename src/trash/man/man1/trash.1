@@ -46,10 +46,13 @@ Permanently empty the trash.
 Skip the \fB\-\-empty\fR confirmation prompt. Required to empty non-interactively.
 .TP
 .B \-\-json
-Emit a JSON envelope to stdout. Works with the default mode, \fB\-\-list\fR
-(\fB{"items":[...]}\fR with \fBname\fR, \fBoriginal_path\fR, \fBdeleted\fR,
-\fBsize\fR, \fBtrash\fR keys) and \fB\-\-empty\fR (\fB{"emptied":N}\fR). The
-\fBemptied\fR count is approximate \(em it reflects what was enumerated.
+Emit a JSON envelope to stdout. Default (trash) mode emits
+\fB{"trashed":N,"failed":[{"path","error"}]}\fR; \fB\-\-list\fR emits
+\fB{"items":[...]}\fR with \fBname\fR, \fBoriginal_path\fR, \fBdeleted\fR,
+\fBsize\fR, \fBtrash\fR keys; \fB\-\-empty\fR emits
+\fB{"emptied":N,"failed":M}\fR. The \fBemptied\fR count is approximate on
+Windows \(em it reflects what was enumerated; \fBfailed\fR counts items that
+could not be removed.
 .TP
 .B \-\-describe
 Emit structured JSON metadata for AI discoverability.
@@ -73,9 +76,14 @@ Success. A closed downstream pipe (e.g.
 .B trash --list | head -1
 ) also exits 0 \(em it is not an error.
 .TP
+.B 2
+\fB\-\-empty\fR cancelled \(em you declined the confirmation prompt, or it was
+refused without \fB\-\-yes\fR when not interactive. Nothing was emptied.
+.TP
 .B 1
-One or more paths failed (missing path, permission denied) \(em partial failure,
-like \fBrm\fR. Stderr carries the per-path message.
+One or more paths failed (missing path, permission denied), or some items could
+not be emptied \(em partial failure, like \fBrm\fR. Stderr carries the per-path
+message.
 .TP
 .B 125
 Usage error \(em unknown flag, \fB\-\-list\fR/\fB\-\-empty\fR misuse, empty or

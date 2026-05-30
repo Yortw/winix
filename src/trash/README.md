@@ -96,6 +96,13 @@ trash --empty --yes --json
 
 ### JSON fields
 
+Default (trash) mode emits `{"trashed":N,"failed":[…]}`:
+
+| Key | Description |
+|---|---|
+| `trashed` | Count of paths successfully sent to the recycle bin / Trash. |
+| `failed` | Array of `{"path":"…","error":"…"}` objects, one per path that failed; empty when all succeeded. |
+
 `--list` emits an `items` array. Each item has:
 
 | Key | Description |
@@ -106,14 +113,15 @@ trash --empty --yes --json
 | `size` | Size in bytes. |
 | `trash` | Trash location: drive (e.g. `C:`) on Windows; `home` or a mount path on Linux; `home` or a volume on macOS. |
 
-`--empty` emits an `emptied` count. This count is **approximate** — it reflects the number of items that were enumerated; the OS empty API may clear bins the listing could not enumerate.
+`--empty` emits `{"emptied":N,"failed":M}`. `emptied` is the count of items whose data was confirmed removed (**approximate** on Windows — the OS empty API is not per-item attributable); `failed` is the count that could not be removed (permission/busy) and, when non-zero, drives exit 1.
 
 ## Exit Codes
 
 | Code | Meaning |
 |---|---|
 | 0 | Success. A closed downstream pipe (e.g. `trash --list \| head -1`) also exits 0 — it is not an error. |
-| 1 | One or more paths failed (missing path, permission denied) — partial failure, like `rm`. Stderr carries the per-path message. |
+| 2 | `--empty` cancelled — you declined the confirmation prompt, or it was refused without `--yes` when not interactive. Nothing was emptied. |
+| 1 | One or more paths failed (missing path, permission denied), or some items could not be emptied — partial failure, like `rm`. Stderr carries the per-path message. |
 | 125 | Usage error — unknown flag, `--list`/`--empty` misuse, empty or duplicate path, or no paths given. Stderr carries the message. |
 | 126 | Backend failure — the OS recycle-bin / Trash API returned an error. Stderr carries the message. |
 
@@ -124,6 +132,7 @@ trash --empty --yes --json
 ## Known limitations
 
 - **macOS `--list` shows no original paths.** `original_path` is `null` on macOS. The Put-Back source is stored by macOS in a private binary store that v1 does not read.
+- **macOS `--list` deletion time is approximate.** On macOS, `deleted` reflects the entry's last-modified time, not the exact moment it was trashed — macOS does not expose a separate trash timestamp to v1.
 - **No `--restore` / put-back in v1.** Restore items through your file manager (Windows Recycle Bin, Files/Nautilus, Finder).
 - **`--empty` count is approximate.** It counts what was enumerated; the OS empty API may clear bins the listing could not enumerate.
 - **Windows glob expansion.** `cmd` and PowerShell do not expand `*.log` the way bash does. This is a suite-wide limitation; pass explicit paths or use a shell that globs.

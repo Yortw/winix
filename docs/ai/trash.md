@@ -57,7 +57,9 @@ Output shape:
 | `size` | Size in bytes. |
 | `trash` | Trash location: drive (e.g. `C:`) on Windows; `home` or a mount path on Linux; `home` or a volume on macOS. |
 
-`--empty --json` emits `{"emptied": N}`. The `emptied` count is **approximate** — it reflects what was enumerated; the OS empty API may clear bins the listing could not enumerate.
+Default (trash) mode emits `{"trashed": N, "failed": [{"path": "…", "error": "…"}]}` — `trashed` is the count sent to the bin/Trash, `failed` lists the paths that failed (empty when all succeeded).
+
+`--empty --json` emits `{"emptied": N, "failed": M}`. `emptied` is the count of items whose data was confirmed removed (**approximate** on Windows — the OS empty API is not per-item attributable); `failed` is the count that could not be removed and, when non-zero, drives exit 1.
 
 ## Emptying the Trash — Non-Interactive Safety
 
@@ -67,7 +69,7 @@ Output shape:
 - **Non-interactive (stdin redirected / in a pipe or script):** **refuses without `--yes`**. This prevents an unattended run from wiping the trash by accident.
 
 ```bash
-# WRONG in a script — refuses and exits with a usage error
+# WRONG in a script — refuses and exits 2 (cancelled); nothing is emptied
 echo | trash --empty
 
 # CORRECT — explicit consent
@@ -88,7 +90,7 @@ trash --list --json | jq -r '.items[].name'
 
 - **Windows:** uses the Recycle Bin. Trash location reports as the drive letter (e.g. `C:`). `cmd` and PowerShell do **not** expand globs like `*.log` — pass explicit paths or use a globbing shell.
 - **Linux:** uses the FreeDesktop Trash spec (`~/.local/share/Trash` plus per-mount `.Trash-<uid>` directories). Trash location reports as `home` or the mount path.
-- **macOS:** uses the system Trash. **`--list` shows no original paths** (`original_path` is null) — the Put-Back source is stored by macOS in a private binary store that v1 does not read.
+- **macOS:** uses the system Trash. **`--list` shows no original paths** (`original_path` is null) — the Put-Back source is stored by macOS in a private binary store that v1 does not read. `deleted` is approximate (the entry's last-modified time, not the exact trash moment).
 
 ## Limitations
 
@@ -103,7 +105,8 @@ trash --list --json | jq -r '.items[].name'
 | Code | Meaning |
 |---|---|
 | 0 | Success. A closed downstream pipe (e.g. `trash --list \| head -1`) also exits 0 — not an error. |
-| 1 | One or more paths failed (missing path, permission denied) — partial failure, like `rm`. Stderr carries the per-path message. |
+| 2 | `--empty` cancelled — the prompt was declined, or it was refused without `--yes` when not interactive. Nothing was emptied. |
+| 1 | One or more paths failed (missing path, permission denied), or some items could not be emptied — partial failure, like `rm`. Stderr carries the per-path message. |
 | 125 | Usage error — unknown flag, `--list`/`--empty` misuse, empty or duplicate path, or no paths given. Stderr carries the message. |
 | 126 | Backend failure — the OS recycle-bin / Trash API returned an error. Stderr carries the message. |
 
