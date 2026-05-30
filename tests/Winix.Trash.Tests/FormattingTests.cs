@@ -206,13 +206,19 @@ public class FormattingTests
     [Fact]
     public void EmptyJson_returns_expected_envelope()
     {
-        Assert.Equal("{\"emptied\":5}", Formatting.EmptyJson(5));
+        Assert.Equal("{\"emptied\":5,\"failed\":0}", Formatting.EmptyJson(5, 0));
     }
 
     [Fact]
     public void EmptyJson_zero()
     {
-        Assert.Equal("{\"emptied\":0}", Formatting.EmptyJson(0));
+        Assert.Equal("{\"emptied\":0,\"failed\":0}", Formatting.EmptyJson(0, 0));
+    }
+
+    [Fact]
+    public void EmptyJson_reports_failed_count()
+    {
+        Assert.Equal("{\"emptied\":3,\"failed\":2}", Formatting.EmptyJson(3, 2));
     }
 
     // ── TrashJson ───────────────────────────────────────────────────────────────

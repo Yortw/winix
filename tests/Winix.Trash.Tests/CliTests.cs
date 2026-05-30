@@ -139,6 +139,30 @@ public class CliTests
     }
 
     [Fact]
+    public void Empty_with_failures_reports_them_and_returns_exit1()
+    {
+        // 1 removed, 2 could not be removed (data still present) → exit 1 + a surfaced failure line.
+        var backend = new FakeTrashBackend(emptyResult: new EmptyResult(1, 2));
+        var (code, _, errText) = Run(new[] { "--empty", "--yes" }, backend);
+
+        Assert.Equal(1, code);
+        Assert.True(backend.EmptyCalled);
+        Assert.Contains("emptied 1 item(s)", errText);
+        Assert.Contains("2 item(s) could not be removed", errText);
+    }
+
+    [Fact]
+    public void Empty_with_failures_json_reports_failed_count()
+    {
+        var backend = new FakeTrashBackend(emptyResult: new EmptyResult(1, 2));
+        var (code, outText, _) = Run(new[] { "--empty", "--yes", "--json" }, backend);
+
+        Assert.Equal(1, code);
+        Assert.Contains("\"emptied\":1", outText);
+        Assert.Contains("\"failed\":2", outText);
+    }
+
+    [Fact]
     public void Empty_non_interactive_without_yes_does_not_call_Empty_and_returns_exit0()
     {
         // non-interactive = console input is redirected

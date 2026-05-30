@@ -164,13 +164,19 @@ public static class Cli
 
         if (r.Json)
         {
-            stdout.WriteLine(Formatting.EmptyJson(e.ItemsRemoved));
+            stdout.WriteLine(Formatting.EmptyJson(e.ItemsRemoved, e.FailedCount));
         }
         else
         {
             stderr.WriteLine($"trash: emptied {e.ItemsRemoved} item(s)");
+            if (e.FailedCount > 0)
+            {
+                stderr.WriteLine($"trash: {e.FailedCount} item(s) could not be removed");
+            }
         }
 
-        return ExitCode.Success;
+        // An item that could not be permanently removed (data still present) is a real failure — exit 1
+        // so a script does not assume the trash is empty.
+        return e.FailedCount > 0 ? 1 : ExitCode.Success;
     }
 }

@@ -355,48 +355,60 @@ internal sealed partial class LinuxFreeDesktopBackend : ITrashBackend
     public EmptyResult Empty()
     {
         int removed = 0;
+        int failed = 0;
         foreach ((string trashDir, string _) in TrashRoots())
         {
-            removed += EmptyOne(trashDir);
+            (int r, int f) = EmptyOne(trashDir);
+            removed += r;
+            failed += f;
         }
 
-        return new EmptyResult(removed);
+        return new EmptyResult(removed, failed);
     }
 
-    private int EmptyOne(string trashDir)
+    private (int Removed, int Failed) EmptyOne(string trashDir)
     {
         int removed = 0;
+        int failed = 0;
         string infoDir = trashDir + "/info";
         string filesDir = trashDir + "/files";
         string[] infoFiles;
         try
         {
-            if (!Directory.Exists(infoDir)) { return 0; }
+            if (!Directory.Exists(infoDir)) { return (0, 0); }
             infoFiles = Directory.GetFiles(infoDir, "*.trashinfo");
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return 0;
+            return (0, 0);
         }
 
         foreach (string infoFile in infoFiles)
         {
-            // Count an item as removed when its metadata file is gone; continue past per-item errors.
             string name = Path.GetFileName(infoFile);
             if (name.EndsWith(".trashinfo", StringComparison.Ordinal))
             {
                 name = name.Substring(0, name.Length - ".trashinfo".Length);
             }
 
+            // Count an item as removed ONLY when its payload data is actually gone. If the payload
+            // delete fails (permission, busy) we must NOT report it removed — the data is still on
+            // disk. The .trashinfo is cleaned best-effort regardless (a stray info with no payload is
+            // harmless and skipped by List).
             string payload = filesDir + "/" + name;
-            TryDeleteAny(payload);
-            if (TryDelete(infoFile))
+            bool payloadGone = TryDeleteAny(payload);
+            TryDelete(infoFile);
+            if (payloadGone)
             {
                 removed++;
             }
+            else
+            {
+                failed++;
+            }
         }
 
-        return removed;
+        return (removed, failed);
     }
 
     /// <summary>Device id of the home trash volume, resolved once and cached. Falls back to a
@@ -495,7 +507,11 @@ internal sealed partial class LinuxFreeDesktopBackend : ITrashBackend
         }
     }
 
-    private static void TryDeleteAny(string path)
+    /// <summary>Best-effort delete of a payload file/dir. Returns true when the payload is gone after
+    /// the call (deleted, or already absent — an orphaned info with no payload), false when a delete
+    /// was attempted and failed (the data is still present). The caller uses this to avoid counting an
+    /// undeleted item as removed.</summary>
+    private static bool TryDeleteAny(string path)
     {
         try
         {
@@ -507,10 +523,12 @@ internal sealed partial class LinuxFreeDesktopBackend : ITrashBackend
             {
                 File.Delete(path);
             }
+
+            return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Best-effort empty: skip what we can't remove.
+            return false;
         }
     }
 }

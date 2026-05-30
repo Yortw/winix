@@ -147,11 +147,12 @@ public static class Formatting
 
     // ── EmptyJson ─────────────────────────────────────────────────────────────
 
-    /// <summary>JSON envelope for <c>--empty --json</c>: <c>{"emptied":5}</c>.
-    /// Note the count is approximate (see Known Limitations in README: <c>SHEmptyRecycleBinW</c> may
-    /// affect bins that <c>List()</c> does not enumerate — F6).</summary>
-    public static string EmptyJson(int n)
-        => $"{{\"emptied\":{n.ToString(CultureInfo.InvariantCulture)}}}";
+    /// <summary>JSON envelope for <c>--empty --json</c>: <c>{"emptied":5,"failed":0}</c>.
+    /// <c>emptied</c> is the count of items whose data was confirmed removed (approximate on Windows —
+    /// <c>SHEmptyRecycleBinW</c> may affect bins <c>List()</c> does not enumerate, F6); <c>failed</c> is
+    /// the count that could not be removed (permission/busy), and a non-zero value drives exit 1.</summary>
+    public static string EmptyJson(int emptied, int failed)
+        => $"{{\"emptied\":{emptied.ToString(CultureInfo.InvariantCulture)},\"failed\":{failed.ToString(CultureInfo.InvariantCulture)}}}";
 
     // ── TrashJson ─────────────────────────────────────────────────────────────
 

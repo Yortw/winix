@@ -133,39 +133,50 @@ internal sealed partial class MacOsTrashBackend : ITrashBackend
     public EmptyResult Empty()
     {
         int removed = 0;
+        int failed = 0;
         foreach ((string trashDir, string _) in TrashRoots())
         {
-            removed += EmptyOne(trashDir);
+            (int r, int f) = EmptyOne(trashDir);
+            removed += r;
+            failed += f;
         }
 
-        return new EmptyResult(removed);
+        return new EmptyResult(removed, failed);
     }
 
     /// <summary>Deletes the contents of one Trash directory (never the directory itself), counting
-    /// top-level items removed and continuing past per-item failures.</summary>
-    private static int EmptyOne(string trashDir)
+    /// items confirmed removed vs. failed and continuing past per-item failures.</summary>
+    private static (int Removed, int Failed) EmptyOne(string trashDir)
     {
         string[] entries;
         try
         {
-            if (!Directory.Exists(trashDir)) { return 0; }
+            if (!Directory.Exists(trashDir)) { return (0, 0); }
             entries = Directory.GetFileSystemEntries(trashDir);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return 0;
+            return (0, 0);
         }
 
         int removed = 0;
+        int failed = 0;
         foreach (string entry in entries)
         {
-            if (TryDeleteAny(entry))
+            bool? result = TryDeleteAny(entry);
+            if (result == true)
             {
                 removed++;
             }
+            else if (result == false)
+            {
+                failed++;
+            }
+            // null: a dangling symlink (cleaned best-effort) or an entry that vanished after
+            // enumeration — counted as neither, so a non-removal is never reported as removed.
         }
 
-        return removed;
+        return (removed, failed);
     }
 
     /// <summary>Enumerates the Trash roots to scan for List/Empty: the user's <c>~/.Trash</c>
@@ -226,7 +237,13 @@ internal sealed partial class MacOsTrashBackend : ITrashBackend
         return home;
     }
 
-    private static bool TryDeleteAny(string path)
+    /// <summary>Best-effort delete of one Trash entry. Returns true when a real file/dir was removed,
+    /// false when a delete was attempted and failed (the data is still present), and null when there
+    /// was nothing concrete to remove — a dangling symlink (the link node, target gone — cleaned
+    /// best-effort) or an entry that vanished after enumeration. The caller counts true as removed and
+    /// false as failed; null is not counted, so a vanished/absent entry is never over-reported as
+    /// removed (a <see cref="File.Delete(string)"/> on an absent path is a silent no-op — I2).</summary>
+    private static bool? TryDeleteAny(string path)
     {
         try
         {
@@ -241,14 +258,23 @@ internal sealed partial class MacOsTrashBackend : ITrashBackend
                 File.Delete(path);
                 return true;
             }
-
-            // A dangling symlink reports neither File nor Directory Exists; remove it as a file.
-            File.Delete(path);
-            return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return false;
         }
+
+        // Neither a regular file nor directory: a dangling symlink or an entry that vanished after
+        // enumeration. Remove a possible dangling link best-effort, but do not count it either way.
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // ignore — best-effort cleanup
+        }
+
+        return null;
     }
 }
