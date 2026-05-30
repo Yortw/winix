@@ -22,6 +22,12 @@ public enum TrashMode
 /// <c>--list</c>/<c>--empty</c> flags; bare positionals select <see cref="TrashMode.Trash"/>.</summary>
 public static class ArgParser
 {
+    /// <summary>Exit code returned when <c>--empty</c> is not performed because it was not confirmed:
+    /// the user declined the interactive prompt, or it was refused without <c>--yes</c> when stdin is
+    /// not a TTY. Distinct from 0 (success), 1 (a real failure), and the 125–127 tool-error band, so a
+    /// script can tell "nothing was emptied because you didn't confirm" from "emptied" or "errored".</summary>
+    public const int CancelledExitCode = 2;
+
     /// <summary>Parse outcome: <see cref="Success"/> when everything is valid; <see cref="Error"/>
     /// is non-null on usage error; <see cref="IsHandled"/> when ShellKit already emitted
     /// help / version / describe output.</summary>
@@ -156,8 +162,9 @@ public static class ArgParser
                 valueOnUnix: "One binary matching trash-cli/macos-trash semantics, no Python/Node runtime required.")
             .ExitCodes(
                 (0, "Success (a closed downstream pipe, e.g. | head -1, also exits 0 — not an error)"),
+                (CancelledExitCode, "--empty cancelled: declined at the prompt, or refused without --yes when not interactive"),
                 (ExitCode.UsageError, "Usage error: unknown flag, --list/--empty misuse, empty/duplicate path, no paths"),
-                (1, "One or more paths failed (missing path, permission denied) — like rm"),
+                (1, "One or more paths failed (missing path, permission denied), or some items could not be emptied — like rm"),
                 (ExitCode.NotExecutable, "Backend failure: OS recycle-bin API error"))
             .Flag("--list", "Show what is currently in the recycle bin / Trash.")
             .Flag("--empty", "Permanently empty the recycle bin / Trash (prompts unless --yes or non-interactive).")

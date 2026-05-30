@@ -146,15 +146,18 @@ public static class Cli
 
                 if (!string.Equals(trimmed, "y", StringComparison.OrdinalIgnoreCase))
                 {
+                    // Declined: exit 2 (cancelled), not 0 — the requested empty did not happen, so a
+                    // caller can distinguish "you cancelled" from "emptied".
                     stderr.WriteLine("trash: cancelled");
-                    return ExitCode.Success;
+                    return ArgParser.CancelledExitCode;
                 }
             }
             else
             {
                 // Non-interactive without --yes: refuse safely rather than permanently destroying data.
+                // Also exit 2 (cancelled) — the empty was not performed.
                 stderr.WriteLine("trash: refusing to empty without --yes when not interactive");
-                return ExitCode.Success;
+                return ArgParser.CancelledExitCode;
             }
         }
 

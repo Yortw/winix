@@ -163,7 +163,7 @@ public class CliTests
     }
 
     [Fact]
-    public void Empty_non_interactive_without_yes_does_not_call_Empty_and_returns_exit0()
+    public void Empty_non_interactive_without_yes_does_not_call_Empty_and_returns_cancelled()
     {
         // non-interactive = console input is redirected
         var backend = new FakeTrashBackend(emptyResult: new EmptyResult(5));
@@ -172,7 +172,7 @@ public class CliTests
             backend,
             isInteractive: () => false);
 
-        Assert.Equal(ExitCode.Success, code);
+        Assert.Equal(ArgParser.CancelledExitCode, code);
         Assert.False(backend.EmptyCalled, "Empty() must NOT be called in non-interactive mode without --yes");
         Assert.Contains("refusing to empty", errText);
     }
@@ -187,7 +187,7 @@ public class CliTests
             isInteractive: () => true,
             readLine: () => "n");
 
-        Assert.Equal(ExitCode.Success, code);
+        Assert.Equal(ArgParser.CancelledExitCode, code);
         Assert.False(backend.EmptyCalled, "Empty() must NOT be called when user enters 'n'");
         Assert.Contains("cancelled", errText);
     }
@@ -202,7 +202,7 @@ public class CliTests
             isInteractive: () => true,
             readLine: () => string.Empty);
 
-        Assert.Equal(ExitCode.Success, code);
+        Assert.Equal(ArgParser.CancelledExitCode, code);
         Assert.False(backend.EmptyCalled, "Empty() must NOT be called when user enters empty string");
     }
 
@@ -216,7 +216,7 @@ public class CliTests
             isInteractive: () => true,
             readLine: () => null);
 
-        Assert.Equal(ExitCode.Success, code);
+        Assert.Equal(ArgParser.CancelledExitCode, code);
         Assert.False(backend.EmptyCalled, "Empty() must NOT be called on EOF");
     }
 
