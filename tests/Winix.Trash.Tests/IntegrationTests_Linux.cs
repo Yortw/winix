@@ -145,7 +145,7 @@ public class IntegrationTests_Linux
 
         // A separate filesystem is required to get a distinct st_dev — a bind mount would keep the
         // source device id and would NOT exercise the cross-volume branch. tmpfs needs root/CAP_SYS_ADMIN.
-        if (Run("mount", "-t", "tmpfs", "tmpfs", mnt) != 0)
+        if (MountTmpfs(mnt) != 0)
         {
             TryRmTree(work);
             Skip.If(true, "cannot mount tmpfs (need root/CAP_SYS_ADMIN) — skipping multi-volume test");
@@ -177,7 +177,7 @@ public class IntegrationTests_Linux
         }
         finally
         {
-            Run("umount", mnt);
+            Unmount(mnt);
             TryRmTree(work);
         }
     }
@@ -193,7 +193,7 @@ public class IntegrationTests_Linux
         string mnt = Path.Combine(work, "mnt");
         Directory.CreateDirectory(mnt);
 
-        if (Run("mount", "-t", "tmpfs", "tmpfs", mnt) != 0)
+        if (MountTmpfs(mnt) != 0)
         {
             TryRmTree(work);
             Skip.If(true, "cannot mount tmpfs (need root/CAP_SYS_ADMIN) — skipping cross-volume symlink test");
@@ -223,7 +223,7 @@ public class IntegrationTests_Linux
         }
         finally
         {
-            Run("umount", mnt);
+            Unmount(mnt);
             TryRmTree(work);
         }
     }
@@ -365,6 +365,31 @@ public class IntegrationTests_Linux
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // Best-effort cleanup.
+        }
+    }
+
+    /// <summary>Mounts a tmpfs at <paramref name="mnt"/> so the cross-volume tests get a distinct
+    /// <c>st_dev</c>. Tries a direct mount (works as root, e.g. in WSL) then passwordless sudo (GitHub
+    /// CI runners are non-root but have it), so the test runs in both environments. <c>mode=1777</c>
+    /// makes the tmpfs world-writable so the non-root test user can create files when it was mounted
+    /// via sudo. Returns 0 on success.</summary>
+    private static int MountTmpfs(string mnt)
+    {
+        int rc = Run("mount", "-t", "tmpfs", "-o", "mode=1777", "tmpfs", mnt);
+        if (rc != 0)
+        {
+            rc = Run("sudo", "-n", "mount", "-t", "tmpfs", "-o", "mode=1777", "tmpfs", mnt);
+        }
+
+        return rc;
+    }
+
+    /// <summary>Unmounts a tmpfs, mirroring <see cref="MountTmpfs"/>'s direct-then-sudo strategy.</summary>
+    private static void Unmount(string mnt)
+    {
+        if (Run("umount", mnt) != 0)
+        {
+            Run("sudo", "-n", "umount", mnt);
         }
     }
 
