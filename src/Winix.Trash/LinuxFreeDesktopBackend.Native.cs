@@ -34,6 +34,15 @@ internal sealed partial class LinuxFreeDesktopBackend
     [LibraryImport("libc", EntryPoint = "statx", StringMarshalling = StringMarshalling.Utf8, SetLastError = true)]
     private static partial int StatxNative(int dirfd, string pathname, int flags, uint mask, out Statx buf);
 
+    [LibraryImport("libc", EntryPoint = "getuid")]
+    private static partial uint GetUidNative();
+
+    /// <summary>Returns the current process's real user id, used in the top-dir <c>.Trash-$uid</c> name.</summary>
+    private static int CurrentUid()
+    {
+        return (int)GetUidNative();
+    }
+
     /// <summary>Returns a packed device id for the volume a path resides on. The packing
     /// (<c>(major &lt;&lt; 32) | minor</c>) is lossless and only ever compared for equality — we never
     /// decode it back into major/minor — so an order-preserving pack is all that's required.</summary>

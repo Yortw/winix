@@ -29,9 +29,8 @@ internal sealed partial class LinuxFreeDesktopBackend : ITrashBackend
         _homeTrashDir = homeTrashDir;
     }
 
-    private string FilesDir => _homeTrashDir + "/files";
-
-    private string InfoDir => _homeTrashDir + "/info";
+    // Lazily-resolved home volume device id (cached — the home trash never moves volumes mid-run).
+    private ulong? _homeDeviceId;
 
     /// <inheritdoc/>
     public TrashResult Trash(IReadOnlyList<string> paths)
@@ -70,9 +69,30 @@ internal sealed partial class LinuxFreeDesktopBackend : ITrashBackend
             return new PathOutcome(input, "refusing to trash the trash directory itself.");
         }
 
+        // Resolve the spec-correct trash dir for this file's volume: home trash for same-device
+        // files, else <topdir>/.Trash-<uid> on the file's own mount (so the move stays a rename).
+        string trashDir;
         try
         {
-            EnsureTrashDirs(_homeTrashDir);
+            trashDir = MountResolver.ResolveTrashDir(
+                fullPath,
+                DeviceIdOf,
+                _homeTrashDir,
+                HomeDeviceId(),
+                CurrentUid(),
+                MountPointOf);
+        }
+        catch (IOException)
+        {
+            return new PathOutcome(input, "could not determine the volume for this path.");
+        }
+
+        string infoDir = trashDir + "/info";
+        string filesDir = trashDir + "/files";
+
+        try
+        {
+            EnsureTrashDirs(trashDir);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -93,7 +113,7 @@ internal sealed partial class LinuxFreeDesktopBackend : ITrashBackend
         string infoPath;
         for (int suffix = 2; ; suffix++)
         {
-            infoPath = InfoDir + "/" + reservedName + ".trashinfo";
+            infoPath = infoDir + "/" + reservedName + ".trashinfo";
             try
             {
                 infoStream = new FileStream(infoPath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
@@ -129,9 +149,9 @@ internal sealed partial class LinuxFreeDesktopBackend : ITrashBackend
             return new PathOutcome(input, "could not write trash metadata.");
         }
 
-        // Step 4: move the file/dir into files/<name> using the SAME reserved name. Home volume is
-        // the same device, so this is a rename.
-        string destPath = FilesDir + "/" + reservedName;
+        // Step 4: move the file/dir into files/<name> using the SAME reserved name. The resolved
+        // trash dir is on the file's own volume, so this is a same-device rename.
+        string destPath = filesDir + "/" + reservedName;
         try
         {
             if (Directory.Exists(fullPath))
@@ -157,31 +177,124 @@ internal sealed partial class LinuxFreeDesktopBackend : ITrashBackend
     public IReadOnlyList<TrashedItem> List()
     {
         var items = new List<TrashedItem>();
-        if (!Directory.Exists(InfoDir))
+        foreach ((string trashDir, string label) in TrashRoots())
         {
-            return items;
-        }
-
-        string[] infoFiles;
-        try
-        {
-            infoFiles = Directory.GetFiles(InfoDir, "*.trashinfo");
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return items;
-        }
-
-        foreach (string infoFile in infoFiles)
-        {
-            TrashedItem? item = TryReadEntry(infoFile, "home");
-            if (item is not null)
+            string infoDir = trashDir + "/info";
+            string[] infoFiles;
+            try
             {
-                items.Add(item);
+                if (!Directory.Exists(infoDir)) { continue; }
+                infoFiles = Directory.GetFiles(infoDir, "*.trashinfo");
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                continue;
+            }
+
+            foreach (string infoFile in infoFiles)
+            {
+                TrashedItem? item = TryReadEntry(infoFile, label);
+                if (item is not null)
+                {
+                    items.Add(item);
+                }
             }
         }
 
         return items;
+    }
+
+    /// <summary>Enumerates the trash roots to scan for List/Empty: the home trash dir (label
+    /// "home"), plus any top-dir <c>.Trash-&lt;uid&gt;</c> discoverable from <c>/proc/mounts</c>
+    /// (labelled with the mount path). Top-dir discovery is best-effort — a mount we can't read is
+    /// silently skipped — and intentionally does not chase trashes on mounts not listed there.</summary>
+    private IEnumerable<(string TrashDir, string Label)> TrashRoots()
+    {
+        yield return (_homeTrashDir, "home");
+
+        int uid = CurrentUid();
+        string topDirName = ".Trash-" + uid.ToString(CultureInfo.InvariantCulture);
+        foreach (string mountPoint in EnumerateMountPoints())
+        {
+            string candidate = (mountPoint == "/" ? string.Empty : mountPoint) + "/" + topDirName;
+            bool exists;
+            try
+            {
+                exists = Directory.Exists(candidate);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                exists = false;
+            }
+
+            if (exists)
+            {
+                yield return (candidate, mountPoint);
+            }
+        }
+    }
+
+    /// <summary>Reads mount-point paths from <c>/proc/mounts</c>. Returns empty on any failure —
+    /// top-dir discovery is best-effort and must never crash List/Empty.</summary>
+    private static IEnumerable<string> EnumerateMountPoints()
+    {
+        string[] lines;
+        try
+        {
+            if (!File.Exists("/proc/mounts")) { return Array.Empty<string>(); }
+            lines = File.ReadAllLines("/proc/mounts");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return Array.Empty<string>();
+        }
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var result = new List<string>();
+        foreach (string line in lines)
+        {
+            // Format: "device mountpoint fstype options dump pass". The mount point is field 2 and
+            // uses octal escapes (\040 etc.) for spaces; we only need a path to probe, so decode them.
+            string[] fields = line.Split(' ');
+            if (fields.Length < 2) { continue; }
+
+            string mountPoint = DecodeMountEscapes(fields[1]);
+            if (mountPoint.Length > 0 && seen.Add(mountPoint))
+            {
+                result.Add(mountPoint);
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>Decodes the octal <c>\NNN</c> escapes used in <c>/proc/mounts</c> mount-point fields.</summary>
+    private static string DecodeMountEscapes(string field)
+    {
+        if (field.IndexOf('\\') < 0)
+        {
+            return field;
+        }
+
+        var sb = new System.Text.StringBuilder(field.Length);
+        for (int i = 0; i < field.Length; i++)
+        {
+            if (field[i] == '\\' && i + 3 < field.Length
+                && field[i + 1] is >= '0' and <= '7'
+                && field[i + 2] is >= '0' and <= '7'
+                && field[i + 3] is >= '0' and <= '7')
+            {
+                int code = ((field[i + 1] - '0') << 6) | ((field[i + 2] - '0') << 3) | (field[i + 3] - '0');
+                sb.Append((char)code);
+                i += 3;
+            }
+            else
+            {
+                sb.Append(field[i]);
+            }
+        }
+
+        return sb.ToString();
     }
 
     /// <summary>Reads one <c>.trashinfo</c> entry, or null when it should be skipped (F9: corrupt
@@ -242,19 +355,28 @@ internal sealed partial class LinuxFreeDesktopBackend : ITrashBackend
     public EmptyResult Empty()
     {
         int removed = 0;
-        if (!Directory.Exists(InfoDir))
+        foreach ((string trashDir, string _) in TrashRoots())
         {
-            return new EmptyResult(0);
+            removed += EmptyOne(trashDir);
         }
 
+        return new EmptyResult(removed);
+    }
+
+    private int EmptyOne(string trashDir)
+    {
+        int removed = 0;
+        string infoDir = trashDir + "/info";
+        string filesDir = trashDir + "/files";
         string[] infoFiles;
         try
         {
-            infoFiles = Directory.GetFiles(InfoDir, "*.trashinfo");
+            if (!Directory.Exists(infoDir)) { return 0; }
+            infoFiles = Directory.GetFiles(infoDir, "*.trashinfo");
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return new EmptyResult(0);
+            return 0;
         }
 
         foreach (string infoFile in infoFiles)
@@ -266,7 +388,7 @@ internal sealed partial class LinuxFreeDesktopBackend : ITrashBackend
                 name = name.Substring(0, name.Length - ".trashinfo".Length);
             }
 
-            string payload = FilesDir + "/" + name;
+            string payload = filesDir + "/" + name;
             TryDeleteAny(payload);
             if (TryDelete(infoFile))
             {
@@ -274,14 +396,76 @@ internal sealed partial class LinuxFreeDesktopBackend : ITrashBackend
             }
         }
 
-        return new EmptyResult(removed);
+        return removed;
     }
 
     /// <summary>True when <paramref name="canonical"/> equals or sits under any of this backend's
-    /// trash roots (currently the home trash dir; top-dir roots join here in Task 10).</summary>
+    /// trash roots: the home trash dir, or any top-dir <c>.Trash-&lt;uid&gt;</c> on any volume.</summary>
     private bool IsUnderTrashRoot(string canonical)
     {
-        return PathEqualsOrUnder(canonical, _homeTrashDir);
+        if (PathEqualsOrUnder(canonical, _homeTrashDir))
+        {
+            return true;
+        }
+
+        // Top-dir trashes live at arbitrary mount points, so we can't enumerate them up front.
+        // Guard structurally instead: refuse any path whose components include this user's
+        // ".Trash-<uid>" dir (or the spec's admin ".Trash" form).
+        int uid = CurrentUid();
+        string topDirName = ".Trash-" + uid.ToString(CultureInfo.InvariantCulture);
+        foreach (string segment in canonical.Split('/'))
+        {
+            if (string.Equals(segment, topDirName, StringComparison.Ordinal)
+                || string.Equals(segment, ".Trash", StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Device id of the home trash volume, resolved once and cached. Falls back to a
+    /// sentinel that never matches a real device when statx fails, so resolution degrades to the
+    /// cross-volume (top-dir) branch rather than mis-routing into the home trash.</summary>
+    private ulong HomeDeviceId()
+    {
+        if (_homeDeviceId is ulong cached)
+        {
+            return cached;
+        }
+
+        ulong dev;
+        try
+        {
+            // The home trash dir may not exist yet; statx its existing ancestor (the home dir or /).
+            dev = DeviceIdOf(NearestExistingAncestor(_homeTrashDir));
+        }
+        catch (IOException)
+        {
+            dev = ulong.MaxValue;
+        }
+
+        _homeDeviceId = dev;
+        return dev;
+    }
+
+    /// <summary>Walks up until it finds a directory that exists, for statx of a not-yet-created path.</summary>
+    private static string NearestExistingAncestor(string path)
+    {
+        string current = path;
+        while (!Directory.Exists(current))
+        {
+            string? parent = Path.GetDirectoryName(current.TrimEnd('/'));
+            if (string.IsNullOrEmpty(parent) || string.Equals(parent, current, StringComparison.Ordinal))
+            {
+                return "/";
+            }
+
+            current = parent;
+        }
+
+        return current;
     }
 
     private static bool PathEqualsOrUnder(string path, string root)
