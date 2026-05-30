@@ -64,7 +64,7 @@ internal sealed partial class LinuxFreeDesktopBackend : ITrashBackend
         // F1 trash-root guard: never trash the trash. Resolve a final symlink target so a link
         // pointing into a trash root cannot smuggle the trash dir back into itself.
         string canonical = ResolveFinalTarget(fullPath);
-        if (IsUnderTrashRoot(canonical))
+        if (TrashGuards.IsLinuxTrashRoot(canonical, _homeTrashDir, CurrentUid()))
         {
             return new PathOutcome(input, "refusing to trash the trash directory itself.");
         }
@@ -399,32 +399,6 @@ internal sealed partial class LinuxFreeDesktopBackend : ITrashBackend
         return removed;
     }
 
-    /// <summary>True when <paramref name="canonical"/> equals or sits under any of this backend's
-    /// trash roots: the home trash dir, or any top-dir <c>.Trash-&lt;uid&gt;</c> on any volume.</summary>
-    private bool IsUnderTrashRoot(string canonical)
-    {
-        if (PathEqualsOrUnder(canonical, _homeTrashDir))
-        {
-            return true;
-        }
-
-        // Top-dir trashes live at arbitrary mount points, so we can't enumerate them up front.
-        // Guard structurally instead: refuse any path whose components include this user's
-        // ".Trash-<uid>" dir (or the spec's admin ".Trash" form).
-        int uid = CurrentUid();
-        string topDirName = ".Trash-" + uid.ToString(CultureInfo.InvariantCulture);
-        foreach (string segment in canonical.Split('/'))
-        {
-            if (string.Equals(segment, topDirName, StringComparison.Ordinal)
-                || string.Equals(segment, ".Trash", StringComparison.Ordinal))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     /// <summary>Device id of the home trash volume, resolved once and cached. Falls back to a
     /// sentinel that never matches a real device when statx fails, so resolution degrades to the
     /// cross-volume (top-dir) branch rather than mis-routing into the home trash.</summary>
@@ -466,18 +440,6 @@ internal sealed partial class LinuxFreeDesktopBackend : ITrashBackend
         }
 
         return current;
-    }
-
-    private static bool PathEqualsOrUnder(string path, string root)
-    {
-        string p = path.TrimEnd('/');
-        string r = root.TrimEnd('/');
-        if (string.Equals(p, r, StringComparison.Ordinal))
-        {
-            return true;
-        }
-
-        return p.StartsWith(r + "/", StringComparison.Ordinal);
     }
 
     private void EnsureTrashDirs(string trashDir)

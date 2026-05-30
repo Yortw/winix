@@ -46,7 +46,7 @@ internal sealed partial class WindowsRecycleBinBackend : ITrashBackend
         }
 
         // F1 trash-root guard: never feed the API a drive root or anything inside a $Recycle.Bin.
-        if (IsRefusedRoot(fullPath))
+        if (TrashGuards.IsWindowsRefusedRoot(fullPath))
         {
             return new PathOutcome(input, "refusing to trash a drive root or the recycle bin itself.");
         }
@@ -93,38 +93,6 @@ internal sealed partial class WindowsRecycleBinBackend : ITrashBackend
         {
             pin.Free();
         }
-    }
-
-    /// <summary>True when a canonical path must not be sent to the shell delete API: a drive root
-    /// (e.g. <c>C:\</c>) or any path containing a <c>$Recycle.Bin</c> segment. Conservative by
-    /// design — the cost of a false refusal is a clear error; the cost of a false accept is data
-    /// loss.</summary>
-    private static bool IsRefusedRoot(string fullPath)
-    {
-        string trimmed = fullPath.TrimEnd('\\', '/');
-
-        // A drive root canonicalises to "C:\" (3 chars) or "C:" after trimming the slash.
-        if (trimmed.Length <= 2)
-        {
-            return true;
-        }
-
-        // Also catch a path root reported by the framework (covers UNC share roots etc.).
-        string? root = Path.GetPathRoot(fullPath);
-        if (root is not null && string.Equals(fullPath.TrimEnd('\\', '/'), root.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        foreach (string segment in fullPath.Split('\\', '/'))
-        {
-            if (string.Equals(segment, "$Recycle.Bin", StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /// <inheritdoc/>

@@ -43,7 +43,7 @@ internal sealed partial class MacOsTrashBackend : ITrashBackend
         // equal to ".Trash"/".Trashes", or anything at/under <home>/.Trash. trashItem would itself
         // error, but a clear up-front message beats whatever Foundation returns and matches the
         // Linux backend's guard wording.
-        if (IsUnderTrashRoot(fullPath))
+        if (TrashGuards.IsMacTrashRoot(fullPath, HomeDir()))
         {
             return new PathOutcome(input, "refusing to trash the Trash itself.");
         }
@@ -60,47 +60,6 @@ internal sealed partial class MacOsTrashBackend : ITrashBackend
         }
 
         return new PathOutcome(input, null);
-    }
-
-    /// <summary>True when <paramref name="fullPath"/> equals or sits under a Trash root: the user's
-    /// <c>~/.Trash</c>, or any path containing a <c>.Trash</c> / <c>.Trashes</c> segment (covers the
-    /// per-volume <c>/Volumes/*/.Trashes</c> stores). Structural rather than canonicalised — we don't
-    /// resolve symlinks here because trashItem operates on the URL we pass and a literal-segment match
-    /// is sufficient to refuse the obvious self-destruct cases.</summary>
-    private static bool IsUnderTrashRoot(string fullPath)
-    {
-        string home = HomeDir();
-        if (home.Length > 0)
-        {
-            string homeTrash = Path.Combine(home, ".Trash");
-            if (PathEqualsOrUnder(fullPath, homeTrash))
-            {
-                return true;
-            }
-        }
-
-        foreach (string segment in fullPath.Split('/'))
-        {
-            if (string.Equals(segment, ".Trash", StringComparison.Ordinal)
-                || string.Equals(segment, ".Trashes", StringComparison.Ordinal))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static bool PathEqualsOrUnder(string path, string root)
-    {
-        string p = path.TrimEnd('/');
-        string r = root.TrimEnd('/');
-        if (string.Equals(p, r, StringComparison.Ordinal))
-        {
-            return true;
-        }
-
-        return p.StartsWith(r + "/", StringComparison.Ordinal);
     }
 
     /// <inheritdoc/>
