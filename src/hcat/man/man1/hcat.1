@@ -1,1 +1,251 @@
-.\" hcat man page — see Task 19
+.TH HCAT 1 "2026-05-30" "Winix" "User Commands"
+.SH NAME
+hcat \- netcat for HTTP: serve a folder, inspect requests, or pipe a command over HTTP
+.SH SYNOPSIS
+.B hcat
+[\fIdir\fR]
+[\fB\-\-lan\fR]
+[\fB\-\-port\fR \fIN\fR]
+[\fB\-\-https\fR]
+
+.B hcat serve
+[\fIdir\fR]
+[\fB\-\-upload\fR]
+[\fB\-\-upload\-dir\fR \fIDIR\fR]
+[\fB\-\-lan\fR]
+
+.B hcat inspect
+[\fB\-\-status\fR \fICODE\fR]
+[\fB\-\-json\fR]
+[\fB\-\-capture\fR \fIN\fR]
+
+.B hcat pipe
+\fB\-\-\fR \fIcommand\fR...
+
+.SH DESCRIPTION
+.B hcat
+is an instant HTTP server in a single native binary \(em "netcat for HTTP".
+Where
+.BR nc (1)
+gives you a raw TCP socket,
+.B hcat
+gives you an HTTP one. It has four modes:
+
+A bare
+.B hcat
+serves the current directory on
+.B 127.0.0.1
+for local preview.
+.B hcat serve
+.RI [ dir ]
+serves static files with an automatic directory listing.
+.B hcat inspect
+echoes each request back as JSON, httpbin\-style.
+.B hcat pipe \-\-
+.I command
+runs
+.I command
+once per request (CGI\-style): the request body is piped to the child's stdin,
+its stdout becomes the response body, request metadata is exposed as environment
+variables, exit 0 maps to 200 and non\-zero to 500, and the child's stderr is
+written to the server console (never to the HTTP response).
+
+.SS Network safety
+By default
+.B hcat
+binds
+.B 127.0.0.1
+only \(em network exposure is always explicit.
+.B \-\-lan
+binds
+.B 0.0.0.0
+(every interface) and prints a QR code with the LAN URL.
+.B \-\-host
+binds an explicit address.
+.B \-\-local
+forces loopback\-only, overriding any earlier
+.B \-\-lan
+/
+.BR \-\-host .
+There is no authentication or IP allowlist in v1.
+
+.SH OPTIONS
+.TP
+.B \-\-lan
+Bind
+.B 0.0.0.0
+to share on the local network (prints a QR code).
+.TP
+.B \-\-local
+Force loopback\-only binding (overrides
+.B \-\-lan
+/
+.BR \-\-host ).
+.TP
+.B \-\-host " " \fIADDR\fR
+Explicit bind address. A non\-loopback address exposes the server.
+.TP
+.B \-\-port " " \fIN\fR
+Listen port (default 8080).
+.TP
+.B \-\-https
+Enable TLS with an in\-memory self\-signed certificate (clients show a trust warning).
+.TP
+.B \-\-upload
+(serve) Enable the POST upload receiver. Files are saved to
+.B ./uploads
+(created, not served).
+.TP
+.B \-\-upload\-dir " " \fIDIR\fR
+(serve) Upload target directory (default
+.BR ./uploads ).
+Pointing it at the served root makes uploads downloadable.
+.TP
+.B \-\-status " " \fICODE\fR
+(inspect) HTTP status to respond with (default 200).
+.TP
+.B \-\-capture " " \fIN\fR
+(CI) Exit after capturing N requests.
+.TP
+.B \-\-exit\-on " " \fIEXPR\fR
+(CI) Exit when a request matches:
+.BR path=/x ,
+.BR method=POST ,
+or
+.BR body~text .
+.TP
+.B \-\-timeout " " \fIDUR\fR
+(CI) Fail (exit 1) if the stop condition is not met within DUR (e.g.
+.BR 30s ,
+.BR 5m ).
+.TP
+.B \-\-json
+Emit machine\-readable JSON to stdout: a JSONL request\-record stream (inspect/pipe)
+or per\-request access\-log lines (serve). The banner, human log, and errors stay on stderr.
+.TP
+.B \-\-describe
+Emit structured JSON metadata for AI discoverability.
+.TP
+.B \-\-color " " \fIWHEN\fR
+\fBauto\fR, \fBalways\fR, or \fBnever\fR. Respects \fBNO_COLOR\fR.
+.TP
+.B \-\-no\-color
+Equivalent to \fB--color never\fR.
+.TP
+.BR \-h ", " \-\-help
+Show help and exit.
+.TP
+.BR \-v ", " \-\-version
+Show version and exit.
+
+.SH EXIT STATUS
+.TP
+.B 0
+Success \(em clean shutdown (Ctrl+C), or a CI stop condition
+.RB ( \-\-capture / \-\-exit\-on )
+was met.
+.TP
+.B 1
+A CI stop condition was not met before
+.B \-\-timeout
+elapsed.
+.TP
+.B 125
+Usage error \(em unknown subcommand/flag, bad
+.B \-\-exit\-on
+key, non\-integer
+.BR \-\-port / \-\-status / \-\-capture ,
+or
+.B pipe
+with no command. Stderr carries the message.
+.TP
+.B 126
+Startup failure \(em the port could not be bound (e.g. already in use) or the
+self\-signed certificate could not be created. Stderr carries the message.
+
+.SH EXAMPLES
+Serve the current directory on localhost:
+.RS
+.nf
+hcat
+.fi
+.RE
+
+Share a folder on your LAN (QR printed):
+.RS
+.nf
+hcat serve ./public --lan
+.fi
+.RE
+
+Receive uploads into ./uploads:
+.RS
+.nf
+hcat serve ./public --upload
+.fi
+.RE
+
+Catch and print incoming webhooks:
+.RS
+.nf
+hcat inspect --lan
+.fi
+.RE
+
+Record requests as JSONL:
+.RS
+.nf
+hcat inspect --json > requests.jsonl
+.fi
+.RE
+
+Expose jq over HTTP:
+.RS
+.nf
+hcat pipe -- jq .
+.fi
+.RE
+
+Exit cleanly after catching 3 requests (CI):
+.RS
+.nf
+hcat inspect --capture 3 --timeout 30s
+.fi
+.RE
+
+.SH LIMITATIONS
+.IP \(bu 2
+Single\-command pipe only \(em no per\-path routing in v1.
+.IP \(bu 2
+.B \-\-https
+uses an in\-memory self\-signed certificate; clients show a trust warning (dev / LAN use).
+.IP \(bu 2
+No authentication or IP allowlist in v1 \(em
+.B \-\-lan
+exposes the server to everyone on your network.
+.IP \(bu 2
+The binary is ~12 MB (the ASP.NET Core / Kestrel dependency).
+.IP \(bu 2
+An interrupted upload may leave a partial file at the target name \(em no atomic
+write\-then\-rename in v1 (F11).
+.IP \(bu 2
+Concurrent pipe\-mode child stderr may interleave on the server console \(em
+diagnostic only, never part of any HTTP response (F12).
+.IP \(bu 2
+Request bodies larger than 1 MiB are truncated in the record and marked
+.BR bodyTruncated .
+.IP \(bu 2
+If the child streams stdout, the 200 status is committed before its exit code is
+known, so a non\-zero exit after output flushes cannot be downgraded to 500.
+
+.SH ENVIRONMENT
+.TP
+.B NO_COLOR
+Disables colour output.
+
+.SH SEE ALSO
+.BR nc (1),
+.BR qr (1),
+.BR curl (1)
+.PP
+hcat \-\-describe for JSON metadata.

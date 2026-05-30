@@ -1,0 +1,21 @@
+{
+  "version": "0.4.0",
+  "description": "Netcat for HTTP — an instant HTTP server in one native binary: serve files, inspect requests, or pipe a command over HTTP.",
+  "homepage": "https://github.com/Yortw/winix",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/Yortw/winix/releases/download/v0.4.0/hcat-win-x64.zip",
+      "hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "bin": "hcat.exe"
+    }
+  },
+  "checkver": "github",
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/Yortw/winix/releases/download/v$version/hcat-win-x64.zip"
+      }
+    }
+  }
+}
