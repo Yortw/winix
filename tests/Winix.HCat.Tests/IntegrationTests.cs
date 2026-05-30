@@ -150,4 +150,110 @@ public class IntegrationTests
         }
         finally { await stop(); }
     }
+
+    // (a) --upload saves a POSTed file into the default ./uploads (relative to the served dir) and the
+    // saved file is NOT downloadable (the upload sub-tree is excluded from serving).
+    [Fact]
+    public async Task Upload_saves_to_default_uploads_and_is_not_downloadable()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "hcat-it-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var (baseUrl, stop) = await StartAsync(new HCatOptions
+        {
+            Mode = HCatMode.Serve, Directory = dir, Upload = true,
+        });
+        try
+        {
+            using var http = new HttpClient();
+            var post = await http.PostAsync($"{baseUrl}/?filename=note.txt", new StringContent("payload-a"));
+            Assert.Equal(201, (int)post.StatusCode);
+
+            // Saved into <served>/uploads/note.txt on disk.
+            string saved = Path.Combine(dir, "uploads", "note.txt");
+            Assert.True(File.Exists(saved), "uploaded file should be saved under ./uploads");
+            Assert.Equal("payload-a", File.ReadAllText(saved));
+
+            // But NOT downloadable — the upload sub-tree is excluded from serving.
+            var get = await http.GetAsync($"{baseUrl}/uploads/note.txt");
+            Assert.Equal(404, (int)get.StatusCode);
+        }
+        finally { await stop(); Directory.Delete(dir, true); }
+    }
+
+    // (b) --upload-dir . saves into the served root and the file IS downloadable (the documented escape hatch).
+    [Fact]
+    public async Task Upload_into_served_root_is_downloadable()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "hcat-it-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var (baseUrl, stop) = await StartAsync(new HCatOptions
+        {
+            Mode = HCatMode.Serve, Directory = dir, Upload = true, UploadDir = dir,
+        });
+        try
+        {
+            using var http = new HttpClient();
+            var post = await http.PostAsync($"{baseUrl}/?filename=open.txt", new StringContent("payload-b"));
+            Assert.Equal(201, (int)post.StatusCode);
+
+            string saved = Path.Combine(dir, "open.txt");
+            Assert.True(File.Exists(saved), "uploaded file should be saved into the served root");
+            Assert.Equal("payload-b", File.ReadAllText(saved));
+
+            // The escape hatch: a file in the served root IS downloadable.
+            string body = await http.GetStringAsync($"{baseUrl}/open.txt");
+            Assert.Equal("payload-b", body);
+        }
+        finally { await stop(); Directory.Delete(dir, true); }
+    }
+
+    // (c) a ..-laden filename is rejected (400) and nothing is written outside the upload root.
+    [Fact]
+    public async Task Upload_rejects_traversal_filename_and_writes_nothing_outside_root()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "hcat-it-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        // A sentinel sibling we must prove stays untouched (the traversal target would land here).
+        string outsidePath = Path.Combine(dir, "escaped.txt");
+        var (baseUrl, stop) = await StartAsync(new HCatOptions
+        {
+            Mode = HCatMode.Serve, Directory = dir, Upload = true,
+        });
+        try
+        {
+            using var http = new HttpClient();
+            var post = await http.PostAsync(
+                $"{baseUrl}/?filename={Uri.EscapeDataString("../escaped.txt")}",
+                new StringContent("evil"));
+            Assert.Equal(400, (int)post.StatusCode);
+
+            Assert.False(File.Exists(outsidePath), "traversal target must not be written outside the upload root");
+        }
+        finally { await stop(); Directory.Delete(dir, true); }
+    }
+
+    // (d) F1 ordering guard: a file physically pre-placed at <served>/uploads/ before the server starts must
+    // still 404 with --upload — proving the exclusion middleware wins over UseStaticFiles (which would otherwise
+    // serve it 200). This is the load-bearing secure-by-default ordering invariant.
+    [Fact]
+    public async Task Upload_excludes_preplaced_file_under_upload_subtree()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "hcat-it-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        string uploads = Path.Combine(dir, "uploads");
+        Directory.CreateDirectory(uploads);
+        File.WriteAllText(Path.Combine(uploads, "planted.txt"), "planted-content");
+
+        var (baseUrl, stop) = await StartAsync(new HCatOptions
+        {
+            Mode = HCatMode.Serve, Directory = dir, Upload = true,
+        });
+        try
+        {
+            using var http = new HttpClient();
+            var get = await http.GetAsync($"{baseUrl}/uploads/planted.txt");
+            Assert.Equal(404, (int)get.StatusCode);
+        }
+        finally { await stop(); Directory.Delete(dir, true); }
+    }
 }
