@@ -1,6 +1,8 @@
 using System;
 using System.IO;
+using System.Net;
 using System.Net.Http;
+using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using Winix.HCat;
@@ -260,6 +262,109 @@ public class IntegrationTests
     // (d) F1 ordering guard: a file physically pre-placed at <served>/uploads/ before the server starts must
     // still 404 with --upload — proving the exclusion middleware wins over UseStaticFiles (which would otherwise
     // serve it 200). This is the load-bearing secure-by-default ordering invariant.
+    // --- Task 16: CI lifecycle + exit codes ---
+
+    // Starts RunForTestAsync with a JSONL sink and CI stop conditions. Returns (baseUrl, runTask) where
+    // runTask is the server's own task — it COMPLETES on its own once a stop condition fires, returning the
+    // outcome exit code. The caller cancels via the CTS for the non-self-terminating cases.
+    private static async Task<(string BaseUrl, Task<int> Run, CancellationTokenSource Cts)> StartWithSinkAsync(
+        HCatOptions options, TextWriter jsonSink)
+    {
+        var cts = new CancellationTokenSource();
+        var ready = new TaskCompletionSource<string>();
+        Task<int> run = Task.Run(() => HCatServer.RunForTestAsync(options, ready, jsonSink, cts.Token));
+        string baseUrl = await ready.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        return (baseUrl, run, cts);
+    }
+
+    [Fact]   // capture 1: server completes on its own after one request; the JSONL line reaches the sink.
+    public async Task Inspect_capture_one_completes_on_its_own_and_writes_jsonl()
+    {
+        var sink = new StringWriter();
+        var (baseUrl, run, cts) = await StartWithSinkAsync(
+            new HCatOptions { Mode = HCatMode.Inspect, CaptureCount = 1 }, sink);
+        try
+        {
+            using var http = new HttpClient();
+            await http.PostAsync($"{baseUrl}/hook?a=1",
+                new StringContent("{\"k\":1}", System.Text.Encoding.UTF8, "application/json"));
+
+            // The server must shut down on its own (no Cts.Cancel) — capture 1 was satisfied.
+            int code = await run.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Equal(0, code);
+
+            string captured = sink.ToString();
+            Assert.Contains("\"method\":\"POST\"", captured);
+            Assert.Contains("\"path\":\"/hook\"", captured);
+        }
+        finally { cts.Cancel(); try { await run; } catch { } }
+    }
+
+    [Fact]   // F6: the request that TRIGGERS the stop still receives its full echo body + correct status.
+    public async Task Inspect_capture_one_triggering_request_still_gets_full_response()
+    {
+        var sink = new StringWriter();
+        var (baseUrl, run, cts) = await StartWithSinkAsync(
+            new HCatOptions { Mode = HCatMode.Inspect, CaptureCount = 1, InspectStatus = 202 }, sink);
+        try
+        {
+            using var http = new HttpClient();
+            var resp = await http.PostAsync($"{baseUrl}/trigger",
+                new StringContent("payload"));
+            // The triggering response must not be truncated by the stop.
+            Assert.Equal(202, (int)resp.StatusCode);
+            string body = await resp.Content.ReadAsStringAsync();
+            Assert.Contains("\"method\"", body);
+            Assert.Contains("\"path\":\"/trigger\"", body);
+
+            int code = await run.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Equal(0, code);
+        }
+        finally { cts.Cancel(); try { await run; } catch { } }
+    }
+
+    [Fact]   // F9: --capture 1 --timeout with NO request → server stops, exit code 1.
+    public async Task Inspect_timeout_without_request_yields_exit_1()
+    {
+        var sink = new StringWriter();
+        var (baseUrl, run, cts) = await StartWithSinkAsync(
+            new HCatOptions
+            {
+                Mode = HCatMode.Inspect, CaptureCount = 1, Timeout = TimeSpan.FromSeconds(1),
+            },
+            sink);
+        try
+        {
+            // Send nothing; the 1s timeout must fire, the server self-stops, and the outcome is 1.
+            int code = await run.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Equal(1, code);
+        }
+        finally { cts.Cancel(); try { await run; } catch { } }
+    }
+
+    [Fact]   // F7: a port already in use → Cli.Run returns 126 with a human-readable stderr message.
+    public void Bind_failure_returns_126_with_human_message()
+    {
+        // Hold a loopback port so the server's bind fails with address-in-use.
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        try
+        {
+            var stdout = new StringWriter();
+            var stderr = new StringWriter();
+            int code = Cli.Run(
+                new[] { "serve", "--host", "127.0.0.1", "--port", port.ToString() }, stdout, stderr);
+            Assert.Equal(126, code);
+            string err = stderr.ToString();
+            Assert.Contains("hcat: cannot bind", err);
+            Assert.Contains("address already in use", err);
+            // Must NOT leak an SR key.
+            Assert.DoesNotContain("_Arg_", err);
+        }
+        finally { listener.Stop(); }
+    }
+
     [Fact]
     public async Task Upload_excludes_preplaced_file_under_upload_subtree()
     {
