@@ -1,11 +1,11 @@
 {
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Move files to the recycle bin or Trash instead of deleting them — cross-platform, recoverable.",
   "homepage": "https://github.com/Yortw/winix",
   "license": "MIT",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/Yortw/winix/releases/download/v0.3.0/trash-win-x64.zip",
+      "url": "https://github.com/Yortw/winix/releases/download/v0.4.0/trash-win-x64.zip",
       "hash": "0000000000000000000000000000000000000000000000000000000000000000",
       "bin": "trash.exe"
     }

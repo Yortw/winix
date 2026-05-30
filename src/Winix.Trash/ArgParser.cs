@@ -194,6 +194,8 @@ public static class ArgParser
         return typeof(ArgParser).Assembly.GetName().Version?.ToString() ?? "0.0.0";
     }
 
+    // ExitCode carries UsageError (not 0) so the field is honest in the error state — a usage error is
+    // a 125, and Cli surfaces it as such.
     private static Result Fail(string msg, bool useColor)
-        => new(TrashMode.Trash, Array.Empty<string>(), false, false, msg, false, 0, useColor);
+        => new(TrashMode.Trash, Array.Empty<string>(), false, false, msg, false, ExitCode.UsageError, useColor);
 }

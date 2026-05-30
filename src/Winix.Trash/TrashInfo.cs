@@ -9,7 +9,11 @@ namespace Winix.Trash;
 
 /// <summary>Parsed contents of a FreeDesktop <c>.trashinfo</c> file.</summary>
 /// <param name="OriginalPath">Decoded absolute original path.</param>
-/// <param name="DeletionLocal">Deletion timestamp as written (local, no timezone).</param>
+/// <param name="DeletionLocal">Deletion timestamp as written — local wall-clock with no timezone. Its
+/// <see cref="DateTime.Kind"/> is <see cref="DateTimeKind.Unspecified"/> (NOT Local), because the spec
+/// stores no offset. Callers needing UTC must <c>DateTime.SpecifyKind(value, DateTimeKind.Local)</c>
+/// first — calling <c>ToUniversalTime()</c> directly on an Unspecified value is a host-timezone
+/// footgun.</param>
 public sealed record TrashInfoRecord(string OriginalPath, DateTime DeletionLocal);
 
 /// <summary>Reads and writes FreeDesktop <c>.trashinfo</c> files. Path values are percent-encoded

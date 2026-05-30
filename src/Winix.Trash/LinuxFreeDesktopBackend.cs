@@ -82,9 +82,12 @@ internal sealed partial class LinuxFreeDesktopBackend : ITrashBackend
                 CurrentUid(),
                 MountPointOf);
         }
-        catch (IOException)
+        catch (IOException ex)
         {
-            return new PathOutcome(input, "could not determine the volume for this path.");
+            // ex.Message is our own "statx failed for path (errno N)." (not a framework SR key) — keep
+            // the errno as the only diagnostic, matching how Windows preserves the HRESULT and macOS
+            // the NSError message.
+            return new PathOutcome(input, $"could not determine the volume for this path ({ex.Message})");
         }
 
         string infoDir = trashDir + "/info";
