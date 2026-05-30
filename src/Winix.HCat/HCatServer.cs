@@ -6,9 +6,11 @@ using System.Linq;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http.Json;
@@ -25,10 +27,17 @@ namespace Winix.HCat;
 /// Per-mode middleware is dispatched from <see cref="BuildApp"/>.</summary>
 public static class HCatServer
 {
-    /// <summary>Builds the configured <see cref="WebApplication"/> for the given options without starting it.
-    /// Configures AOT-friendly JSON via <see cref="HCatJsonContext"/> and dispatches per-mode middleware.
-    /// Callers are responsible for configuring the listen endpoints and running the app.</summary>
-    internal static WebApplication BuildApp(HCatOptions options)
+    /// <summary>Builds the configured <see cref="WebApplication"/> for the given options and binds Kestrel to
+    /// <paramref name="bindAddress"/>:<paramref name="port"/>. Configures AOT-friendly JSON via
+    /// <see cref="HCatJsonContext"/> and dispatches per-mode middleware. When <see cref="HCatOptions.Https"/>
+    /// is set, the endpoint uses TLS with a fresh in-memory self-signed certificate.</summary>
+    /// <param name="options">The invocation options (mode, https, served directory, etc.).</param>
+    /// <param name="bindAddress">The IP to listen on.</param>
+    /// <param name="port">The port to listen on; 0 lets the OS pick an ephemeral port.</param>
+    /// <remarks>HTTPS is wired via <c>listenOptions.UseHttps(cert)</c> rather than an <c>https://</c> URL so the
+    /// self-signed certificate can be supplied explicitly. The certificate is created once and disposed on
+    /// application shutdown so it lives as long as the listener references it.</remarks>
+    internal static WebApplication BuildApp(HCatOptions options, IPAddress bindAddress, int port)
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.Logging.ClearProviders();
@@ -39,7 +48,27 @@ public static class HCatServer
             o.SerializerOptions.TypeInfoResolverChain.Insert(0, HCatJsonContext.Default);
         });
 
+        // Cert lifetime: created once here and held by the UseHttps closure for the listener's lifetime;
+        // disposed on ApplicationStopped (below) so it is not collected while the endpoint still references it.
+        X509Certificate2? cert = options.Https ? SelfSignedCert.Create() : null;
+
+        builder.Services.Configure<KestrelServerOptions>(kestrel =>
+        {
+            kestrel.Listen(bindAddress, port, listenOptions =>
+            {
+                if (cert is not null)
+                {
+                    listenOptions.UseHttps(cert);
+                }
+            });
+        });
+
         var app = builder.Build();
+
+        if (cert is not null)
+        {
+            app.Lifetime.ApplicationStopped.Register(cert.Dispose);
+        }
 
         switch (options.Mode)
         {
@@ -77,11 +106,10 @@ public static class HCatServer
         WebApplication? app = null;
         try
         {
-            app = BuildApp(options);
-
-            // Ephemeral loopback: let the OS pick the port, then read it back.
-            string scheme = options.Https ? "https" : "http";
-            app.Urls.Add($"{scheme}://127.0.0.1:0");
+            // Ephemeral loopback: let the OS pick the port (0), then read it back. When Https is set the
+            // endpoint is configured with the self-signed cert inside BuildApp, so the bound address Kestrel
+            // reports back already carries the https:// scheme.
+            app = BuildApp(options, IPAddress.Loopback, port: 0);
 
             await app.StartAsync(ct).ConfigureAwait(false);
 
@@ -143,10 +171,9 @@ public static class HCatServer
     {
         BindInfo bind = BindResolver.Resolve(options, EnumerateLanIPv4);
 
-        var app = BuildApp(options);
-        app.Services.GetRequiredService<IServer>(); // ensure server resolves before listen config
-
-        ConfigureKestrel(app, bind, options);
+        // Bind Kestrel directly to the resolved address/port; UseHttps (inside BuildApp) supplies the
+        // self-signed cert when --https is set.
+        var app = BuildApp(options, bind.Address, options.Port);
 
         // No QR yet (rendered in a later task); pass null so the banner is still informative.
         banner.Write(Banner.Render(bind, options, qr: null));
@@ -168,19 +195,6 @@ public static class HCatServer
         }
 
         return 0;
-    }
-
-    /// <summary>Configures Kestrel to listen on the resolved bind address + port.</summary>
-    private static void ConfigureKestrel(WebApplication app, BindInfo bind, HCatOptions options)
-    {
-        var kestrel = app.Services.GetRequiredService<IServer>();
-        // WebApplication built via CreateSlimBuilder uses Kestrel; configure the endpoint via Urls so the
-        // server picks it up uniformly with the test path.
-        string scheme = options.Https ? "https" : "http";
-        string host = bind.Address.Equals(IPAddress.Any) ? "0.0.0.0" : bind.Address.ToString();
-        app.Urls.Clear();
-        app.Urls.Add($"{scheme}://{host}:{options.Port}");
-        _ = kestrel;
     }
 
     /// <summary>Enumerates the machine's operational, non-loopback IPv4 addresses for LAN display URLs.</summary>

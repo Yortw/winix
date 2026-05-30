@@ -36,6 +36,31 @@ public class IntegrationTests
         finally { await stop(); Directory.Delete(dir, true); }
     }
 
+    [Fact]   // T15: serve mode over TLS using the in-memory self-signed cert.
+    public async Task Serve_returns_a_file_over_https()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "hcat-it-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "secure.txt"), "tls-world");
+        var (baseUrl, stop) = await StartAsync(new HCatOptions
+        {
+            Mode = HCatMode.Serve, Directory = dir, Https = true,
+        });
+        try
+        {
+            Assert.StartsWith("https://", baseUrl);
+            // Self-signed certs aren't trusted; bypass validation (expected for dev/LAN).
+            using var handler = new HttpClientHandler
+            {
+                ServerCertificateCustomValidationCallback = (_, _, _, _) => true,
+            };
+            using var http = new HttpClient(handler);
+            string body = await http.GetStringAsync($"{baseUrl}/secure.txt");
+            Assert.Equal("tls-world", body);
+        }
+        finally { await stop(); Directory.Delete(dir, true); }
+    }
+
     [Fact]
     public async Task Serve_lists_a_directory()
     {

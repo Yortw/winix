@@ -11,7 +11,13 @@ namespace Winix.HCat;
 public static class SelfSignedCert
 {
     /// <summary>Creates a fresh self-signed RSA certificate valid for "localhost" + loopback, good for
-    /// one year. The caller owns the returned certificate and should dispose it.</summary>
+    /// one year, usable directly as a Kestrel server certificate. The caller owns the returned certificate
+    /// and should dispose it.</summary>
+    /// <remarks>The certificate is round-tripped through an in-memory PKCS#12 blob. <c>CreateSelfSigned</c>
+    /// produces a cert backed by an ephemeral CNG key that Windows SChannel cannot use for a TLS server
+    /// endpoint (the handshake fails with an unexpected-EOF). Exporting to PFX and re-importing reassociates
+    /// the private key in a form the platform TLS stack accepts. No files are written and no trust-store
+    /// changes are made.</remarks>
     public static X509Certificate2 Create()
     {
         using var rsa = RSA.Create(2048);
@@ -25,6 +31,10 @@ public static class SelfSignedCert
         req.CertificateExtensions.Add(san.Build());
 
         DateTimeOffset now = DateTimeOffset.UtcNow;
-        return req.CreateSelfSigned(now.AddMinutes(-5), now.AddYears(1));
+        using X509Certificate2 ephemeral = req.CreateSelfSigned(now.AddMinutes(-5), now.AddYears(1));
+
+        // SChannel-usable round-trip (see remarks). Empty password — the blob never leaves memory.
+        byte[] pfx = ephemeral.Export(X509ContentType.Pfx);
+        return X509CertificateLoader.LoadPkcs12(pfx, password: null);
     }
 }
