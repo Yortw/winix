@@ -56,6 +56,17 @@ internal sealed partial class MacOsTrashBackend
     [LibraryImport("libc", EntryPoint = "getuid")]
     private static partial uint GetUidNative();
 
+    // Autorelease pool management. A CLI main thread has no run loop, so there is no ambient
+    // autorelease pool; without one the Obj-C runtime logs "autoreleased with no pool in place -
+    // just leaking" to stderr for every autoreleased object (NSString/NSURL/NSError factory results)
+    // and leaks them. We push our own pool around the Foundation call chain and pop it once we have
+    // copied out everything we need into managed memory. Returns/takes an opaque pool token.
+    [LibraryImport(LibObjC, EntryPoint = "objc_autoreleasePoolPush")]
+    private static partial IntPtr objc_autoreleasePoolPush();
+
+    [LibraryImport(LibObjC, EntryPoint = "objc_autoreleasePoolPop")]
+    private static partial void objc_autoreleasePoolPop(IntPtr pool);
+
     /// <summary>Trashes a single existing item via Foundation's <c>NSFileManager</c>. Returns
     /// <c>(true, null)</c> on success; on failure returns <c>(false, message)</c> where the message is
     /// the NSError's <c>localizedDescription</c> (an OS-provided string — safe to surface even under
@@ -83,23 +94,35 @@ internal sealed partial class MacOsTrashBackend
             return (false, "macOS Foundation unavailable");
         }
 
-        IntPtr manager = objc_msgSend(nsFileManagerClass, selDefaultManager);
-        IntPtr nsString = objc_msgSend_str(nsStringClass, selStringWithUtf8, fullPath);
-        IntPtr nsUrl = objc_msgSend_ptr(nsUrlClass, selFileUrlWithPath, nsString);
-        if (manager == IntPtr.Zero || nsString == IntPtr.Zero || nsUrl == IntPtr.Zero)
+        // The factory sends below return autoreleased objects; bracket them in an explicit pool so the
+        // runtime has somewhere to drain them (no run loop on a CLI main thread). Everything we need
+        // out of these objects is copied into managed memory before the pool is popped.
+        IntPtr pool = objc_autoreleasePoolPush();
+        try
         {
-            return (false, "failed to move to Trash.");
-        }
+            IntPtr manager = objc_msgSend(nsFileManagerClass, selDefaultManager);
+            IntPtr nsString = objc_msgSend_str(nsStringClass, selStringWithUtf8, fullPath);
+            IntPtr nsUrl = objc_msgSend_ptr(nsUrlClass, selFileUrlWithPath, nsString);
+            if (manager == IntPtr.Zero || nsString == IntPtr.Zero || nsUrl == IntPtr.Zero)
+            {
+                return (false, "failed to move to Trash.");
+            }
 
-        IntPtr errorPtr = IntPtr.Zero;
-        bool ok = objc_msgSend_trash(manager, selTrashItem, nsUrl, IntPtr.Zero, ref errorPtr);
-        if (ok)
+            IntPtr errorPtr = IntPtr.Zero;
+            bool ok = objc_msgSend_trash(manager, selTrashItem, nsUrl, IntPtr.Zero, ref errorPtr);
+            if (ok)
+            {
+                return (true, null);
+            }
+
+            // UnwrapNsError copies the message into a managed string before we pop the pool.
+            string? message = UnwrapNsError(errorPtr);
+            return (false, message ?? "failed to move to Trash.");
+        }
+        finally
         {
-            return (true, null);
+            objc_autoreleasePoolPop(pool);
         }
-
-        string? message = UnwrapNsError(errorPtr);
-        return (false, message ?? "failed to move to Trash.");
     }
 
     /// <summary>Extracts a human-readable message from an <c>NSError*</c> via
