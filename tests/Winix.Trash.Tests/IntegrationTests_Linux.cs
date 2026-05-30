@@ -41,6 +41,14 @@ public class IntegrationTests_Linux
     }
 
     [SkippableFact]
+    public void Trash_symlinkToOtherVolume_goesToTheLinkNodesVolume()
+    {
+        Skip.IfNot(OperatingSystem.IsLinux(), "Linux-only integration test");
+        if (!OperatingSystem.IsLinux()) { return; }
+        Trash_crossVolumeSymlink_impl();
+    }
+
+    [SkippableFact]
     public void List_skipsCorruptAndOrphanedEntries_withoutThrowing()
     {
         Skip.IfNot(OperatingSystem.IsLinux(), "Linux-only integration test");
@@ -166,6 +174,52 @@ public class IntegrationTests_Linux
             Assert.Single(topDirTrashes);
             Assert.True(File.Exists(Path.Combine(topDirTrashes[0], "files", "big.bin")),
                 "file must land in <mount>/.Trash-<uid>/files");
+        }
+        finally
+        {
+            Run("umount", mnt);
+            TryRmTree(work);
+        }
+    }
+
+    /// <summary>Reproducer (review finding #8): a symlink whose NODE lives on the home volume but whose
+    /// TARGET is on another volume must trash to the home volume — the move operates on the link node,
+    /// not the target. If device identity is resolved by following the symlink (statx flags 0), the
+    /// backend keys on the target's volume and the same-device move fails spuriously.</summary>
+    [SupportedOSPlatform("linux")]
+    private static void Trash_crossVolumeSymlink_impl()
+    {
+        string work = MakeWorkDir();
+        string mnt = Path.Combine(work, "mnt");
+        Directory.CreateDirectory(mnt);
+
+        if (Run("mount", "-t", "tmpfs", "tmpfs", mnt) != 0)
+        {
+            TryRmTree(work);
+            Skip.If(true, "cannot mount tmpfs (need root/CAP_SYS_ADMIN) — skipping cross-volume symlink test");
+            return;
+        }
+
+        try
+        {
+            // Target on the tmpfs (volume B); symlink NODE on the work dir (volume A).
+            string target = Path.Combine(mnt, "target.txt");
+            File.WriteAllText(target, "data");
+            string link = Path.Combine(work, "link.txt");
+            File.CreateSymbolicLink(link, target);
+
+            // Home trash on volume A — same device as the link node, so trashing the link should be a
+            // same-device rename into the home trash, NOT a cross-volume failure based on the target.
+            string homeTrash = Path.Combine(work, "Trash");
+            var backend = new LinuxFreeDesktopBackend(homeTrash);
+            TrashResult result = backend.Trash(new[] { link });
+
+            Assert.False(result.AnyFailed, ErrorsOf(result));
+            // Origin link node must be gone (File.Exists on the now-absent link returns false).
+            Assert.False(File.Exists(link), "the symlink must be gone from origin");
+            // The moved link lands in the home trash; File.Exists follows it to the still-present target.
+            Assert.True(File.Exists(Path.Combine(homeTrash, "files", "link.txt")),
+                "the symlink must land in the home trash (its own volume)");
         }
         finally
         {

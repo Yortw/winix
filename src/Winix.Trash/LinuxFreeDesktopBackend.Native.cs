@@ -12,10 +12,13 @@ namespace Winix.Trash;
 [SupportedOSPlatform("linux")]
 internal sealed partial class LinuxFreeDesktopBackend
 {
-    // statx(2) constants. We follow symlinks (flags 0) so the device id matches the file's real
-    // residence, matching the behaviour of the trash move (which moves the link target's data only
-    // when the link is the thing being trashed — but here we only need the volume identity).
+    // statx(2) constants. We do NOT follow symlinks (AT_SYMLINK_NOFOLLOW): trashing a symlink moves
+    // the LINK NODE, not its target, so the volume that governs the move is where the link itself
+    // lives. Following the link would report the target's volume — and a symlink on volume A pointing
+    // at volume B would then be mis-routed to B's trash, failing the same-device move (reproduced by
+    // IntegrationTests_Linux.Trash_symlinkToOtherVolume). For non-symlink paths the flag is a no-op.
     private const int AT_FDCWD = unchecked((int)-100);
+    private const int AT_SYMLINK_NOFOLLOW = 0x100;
     private const uint STATX_BASIC_STATS = 0x000007ffU;
 
     // We deliberately declare the FULL fixed statx layout up to the dev fields. struct statx has a
@@ -54,8 +57,8 @@ internal sealed partial class LinuxFreeDesktopBackend
     /// <exception cref="IOException">statx failed (e.g. path vanished).</exception>
     private static ulong DeviceIdOf(string path)
     {
-        // flags 0 → follow symlinks; STATX_BASIC_STATS asks for the standard fields incl. dev.
-        if (StatxNative(AT_FDCWD, path, 0, STATX_BASIC_STATS, out Statx buf) != 0)
+        // AT_SYMLINK_NOFOLLOW → identify the link node's own volume (see the type-level comment).
+        if (StatxNative(AT_FDCWD, path, AT_SYMLINK_NOFOLLOW, STATX_BASIC_STATS, out Statx buf) != 0)
         {
             int err = Marshal.GetLastPInvokeError();
             // No framework ex.Message (would leak SR keys under InvariantGlobalization); errno only.
