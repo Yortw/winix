@@ -26,9 +26,14 @@ internal sealed partial class LinuxFreeDesktopBackend
     private struct Statx
     {
         [FieldOffset(0)] public uint stx_mask;
-        // stx_dev_major / stx_dev_minor are the device the file RESIDES on (not stx_rdev).
-        [FieldOffset(128)] public uint stx_dev_major;
-        [FieldOffset(132)] public uint stx_dev_minor;
+        // Offsets are pinned by the kernel uapi (linux/stat.h). The four 16-byte statx_timestamp
+        // fields (atime/btime/ctime/mtime) end at 0x80, where stx_rdev_{major,minor} live (0x80/0x84
+        // — the device a *device node* represents, 0/0 for regular files). The device the file
+        // actually RESIDES on — what we need — is stx_dev_{major,minor} at 0x88/0x8c (136/140).
+        // Using rdev here would make every regular file report device 0, collapsing all volumes to
+        // one and silently breaking multi-volume routing.
+        [FieldOffset(136)] public uint stx_dev_major;
+        [FieldOffset(140)] public uint stx_dev_minor;
     }
 
     [LibraryImport("libc", EntryPoint = "statx", StringMarshalling = StringMarshalling.Utf8, SetLastError = true)]
