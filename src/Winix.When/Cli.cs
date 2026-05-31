@@ -367,6 +367,18 @@ public static class Cli
             .Flag("--local", null, "Output only local ISO 8601 string (conversion mode)")
             .Flag("--iso", null, "Output only ISO 8601 duration string (diff mode)")
             .Positional("<input> [+/-offset] | diff <time1> <time2>")
+            // Condensed vocab for the otherwise-opaque <input> positional. The full ambiguity
+            // rules (year-vs-epoch, ISO-duration restrictions) stay in README/man to limit the
+            // sync surface; --help carries just enough for a newcomer to self-serve offline.
+            .Section("Input Formats",
+                "now                  Current instant\n" +
+                "Unix epoch           1718745600 (seconds, 1-10 digits) or 1718745600000 (millis, 11-13 digits)\n" +
+                "ISO 8601 date        2024-06-18 (treated as midnight UTC)\n" +
+                "ISO 8601 datetime    2024-06-18T16:00:00Z (with or without timezone offset)\n" +
+                "Note: bare 4-digit values like 2025 are rejected as year/epoch-ambiguous (see 'man when').")
+            .Section("Offsets",
+                "+/-N{d,h,m,s}        Relative offset, e.g. +7d or -2h30m\n" +
+                "ISO 8601 duration    e.g. +P1DT12H (days/hours/minutes/seconds only)")
             .ExitCodes(
                 (0, "Success"),
                 (ExitCode.UsageError, "Usage error — bad arguments, unparseable input, unknown timezone"))

@@ -230,6 +230,34 @@ public class CliTests
     }
 
     [Fact]
+    public void Help_DocumentsInputFormatVocabulary()
+    {
+        // Memory project_when_help_missing_input_vocab: the <input> positional was opaque in
+        // --help — now/epoch/ISO formats lived only in README/man. This locks the condensed
+        // Input Formats + Offsets sections into --help so a newcomer can self-serve offline.
+        // ShellKit writes --help to Console.Out (not the injected writer), so capture there.
+        // No other When test touches Console, so the redirect is collision-safe under parallelism.
+        TextWriter original = Console.Out;
+        var sw = new StringWriter();
+        try
+        {
+            Console.SetOut(sw);
+            Cli.Run(new[] { "--help" }, sw, new StringWriter());
+        }
+        finally
+        {
+            Console.SetOut(original);
+        }
+
+        string help = sw.ToString();
+        Assert.Contains("Input Formats", help, StringComparison.Ordinal);
+        Assert.Contains("Unix epoch", help, StringComparison.Ordinal);
+        Assert.Contains("ISO 8601", help, StringComparison.Ordinal);
+        Assert.Contains("now", help, StringComparison.Ordinal);
+        Assert.Contains("Offsets", help, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Run_Version_ExitsZero()
     {
         var r = RunCli("--version");
