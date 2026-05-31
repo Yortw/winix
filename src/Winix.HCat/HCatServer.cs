@@ -19,6 +19,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Winix.HCat.Handlers;
+using Winix.QrCode;
+using Winix.QrCode.Renderers;
 using Yort.ShellKit;
 
 namespace Winix.HCat;
@@ -263,8 +265,9 @@ public static class HCatServer
             return ExitCode.NotExecutable;
         }
 
-        // No QR yet (rendered in a later task); pass null so the banner is still informative.
-        banner.Write(Banner.Render(bind, options, qr: null));
+        // When the bind is LAN-exposed, render a scannable terminal QR of the first reachable URL so a phone
+        // can open it without typing. Loopback binds get no QR (nothing to scan from another device).
+        banner.Write(Banner.Render(bind, options, qr: RenderQr(bind)));
         banner.Flush();
 
         try
@@ -325,6 +328,29 @@ public static class HCatServer
             }
         }
         return false;
+    }
+
+    /// <summary>Renders a terminal-unicode QR of the first reachable URL when the bind is LAN-exposed, or null
+    /// for a loopback bind (nothing on another device to scan) or when there is no URL to encode.</summary>
+    /// <remarks>QR rendering is banner decoration, strictly weaker than serving: an encode/render failure (e.g.
+    /// an unusually long URL exceeding QR capacity) must never stop the server starting, so it falls back to a
+    /// textual banner with no QR. <see cref="EccLevel.M"/> with a quiet zone is the standard screen-scan choice.</remarks>
+    internal static string? RenderQr(BindInfo bind)
+    {
+        if (!bind.Exposed || bind.Urls.Count == 0)
+        {
+            return null;
+        }
+        try
+        {
+            QrMatrix matrix = QrEncoder.Encode(bind.Urls[0], EccLevel.M);
+            return UnicodeRenderer.Render(matrix, drawQuietZone: true);
+        }
+        catch
+        {
+            // Decoration only — never let a QR failure block startup. The LAN URL is still shown textually.
+            return null;
+        }
     }
 
     /// <summary>Enumerates the machine's operational, non-loopback IPv4 addresses for LAN display URLs.</summary>
