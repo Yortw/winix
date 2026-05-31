@@ -78,13 +78,44 @@ public static class ServeConfig
         {
             FileProvider = provider,
             RequestPath = string.Empty,
-            EnableDirectoryBrowsing = true,
+            // SPA mode owns routing: no auto directory listing (it would both pre-empt the fallback and leak
+            // the app's file tree). Unmatched navigations go to the shell instead (terminal middleware below).
+            EnableDirectoryBrowsing = !o.Spa,
         };
         // Serve files without a registered MIME type (e.g. extensionless) as octet-stream rather than 404.
         options.StaticFileOptions.ServeUnknownFileTypes = true;
         options.StaticFileOptions.DefaultContentType = "application/octet-stream";
 
         app.UseFileServer(options);
+
+        if (o.Spa)
+        {
+            string indexFile = o.SpaIndexFile;
+            // Terminal: reached ONLY when UseFileServer matched no real file (it short-circuits on a match, so
+            // real files always win). Serve the shell for a browser navigation; everything else stays 404. The
+            // upload-exclusion guard above runs first and short-circuits, so excluded upload paths never get here.
+            // The stream copy honours RequestAborted exactly as UseStaticFiles already does for every served
+            // file — no novel cancellation behaviour is introduced.
+            app.Run(async context =>
+            {
+                IFileInfo file = provider.GetFileInfo(indexFile);
+                bool isReadMethod = HttpMethods.IsGet(context.Request.Method)
+                    || HttpMethods.IsHead(context.Request.Method);
+                if (isReadMethod && AcceptsHtml(context.Request.Headers.Accept.ToString()) && file.Exists)
+                {
+                    context.Response.StatusCode = StatusCodes.Status200OK;
+                    context.Response.ContentType = "text/html; charset=utf-8";
+                    context.Response.ContentLength = file.Length;
+                    if (HttpMethods.IsGet(context.Request.Method))
+                    {
+                        await using Stream stream = file.CreateReadStream();
+                        await stream.CopyToAsync(context.Response.Body, context.RequestAborted).ConfigureAwait(false);
+                    }
+                    return;
+                }
+                context.Response.StatusCode = StatusCodes.Status404NotFound;
+            });
+        }
     }
 
     /// <summary>True when <paramref name="acceptHeader"/> explicitly lists a <c>text/html</c> media type — i.e.

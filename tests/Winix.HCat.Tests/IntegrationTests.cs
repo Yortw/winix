@@ -437,6 +437,179 @@ public class IntegrationTests
         finally { cts.Cancel(); try { await run; } catch { } }
     }
 
+    // --- serve --spa fallback ---
+
+    // Builds a temp served dir with index.html ("INDEX"), app.html ("APP"), real.txt ("REAL"),
+    // and an empty subdir "sub". Returns the dir path (caller deletes).
+    private static string MakeSpaDir()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "hcat-spa-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "index.html"), "INDEX");
+        File.WriteAllText(Path.Combine(dir, "app.html"), "APP");
+        File.WriteAllText(Path.Combine(dir, "real.txt"), "REAL");
+        Directory.CreateDirectory(Path.Combine(dir, "sub"));
+        return dir;
+    }
+
+    private static async Task<(int Status, string Body)> GetWithAccept(string url, string accept)
+    {
+        using var http = new HttpClient();
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        req.Headers.Accept.Clear();
+        req.Headers.Accept.ParseAdd(accept);
+        using HttpResponseMessage resp = await http.SendAsync(req);
+        return ((int)resp.StatusCode, await resp.Content.ReadAsStringAsync());
+    }
+
+    [Fact]   // deep-link navigation (Accept: text/html) for a non-file path -> 200 index shell.
+    public async Task Spa_navigation_deeplink_returns_index()
+    {
+        string dir = MakeSpaDir();
+        var (baseUrl, stop) = await StartAsync(new HCatOptions { Mode = HCatMode.Serve, Directory = dir, Spa = true });
+        try
+        {
+            var (status, body) = await GetWithAccept($"{baseUrl}/users/42", "text/html");
+            Assert.Equal(200, status);
+            Assert.Equal("INDEX", body);
+        }
+        finally { await stop(); Directory.Delete(dir, true); }
+    }
+
+    [Fact]   // a missing asset fetched as */* keeps its real 404 (no HTML served as JS).
+    public async Task Spa_missing_asset_with_wildcard_accept_returns_404()
+    {
+        string dir = MakeSpaDir();
+        var (baseUrl, stop) = await StartAsync(new HCatOptions { Mode = HCatMode.Serve, Directory = dir, Spa = true });
+        try
+        {
+            var (status, _) = await GetWithAccept($"{baseUrl}/missing.js", "*/*");
+            Assert.Equal(404, status);
+        }
+        finally { await stop(); Directory.Delete(dir, true); }
+    }
+
+    [Fact]   // an existing real file is served normally — fallback never overrides it.
+    public async Task Spa_real_file_is_served_normally()
+    {
+        string dir = MakeSpaDir();
+        var (baseUrl, stop) = await StartAsync(new HCatOptions { Mode = HCatMode.Serve, Directory = dir, Spa = true });
+        try
+        {
+            var (status, body) = await GetWithAccept($"{baseUrl}/real.txt", "text/html");
+            Assert.Equal(200, status);
+            Assert.Equal("REAL", body);
+        }
+        finally { await stop(); Directory.Delete(dir, true); }
+    }
+
+    [Fact]   // root still serves index.html via the default-document mapping.
+    public async Task Spa_root_serves_index()
+    {
+        string dir = MakeSpaDir();
+        var (baseUrl, stop) = await StartAsync(new HCatOptions { Mode = HCatMode.Serve, Directory = dir, Spa = true });
+        try
+        {
+            var (status, body) = await GetWithAccept($"{baseUrl}/", "text/html");
+            Assert.Equal(200, status);
+            Assert.Equal("INDEX", body);
+        }
+        finally { await stop(); Directory.Delete(dir, true); }
+    }
+
+    [Fact]   // directory browsing is OFF in SPA mode: an existing indexless dir navigation -> index shell, not a listing.
+    public async Task Spa_existing_dir_without_index_returns_index_not_listing()
+    {
+        string dir = MakeSpaDir();
+        var (baseUrl, stop) = await StartAsync(new HCatOptions { Mode = HCatMode.Serve, Directory = dir, Spa = true });
+        try
+        {
+            var (status, body) = await GetWithAccept($"{baseUrl}/sub/", "text/html");
+            Assert.Equal(200, status);
+            Assert.Equal("INDEX", body);   // the shell, NOT an auto directory listing
+        }
+        finally { await stop(); Directory.Delete(dir, true); }
+    }
+
+    [Fact]   // --spa-index selects a different shell file.
+    public async Task Spa_custom_index_file_is_used()
+    {
+        string dir = MakeSpaDir();
+        var (baseUrl, stop) = await StartAsync(new HCatOptions
+        {
+            Mode = HCatMode.Serve, Directory = dir, Spa = true, SpaIndexFile = "app.html",
+        });
+        try
+        {
+            var (status, body) = await GetWithAccept($"{baseUrl}/deep/link", "text/html");
+            Assert.Equal(200, status);
+            Assert.Equal("APP", body);
+        }
+        finally { await stop(); Directory.Delete(dir, true); }
+    }
+
+    [Fact]   // --upload exclusion wins over SPA fallback: a GET under the excluded upload prefix stays 404.
+    public async Task Spa_with_upload_excluded_path_stays_404()
+    {
+        string dir = MakeSpaDir();
+        var (baseUrl, stop) = await StartAsync(new HCatOptions
+        {
+            Mode = HCatMode.Serve, Directory = dir, Spa = true, Upload = true,
+        });
+        try
+        {
+            // default upload dir is <dir>/uploads, excluded from serving; a navigation there must NOT get the shell.
+            var (status, _) = await GetWithAccept($"{baseUrl}/uploads/whatever", "text/html");
+            Assert.Equal(404, status);
+        }
+        finally { await stop(); Directory.Delete(dir, true); }
+    }
+
+    [Fact]   // F4: a missing API call (specific non-HTML Accept) keeps its real 404 — no shell served for it.
+    public async Task Spa_missing_api_with_json_accept_returns_404()
+    {
+        string dir = MakeSpaDir();
+        var (baseUrl, stop) = await StartAsync(new HCatOptions { Mode = HCatMode.Serve, Directory = dir, Spa = true });
+        try
+        {
+            var (status, _) = await GetWithAccept($"{baseUrl}/api/thing", "application/json");
+            Assert.Equal(404, status);
+        }
+        finally { await stop(); Directory.Delete(dir, true); }
+    }
+
+    [Fact]   // F5: --spa with NO shell file present -> navigations 404 (not 500, not a hang).
+    public async Task Spa_without_index_file_navigation_returns_404()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "hcat-spa-noidx-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);   // deliberately no index.html
+        var (baseUrl, stop) = await StartAsync(new HCatOptions { Mode = HCatMode.Serve, Directory = dir, Spa = true });
+        try
+        {
+            var (status, _) = await GetWithAccept($"{baseUrl}/users/42", "text/html");
+            Assert.Equal(404, status);
+        }
+        finally { await stop(); Directory.Delete(dir, true); }
+    }
+
+    [Fact]   // F6: HEAD navigation returns 200 + Content-Length, no body (the HEAD branch of the fallback).
+    public async Task Spa_head_navigation_returns_headers_no_body()
+    {
+        string dir = MakeSpaDir();
+        var (baseUrl, stop) = await StartAsync(new HCatOptions { Mode = HCatMode.Serve, Directory = dir, Spa = true });
+        try
+        {
+            using var http = new HttpClient();
+            using var req = new HttpRequestMessage(HttpMethod.Head, $"{baseUrl}/deep/route");
+            req.Headers.Accept.ParseAdd("text/html");
+            using HttpResponseMessage resp = await http.SendAsync(req);
+            Assert.Equal(200, (int)resp.StatusCode);
+            Assert.Equal(5, resp.Content.Headers.ContentLength);   // "INDEX"
+            Assert.Equal("", await resp.Content.ReadAsStringAsync());   // HEAD: no body
+        }
+        finally { await stop(); Directory.Delete(dir, true); }
+    }
+
     [Fact]   // F7: a port already in use → Cli.Run returns 126 with a human-readable stderr message.
     public void Bind_failure_returns_126_with_human_message()
     {

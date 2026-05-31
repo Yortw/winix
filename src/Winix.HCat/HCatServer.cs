@@ -307,6 +307,19 @@ public static class HCatServer
         banner.Write(Banner.Render(bind, options, qr: RenderQr(bind)));
         banner.Flush();
 
+        // Diagnostic: an SPA serve whose shell file is absent would 404 every navigation — a confusing silent
+        // failure. Warn once at startup (non-fatal; per-request existence is still checked by the fallback).
+        if (options.Spa)
+        {
+            string indexPath = Path.Combine(Path.GetFullPath(options.Directory), options.SpaIndexFile);
+            if (!File.Exists(indexPath))
+            {
+                banner.WriteLine(
+                    $"hcat: warning: --spa fallback file '{options.SpaIndexFile}' not found in the served directory; navigations will 404 until it exists");
+                banner.Flush();
+            }
+        }
+
         try
         {
             await app.StartAsync(ct).ConfigureAwait(false);
