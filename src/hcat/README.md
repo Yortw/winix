@@ -132,6 +132,16 @@ hcat inspect --exit-on path=/done --timeout 30s
 
 These flags work in **all** modes (`serve`, `inspect`, `pipe`) — e.g. `hcat serve ./dist --capture 1` serves one request then exits. Note `--exit-on body~` is **inspect-only**: serve never reads the body and pipe streams it to the command, so neither captures it to match against (a `body~` predicate there is a usage error rather than a silent never-match).
 
+### Single-page apps
+
+```bash
+# Serve a built SPA so deep links survive a refresh
+hcat serve ./dist --spa
+hcat serve ./dist --spa --spa-index app.html   # non-standard entry file
+```
+
+With `--spa`, a request that matches no file is treated as client-side routing: a **browser navigation** (one whose `Accept` header includes `text/html`) gets `index.html` with `200`, so frameworks like React/Vue/Angular keep working when you refresh `/users/42`. Requests for missing assets or APIs (`*/*`, `application/json`, etc.) still return a real `404`, and existing files are always served as-is. Directory listing is disabled in `--spa` mode. `--spa-index` must be a bare filename in the served root.
+
 ### HTTPS
 
 ```bash
@@ -152,6 +162,8 @@ hcat serve ./public --https --lan
 | `--https` | | Enable TLS with an in-memory self-signed certificate. |
 | `--upload` | | (serve) Enable the POST upload receiver. |
 | `--upload-dir` | `DIR` | (serve) Upload target directory (default `./uploads`). |
+| `--spa` | | (serve) SPA fallback: unmatched browser navigations (`Accept: text/html`) return the index file with `200`, so client-side routers survive deep-link refresh. Disables directory listing. Asset/API misses still `404`. |
+| `--spa-index` | `FILE` | (serve, with `--spa`) Fallback filename (default `index.html`). |
 | `--status` | `CODE` | (inspect) HTTP status to respond with (default `200`). |
 | `--capture` | `N` | (CI) Exit after capturing N requests. |
 | `--exit-on` | `EXPR` | (CI) Exit when a request matches: `path=/x`, `method=POST`, or `body~text` (`body~` is inspect-only). |

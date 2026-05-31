@@ -103,6 +103,15 @@ Enable TLS with an in\-memory self\-signed certificate (clients show a trust war
 .BR ./uploads ).
 Pointing it at the served root makes uploads downloadable.
 .TP
+.B \-\-spa
+(serve) SPA fallback: a request matching no file, made as a browser navigation
+.RB ( Accept:
+text/html), returns the index file with status 200 so client\-side routers survive deep\-link refresh.
+Asset/API misses (\fB*/*\fR, application/json) still 404. Disables directory listing.
+.TP
+.B \-\-spa\-index " " \fIFILE\fR
+(serve, with \fB\-\-spa\fR) SPA fallback filename (default index.html); a bare filename in the served root.
+.TP
 .B \-\-status " " \fICODE\fR
 (inspect) HTTP status to respond with (default 200).
 .TP
