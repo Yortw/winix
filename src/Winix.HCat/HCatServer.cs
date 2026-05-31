@@ -390,25 +390,90 @@ public static class HCatServer
         }
     }
 
-    /// <summary>Enumerates the machine's operational, non-loopback IPv4 addresses for LAN display URLs.</summary>
+    /// <summary>Pure LAN-address selection. When any candidate sits on a gateway-routed NIC, returns only
+    /// those (LAN-reachable) addresses, preserving input order; otherwise returns all candidate addresses —
+    /// the fallback for an isolated/static-IP host with no default gateway, so nothing is ever lost. Empty
+    /// input yields empty output. Split out from <see cref="EnumerateLanIPv4"/> so the policy is unit-testable
+    /// without touching real network interfaces.</summary>
+    internal static IReadOnlyList<string> SelectLanAddresses(
+        IReadOnlyList<(string Address, bool HasGateway)> candidates)
+    {
+        var gatewayed = new List<string>();
+        foreach ((string address, bool hasGateway) in candidates)
+        {
+            if (hasGateway)
+            {
+                gatewayed.Add(address);
+            }
+        }
+        if (gatewayed.Count > 0)
+        {
+            return gatewayed;
+        }
+
+        var all = new List<string>();
+        foreach ((string address, bool _) in candidates)
+        {
+            all.Add(address);
+        }
+        return all;
+    }
+
+    /// <summary>True when <paramref name="gatewayAddresses"/> contains a usable IPv4 default gateway. A
+    /// <c>0.0.0.0</c> entry is a placeholder some adapters report and is NOT a real gateway; IPv6 gateways do
+    /// not make the NIC reachable for the IPv4 LAN URLs we render. Pure so the placeholder/family edge — the
+    /// part most likely to be wrong — is unit-tested rather than reachable only via the native smoke.</summary>
+    internal static bool HasUsableIPv4Gateway(IEnumerable<IPAddress> gatewayAddresses)
+    {
+        foreach (IPAddress gw in gatewayAddresses)
+        {
+            if (gw.AddressFamily == AddressFamily.InterNetwork && !gw.Equals(IPAddress.Any))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>Enumerates the machine's operational, non-loopback IPv4 addresses for LAN display URLs,
+    /// preferring addresses on gateway-routed NICs (see <see cref="SelectLanAddresses"/>). Each address is
+    /// paired with whether its NIC has a usable IPv4 default gateway — host-only virtual switches (Hyper-V/
+    /// WSL/Docker) have none, so their unreachable addresses are dropped unless no NIC has a gateway.</summary>
     private static IReadOnlyList<string> EnumerateLanIPv4()
     {
-        var result = new List<string>();
+        var candidates = new List<(string Address, bool HasGateway)>();
         foreach (NetworkInterface nic in NetworkInterface.GetAllNetworkInterfaces())
         {
             if (nic.OperationalStatus != OperationalStatus.Up)
             {
                 continue;
             }
-            foreach (UnicastIPAddressInformation ua in nic.GetIPProperties().UnicastAddresses)
+
+            // GetIPProperties() can throw NetworkInformationException for a transient/odd adapter. Skip that
+            // one NIC rather than letting it blank out every LAN address (and abort --lan startup).
+            IPInterfaceProperties props;
+            try
+            {
+                props = nic.GetIPProperties();
+            }
+            catch (NetworkInformationException)
+            {
+                continue;
+            }
+
+            // A NIC is LAN-reachable iff it has a real (non-0.0.0.0) IPv4 default gateway; host-only virtual
+            // switches have none. The placeholder/family edge lives in HasUsableIPv4Gateway (unit-tested).
+            bool hasGateway = HasUsableIPv4Gateway(props.GatewayAddresses.Select(gw => gw.Address));
+
+            foreach (UnicastIPAddressInformation ua in props.UnicastAddresses)
             {
                 if (ua.Address.AddressFamily == AddressFamily.InterNetwork
                     && !IPAddress.IsLoopback(ua.Address))
                 {
-                    result.Add(ua.Address.ToString());
+                    candidates.Add((ua.Address.ToString(), hasGateway));
                 }
             }
         }
-        return result;
+        return SelectLanAddresses(candidates);
     }
 }
