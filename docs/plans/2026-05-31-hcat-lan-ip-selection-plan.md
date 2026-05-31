@@ -12,10 +12,12 @@ Spec: `docs/plans/2026-05-31-hcat-lan-ip-selection-design.md`. ADR: `docs/plans/
 
 ---
 
-### Task 1: Pure LAN-address selector + tests
+### Task 1: Two pure helpers (selector + gateway predicate) + tests
+
+Both load-bearing decisions are extracted as pure, deterministically-testable helpers: `SelectLanAddresses` (filter-with-fallback) and `HasUsableIPv4Gateway` (the `0.0.0.0`-placeholder rejection — adversarial-review F2, which would otherwise be reachable only via the non-deterministic native smoke).
 
 **Files:**
-- Modify: `src/Winix.HCat/HCatServer.cs` (add `internal static SelectLanAddresses`, near `EnumerateLanIPv4`)
+- Modify: `src/Winix.HCat/HCatServer.cs` (add `internal static SelectLanAddresses` and `internal static HasUsableIPv4Gateway`, near `EnumerateLanIPv4`)
 - Test: `tests/Winix.HCat.Tests/LanAddressSelectorTests.cs` (create)
 
 - [ ] **Step 1: Write the failing tests**
@@ -23,7 +25,7 @@ Spec: `docs/plans/2026-05-31-hcat-lan-ip-selection-design.md`. ADR: `docs/plans/
 Create `tests/Winix.HCat.Tests/LanAddressSelectorTests.cs`:
 
 ```csharp
-using System.Collections.Generic;
+using System.Net;
 using Winix.HCat;
 using Xunit;
 
@@ -71,15 +73,46 @@ public class LanAddressSelectorTests
     {
         Assert.Empty(HCatServer.SelectLanAddresses(new (string, bool)[0]));
     }
+
+    [Fact]   // F2: a real IPv4 gateway counts.
+    public void HasUsableIPv4Gateway_true_for_real_ipv4_gateway()
+    {
+        Assert.True(HCatServer.HasUsableIPv4Gateway(new[] { IPAddress.Parse("192.168.1.254") }));
+    }
+
+    [Fact]   // F2: 0.0.0.0 is a placeholder gateway entry, NOT a real gateway — must not count.
+    public void HasUsableIPv4Gateway_false_for_zero_placeholder_only()
+    {
+        Assert.False(HCatServer.HasUsableIPv4Gateway(new[] { IPAddress.Any }));
+    }
+
+    [Fact]   // F2: an IPv6 gateway does not make the NIC IPv4-LAN-reachable for our IPv4 URLs.
+    public void HasUsableIPv4Gateway_false_for_ipv6_only()
+    {
+        Assert.False(HCatServer.HasUsableIPv4Gateway(new[] { IPAddress.Parse("fe80::1") }));
+    }
+
+    [Fact]   // F2: no gateway entries at all.
+    public void HasUsableIPv4Gateway_false_for_empty()
+    {
+        Assert.False(HCatServer.HasUsableIPv4Gateway(System.Array.Empty<IPAddress>()));
+    }
+
+    [Fact]   // F2: a mix of placeholder + real → real one wins.
+    public void HasUsableIPv4Gateway_true_when_real_mixed_with_placeholder()
+    {
+        Assert.True(HCatServer.HasUsableIPv4Gateway(
+            new[] { IPAddress.Any, IPAddress.Parse("10.0.0.1") }));
+    }
 }
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `dotnet test tests/Winix.HCat.Tests/Winix.HCat.Tests.csproj --filter "FullyQualifiedName~LanAddressSelectorTests"`
-Expected: FAIL — compile error, `HCatServer.SelectLanAddresses` does not exist.
+Expected: FAIL — compile error, `HCatServer.SelectLanAddresses` / `HasUsableIPv4Gateway` do not exist.
 
-- [ ] **Step 3: Add the pure selector**
+- [ ] **Step 3: Add the two pure helpers**
 
 In `src/Winix.HCat/HCatServer.cs`, add immediately before `EnumerateLanIPv4()`:
 
@@ -112,18 +145,34 @@ In `src/Winix.HCat/HCatServer.cs`, add immediately before `EnumerateLanIPv4()`:
         }
         return all;
     }
+
+    /// <summary>True when <paramref name="gatewayAddresses"/> contains a usable IPv4 default gateway. A
+    /// <c>0.0.0.0</c> entry is a placeholder some adapters report and is NOT a real gateway; IPv6 gateways do
+    /// not make the NIC reachable for the IPv4 LAN URLs we render. Pure so the placeholder/family edge — the
+    /// part most likely to be wrong — is unit-tested rather than reachable only via the native smoke (F2).</summary>
+    internal static bool HasUsableIPv4Gateway(IEnumerable<IPAddress> gatewayAddresses)
+    {
+        foreach (IPAddress gw in gatewayAddresses)
+        {
+            if (gw.AddressFamily == AddressFamily.InterNetwork && !gw.Equals(IPAddress.Any))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
 ```
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `dotnet test tests/Winix.HCat.Tests/Winix.HCat.Tests.csproj --filter "FullyQualifiedName~LanAddressSelectorTests"`
-Expected: PASS — 4 tests.
+Expected: PASS — 9 tests.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/Winix.HCat/HCatServer.cs tests/Winix.HCat.Tests/LanAddressSelectorTests.cs
-git commit -m "feat(hcat): pure gateway-aware LAN-address selector + tests"
+git commit -m "feat(hcat): pure gateway-aware LAN selector + gateway predicate + tests"
 ```
 
 ---
@@ -154,20 +203,21 @@ Current body iterates NICs and adds every non-loopback IPv4. Replace the whole m
                 continue;
             }
 
-            IPInterfaceProperties props = nic.GetIPProperties();
-
-            // A NIC is LAN-reachable iff it has a real (non-0.0.0.0) IPv4 default gateway. 0.0.0.0 appears as
-            // a placeholder gateway entry on some adapters and must not count.
-            bool hasGateway = false;
-            foreach (GatewayIPAddressInformation gw in props.GatewayAddresses)
+            // F1: GetIPProperties() can throw NetworkInformationException for a transient/odd adapter. Skip
+            // that one NIC rather than letting it blank out every LAN address (and abort --lan startup).
+            IPInterfaceProperties props;
+            try
             {
-                if (gw.Address.AddressFamily == AddressFamily.InterNetwork
-                    && !gw.Address.Equals(IPAddress.Any))
-                {
-                    hasGateway = true;
-                    break;
-                }
+                props = nic.GetIPProperties();
             }
+            catch (NetworkInformationException)
+            {
+                continue;
+            }
+
+            // A NIC is LAN-reachable iff it has a real (non-0.0.0.0) IPv4 default gateway; host-only virtual
+            // switches have none. The placeholder/family edge lives in HasUsableIPv4Gateway (unit-tested).
+            bool hasGateway = HasUsableIPv4Gateway(props.GatewayAddresses.Select(gw => gw.Address));
 
             foreach (UnicastIPAddressInformation ua in props.UnicastAddresses)
             {
@@ -182,7 +232,7 @@ Current body iterates NICs and adds every non-loopback IPv4. Replace the whole m
     }
 ```
 
-(`IPInterfaceProperties` and `GatewayIPAddressInformation` are in `System.Net.NetworkInformation`, already imported.)
+(`IPInterfaceProperties`, `GatewayIPAddressInformation`, and `NetworkInformationException` are in `System.Net.NetworkInformation`; `Select` is `System.Linq` — all already imported in `HCatServer.cs`.)
 
 - [ ] **Step 2: Build to verify it compiles**
 
@@ -206,7 +256,7 @@ Expected: the banner's LAN URL list shows the gateway-routed address (e.g. `http
 - [ ] **Step 4: Run the full HCat test suite (no regression)**
 
 Run: `dotnet test tests/Winix.HCat.Tests/Winix.HCat.Tests.csproj`
-Expected: PASS — all tests (85 = 81 + 4 new).
+Expected: PASS — all tests (90 = 81 + 9 new).
 
 - [ ] **Step 5: Commit**
 
@@ -235,7 +285,13 @@ In `src/hcat/README.md`, find the `--lan` options-table row:
 Replace with:
 
 ```
-| `--lan` | | Bind `0.0.0.0` to share on the local network (prints a QR code). LAN URLs/QR prefer gateway-routed (reachable) addresses; virtual host-only adapters (Hyper-V/WSL/Docker) are skipped unless none have a gateway. Use `--host` to pin a specific address. |
+| `--lan` | | Bind `0.0.0.0` to share on the local network (prints a QR code). LAN URLs/QR prefer gateway-routed (reachable) addresses; virtual host-only adapters (Hyper-V/WSL/Docker) are **skipped from the banner** unless none have a gateway. Use `--host` to pin a specific (incl. host-only) address. |
+```
+
+Also add an explicit known-behaviour note (F3). After the Sharing/`--lan` prose section, add a short paragraph:
+
+```
+> **Note:** on a machine with virtual adapters (Hyper-V, WSL, Docker, VPNs), `--lan` deliberately lists only addresses on a gateway-routed interface — the ones a device on your real LAN can reach — and hides the rest to keep the banner and QR unambiguous. If you actually want to bind a host-only/virtual address (e.g. to reach a VM), pass it explicitly with `--host <addr>`. If no interface has a default gateway, all addresses are shown.
 ```
 
 - [ ] **Step 2: Update the man page**
@@ -277,8 +333,10 @@ git commit -m "docs(hcat): note --lan prefers gateway-routed addresses"
 
 ## Self-Review
 
-**Spec coverage:** D1 (gateway signal) → Task 2 NIC flagging; D2 (filter-with-fallback) → Task 1 selector; testability → Task 1 unit tests + Task 2 native smoke; docs note → Task 3. All spec sections covered.
+**Spec coverage:** D1 (gateway signal) → Task 2 NIC flagging via `HasUsableIPv4Gateway`; D2 (filter-with-fallback) → Task 1 `SelectLanAddresses`; testability → Task 1 unit tests (both helpers) + Task 2 native smoke; docs note → Task 3. All spec sections covered.
 
 **Placeholder scan:** none — every step has concrete code/commands.
 
-**Type consistency:** `SelectLanAddresses(IReadOnlyList<(string Address, bool HasGateway)>)` defined in Task 1 Step 3, called in Task 2 Step 1 with the same shape; tests in Task 1 pass `(string, bool)[]` (assignable to `IReadOnlyList<(string, bool)>`). Consistent.
+**Type consistency:** `SelectLanAddresses(IReadOnlyList<(string Address, bool HasGateway)>)` and `HasUsableIPv4Gateway(IEnumerable<IPAddress>)` defined in Task 1 Step 3, called in Task 2 Step 1 with matching shapes; Task 1 tests pass `(string, bool)[]` and `IPAddress[]` respectively (assignable). Consistent.
+
+**Adversarial-review integration (2026-05-31, 0 blockers / 2 test gaps / 1 defer):** F1 → Task 2 wraps per-NIC `GetIPProperties()` in `try/catch (NetworkInformationException) { continue; }` (PREDICTION-class: no deterministic test for a throwing NIC — hardening + documented policy here and in the design's edge cases). F2 → `HasUsableIPv4Gateway` extracted as a second pure helper with 5 unit tests (real/placeholder/IPv6/empty/mixed). F3 → Task 3 documents that non-gateway addresses are intentionally hidden and `--host` pins a specific one.

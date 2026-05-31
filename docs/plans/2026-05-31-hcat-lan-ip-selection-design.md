@@ -31,6 +31,8 @@ No change to `BindResolver` or `RenderQr`: filtering at the source means the ban
 - **VPN adapter with a gateway:** included — acceptable; `--host` overrides if wrong.
 - **No gateway anywhere:** fallback returns all addresses (unchanged from today).
 - **No NICs / no IPv4 at all:** selector returns empty; `BindResolver` already falls back to a `0.0.0.0` display URL.
+- **A NIC throws on `GetIPProperties()`** (adversarial-review F1): `NetworkInformationException` from a single transient/odd adapter is caught and that NIC is skipped, so one bad adapter cannot blank out every LAN address or abort `--lan`. Not a deterministic test (can't force a throwing NIC); hardening + this documented policy.
+- **Hidden non-gateway addresses** (adversarial-review F3): when the filter drops virtual/host-only addresses, the banner shows fewer IPs than the machine has and gives no per-address "hidden" breadcrumb — intended (clean banner), documented in README, with `--host` as the override. A `--all-interfaces` flag / stderr "N hidden" note is deferred (see ADR).
 
 ## Testing
 
