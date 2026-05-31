@@ -107,6 +107,18 @@ cat app.log | demux \
   `-c`/`/c` + the command as a single argument), honouring the no-arg-string-building convention.
 - **`StdoutSink`** — the implicit passthrough sink for unmatched records.
 
+**Line-byte preservation:** sinks write each line followed by an explicit `\n` (never `WriteLine`),
+so LF input is not rewritten to CRLF on Windows and a terminator-less final line is not silently
+altered (ADR D13).
+
+**Concurrency:** each `CommandSink` drains a bounded queue to its child on a dedicated background
+writer thread, so one slow or stuck child applies backpressure only to itself and can never
+deadlock the router or starve siblings; `Close` waits for the child with a timeout and kills it
+(recording a sentinel) if it overruns (ADR D11).
+
+**File-target safety:** all `--to`/`--default-to` paths are probed for writability *before* any sink
+truncates a file, so a setup failure (→ 126) never destroys an earlier file's contents (ADR D12).
+
 ### Failure handling (diagnosability-critical)
 
 If an `--exec` child exits early or closes its stdin, further writes raise a broken-pipe error.

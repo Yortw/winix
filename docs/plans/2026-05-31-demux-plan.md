@@ -322,7 +322,10 @@ public sealed class StdoutSink : ISink
         if (_dead) { _undelivered++; return; }
         try
         {
-            _writer.WriteLine(line);
+            // Write '\n' explicitly (not WriteLine) so we don't rewrite LF input to CRLF on Windows
+            // or append a terminator the original line didn't have. A router preserves line bytes.
+            _writer.Write(line);
+            _writer.Write('\n');
             _delivered++;
         }
         catch (IOException)
@@ -534,7 +537,8 @@ public sealed class FileSink : ISink
     public void Write(string line)
     {
         if (_dead) { _undelivered++; return; }
-        try { _writer.WriteLine(line); _delivered++; }
+        // Write '\n' explicitly (not WriteLine) to preserve line bytes — no LF→CRLF rewrite on Windows.
+        try { _writer.Write(line); _writer.Write('\n'); _delivered++; }
         catch (IOException) { _dead = true; _undelivered++; }
     }
 
@@ -965,34 +969,53 @@ stdin, and on `Close` closes stdin, waits, and records the exit code. Per the pr
 in `CLAUDE.md`, tests use **real** child processes — wire correctness (stdin delivery, broken pipe)
 only shows against a real process.
 
+> **Concurrency model (adversarial-review F1/F2 — load-bearing):** A single thread feeding N
+> children's stdin with blocking writes deadlocks: a child that stalls (commonly one writing to
+> demux's *inherited* stdout while that's backpressured) stops reading its stdin, its pipe buffer
+> fills, and the feeding thread blocks forever — starving every sibling. Therefore **each
+> `CommandSink` owns a background writer thread draining a bounded `BlockingCollection<string>`**,
+> so one slow/stuck child cannot block the router or its siblings (it only applies backpressure on
+> its own queue). Broken-pipe detection moves into the writer thread. `Close` completes the queue,
+> joins the writer (bounded), closes stdin, then `WaitForExit(timeout)`; on timeout it kills the
+> process tree and records a sentinel exit code so a hung child can never hang demux.
+>
+> Residual limitation (document, don't fix in v1): a child that is *alive but never reads* while
+> demux's downstream stdout is also stalled will eventually fill its queue and apply backpressure —
+> correct behaviour for a stalled pipeline, but it means a deliberately-broken child can stall the
+> run. Covered by the `WaitForExit` timeout only at shutdown, not mid-stream. Noted in the ADR.
+
 - [ ] **Step 1: Implement `CommandSink.cs`**
 
 ```csharp
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
+using System.Threading;
 
 namespace Winix.Demux;
 
-/// <summary>Command target. Spawns the command once via the platform shell at construction; feeds
-/// matching lines to its stdin. Broken-pipe-safe: if the child exits early, writes mark the sink
-/// dead and count undelivered rather than throwing. Captures the child's exit code on Close.</summary>
+/// <summary>Command target. Spawns the command once via the platform shell at construction and
+/// drains a bounded queue to its stdin on a dedicated writer thread, so one slow or stuck child
+/// cannot block the router or its siblings. Broken-pipe-safe (a dead child marks the sink dead and
+/// counts the rest undelivered). Captures the child's exit code on Close, killing it on timeout.</summary>
 public sealed class CommandSink : ISink
 {
+    private const int QueueCapacity = 1024;
+    private static readonly TimeSpan ExitTimeout = TimeSpan.FromSeconds(10);
+
     private readonly Process _process;
     private readonly StreamWriter _stdin;
-    private bool _dead;
+    private readonly BlockingCollection<string> _queue = new(QueueCapacity);
+    private readonly Thread _writer;
     private long _delivered;
     private long _undelivered;
+    private volatile bool _dead;
 
     /// <summary>Spawns the command. Throws if the shell process cannot start (caller maps to 126).</summary>
     public CommandSink(string command, string label)
     {
         Label = label;
-        var psi = new ProcessStartInfo
-        {
-            RedirectStandardInput = true,
-            UseShellExecute = false,
-        };
+        var psi = new ProcessStartInfo { RedirectStandardInput = true, UseShellExecute = false };
         if (OperatingSystem.IsWindows())
         {
             psi.FileName = "cmd.exe";
@@ -1007,30 +1030,67 @@ public sealed class CommandSink : ISink
         }
         _process = Process.Start(psi) ?? throw new IOException($"could not start: {command}");
         _stdin = _process.StandardInput;
+
+        _writer = new Thread(DrainQueue) { IsBackground = true, Name = $"demux-sink:{label}" };
+        _writer.Start();
     }
 
     public string Label { get; }
-    public long DeliveredCount => _delivered;
-    public long UndeliveredCount => _undelivered;
+    public long DeliveredCount => Interlocked.Read(ref _delivered);
+    public long UndeliveredCount => Interlocked.Read(ref _undelivered);
     public bool IsDead => _dead;
     public int? ChildExitCode { get; private set; }
 
+    /// <summary>Enqueues a line for the writer thread. Blocks only if THIS sink's queue is full
+    /// (its own backpressure); never blocks on a sibling. Counts undelivered once the sink is dead.</summary>
     public void Write(string line)
     {
-        if (_dead) { _undelivered++; return; }
-        try { _stdin.WriteLine(line); _delivered++; }
-        catch (IOException) { _dead = true; _undelivered++; }   // child closed stdin / exited
+        if (_dead) { Interlocked.Increment(ref _undelivered); return; }
+        try { _queue.Add(line); }
+        catch (InvalidOperationException) { Interlocked.Increment(ref _undelivered); } // adding completed
+    }
+
+    private void DrainQueue()
+    {
+        try
+        {
+            foreach (string line in _queue.GetConsumingEnumerable())
+            {
+                try { _stdin.Write(line); _stdin.Write('\n'); Interlocked.Increment(ref _delivered); }
+                catch (IOException) { _dead = true; break; }   // child closed stdin / exited
+            }
+        }
+        finally
+        {
+            // Anything still queued (or arriving) after death is undelivered.
+            while (_queue.TryTake(out _)) { Interlocked.Increment(ref _undelivered); }
+        }
     }
 
     public void Close()
     {
+        _queue.CompleteAdding();
+        _writer.Join();
         try { _stdin.Close(); } catch (IOException) { /* already gone */ }
-        _process.WaitForExit();
-        ChildExitCode = _process.ExitCode;
+
+        if (_process.WaitForExit((int)ExitTimeout.TotalMilliseconds))
+        {
+            ChildExitCode = _process.ExitCode;
+        }
+        else
+        {
+            try { _process.Kill(entireProcessTree: true); } catch { /* best effort */ }
+            ChildExitCode = -1; // sentinel: killed after timeout (reported in summary)
+        }
         _process.Dispose();
     }
 }
 ```
+
+> **Verify-at-implementation note:** count any line that was queued but never written (child died
+> mid-drain) as undelivered — the `finally` drains the queue; also ensure lines still *arriving* via
+> `Write` after `_dead` are counted (the `_dead` guard in `Write` handles that). The `ChildExitCode
+> == -1` sentinel must be surfaced distinctly in the summary ("killed after timeout").
 
 - [ ] **Step 2: Write `IntegrationTests_CommandSink.cs`**
 
@@ -1502,6 +1562,7 @@ Expected: FAIL (no Cli).
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using Yort.ShellKit;
 
@@ -1521,7 +1582,16 @@ public static class Cli
         if (handled || parseCode != 0) { return parseCode; }
         DemuxOptions options = opts!;
 
-        // Build sinks; a construction failure (file open / shell spawn) is a setup error → 126.
+        // PRE-FLIGHT (adversarial-review F3): probe every FILE target for writability WITHOUT
+        // truncating, before constructing any truncating sink. Otherwise opening file #1 (truncate)
+        // then failing to open file #3 would destroy file #1's contents though demux processed
+        // nothing. If any probe fails → 126 with nothing truncated.
+        if (!PreflightFileTargets(options, stderr, out int preflightCode))
+        {
+            return preflightCode; // 126
+        }
+
+        // Build sinks. File opens already validated above; a shell-spawn failure is still possible → 126.
         var routeSinks = new List<(RouteSpec, ISink)>(options.Routes.Count);
         ISink? defaultSink = null;
         var stdoutSink = new StdoutSink(stdout);
@@ -1544,7 +1614,7 @@ public static class Cli
         {
             foreach (ISink s in allSinks) { try { s.Close(); } catch { /* best effort */ } }
             stderr.WriteLine($"demux: setup failure: {ex.Message}");
-            return 126; // ExitCode setup failure
+            return 126;
         }
 
         allSinks.Add(stdoutSink);
@@ -1553,8 +1623,12 @@ public static class Cli
         foreach (ISink s in allSinks) { s.Close(); }
 
         var summary = new RoutingSummary(allSinks, options.ExitOnChildError);
-        stderr.WriteLine(options.Json ? summary.FormatJson("demux", version) : summary.FormatHuman(options.UseColor));
-        return summary.ExitCode;
+        int exit = summary.ExitCode; // computed from sink counters before any formatting can throw
+        // Category-9 hardening: a formatting failure must never turn a correct run into a crash with
+        // no exit code. Emit best-effort; the exit code is already decided from the data path.
+        try { stderr.WriteLine(options.Json ? summary.FormatJson("demux", version) : summary.FormatHuman(options.UseColor)); }
+        catch (Exception ex) { try { stderr.WriteLine($"demux: (summary unavailable: {ex.Message})"); } catch { /* give up */ } }
+        return exit;
     }
 
     private static ISink MakeSink(RouteSpec r, bool append) => r.Kind switch
@@ -1563,6 +1637,34 @@ public static class Cli
         TargetKind.Exec => new CommandSink(r.Target, r.PatternText),
         _ => throw new InvalidOperationException(),
     };
+
+    /// <summary>Probes every File target for writability WITHOUT truncating (FileMode.OpenOrCreate),
+    /// so a later open-failure can't destroy an earlier file's contents. Returns false + sets 126
+    /// on the first unopenable target.</summary>
+    private static bool PreflightFileTargets(DemuxOptions options, TextWriter stderr, out int code)
+    {
+        code = 0;
+        IEnumerable<RouteSpec> fileRoutes = options.Routes.Where(r => r.Kind == TargetKind.File);
+        if (options.DefaultRoute is RouteSpec dr && dr.Kind == TargetKind.File)
+        {
+            fileRoutes = fileRoutes.Append(dr);
+        }
+        foreach (RouteSpec r in fileRoutes)
+        {
+            try
+            {
+                // OpenOrCreate creates a missing file but does NOT truncate an existing one.
+                using var probe = new FileStream(r.Target, FileMode.OpenOrCreate, FileAccess.Write, FileShare.ReadWrite);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+            {
+                stderr.WriteLine($"demux: setup failure: cannot write '{r.Target}': {ex.Message}");
+                code = 126;
+                return false;
+            }
+        }
+        return true;
+    }
 
     private static string GetVersion()
     {
@@ -1749,3 +1851,46 @@ git commit -m "chore(demux): scoop manifest, release + post-publish wiring, CLAU
 - **CommandSink broken-pipe test is timing-sensitive** — see the Task 7 note; pin it if CI flakes.
 - **child stdio** — `--exec` children inherit demux's stdout/stderr (not redirected). Documented in the
   README so users know a `tee`-style child echoes onto demux's own stdout.
+
+---
+
+## Adversarial Review Integration — Pass 1 (2026-05-31)
+
+A fresh subagent reviewed this plan against the 15-category taxonomy: **3 blockers, 6 test gaps,
+4 defers**. Dispositions below; blocker code is already fixed inline above.
+
+| ID | Bucket | Disposition |
+|---|---|---|
+| **F1** synchronous multi-child deadlock | Blocker | **Fixed** — Task 7 rewritten: per-`CommandSink` background writer thread + bounded `BlockingCollection`, so one stalled child can't block the router or siblings. ADR **D11**. |
+| **F2** `WaitForExit` no timeout / hung child | Blocker | **Fixed** — Task 7 `Close` uses `WaitForExit(10s)` then `Kill(entireProcessTree)` + sentinel exit `-1`. ADR **D11**. |
+| **F3** `FileSink` truncates at construction → later open-failure destroys earlier files | Blocker | **Fixed** — Task 9 adds `PreflightFileTargets` (probe all File targets writable, non-truncating, before constructing any sink). Test added (T9-a below). ADR **D12**. |
+| **F4** `WriteLine` rewrites LF→CRLF on Windows + appends terminator | Test gap + contract | **Fixed** — all sinks now `Write(line)` + explicit `'\n'`. ADR **D13**. Tests T-NL below. |
+| **F5** unbounded single huge line (no-newline blob) can OOM | Explicit defer | Documented: line-oriented = per-line memory bound; `tail -f`-scale many-lines streaming holds, one giant line does not. ADR deferred table + README caveat. Optional 10 MB-line test (T-NL3). |
+| **F6** no SIGINT/SIGTERM handling (orphaned children) + no downstream-stdout-closed test | Defer + Test gap | SIGINT child-cleanup **deferred** (ADR). Downstream-closed **test added** (T9-b). |
+| **F7** `--all` with a dead sibling — live sibling must still receive the line | Test gap | **Test added** (T-R below). |
+| **F8** empty interior field vs out-of-range field (null-vs-empty distinction from Task 5 Step 4) | Test gap | **Test added** (T-R below). |
+| **F9** orphaned `--exec` children on SIGINT/SIGKILL/crash | Explicit defer | ADR deferred table. |
+| **F10** `--delimiter ""` collides with the whitespace sentinel; multi-char is literal | Explicit defer + small validation | Reject explicit empty `--delimiter` at parse (ArgParser); document literal (non-regex) multi-char. Test T8-a. |
+| **F11** shell "command not found" = child `127` → exit 2 under strict, NOT 126 | Test gap | **Integration test added** (T7-a). |
+| cat-9 note: `FormatJson` throwing crashes a successful run | (hardening) | **Fixed** — Task 9 computes `ExitCode` before formatting and wraps emission in try/catch. |
+
+### Added tests (fold into the relevant task's test file)
+
+- **T-R (RouterTests):**
+  - `All_DeadSibling_StillDeliversToLiveSibling` — two routes both match; sink A `FakeSink(dieAfter:0)`, sink B live; assert B receives the line, A counts undelivered.
+  - `Field_EmptyInteriorField_MatchesEmptyRegex` — `--delimiter ","` on `"a,,c"`, field 2, regex `^$` → matches (delivered).
+  - `Field_OutOfRange_DoesNotMatchEmptyRegex` — same regex `^$`, field 9 on `"a,b"` → does NOT match (locks the null≠"" distinction).
+- **T-NL (newline policy):**
+  - `Sink_PreservesLfDoesNotEmitCrlf` (Stdout + File) — write a line, assert output ends in exactly `\n` (assert **without** `Replace("\r\n","\n")` — the masking the review flagged).
+  - `Router_EmptyInput_WritesNothingExitZero` — empty stdin → no sink writes, exit 0.
+  - `Router_LastLineNoTrailingNewline_StillRouted` — input `"ERROR x"` (no `\n`) routes the line.
+  - `(optional) T-NL3 HugeSingleLine_RoutesWithoutError` — one ~10 MB line routes; documents the per-line bound.
+- **T9-a (CliTests):** `SecondFileUnopenable_PreservesFirstFileContents_Exits126` — two `--to`; second path under a missing dir; pre-seed the first file; assert exit 126 **and** the first file's original contents intact (fails against pre-F3 code — proves the fix).
+- **T9-b (CliTests):** `DownstreamStdoutClosed_MarksPassthroughDead_ExitsOne` — a throwing stdout writer; unmatched line; assert exit 1 and the stdout route reported dead.
+- **T7-a (IntegrationTests_CommandSink, Unix, SkippableFact):** `CommandNotFound_Is127_AndExitsTwoUnderStrict` — `--exec '.*' nonexistent-cmd-xyz` with `--exit-on-child-error`; assert child exit 127 and demux exit 2 (confirms it is NOT a 126 setup failure — the D10 boundary).
+- **T8-a (ArgParserTests):** `EmptyDelimiter_IsUsageError` — `--delimiter ""` → 125 (the `""` sentinel means whitespace, so an explicit empty value is rejected to avoid the silent collision).
+
+### Summary rendering note
+`RoutingSummary.FormatHuman`/`FormatJson` must render `ChildExitCode == -1` as "killed after timeout"
+(not literally "exit -1"), and `-1` counts as a non-zero child for the `--exit-on-child-error` → exit 2
+rule (though undelivered records from the killed child make exit 1 take precedence).
