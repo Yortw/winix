@@ -1,10 +1,10 @@
 #nullable enable
 
 using System.Text.RegularExpressions;
-using Winix.FileWalk;
+using Yort.ShellKit;
 using Xunit;
 
-namespace Winix.FileWalk.Tests;
+namespace Yort.ShellKit.Tests;
 
 public class SafeRegexTests
 {

@@ -1,5 +1,6 @@
 
 using System.Text.RegularExpressions;
+using Yort.ShellKit;
 
 namespace Winix.FileWalk;
 
@@ -11,7 +12,7 @@ public sealed class FileWalker
 {
     private readonly FileWalkerOptions _options;
     private readonly Func<string, bool>? _isIgnored;
-    private readonly Yort.ShellKit.GlobMatcher _globMatcher;
+    private readonly GlobMatcher _globMatcher;
     private readonly Regex[] _regexes;
     private readonly List<WalkError> _walkErrors = new();
 
@@ -44,7 +45,7 @@ public sealed class FileWalker
     {
         _options = options;
         _isIgnored = isIgnored;
-        _globMatcher = new Yort.ShellKit.GlobMatcher(options.GlobPatterns, options.CaseInsensitive);
+        _globMatcher = new GlobMatcher(options.GlobPatterns, options.CaseInsensitive);
 
         RegexOptions regexOptions = RegexOptions.CultureInvariant;
         if (options.CaseInsensitive)
