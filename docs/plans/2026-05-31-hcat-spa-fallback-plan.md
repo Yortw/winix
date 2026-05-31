@@ -158,6 +158,19 @@ Append to the `ArgParserTests` class in `tests/Winix.HCat.Tests/ArgParserTests.c
         Assert.False(r.Success);
         Assert.Contains("serve", r.Error!);
     }
+
+    [Theory]   // F1/F2: --spa-index is a bare filename. Path components / traversal / rooted -> usage error,
+               // so it cannot point the shell outside the served root (and the startup-warning path stays safe).
+    [InlineData("sub/app.html")]
+    [InlineData("../evil.html")]
+    [InlineData("..\\evil.html")]
+    [InlineData("/etc/passwd")]
+    public void Spa_index_with_path_components_is_usage_error(string idx)
+    {
+        ArgParser.Result r = ArgParser.Parse(new[] { "serve", "--spa", "--spa-index", idx });
+        Assert.False(r.Success);
+        Assert.Contains("--spa-index", r.Error!);
+    }
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -200,6 +213,14 @@ In `src/Winix.HCat/ArgParser.cs`, in `Parse(...)`, immediately after the `--exit
         if (spaIndex is not null && !spa)
         {
             return Fail("--spa-index requires --spa");
+        }
+        // F1/F2: --spa-index is a bare filename resolved under the served root. Reject path components,
+        // traversal, and rooted/absolute values at parse time — clearer than a silent 404, and it keeps the
+        // shell strictly inside the served tree (so the startup-warning's Path.Combine check is also safe).
+        if (spaIndex is not null
+            && (spaIndex.IndexOf('/') >= 0 || spaIndex.IndexOf('\\') >= 0 || System.IO.Path.IsPathRooted(spaIndex)))
+        {
+            return Fail("--spa-index must be a bare filename (no path components)");
         }
 ```
 
@@ -375,6 +396,52 @@ Append to the `IntegrationTests` class in `tests/Winix.HCat.Tests/IntegrationTes
         }
         finally { await stop(); Directory.Delete(dir, true); }
     }
+
+    [Fact]   // F4: a missing API call (specific non-HTML Accept) keeps its real 404 — no shell served for it.
+    public async Task Spa_missing_api_with_json_accept_returns_404()
+    {
+        string dir = MakeSpaDir();
+        var (baseUrl, stop) = await StartAsync(new HCatOptions { Mode = HCatMode.Serve, Directory = dir, Spa = true });
+        try
+        {
+            var (status, _) = await GetWithAccept($"{baseUrl}/api/thing", "application/json");
+            Assert.Equal(404, status);
+        }
+        finally { await stop(); Directory.Delete(dir, true); }
+    }
+
+    [Fact]   // F5: --spa with NO shell file present -> navigations 404 (not 500, not a hang). Makes the
+             // "404-when-missing is tested" self-review claim true.
+    public async Task Spa_without_index_file_navigation_returns_404()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "hcat-spa-noidx-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);   // deliberately no index.html
+        var (baseUrl, stop) = await StartAsync(new HCatOptions { Mode = HCatMode.Serve, Directory = dir, Spa = true });
+        try
+        {
+            var (status, _) = await GetWithAccept($"{baseUrl}/users/42", "text/html");
+            Assert.Equal(404, status);
+        }
+        finally { await stop(); Directory.Delete(dir, true); }
+    }
+
+    [Fact]   // F6: HEAD navigation returns 200 + Content-Length, no body (the HEAD branch of the fallback).
+    public async Task Spa_head_navigation_returns_headers_no_body()
+    {
+        string dir = MakeSpaDir();
+        var (baseUrl, stop) = await StartAsync(new HCatOptions { Mode = HCatMode.Serve, Directory = dir, Spa = true });
+        try
+        {
+            using var http = new HttpClient();
+            using var req = new HttpRequestMessage(HttpMethod.Head, $"{baseUrl}/deep/route");
+            req.Headers.Accept.ParseAdd("text/html");
+            using HttpResponseMessage resp = await http.SendAsync(req);
+            Assert.Equal(200, (int)resp.StatusCode);
+            Assert.Equal(5, resp.Content.Headers.ContentLength);   // "INDEX"
+            Assert.Equal("", await resp.Content.ReadAsStringAsync());   // HEAD: no body
+        }
+        finally { await stop(); Directory.Delete(dir, true); }
+    }
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -443,6 +510,8 @@ In `src/Winix.HCat/Handlers/ServeConfig.cs`, in `Apply`, immediately AFTER the `
 
 (`IFileInfo` is `Microsoft.Extensions.FileProviders`, `Stream` is `System.IO`, `HttpMethods`/`StatusCodes` are `Microsoft.AspNetCore.Http` — all already imported in `ServeConfig.cs`.)
 
+**Cancellation (F3):** the stream copy passes `context.RequestAborted`, so a client disconnect mid-response throws `OperationCanceledException` out of the delegate. This is **not novel** — `UseFileServer`/`UseStaticFiles` already streams every served file with the same cancellation semantics, so the existing serve path (and its tests/usage) already exercises abort-during-file-stream; the SPA fallback streams one specific file the identical way and introduces no new cancellation behaviour. Kestrel treats an abort-driven `OperationCanceledException` as expected (connection aborted, server stays up). No new handling is added here and no flaky disconnect test is introduced; this paragraph records the reasoning rather than asserting an unverified runtime claim.
+
 - [ ] **Step 3c: Startup warning when the index file is missing (diagnostic)**
 
 In `src/Winix.HCat/HCatServer.cs`, in `RunAsync`, immediately after the existing banner write:
@@ -475,12 +544,12 @@ add:
 - [ ] **Step 4: Run the SPA integration tests to verify they pass**
 
 Run: `dotnet test tests/Winix.HCat.Tests/Winix.HCat.Tests.csproj --filter "FullyQualifiedName~IntegrationTests.Spa"`
-Expected: PASS — 7 tests.
+Expected: PASS — 10 tests.
 
 - [ ] **Step 5: Run the full HCat suite + native smoke (no regression)**
 
 Run: `dotnet test tests/Winix.HCat.Tests/Winix.HCat.Tests.csproj`
-Expected: PASS — all tests (90 prior + 12 AcceptsHtml + ~6 ArgParser + 7 SPA integration).
+Expected: PASS — all tests (90 prior + the new AcceptsHtml unit cases + ArgParser SPA cases + 10 SPA integration tests).
 
 Then publish + native smoke:
 ```bash
@@ -577,3 +646,5 @@ git commit -m "docs(hcat): document serve --spa / --spa-index"
 **Placeholder scan:** none — every code step has complete code; every run step has a command + expected result. The startup warning is real code explicitly noted as diagnostic-only (not a fake/placeholder test).
 
 **Type consistency:** `HCatOptions.Spa` (bool) / `SpaIndexFile` (string) defined in Task 2 Step 3a; read in Task 2 Step 3d and Task 3 Steps 3a–3c with the same names. `ServeConfig.AcceptsHtml(string?)` defined in Task 1 Step 3; called in Task 3 Step 3b with `context.Request.Headers.Accept.ToString()` (string). `provider` (the `PhysicalFileProvider` built earlier in `Apply`) is in scope for the Task 3b middleware. Consistent.
+
+**Adversarial-review integration (2026-05-31, 0 blockers / 4 test gaps / 2 defers):** F1+F2 (traversal via `--spa-index`) → handled MORE strongly than the reviewer's suggestion: a parse-time bare-filename check in Task 2 Step 3c (path components / rooted → usage error) + a Task 2 unit theory, which also removes the startup-warning's non-traversal-safe `Path.Combine` divergence (only bare filenames reach `RunAsync`). F3 (disconnect mid-stream) → Task 3 Step 3b cancellation note (the fallback's stream copy is the same shape `UseStaticFiles` already uses, so no novel cancellation behaviour; no flaky disconnect test, per the reproducer rule). F4 (`application/json` miss → 404) + F5 (missing shell file → 404) + F6 (HEAD branch) → three integration tests added to Task 3 Step 1.
