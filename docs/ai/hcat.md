@@ -24,7 +24,7 @@
 
 By default `hcat` binds **`127.0.0.1` only**. Network exposure is always explicit:
 
-- `--lan` binds `0.0.0.0` (all interfaces) and prints a QR code with the LAN URL.
+- `--lan` binds `0.0.0.0` (all interfaces) and prints a QR code with the LAN URL. The LAN URLs and QR prefer gateway-routed (reachable) addresses, skipping virtual host-only adapters (Hyper-V/WSL/Docker) unless none have a gateway; pin a specific address with `--host`.
 - `--host <addr>` binds an explicit address; a non-loopback address exposes the server.
 - `--local` forces loopback-only, overriding any earlier `--lan` / `--host`.
 

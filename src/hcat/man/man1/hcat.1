@@ -75,6 +75,8 @@ There is no authentication or IP allowlist in v1.
 Bind
 .B 0.0.0.0
 to share on the local network (prints a QR code).
+LAN URLs and the QR prefer gateway\-routed addresses; virtual host\-only adapters (Hyper\-V/WSL/Docker) are skipped unless none have a gateway.
+Use \fB\-\-host\fR to pin a specific address.
 .TP
 .B \-\-local
 Force loopback\-only binding (overrides

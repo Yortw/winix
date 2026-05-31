@@ -39,6 +39,8 @@ By default `hcat` binds **`127.0.0.1` only** — nobody else on your network can
 
 There is **no authentication or IP allowlist in v1** — `--lan` exposes the server to everyone on your network. Use it on trusted networks only.
 
+> **Which address does `--lan` show?** On a machine with virtual adapters (Hyper-V, WSL, Docker, VPNs), `--lan` deliberately lists only addresses on a gateway-routed interface — the ones a device on your real LAN can actually reach — and hides host-only/virtual addresses to keep the banner and QR unambiguous. If you specifically want to bind a host-only/virtual address (e.g. to reach a VM), pass it with `--host <addr>`. If no interface has a default gateway, all addresses are shown.
+
 ## Usage
 
 ```
@@ -143,7 +145,7 @@ hcat serve ./public --https --lan
 
 | Flag | Argument | Description |
 |---|---|---|
-| `--lan` | | Bind `0.0.0.0` to share on the local network (prints a QR code). |
+| `--lan` | | Bind `0.0.0.0` to share on the local network (prints a QR code). LAN URLs/QR prefer gateway-routed (reachable) addresses; virtual host-only adapters (Hyper-V/WSL/Docker) are skipped from the banner unless none have a gateway. Use `--host` to pin a specific (incl. host-only) address. |
 | `--local` | | Force loopback-only binding (overrides `--lan` / `--host`). |
 | `--host` | `ADDR` | Explicit bind address. A non-loopback address exposes the server. |
 | `--port` | `N` | Listen port (default `8080`). |
