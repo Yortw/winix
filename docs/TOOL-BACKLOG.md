@@ -112,6 +112,82 @@ this belongs in winix or as a standalone domain tool.
 
 ---
 
+## Class 4 — Stream-plumbing / routing primitives
+
+**Thesis:** the structural duals to map/filter. Where the relational family (Class 1) and ordinary
+transforms change record *content*, these manipulate the *topology and timing* of streams —
+broadcast, partition, merge, gate, buffer, retime, instrument. Tiny single-purpose primitives,
+"basically a programming primitive" in shell form. Most exist only on Linux (moreutils et al) with
+essentially no Windows presence; two (`switch`, `merge`) appear to lack a tidy standalone anywhere.
+
+**Build-vs-install note:** several are moreutils ports — the winix value is cross-platform identical
+behaviour + Windows presence + suite consistency (`--describe`/`--json`/exit codes), NOT novelty.
+Unlike the relational engine (Class 1), **no mature single-binary occupies these cells on Windows**,
+so the consistency premium is far easier to justify here. `switch` and `merge` look genuinely
+under-served everywhere and are the strongest "new primitive" candidates. Per-tool cost/benefit
+check still applies.
+
+### The topology lattice (how the family fits, and where the gaps are)
+
+| Stream shape | Primitive | Tidy standalone? |
+|---|---|---|
+| 1→N broadcast to files | `tee` | yes (built-in elsewhere) |
+| 1→N broadcast to commands | `pee` | Linux only (moreutils) |
+| 1→1-of-N partition by predicate | **`switch`** | **no — awk only** |
+| N→1 live merge / interleave | **`merge` / `fanin`** | partial (`cat` sequential; `tail -f` multi) |
+| 1→0-or-1 gate by presence | `ifne` | Linux only (moreutils) |
+| 1→1 buffer-then-write | `sponge` | Linux only (moreutils) |
+| 1→1 rate-limit | `throttle` | no tidy Windows tool |
+| 1→1 instrument (meter) | `pv` | Linux-centric; low Windows value |
+| 1→1 tty-emulate | `pty` / `faketty` | `unbuffer` (expect); ConPTY on Windows |
+| pipeline, producer exit code | `mispipe` | bash `pipefail` only; gap on Windows |
+| run, output only on failure | `chronic` | Linux only (moreutils) |
+
+### Candidate tools (names provisional)
+
+Genuinely new primitives (under-served everywhere — strongest case):
+
+- **`switch`** — partition a stream: route each record to one of N commands/files by predicate
+  (first-match), with a `--default`. The partition-dual of `pee`'s broadcast. Today this is
+  hand-rolled `awk '/A/{print > "a"} /B/{print > "b"}'` — no discoverable standalone verb.
+  - `cat app.log | switch --case /ERROR/ 'tee err.log' --case /WARN/ 'tee warn.log' --default 'tee other.log'`
+  - Name note: prefer `switch` over `route` — `route.exe` (routing table) collides on Windows.
+- **`merge` / `fanin`** — the N→1 dual: interleave several *live* sources into one stream, line-atomic,
+  in arrival order. `cat` is sequential; `tail -f a b` is a partial special case. Medium-sized, not
+  tiny (line-atomicity across concurrent producers is the hard part).
+
+Windows gaps with a concrete mechanism:
+
+- **`throttle`** — rate-limit a pipe (`throttle 2m` = cap at 2 MB/s). Pure pass-through, touches only
+  timing. Real use: DB dumps / network-share copies without saturating disk or link.
+- **`pty` / `faketty`** — run a command as if attached to a terminal so it keeps colour + line
+  buffering when piped (`pty mytool | less -R`). Implementable natively via **ConPTY** on Windows
+  (not faked). Tiny in concept, fiddly in ConPTY plumbing — needs a research spike before committing.
+
+moreutils-class ports (value = cross-platform consistency, not novelty):
+
+- **`sponge`** — soak all stdin, *then* write the file; enables in-place pipes (`sort f | sponge f`)
+  that `> f` truncates. Should write atomically (temp + rename) and spill to a temp file past a size
+  threshold rather than buffering multi-GB in RAM.
+- **`pee`** — `tee` to *commands* instead of files; every child gets a full copy of stdin in one pass.
+  Must swallow per-child broken-pipe failures (early child exit) without killing the whole `pee`.
+- **`ifne`** — run a command only if stdin is non-empty (`-n` = only if empty). The `if`-gate primitive.
+- **`mispipe`** — run `a | b` but return `a`'s exit code, not `b`'s. bash has `pipefail`/`PIPESTATUS`;
+  cmd.exe and PowerShell have no equivalent, so this is *more* valuable on Windows than Linux.
+- **`ts`** — prepend a timestamp to each line of stdin (`cmd | ts`). Relative/elapsed mode too (`ts -s`).
+
+Adjacent (command-runner family, not dead-centre plumbing — file beside `retry`/`timeit`/`peep`):
+
+- **`chronic`** — run a command; print its output only if it fails. Cron/CI noise killer.
+
+**Open questions for brainstorm:** one multi-subcommand binary vs several tiny binaries (these are
+*very* small — packaging overhead may dominate); broken-pipe / partial-write handling model on Windows
+(shared across `pee`/`switch`/`sponge`); whether `pty` is cleanly implementable via ConPTY (spike);
+naming collisions (`switch` ok, `route` no, `merge` is a common word but probably fine); how predicates
+are expressed in `switch` (regex only, or also field/value and exit-code-of-a-test-command).
+
+---
+
 ## Not-doing / parked
 
 - Re-porting coreutils sequence tools (`sort`, `tac`, `cut`, `head`) — already available in Git
