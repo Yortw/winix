@@ -87,6 +87,29 @@ public static class ServeConfig
         app.UseFileServer(options);
     }
 
+    /// <summary>True when <paramref name="acceptHeader"/> explicitly lists a <c>text/html</c> media type — i.e.
+    /// the request is a browser navigation. A bare <c>*/*</c> (curl/wget default) or a type wildcard
+    /// (<c>text/*</c>) does NOT count, so API clients and asset fetches keep their real 404. Pure so this
+    /// (the SPA-fallback correctness crux) is unit-tested without a live request.</summary>
+    internal static bool AcceptsHtml(string? acceptHeader)
+    {
+        if (string.IsNullOrEmpty(acceptHeader))
+        {
+            return false;
+        }
+        // Accept is a comma-separated list of media ranges, each optionally with ;q= params. We only need to
+        // know whether the exact token "text/html" appears as a listed media type.
+        foreach (string part in acceptHeader.Split(','))
+        {
+            string media = part.Split(';')[0].Trim();
+            if (media.Equals("text/html", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /// <summary>True when the request path equals the exclude prefix or sits below it at a path boundary.
     /// A bare prefix check is unsound ("/uploads" would also match "/uploads-public"), so a boundary segment
     /// is required.</summary>
