@@ -42,6 +42,11 @@ public sealed record HCatOptions
     /// <summary>Upload target directory; null means the default <c>./uploads</c>.</summary>
     public string? UploadDir { get; init; }
 
+    /// <summary>Enable SPA fallback (serve mode): an unmatched browser navigation returns the index file.</summary>
+    public bool Spa { get; init; }
+    /// <summary>The SPA fallback filename (serve mode); default <c>index.html</c>.</summary>
+    public string SpaIndexFile { get; init; } = "index.html";
+
     /// <summary>The HTTP status inspect mode responds with (default 200).</summary>
     public int InspectStatus { get; init; } = 200;
 

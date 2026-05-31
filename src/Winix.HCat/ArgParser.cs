@@ -147,6 +147,26 @@ public static class ArgParser
             exitOn = raw;
         }
 
+        // --spa / --spa-index are serve-only; --spa-index requires --spa (else it silently does nothing).
+        bool spa = parsed.Has("--spa");
+        string? spaIndex = parsed.Has("--spa-index") ? parsed.GetString("--spa-index") : null;
+        if ((spa || spaIndex is not null) && mode != HCatMode.Serve)
+        {
+            return Fail("--spa/--spa-index are only valid for serve mode");
+        }
+        if (spaIndex is not null && !spa)
+        {
+            return Fail("--spa-index requires --spa");
+        }
+        // --spa-index is a bare filename resolved under the served root. Reject path components, traversal, and
+        // rooted/absolute values at parse time — clearer than a silent 404, and it keeps the shell strictly
+        // inside the served tree (so the startup-warning's Path.Combine check is also safe).
+        if (spaIndex is not null
+            && (spaIndex.IndexOf('/') >= 0 || spaIndex.IndexOf('\\') >= 0 || System.IO.Path.IsPathRooted(spaIndex)))
+        {
+            return Fail("--spa-index must be a bare filename (no path components)");
+        }
+
         // --timeout <dur>: parse with ShellKit's DurationParser (suffix required: ms/s/m/h/d/w).
         TimeSpan? timeout = null;
         if (parsed.Has("--timeout"))
@@ -186,7 +206,14 @@ public static class ArgParser
                 }
                 bool upload = parsed.Has("--upload");
                 string? uploadDir = parsed.Has("--upload-dir") ? parsed.GetString("--upload-dir") : null;
-                options = options with { Directory = directory, Upload = upload, UploadDir = uploadDir };
+                options = options with
+                {
+                    Directory = directory,
+                    Upload = upload,
+                    UploadDir = uploadDir,
+                    Spa = spa,
+                    SpaIndexFile = spaIndex ?? "index.html",
+                };
                 break;
             }
 
@@ -270,6 +297,8 @@ public static class ArgParser
             .Flag("--local", "Force loopback-only binding (overrides --lan/--host).")
             .Flag("--https", "Enable TLS with an in-memory self-signed certificate.")
             .Flag("--upload", "(serve) Enable the POST upload receiver.")
+            .Flag("--spa", "(serve) SPA fallback: unmatched browser navigations return the index file.")
+            .Option("--spa-index", null, "FILE", "(serve, with --spa) SPA fallback filename (default index.html).")
             .Option("--host", null, "ADDR", "Explicit bind address.")
             .IntOption("--port", null, "N", "Listen port (default 8080).")
             .Option("--upload-dir", null, "DIR", "(serve) Upload target directory (default ./uploads).")

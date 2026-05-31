@@ -152,4 +152,56 @@ public class ArgParserTests
         Assert.True(r.Success);
         Assert.Equal("path=/done", r.Options!.ExitOn);
     }
+
+    [Fact]
+    public void Spa_flag_parses_for_serve_with_default_index()
+    {
+        ArgParser.Result r = ArgParser.Parse(new[] { "serve", "./dist", "--spa" });
+        Assert.True(r.Success);
+        Assert.True(r.Options!.Spa);
+        Assert.Equal("index.html", r.Options.SpaIndexFile);
+    }
+
+    [Fact]
+    public void Spa_index_overrides_the_fallback_file()
+    {
+        ArgParser.Result r = ArgParser.Parse(new[] { "serve", "./dist", "--spa", "--spa-index", "app.html" });
+        Assert.True(r.Success);
+        Assert.True(r.Options!.Spa);
+        Assert.Equal("app.html", r.Options.SpaIndexFile);
+    }
+
+    [Fact]
+    public void Spa_index_without_spa_is_usage_error()
+    {
+        ArgParser.Result r = ArgParser.Parse(new[] { "serve", "--spa-index", "app.html" });
+        Assert.False(r.Success);
+        Assert.Contains("--spa", r.Error!);
+    }
+
+    [Theory]
+    [InlineData("inspect")]
+    [InlineData("pipe")]
+    public void Spa_outside_serve_is_usage_error(string mode)
+    {
+        string[] argv = mode == "pipe"
+            ? new[] { "pipe", "--spa", "--", "cat" }
+            : new[] { "inspect", "--spa" };
+        ArgParser.Result r = ArgParser.Parse(argv);
+        Assert.False(r.Success);
+        Assert.Contains("serve", r.Error!);
+    }
+
+    [Theory]   // F1/F2: --spa-index is a bare filename. Path components / traversal / rooted -> usage error,
+               // so it cannot point the shell outside the served root (and the startup-warning path stays safe).
+    [InlineData("sub/app.html")]
+    [InlineData("../evil.html")]
+    [InlineData("..\\evil.html")]
+    [InlineData("/etc/passwd")]
+    public void Spa_index_with_path_components_is_usage_error(string idx)
+    {
+        ArgParser.Result r = ArgParser.Parse(new[] { "serve", "--spa", "--spa-index", idx });
+        Assert.False(r.Success);
+        Assert.Contains("--spa-index", r.Error!);
+    }
 }
