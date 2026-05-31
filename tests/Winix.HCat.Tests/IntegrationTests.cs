@@ -158,6 +158,56 @@ public class IntegrationTests
         finally { await stop(); }
     }
 
+    [Fact]   // A clean (exit 0) command that ignores a large body must still return 200, NOT a spurious 500.
+    public async Task Pipe_command_that_ignores_large_body_still_returns_200()
+    {
+        // --no-read exits 0 without consuming stdin. With a body larger than the OS pipe buffer, the server's
+        // stdin feed faults with a broken pipe once the child closes its end — which used to be caught and
+        // forced to 500, making the status depend on body size. The fix treats that broken pipe as benign.
+        var cmd = new[]
+        {
+            "dotnet",
+            System.IO.Path.Combine(System.AppContext.BaseDirectory, "HCatEcho.dll"),
+            "--no-read",
+        };
+        var (baseUrl, stop) = await StartAsync(new HCatOptions { Mode = HCatMode.Pipe, PipeCommand = cmd });
+        try
+        {
+            string big = new string('x', 4 * 1024 * 1024);   // 4 MiB — overflows the pipe buffer
+            using var http = new HttpClient();
+            var resp = await http.PostAsync(baseUrl + "/", new StringContent(big))
+                .WaitAsync(TimeSpan.FromSeconds(15));
+            Assert.Equal(200, (int)resp.StatusCode);
+            Assert.Equal("ok", await resp.Content.ReadAsStringAsync());
+        }
+        finally { await stop(); }
+    }
+
+    [Fact]   // A non-zero exit AFTER output has committed a 200 cannot downgrade the status; server survives.
+    public async Task Pipe_nonzero_exit_after_committed_output_keeps_200_and_survives()
+    {
+        var cmd = new[]
+        {
+            "dotnet",
+            System.IO.Path.Combine(System.AppContext.BaseDirectory, "HCatEcho.dll"),
+            "--fail-after-output",
+        };
+        var (baseUrl, stop) = await StartAsync(new HCatOptions { Mode = HCatMode.Pipe, PipeCommand = cmd });
+        try
+        {
+            using var http = new HttpClient();
+            var resp = await http.PostAsync(baseUrl + "/", new StringContent("x"));
+            // Headers are already on the wire by the time the non-zero exit is observed, so the status stays
+            // 200 (the operator gets a stderr breadcrumb — diagnostic only, not asserted here). The contract
+            // pinned here: the response body is intact and the server keeps serving the next request.
+            Assert.Equal(200, (int)resp.StatusCode);
+            Assert.Equal("partial-output", await resp.Content.ReadAsStringAsync());
+            var resp2 = await http.PostAsync(baseUrl + "/", new StringContent("y"));
+            Assert.Equal(200, (int)resp2.StatusCode);
+        }
+        finally { await stop(); }
+    }
+
     [Fact]   // F7: a command that cannot launch must surface as HTTP 500, server stays up.
     public async Task Pipe_command_not_found_returns_500_and_server_survives()
     {

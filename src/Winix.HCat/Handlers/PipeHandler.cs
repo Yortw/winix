@@ -126,18 +126,40 @@ public static class PipeHandler
                         ? StatusCodes.Status200OK
                         : StatusCodes.Status500InternalServerError;
                 }
+                else if (child.ExitCode != 0)
+                {
+                    // The child wrote output (committing a 200) and THEN exited non-zero. We cannot downgrade
+                    // the status — headers are already on the wire — but a silent 200 would hide the failure
+                    // from the operator running `hcat pipe` for debugging. Surface a breadcrumb to stderr; the
+                    // request path is unaffected (diagnostic strictly weaker than the response).
+                    Console.Error.WriteLine(
+                        $"hcat: pipe command exited {child.ExitCode} after the response was already committed (status remains {context.Response.StatusCode})");
+                }
             }
         });
     }
 
     /// <summary>Streams the full request body to the child's stdin, then closes stdin so the child sees EOF.
     /// Closing the input stream is what lets filters that read-to-end (the common case) terminate.</summary>
+    /// <remarks>A child that exits without consuming its whole stdin (a perfectly valid CGI pattern — a handler
+    /// that only cares about method/path, or one that early-exits) closes its read end of the pipe. The next
+    /// write of the unconsumed body then faults with a broken-pipe <see cref="IOException"/>. That is NOT a
+    /// request failure: the child's stdout and exit code determine the response, so the broken pipe is swallowed.
+    /// Whether it fires at all depends purely on body size vs the OS pipe buffer — surfacing it as a 500 made an
+    /// identical, valid request non-deterministically 200 or 500. A genuine client disconnect is different: it
+    /// cancels <paramref name="ct"/>, so we only swallow when cancellation was NOT requested and let a real abort
+    /// propagate to the caller's cancellation handler.</remarks>
     private static async Task FeedStdinAsync(Stream requestBody, StreamWriter stdin, CancellationToken ct)
     {
         try
         {
             await requestBody.CopyToAsync(stdin.BaseStream, ct).ConfigureAwait(false);
             await stdin.BaseStream.FlushAsync(ct).ConfigureAwait(false);
+        }
+        catch (IOException) when (!ct.IsCancellationRequested)
+        {
+            // Benign: the child closed its stdin early (didn't read the whole body / already exited).
+            // The response is governed by the child's stdout + exit code, so this is not a failure.
         }
         finally
         {
