@@ -70,12 +70,16 @@ order-independent.
 At least one route (`--to`/`--exec`) is required; at most one `--default-*` may be given. Omit
 both `--default-*` → unmatched records flow to stdout.
 
+**PATTERN is a bare .NET regular expression** — *not* slash-delimited (grep convention). A leading
+or trailing `/` is matched literally, not treated as a delimiter. Quote it to protect regex
+metacharacters from the shell. Compiled via ShellKit's `SafeRegex` (ReDoS-safe).
+
 Example:
 ```
 cat app.log | demux \
-  --to   /ERROR/     errors.log \
-  --exec /WARN/      'logger -p warning' \
-  --to   '/^\d+ ms/' slow.tsv \
+  --to   'ERROR'     errors.log \
+  --exec 'WARN'      'logger -p warning' \
+  --to   '^[0-9]+ ms' slow.tsv \
   --default-exec     'gzip > rest.gz'
 ```
 
