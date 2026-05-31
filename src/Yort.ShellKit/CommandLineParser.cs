@@ -662,6 +662,28 @@ public sealed class CommandLineParser
             }
         }
 
+        // Composes with (same data --describe carries; rendered here so --help is self-contained
+        // and a human reading it can discover the cross-tool pipelines the JSON surface advertises)
+        if (_composability.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("Composes with:");
+            int maxPattern = _composability.Max(c => c.Pattern.Length);
+            int composeAlign = maxPattern + 2; // minimum 2-space gap, matching the options/examples tables
+            foreach (var (_, pattern, description) in _composability)
+            {
+                if (description.Length > 0)
+                {
+                    sb.Append("  ").Append(pattern.PadRight(composeAlign));
+                    sb.AppendLine(description);
+                }
+                else
+                {
+                    sb.AppendLine($"  {pattern}");
+                }
+            }
+        }
+
         // Exit codes
         if (_exitCodes.Count > 0)
         {

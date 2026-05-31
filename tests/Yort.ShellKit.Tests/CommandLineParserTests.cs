@@ -803,6 +803,25 @@ public class HelpGenerationTests
     }
 
     [Fact]
+    public void GenerateHelp_IncludesComposesWith()
+    {
+        // composes_with was emitted in --describe JSON but never rendered in --help, leaving the
+        // human-facing surface blind to cross-tool pipelines the machine-facing surface advertised.
+        var parser = new CommandLineParser("mytool", "1.0.0")
+            .StandardFlags()
+            .ComposesWith("jq", "mytool --json | jq .field", "Extract a field from JSON output")
+            .ComposesWith("grep", "mytool | grep ERROR", "Filter the output");
+
+        string help = parser.GenerateHelp();
+
+        Assert.Contains("Composes with:", help);
+        Assert.Contains("mytool --json | jq .field", help);
+        Assert.Contains("Extract a field from JSON output", help);
+        Assert.Contains("mytool | grep ERROR", help);
+        Assert.Contains("Filter the output", help);
+    }
+
+    [Fact]
     public void GenerateHelp_StandardFlagsAppearLast()
     {
         var writer = new StringWriter();
