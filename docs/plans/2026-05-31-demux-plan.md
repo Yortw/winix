@@ -1001,8 +1001,8 @@ namespace Winix.Demux;
 public sealed class CommandSink : ISink
 {
     private const int QueueCapacity = 1024;
-    private static readonly TimeSpan ExitTimeout = TimeSpan.FromSeconds(10);
 
+    private readonly TimeSpan _exitTimeout;
     private readonly Process _process;
     private readonly StreamWriter _stdin;
     private readonly BlockingCollection<string> _queue = new(QueueCapacity);
@@ -1011,10 +1011,13 @@ public sealed class CommandSink : ISink
     private long _undelivered;
     private volatile bool _dead;
 
-    /// <summary>Spawns the command. Throws if the shell process cannot start (caller maps to 126).</summary>
-    public CommandSink(string command, string label)
+    /// <summary>Spawns the command. Throws if the shell process cannot start (caller maps to 126).
+    /// <paramref name="exitTimeout"/> (default 10s) bounds shutdown — it is an injectable seam so tests
+    /// can drive the hung-child kill path deterministically without a real 10s wait.</summary>
+    public CommandSink(string command, string label, TimeSpan? exitTimeout = null)
     {
         Label = label;
+        _exitTimeout = exitTimeout ?? TimeSpan.FromSeconds(10);
         var psi = new ProcessStartInfo { RedirectStandardInput = true, UseShellExecute = false };
         if (OperatingSystem.IsWindows())
         {
@@ -1057,7 +1060,15 @@ public sealed class CommandSink : ISink
             foreach (string line in _queue.GetConsumingEnumerable())
             {
                 try { _stdin.Write(line); _stdin.Write('\n'); Interlocked.Increment(ref _delivered); }
-                catch (IOException) { _dead = true; break; }   // child closed stdin / exited
+                catch (IOException)
+                {
+                    // F2: the line in hand was dequeued but never written — count it undelivered here
+                    // (the finally only drains lines STILL queued), else a lost in-flight line would be
+                    // invisible to the exit code and report a false success.
+                    Interlocked.Increment(ref _undelivered);
+                    _dead = true;
+                    break;   // child closed stdin / exited
+                }
             }
         }
         finally
@@ -1070,17 +1081,33 @@ public sealed class CommandSink : ISink
     public void Close()
     {
         _queue.CompleteAdding();
-        _writer.Join();
-        try { _stdin.Close(); } catch (IOException) { /* already gone */ }
 
-        if (_process.WaitForExit((int)ExitTimeout.TotalMilliseconds))
+        // F1: the writer may be blocked in _stdin.Write (child alive, not reading, pipe full) — an
+        // unconditional Join() would hang forever and a timeout placed AFTER it would never run. So
+        // bound the writer-drain with a timeout and KILL on overrun, which makes the blocked write
+        // throw and lets the writer thread exit. The kill must precede the final unconditional Join.
+        if (!_writer.Join(_exitTimeout))
+        {
+            try { _process.Kill(entireProcessTree: true); } catch { /* best effort */ }
+            _writer.Join();                       // bounded now: the kill unblocked the write
+            try { _stdin.Close(); } catch (IOException) { }
+            try { _process.WaitForExit(); } catch { }
+            ChildExitCode = -1;                   // sentinel: killed after timeout
+            _process.Dispose();
+            return;
+        }
+
+        // Writer drained cleanly; signal EOF and wait (bounded) for the child to exit on its own.
+        try { _stdin.Close(); } catch (IOException) { /* already gone */ }
+        if (_process.WaitForExit((int)_exitTimeout.TotalMilliseconds))
         {
             ChildExitCode = _process.ExitCode;
         }
         else
         {
             try { _process.Kill(entireProcessTree: true); } catch { /* best effort */ }
-            ChildExitCode = -1; // sentinel: killed after timeout (reported in summary)
+            try { _process.WaitForExit(); } catch { }
+            ChildExitCode = -1;                   // sentinel: killed after timeout
         }
         _process.Dispose();
     }
@@ -1123,11 +1150,50 @@ public class IntegrationTests_CommandSink
             sink.Write("two");
             sink.Close();
 
-            Assert.Equal("one\ntwo\n", File.ReadAllText(path).Replace("\r\n", "\n"));
+            string content = File.ReadAllText(path);
+            // F3: do NOT normalise \r\n — cat is byte-faithful, so this verifies demux fed explicit \n
+            // (a regression to WriteLine on Windows would emit \r\n and fail this).
+            Assert.Equal("one\ntwo\n", content);
+            Assert.DoesNotContain("\r", content);
             Assert.Equal(2, sink.DeliveredCount);
             Assert.Equal(0, sink.ChildExitCode);
         }
         finally { File.Delete(path); }
+    }
+
+    [SkippableFact]
+    public void Close_HungChild_KilledAfterTimeout_SetsSentinelAndReturnsBounded()
+    {
+        Skip.IfNot(!OperatingSystem.IsWindows(), "sh child");
+        if (OperatingSystem.IsWindows()) { return; }
+
+        // F4 / D11: child ignores stdin and never exits. With a short injected timeout, Close must
+        // still return promptly, kill the child, and record the -1 sentinel.
+        var sink = new CommandSink("sleep 60", "x", exitTimeout: TimeSpan.FromMilliseconds(300));
+        sink.Write("a");
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        sink.Close();
+        sw.Stop();
+
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(9), $"Close did not honour the timeout ({sw.Elapsed})");
+        Assert.Equal(-1, sink.ChildExitCode);
+    }
+
+    [SkippableFact]
+    public void MidStreamDeath_ConservesLineCount()
+    {
+        Skip.IfNot(!OperatingSystem.IsWindows(), "sh child");
+        if (OperatingSystem.IsWindows()) { return; }
+
+        // F2 regression: delivered + undelivered must equal lines written even when the child dies
+        // mid-drain and the in-flight line fails — no line may vanish from both counters.
+        var sink = new CommandSink("head -n1 >/dev/null", "x", exitTimeout: TimeSpan.FromSeconds(2));
+        const int written = 500;
+        for (int i = 0; i < written; i++) { sink.Write("line-" + i); }
+        sink.Close();
+
+        Assert.Equal(written, sink.DeliveredCount + sink.UndeliveredCount);
+        Assert.True(sink.UndeliveredCount > 0);
     }
 
     [SkippableFact]
@@ -1171,11 +1237,27 @@ public class IntegrationTests_CommandSink
 Run: `dotnet test tests/Winix.Demux.Tests --filter "FullyQualifiedName~IntegrationTests_CommandSink"`
 Expected: PASS on Linux/macOS; SKIPPED on Windows for the sh-only cases.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: Add the Windows (`cmd /c`) CommandSink variant — REQUIRED, not optional (F5)**
+
+demux's core justification is the Windows pipe-filter gap (ADR D1), and `cmd /c` stdin/pipe semantics
+differ materially from `sh -c`. Add Windows-gated mirrors of delivery, broken-pipe (early-exit), and
+non-zero-exit so the process-sink contract is verified on Windows, not just Unix. Use a `cmd`-portable
+child — delivery via `findstr "^" > "<path>"` (passes all lines) or `more > "<path>"`; non-zero exit
+via `cmd /c "exit /b 3"`. Each test: `[SkippableFact]` + `Skip.IfNot(OperatingSystem.IsWindows(), ...)`
++ redundant `if (!OperatingSystem.IsWindows()) return;` for CA1416. Verify byte output without masking
+`\r` only where the child is byte-faithful (note `findstr`/`more` may rewrite terminators — if so, assert
+on demux's stdin feed via a capture child rather than the file).
+
+- [ ] **Step 5: Run the Windows variant (on a Windows host / CI) — expect pass**
+
+Run (Windows): `dotnet test tests/Winix.Demux.Tests --filter "FullyQualifiedName~IntegrationTests_CommandSink"`
+Expected: the Windows-gated cases PASS; the sh-only cases SKIPPED.
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git add src/Winix.Demux/CommandSink.cs tests/Winix.Demux.Tests/IntegrationTests_CommandSink.cs
-git commit -m "feat(demux): CommandSink — shell-spawn, stdin feed, broken-pipe-safe, exit capture"
+git commit -m "feat(demux): CommandSink — writer-thread feed, broken-pipe-safe, bounded shutdown+kill, exit capture"
 ```
 
 ---
@@ -1894,3 +1976,21 @@ A fresh subagent reviewed this plan against the 15-category taxonomy: **3 blocke
 `RoutingSummary.FormatHuman`/`FormatJson` must render `ChildExitCode == -1` as "killed after timeout"
 (not literally "exit -1"), and `-1` counts as a non-zero child for the `--exit-on-child-error` → exit 2
 rule (though undelivered records from the killed child make exit 1 take precedence).
+
+## Adversarial Review Integration — Pass 2 (confirming, 2026-05-31)
+
+A second fresh subagent confirmed the architecture is sound (not a return-to-brainstorming) but found
+**2 blockers the Pass-1 integration itself introduced**, plus 3 test gaps. All fixed in-plan:
+
+| ID | Bucket | Disposition |
+|---|---|---|
+| **P2-F1** `Close()` relocated the hung-child hang into `_writer.Join()` — the `WaitForExit` timeout sat after the unbounded Join and could never fire | Blocker | **Fixed** — `Close()` now `Join(timeout)`; on overrun `Kill(entireProcessTree)` to unblock the stuck write, *then* the unconditional Join, then sentinel `-1`. Both timeout points (writer-drain and post-EOF wait) bounded. |
+| **P2-F2** in-flight line that fails mid-write counted as neither delivered nor undelivered → exit 0 on real data loss | Blocker | **Fixed** — `DrainQueue` catch now `Interlocked.Increment(ref _undelivered)` for the failing line before `break`. Regression test `MidStreamDeath_ConservesLineCount` (delivered+undelivered == written). |
+| **P2-F3** CommandSink delivery test still masked CRLF via `.Replace("\r\n","\n")` | Test gap | **Fixed** — assert exact `\n` + `DoesNotContain("\r")` (cat is byte-faithful, so this verifies demux's D13 policy). |
+| **P2-F4** no test for the hung-child timeout/kill/`-1` path; 10s real wait is CI-hostile | Test gap | **Fixed** — `_exitTimeout` is now an injectable ctor seam (default 10s); `Close_HungChild_KilledAfterTimeout...` drives it at 300 ms. |
+| **P2-F5** Windows `cmd /c` CommandSink coverage was prose-deferred, not a tracked step | Test gap | **Fixed** — promoted to explicit Task 7 Step 4/5 (required), and gated the Windows manual smokes on exercising an `--exec` child, not just file routes. |
+
+**Review status: COMPLETE.** Two passes run (the skill's maximum). The architecture converged at pass 1;
+pass 2 found localized integration bugs in pass-1's own fixes, now corrected with regression tests that
+verify them at implementation time (TDD closes the loop — no third adversarial pass per the stop
+condition). Proceed to execution.
