@@ -132,12 +132,23 @@ passthrough tools (`wargs`/`peep`/`nc`), the `--json` envelope and the human sum
 | Code | Meaning |
 |---|---|
 | `0` | Success — all input routed and delivered. |
-| `1` | Partial failure — a route went dead mid-run / records undelivered. (CI notices; details on stderr.) Also returned when `--exit-on-child-error` is set and a child exited non-zero. |
+| `1` | **Partial delivery failure** — a route went dead mid-run / records undelivered. **Data lost.** (CI notices; details on stderr.) |
+| `2` | **Watched child failed** — under `--exit-on-child-error`, at least one `--exec` child exited non-zero. Delivery was complete; no data lost. |
 | `125` | Usage error — bad args, no cases, bad regex, `--case` without a target, `--field < 1`. |
-| `126` | Setup failure — a `--to` file could not be opened, or an `--exec` child could not be spawned. |
+| `126` | Setup failure — a `--to` file could not be opened, or the shell could not be launched. |
+
+`1` and `2` are deliberately distinct because they call for different operator responses
+(`1` → a sink died, check the child and whether data was lost; `2` → delivery was fine, your
+watched command failed its own check). **Precedence:** if both conditions occur in one run — a
+route died *and* a watched child exited non-zero — **`1` wins**, because data loss is the more
+serious condition.
 
 A child's own non-zero exit is reported in the summary but does **not** by itself fail `demux`
-unless `--exit-on-child-error` is set (demux's job is routing, not the child's success).
+unless `--exit-on-child-error` is set (demux's job is routing, not the child's success). Note that
+when `--exec` runs via the shell, a "command not found" surfaces as the *shell's* `127` child
+exit (reported in the summary, and → exit `2` under `--exit-on-child-error`), not as demux's
+`126` setup failure — `126` is reserved for demux being unable to open a `--to` file or launch
+the shell process itself.
 
 ## 7. Testing
 
@@ -150,6 +161,9 @@ unless `--exit-on-child-error` is set (demux's job is routing, not the child's s
   assert the route is marked dead, siblings keep running, undelivered counted, exit `1`. Per the
   protocol-fake-test caution in `CLAUDE.md`, the child is **not** faked — wire correctness (stdin
   delivery, EPIPE) only shows against a real process.
+- **Exit codes** — distinct-cause coverage: `--exit-on-child-error` with a child that consumes all
+  input then exits non-zero → exit `2` (delivery complete); and the **precedence** case — a run
+  where a route dies *and* a watched child exits non-zero → exit `1` wins over `2`.
 - Cross-platform shell-spawn (`sh -c` vs `cmd /c`) gets platform-gated integration coverage.
 - Manual cmd + pwsh + bash smokes per the suite's manual-test rule (in-process tests can't
   reproduce real shell behaviour).
