@@ -27,8 +27,8 @@ dotnet publish src/timeit/timeit.csproj -c Release -r win-x64
 - **Class libraries** (`Winix.TimeIt`, etc.) contain all logic — testable without process spawning for formatting, integration tests for process execution
 - **Console apps** (`timeit`, etc.) are thin entry points — arg parsing, call library, set exit code
 - **Shared libraries** — referenced across tools:
-  - `Yort.ShellKit` — console env, ANSI colour, `CommandLineParser` (mandatory for arg parsing, see Conventions), duration/exit-code helpers, JSON helper, gitignore filter
-  - `Winix.FileWalk` — directory walking, glob/regex, gitignore, size/content predicates
+  - `Yort.ShellKit` — console env, ANSI colour, `CommandLineParser` (mandatory for arg parsing, see Conventions), duration/exit-code helpers, JSON helper, gitignore filter, `GlobMatcher` (regex-based glob predicate; lives here so the lowest layer owns it — `FileWalk` and `TreeX` consume it)
+  - `Winix.FileWalk` — directory walking, gitignore, size/content predicates (glob matching via ShellKit's `GlobMatcher`)
   - `Winix.Codec` — Crockford base32, secure RNG, hex, base64, constant-time compare
   - `Winix.QrCode` — QR encoder + 4 renderers (unicode/ascii/svg/png); internal only
   - `Winix.SecretStore` — DPAPI / Keychain / libsecret abstraction; enumeration via native APIs on Windows/Linux and self-healing index on macOS

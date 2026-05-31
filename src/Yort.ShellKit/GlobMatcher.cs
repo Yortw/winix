@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace Winix.FileWalk;
+namespace Yort.ShellKit;
 
 /// <summary>
 /// Matches filenames against one or more glob patterns. Any pattern matching is a hit (OR logic).
