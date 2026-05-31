@@ -94,7 +94,7 @@ hcat serve ./dist --capture 1            # serve one request, then exit 0
 hcat serve ./dist --exit-on path=/health # exit when /health is hit
 ```
 
-`--exit-on` keys are exactly `path`, `method` (compared with `=`), and `body` (substring match with `~`). An unknown key is a usage error (exit 125) at parse time, not a silent never-match. `--capture`/`--exit-on`/`--timeout` apply to all modes (`serve`/`inspect`/`pipe`), but `--exit-on body~` is **inspect-only** — serve never reads the body and pipe streams it to the command, so neither captures it to match; a `body~` predicate in those modes is a usage error. If the stop condition is met the tool exits 0; if `--timeout` elapses first it exits 1.
+`--exit-on` keys are exactly `path`, `method` (compared with `=`), and `body` (substring match with `~`). An unknown key is a usage error (exit 125) at parse time, not a silent never-match. `--capture`/`--exit-on`/`--timeout` apply to all modes (`serve`/`inspect`/`pipe`), but `--exit-on body~` is **inspect-only** — serve never reads the body and pipe streams it to the command, so neither captures it to match; a `body~` predicate in those modes is a usage error. If the stop condition is met the tool exits 0; if `--timeout` elapses first it exits 1. `--capture`/`--exit-on` count **completed** responses — a request whose client disconnects mid-response (e.g. an aborted `serve` download) is not counted or logged, so always pair the stop condition with `--timeout` as a backstop.
 
 ## Composability
 

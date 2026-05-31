@@ -132,6 +132,8 @@ hcat inspect --exit-on path=/done --timeout 30s
 
 These flags work in **all** modes (`serve`, `inspect`, `pipe`) — e.g. `hcat serve ./dist --capture 1` serves one request then exits. Note `--exit-on body~` is **inspect-only**: serve never reads the body and pipe streams it to the command, so neither captures it to match against (a `body~` predicate there is a usage error rather than a silent never-match).
 
+`--capture`/`--exit-on` count **completed** responses: a request whose client disconnects mid-response (e.g. an aborted download in `serve`) is not counted and is not logged. Pair the stop condition with `--timeout` so the run still terminates (exit **1**) if the expected request never completes.
+
 ### Single-page apps
 
 ```bash

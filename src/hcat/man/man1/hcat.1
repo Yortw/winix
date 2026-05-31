@@ -131,6 +131,7 @@ is inspect\-only (serve and pipe do not capture the request body); using it else
 (CI) Fail (exit 1) if the stop condition is not met within DUR (e.g.
 .BR 30s ,
 .BR 5m ).
+\fB\-\-capture\fR/\fB\-\-exit\-on\fR count completed responses; a request whose client disconnects mid\-response (e.g. an aborted serve download) is not counted or logged, so pair the stop condition with \fB\-\-timeout\fR as a backstop.
 .TP
 .B \-\-json
 Emit machine\-readable JSON to stdout: a JSONL request\-record stream (inspect/pipe)

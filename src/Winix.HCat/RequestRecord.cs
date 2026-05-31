@@ -29,7 +29,8 @@ public sealed record RequestRecord(
 
 /// <summary>One serve-mode access-log entry. Unlike <see cref="RequestRecord"/> (which captures the inbound
 /// request for inspect/pipe), this is response-oriented: it carries the final HTTP <see cref="Status"/> and is
-/// the per-request line emitted by <c>serve --json</c>. Method/path/status — the documented access-log shape.</summary>
+/// the per-request line emitted by <c>serve --json</c>. Serialises with camelCase keys:
+/// <c>{"method":...,"path":...,"status":...}</c> — the documented access-log shape.</summary>
 public sealed record AccessLogRecord(string Method, string Path, int Status)
 {
     /// <summary>Serialises to a single JSONL line.</summary>
