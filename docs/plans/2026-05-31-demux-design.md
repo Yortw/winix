@@ -24,7 +24,7 @@ Pretty per-route summary for humans on stderr; `--json` for scripts and CI.
 
 The value is **not** a hard gap on every platform — `awk` covers Unix (cryptically) and is the
 genuine competitor there. The justification is the same tier as `url`: **cross-platform
-consistency + readability over awk + agent-friendliness** (a clean `demux --case … --json` is
+consistency + readability over awk + agent-friendliness** (a clean `demux --to … --json` is
 more reliable for an agent to emit than correct cryptic awk), *plus* a real Windows gap (no
 native pipe-filter partition exists in cmd or pwsh). Accepted eyes-open that this is a
 consistency/ergonomics play, not an empty-niche fill.
@@ -43,31 +43,40 @@ already covered by the tagline and `--describe`.
 
 ```
 demux [--field N] [--delimiter CHAR] [--all] [--append] [--exit-on-child-error] \
-  --case PATTERN (--to FILE | --exec 'CMD') \
-  [--case PATTERN (--to FILE | --exec 'CMD')] ... \
-  [--default (--to FILE | --exec 'CMD')]
+  --to   PATTERN FILE \
+  --exec PATTERN CMD \
+  [--to PATTERN FILE | --exec PATTERN CMD] ... \
+  [--default-to FILE | --default-exec CMD]
 ```
 
-| Flag | Meaning |
-|---|---|
-| `--case PATTERN` | A regex predicate. Immediately followed by exactly one target (`--to` or `--exec`). Repeatable. |
-| `--to FILE` | Target: write matching lines to a file (opened once). |
-| `--exec 'CMD'` | Target: spawn a command once via the platform shell; feed matching lines to its stdin. |
-| `--default …` | Same target forms; receives unmatched records. Omitted → unmatched flow to stdout. |
-| `--field N` | Test the regex against column *N* (1-based) instead of the whole line. |
-| `--delimiter CHAR` | Field delimiter (default: runs of whitespace, awk-style). |
-| `--all` | Broadcast: route to *every* matching case (default is first-match). |
-| `--append` | File sinks append instead of truncate (default: truncate, like `>`). |
-| `--exit-on-child-error` | A child's non-zero exit makes `demux` exit non-zero (default: report only). |
-| standard | `--help`, `--version`, `--json`, `--describe`, `--color`, `--no-color`. |
+Each route is a **single self-contained flag carrying both its predicate and its target** — there
+is no cross-flag pairing, so a route can never be left half-specified (a dangling predicate or an
+orphan target is unrepresentable, not merely a validation error). Route flags are repeatable and
+order-independent.
+
+| Flag | Operands | Meaning |
+|---|---|---|
+| `--to PATTERN FILE` | 2 | Route lines matching regex PATTERN to FILE (opened once). Repeatable. |
+| `--exec PATTERN CMD` | 2 | Route lines matching PATTERN to a command spawned once via the platform shell; matching lines fed to its stdin. Repeatable. |
+| `--default-to FILE` | 1 | Unmatched records → FILE. |
+| `--default-exec CMD` | 1 | Unmatched records → a spawned command. |
+| `--field N` | 1 | Test the regex against column *N* (1-based) instead of the whole line. |
+| `--delimiter CHAR` | 1 | Field delimiter (default: runs of whitespace, awk-style). |
+| `--all` | 0 | Broadcast: route to *every* matching route (default is first-match). |
+| `--append` | 0 | File targets append instead of truncate (default: truncate, like `>`). |
+| `--exit-on-child-error` | 0 | A watched child's non-zero exit makes `demux` exit `2` (default: report only). |
+| standard | — | `--help`, `--version`, `--json`, `--describe`, `--color`, `--no-color`. |
+
+At least one route (`--to`/`--exec`) is required; at most one `--default-*` may be given. Omit
+both `--default-*` → unmatched records flow to stdout.
 
 Example:
 ```
 cat app.log | demux \
-  --case /ERROR/ --to errors.log \
-  --case /WARN/  --exec 'logger -p warning' \
-  --case '/^\d+ ms/' --to slow.tsv \
-  --default --exec 'gzip > rest.gz'
+  --to   /ERROR/     errors.log \
+  --exec /WARN/      'logger -p warning' \
+  --to   '/^\d+ ms/' slow.tsv \
+  --default-exec     'gzip > rest.gz'
 ```
 
 ## 3. Semantics & data flow
@@ -78,9 +87,9 @@ cat app.log | demux \
   1. If `--field N`: split on the delimiter, test the regex against field *N* (1-based). Out-of-range
      field → no match (counts as unmatched, so it is visible, not silently dropped). Else test the
      whole line.
-  2. Evaluate cases in declaration order. **First-match** (default): route to the first matching
-     case's sink and stop. **`--all`**: route to every matching case's sink.
-  3. **Unmatched** → stdout, or the `--default` sink if configured.
+  2. Evaluate routes in declaration order. **First-match** (default): route to the first matching
+     route's sink and stop. **`--all`**: route to every matching route's sink.
+  3. **Unmatched** → stdout, or the `--default-to`/`--default-exec` sink if configured.
 - Sinks always receive the **full original line** (with newline), not just the tested field.
 
 ## 4. Sinks
@@ -111,9 +120,11 @@ set exit code). No speculative shared "plumbing" library — the reusable orches
 
 Components:
 - **`RouteSpec`** — compiled `SafeRegex` predicate + target (`File`/`Exec` + value).
-- **`ArgParser`** — assembles the paired `--case … --to/--exec …` grammar over ShellKit's
-  `CommandLineParser` via a thin custom pass (precedent: `schedule`/`url`/`qr`). Validates every
-  `--case` has exactly one target, regex compiles, `--field ≥ 1`, at least one case present.
+- **`ArgParser`** — assembles the 2-operand route-flag grammar (`--to`/`--exec` each consume
+  PATTERN + TARGET; `--default-*` consume one) over ShellKit's `CommandLineParser` via a thin custom
+  pass (precedent: `schedule`/`url`/`qr`). Validates: ≥ 1 route present, ≤ 1 `--default-*`, every
+  route flag has both operands, each regex compiles, `--field ≥ 1`. Note the self-contained route
+  flags eliminate the orphan/dangling-route validation class entirely.
 - **`ISink`** + `FileSink`, `CommandSink`, `StdoutSink` — `Write(line)` / `Close()`, each tracking
   delivered/undelivered counts and dead state.
 - **`Router`** — the core loop (read → predicate → select route(s) → dispatch). Pure enough to
@@ -134,7 +145,7 @@ passthrough tools (`wargs`/`peep`/`nc`), the `--json` envelope and the human sum
 | `0` | Success — all input routed and delivered. |
 | `1` | **Partial delivery failure** — a route went dead mid-run / records undelivered. **Data lost.** (CI notices; details on stderr.) |
 | `2` | **Watched child failed** — under `--exit-on-child-error`, at least one `--exec` child exited non-zero. Delivery was complete; no data lost. |
-| `125` | Usage error — bad args, no cases, bad regex, `--case` without a target, `--field < 1`. |
+| `125` | Usage error — bad args, no routes, bad regex, a route flag missing an operand, more than one `--default-*`, `--field < 1`. |
 | `126` | Setup failure — a `--to` file could not be opened, or the shell could not be launched. |
 
 `1` and `2` are deliberately distinct because they call for different operator responses
@@ -153,7 +164,7 @@ the shell process itself.
 ## 7. Testing
 
 - **`Router`** — unit tests with in-memory sinks: first-match, `--all`, `--field`, out-of-range
-  field, unmatched→stdout, `--default`, multi-match under `--all`.
+  field, unmatched→stdout, `--default-*`, multi-match under `--all`.
 - **`ArgParser`** — grammar assembly, all validation paths → exit 125.
 - **`FileSink`** — line writes, truncate vs `--append`.
 - **`CommandSink`** — **integration tests with real child processes** (platform-gated
