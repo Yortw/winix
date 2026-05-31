@@ -25,4 +25,26 @@ public class BannerTests
         Assert.Contains("downloadable", text);   // the served-root upload warning
         Assert.Contains("QRBLOCK", text);
     }
+
+    [Fact]
+    public void Upload_into_in_tree_subfolder_does_not_warn()
+    {
+        // An in-tree-but-not-root upload dir is EXCLUDED from serving by ServeConfig (hidden, not
+        // downloadable), so the "will be downloadable" warning must NOT fire for it — the old condition
+        // (any within-tree dir) warned falsely here and contradicted the actual exclusion behaviour.
+        var info = new BindInfo(IPAddress.Any, true, new[] { "http://192.168.1.42:8080" });
+        var opts = new HCatOptions { Mode = HCatMode.Serve, Upload = true, UploadDir = "./sub", Directory = "." };
+        string text = Banner.Render(info, opts, qr: null);
+        Assert.DoesNotContain("downloadable", text);
+    }
+
+    [Fact]
+    public void Default_upload_dir_does_not_warn()
+    {
+        // Default upload target (./uploads) is an in-tree subfolder, excluded from serving — no warning.
+        var info = new BindInfo(IPAddress.Any, true, new[] { "http://192.168.1.42:8080" });
+        var opts = new HCatOptions { Mode = HCatMode.Serve, Upload = true, UploadDir = null, Directory = "." };
+        string text = Banner.Render(info, opts, qr: null);
+        Assert.DoesNotContain("downloadable", text);
+    }
 }

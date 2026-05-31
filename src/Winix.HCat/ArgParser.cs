@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Net;
 using System.Reflection;
 using Yort.ShellKit;
 
@@ -85,6 +86,14 @@ public static class ArgParser
         bool https = parsed.Has("--https");
         bool json = parsed.Has("--json");
 
+        // --host must be a literal IP. A non-IP value (hostname or typo) used to fall through BindResolver
+        // to a silent loopback bind — the user's exposure intent dropped with no error. Reject it here so
+        // the failure is visible. Hostname resolution is intentionally out of v1 scope.
+        if (host is not null && !IPAddress.TryParse(host, out _))
+        {
+            return Fail($"--host must be an IP address (got '{host}')");
+        }
+
         // --local is an explicit "loopback only" override: it clears any --lan/--host that came before.
         if (parsed.Has("--local"))
         {
@@ -122,9 +131,18 @@ public static class ArgParser
         if (parsed.Has("--exit-on"))
         {
             string raw = parsed.GetString("--exit-on");
-            if (!IsValidExitOnExpr(raw))
+            string? key = ExitOnKey(raw);
+            if (key is not ("path" or "method" or "body"))
             {
                 return Fail($"--exit-on key must be one of path, method, body (got '{raw}')");
+            }
+            // Pipe mode streams the request body straight to the child's stdin and never captures it into
+            // the request record (Body stays null), so a body~ predicate could never match — it would run
+            // the server forever, or exit 1 on --timeout, with no hint. Reject at parse time (the F13 rule
+            // applied one layer down) rather than ship a silent never-match.
+            if (key == "body" && mode == HCatMode.Pipe)
+            {
+                return Fail("--exit-on body~ is not supported in pipe mode (the request body is streamed to the command, not captured); use path= or method=");
             }
             exitOn = raw;
         }
@@ -209,34 +227,28 @@ public static class ArgParser
         return new Result(options, null, false, 0, useColor);
     }
 
-    /// <summary>True when an <c>--exit-on</c> expression has a recognised left-hand key
-    /// (<c>path</c>/<c>method</c> with <c>=</c>, or <c>body</c> with <c>~</c>). Mirrors the grammar
-    /// in <see cref="ExitOnPredicate"/> so the parser rejects typos before they become silent
-    /// never-match footguns.</summary>
-    private static bool IsValidExitOnExpr(string expr)
+    /// <summary>Extracts the lowercased left-hand key of an <c>--exit-on</c> expression
+    /// (<c>path</c>/<c>method</c> before <c>=</c>, or <c>body</c> before <c>~</c>), or null when the
+    /// expression is blank or has no separator. Mirrors the separator-precedence rule in
+    /// <see cref="ExitOnPredicate.Parse"/> so the parser's validation and the predicate's matching agree.</summary>
+    private static string? ExitOnKey(string expr)
     {
-        if (string.IsNullOrWhiteSpace(expr)) { return false; }
+        if (string.IsNullOrWhiteSpace(expr)) { return null; }
 
         int eq = expr.IndexOf('=');
         int tilde = expr.IndexOf('~');
 
         // Whichever separator appears first determines the key (matches ExitOnPredicate.Parse).
-        string key;
         if (tilde >= 0 && (eq < 0 || tilde < eq))
         {
-            key = expr.Substring(0, tilde).Trim().ToLowerInvariant();
+            return expr.Substring(0, tilde).Trim().ToLowerInvariant();
         }
-        else if (eq >= 0)
+        if (eq >= 0)
         {
-            key = expr.Substring(0, eq).Trim().ToLowerInvariant();
+            return expr.Substring(0, eq).Trim().ToLowerInvariant();
         }
-        else
-        {
-            // No separator at all (e.g. "garbage") — not a valid predicate.
-            return false;
-        }
-
-        return key is "path" or "method" or "body";
+        // No separator at all (e.g. "garbage") — not a valid predicate.
+        return null;
     }
 
     private static CommandLineParser BuildParser()

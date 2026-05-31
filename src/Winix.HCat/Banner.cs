@@ -39,8 +39,12 @@ public static class Banner
 
         if (options.Mode == HCatMode.Serve && options.Upload)
         {
+            // Warn ONLY when uploads are actually downloadable — i.e. the upload dir IS the served root.
+            // An in-tree-but-not-root dir (incl. the default ./uploads) is excluded from serving by
+            // ServeConfig, so warning there would be false. Both sites derive from IsServedRoot so the
+            // warning and the exclusion behaviour cannot diverge.
             string uploadDir = options.UploadDir ?? Path.Combine(options.Directory, "uploads");
-            if (UploadPathSafety.IsWithinServedTree(options.Directory, uploadDir))
+            if (UploadPathSafety.IsServedRoot(options.Directory, uploadDir))
             {
                 sb.Append("⚠ uploads land in the served root and will be downloadable").Append('\n');
             }

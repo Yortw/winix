@@ -85,11 +85,58 @@ public class ArgParserTests
     [Theory]
     [InlineData("path=/done")]
     [InlineData("method=POST")]
-    [InlineData("body~ok")]
     public void Known_exit_on_keys_parse(string expr)
     {
         ArgParser.Result r = ArgParser.Parse(new[] { "inspect", "--exit-on", expr });
         Assert.True(r.Success);
         Assert.Equal(expr, r.Options!.ExitOn);
+    }
+
+    [Fact]
+    public void Body_exit_on_parses_for_inspect()
+    {
+        ArgParser.Result r = ArgParser.Parse(new[] { "inspect", "--exit-on", "body~ok" });
+        Assert.True(r.Success);
+        Assert.Equal("body~ok", r.Options!.ExitOn);
+    }
+
+    [Theory]   // A non-IP --host silently bound loopback before — now a usage error, not a silent intent-drop.
+    [InlineData("localhost")]
+    [InlineData("myhost.local")]
+    [InlineData("192.168.1.5x")]
+    [InlineData("not an ip")]
+    public void Non_ip_host_is_usage_error(string host)
+    {
+        ArgParser.Result r = ArgParser.Parse(new[] { "serve", "--host", host });
+        Assert.False(r.Success);
+        Assert.Contains("--host", r.Error!);
+    }
+
+    [Theory]
+    [InlineData("0.0.0.0")]
+    [InlineData("127.0.0.1")]
+    [InlineData("192.168.1.5")]
+    [InlineData("::1")]
+    public void Ip_host_parses(string host)
+    {
+        ArgParser.Result r = ArgParser.Parse(new[] { "serve", "--host", host });
+        Assert.True(r.Success);
+        Assert.Equal(host, r.Options!.Host);
+    }
+
+    [Fact]   // Pipe records carry no body, so --exit-on body~ could never match — reject at parse time.
+    public void Body_exit_on_is_usage_error_for_pipe()
+    {
+        ArgParser.Result r = ArgParser.Parse(new[] { "pipe", "--exit-on", "body~done", "--", "cat" });
+        Assert.False(r.Success);
+        Assert.Contains("body", r.Error!);
+    }
+
+    [Fact]
+    public void Path_exit_on_parses_for_pipe()
+    {
+        ArgParser.Result r = ArgParser.Parse(new[] { "pipe", "--exit-on", "path=/done", "--", "cat" });
+        Assert.True(r.Success);
+        Assert.Equal("path=/done", r.Options!.ExitOn);
     }
 }

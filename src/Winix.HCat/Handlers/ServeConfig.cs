@@ -41,7 +41,7 @@ public static class ServeConfig
             // When it IS the served root (--upload-dir .), uploads are inherently downloadable — the documented
             // escape hatch — so no exclusion is registered.
             bool withinTree = UploadPathSafety.IsWithinServedTree(root, uploadRoot);
-            bool isServedRoot = PathsEqual(root, uploadRoot);
+            bool isServedRoot = UploadPathSafety.IsServedRoot(root, uploadRoot);
             if (withinTree && !isServedRoot)
             {
                 // Map the on-disk upload sub-path to its URL prefix (relative to the served root), normalised to
@@ -95,16 +95,5 @@ public static class ServeConfig
         string value = path.HasValue ? path.Value! : "/";
         return value.Equals(excludePrefix, cmp)
             || value.StartsWith(excludePrefix + "/", cmp);
-    }
-
-    /// <summary>OS-appropriate equality for two already-absolute directory paths.</summary>
-    private static bool PathsEqual(string a, string b)
-    {
-        StringComparison cmp = OperatingSystem.IsWindows()
-            ? StringComparison.OrdinalIgnoreCase
-            : StringComparison.Ordinal;
-        string na = a.TrimEnd(Path.DirectorySeparatorChar, '/');
-        string nb = b.TrimEnd(Path.DirectorySeparatorChar, '/');
-        return na.Equals(nb, cmp);
     }
 }

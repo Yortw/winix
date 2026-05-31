@@ -70,6 +70,17 @@ public class UploadPathSafetyTests
     }
 
     [Fact]
+    public void IsServedRoot_is_true_only_for_the_root_itself()
+    {
+        // The single "downloadable" condition: only the served root cannot be excluded from serving.
+        // An in-tree subfolder is within the tree but NOT the served root, so it is hidden, not downloadable.
+        Assert.True(UploadPathSafety.IsServedRoot("/srv/www", "/srv/www"));
+        Assert.True(UploadPathSafety.IsServedRoot("/srv/www", "/srv/www/"));        // trailing-separator normalised
+        Assert.False(UploadPathSafety.IsServedRoot("/srv/www", "/srv/www/uploads")); // in-tree subfolder
+        Assert.False(UploadPathSafety.IsServedRoot("/srv/www", "/srv/other"));
+    }
+
+    [Fact]
     public void IsWithinServedTree_is_case_insensitive_on_windows_only()
     {
         // Step 4: pins the OS-conditional comparer. On Windows (case-insensitive FS) a cased variant
