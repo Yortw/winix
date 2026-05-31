@@ -13,6 +13,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
@@ -87,8 +88,9 @@ public static class HCatServer
 
         // F6: this middleware runs AFTER the terminal handler returns (the response is already flushed),
         // so triggering StopApplication here never truncates the request that satisfied the stop condition.
-        // StopApplication() lets remaining in-flight requests drain by default.
-        if (lifecycle is not null && options.Mode != HCatMode.Serve)
+        // StopApplication() lets remaining in-flight requests drain by default. Applies to all modes — serve
+        // now honours --capture/--exit-on too (the serve access-log middleware below sets StopRequested).
+        if (lifecycle is not null)
         {
             app.Use(async (context, next) =>
             {
@@ -107,6 +109,18 @@ public static class HCatServer
         switch (options.Mode)
         {
             case HCatMode.Serve:
+                if (lifecycle is not null)
+                {
+                    // Serve access-log: wrap the file server so this runs AFTER it produces the response and
+                    // can read the final status. Registered before ServeConfig (so it is outside the
+                    // file-server terminal middleware) but inside the stop middleware above — that stop check
+                    // still runs after OnServeAccess sets StopRequested, so the triggering response flushes (F6).
+                    app.Use(async (context, next) =>
+                    {
+                        await next().ConfigureAwait(false);
+                        lifecycle.OnServeAccess(ServeAccessRecord(context), context.Response.StatusCode);
+                    });
+                }
                 ServeConfig.Apply(app, options);
                 break;
             case HCatMode.Inspect:
@@ -118,6 +132,27 @@ public static class HCatServer
         }
 
         return app;
+    }
+
+    private static readonly IReadOnlyDictionary<string, string> EmptyHeaders =
+        new Dictionary<string, string>();
+
+    /// <summary>Builds the access-log record for a serve request: method/path/query plus remote + timestamp.
+    /// Headers and body are not captured (serve never reads the body); the controller only matches on
+    /// method/path, and the JSONL access-log line carries method/path/status.</summary>
+    private static RequestRecord ServeAccessRecord(HttpContext context)
+    {
+        HttpRequest req = context.Request;
+        string remote = context.Connection.RemoteIpAddress?.ToString() ?? string.Empty;
+        string timestamp = DateTimeOffset.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+        return new RequestRecord(
+            Method: req.Method,
+            Path: req.Path.HasValue ? req.Path.Value! : "/",
+            Query: req.QueryString.HasValue ? req.QueryString.Value!.TrimStart('?') : string.Empty,
+            Headers: EmptyHeaders,
+            Body: null,
+            Timestamp: timestamp,
+            RemoteAddr: remote);
     }
 
     /// <summary>Test entry point: builds the app, binds an ephemeral loopback port, starts the server, then
@@ -248,7 +283,9 @@ public static class HCatServer
         BindInfo bind = BindResolver.Resolve(options, EnumerateLanIPv4);
 
         var controller = new CaptureController(options.CaptureCount, options.ExitOn);
-        using var lifecycle = new CaptureLifecycle(controller, options.Json ? Console.Out : null);
+        // --json → JSONL request/access lines to stdout; otherwise a terse per-request line to the human
+        // banner writer (stderr). Both share the lifecycle so serve/inspect/pipe all emit a per-request log.
+        using var lifecycle = new CaptureLifecycle(controller, options.Json ? Console.Out : null, banner);
 
         WebApplication app;
         try

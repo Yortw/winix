@@ -113,6 +113,8 @@ Pointing it at the served root makes uploads downloadable.
 .BR method=POST ,
 or
 .BR body~text .
+.BR body~
+is inspect\-only (serve and pipe do not capture the request body); using it elsewhere is a usage error.
 .TP
 .B \-\-timeout " " \fIDUR\fR
 (CI) Fail (exit 1) if the stop condition is not met within DUR (e.g.

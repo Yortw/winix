@@ -27,12 +27,23 @@ public sealed record RequestRecord(
         => JsonSerializer.Serialize(r, HCatJsonContext.Default.RequestRecord);
 }
 
-/// <summary>AOT source-gen context for <see cref="RequestRecord"/>. <c>camelCase</c> top-level keys;
+/// <summary>One serve-mode access-log entry. Unlike <see cref="RequestRecord"/> (which captures the inbound
+/// request for inspect/pipe), this is response-oriented: it carries the final HTTP <see cref="Status"/> and is
+/// the per-request line emitted by <c>serve --json</c>. Method/path/status — the documented access-log shape.</summary>
+public sealed record AccessLogRecord(string Method, string Path, int Status)
+{
+    /// <summary>Serialises to a single JSONL line.</summary>
+    public static string ToJsonl(AccessLogRecord r)
+        => JsonSerializer.Serialize(r, HCatJsonContext.Default.AccessLogRecord);
+}
+
+/// <summary>AOT source-gen context for the JSONL output records. <c>camelCase</c> top-level keys;
 /// header keys are preserved verbatim (they are dictionary entries, not properties).</summary>
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DictionaryKeyPolicy = JsonKnownNamingPolicy.Unspecified)]
 [JsonSerializable(typeof(RequestRecord))]
+[JsonSerializable(typeof(AccessLogRecord))]
 internal sealed partial class HCatJsonContext : JsonSerializerContext
 {
 }

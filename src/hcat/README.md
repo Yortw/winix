@@ -128,6 +128,8 @@ hcat inspect --exit-on path=/done --timeout 30s
 
 `--capture <N>` stops after N requests, `--exit-on <expr>` stops on the first matching request (`path=`, `method=`, or `body~` substring), and `--timeout <dur>` bounds the wait. If the stop condition is met the tool exits **0**; if `--timeout` elapses first it exits **1**.
 
+These flags work in **all** modes (`serve`, `inspect`, `pipe`) — e.g. `hcat serve ./dist --capture 1` serves one request then exits. Note `--exit-on body~` is **inspect-only**: serve never reads the body and pipe streams it to the command, so neither captures it to match against (a `body~` predicate there is a usage error rather than a silent never-match).
+
 ### HTTPS
 
 ```bash
@@ -150,7 +152,7 @@ hcat serve ./public --https --lan
 | `--upload-dir` | `DIR` | (serve) Upload target directory (default `./uploads`). |
 | `--status` | `CODE` | (inspect) HTTP status to respond with (default `200`). |
 | `--capture` | `N` | (CI) Exit after capturing N requests. |
-| `--exit-on` | `EXPR` | (CI) Exit when a request matches: `path=/x`, `method=POST`, `body~text`. |
+| `--exit-on` | `EXPR` | (CI) Exit when a request matches: `path=/x`, `method=POST`, or `body~text` (`body~` is inspect-only). |
 | `--timeout` | `DUR` | (CI) Fail (exit 1) if the stop condition is not met within DUR (e.g. `30s`, `5m`). |
 | `--json` | | Emit machine-readable JSON: a JSONL request-record stream (inspect/pipe) or per-request access-log lines (serve), to stdout. |
 | `--describe` | | Emit structured JSON metadata for AI discoverability. |
@@ -176,7 +178,7 @@ In `inspect` (and `pipe`) mode, each captured request is written as a JSONL line
 | `remote` | Remote address of the caller. |
 | `bodyTruncated` | `true` when the body exceeded the 1 MiB cap and was truncated in the record. Absent/false otherwise. |
 
-In `serve` mode, `--json` emits a per-request access-log line to stdout instead. The bind banner, the human-readable request log, and all errors go to **stderr**, so `--json` stdout stays clean for piping.
+In `serve` mode, `--json` emits a per-request **access-log** line to stdout instead — one JSON object per request with `method`, `path`, and `status` (the final HTTP status). Without `--json`, every mode prints a terse human-readable request log to **stderr** (serve: `GET /file 200`; inspect/pipe: `METHOD /path`). The bind banner and all errors also go to **stderr**, so `--json` stdout stays clean for piping.
 
 ## Exit Codes
 

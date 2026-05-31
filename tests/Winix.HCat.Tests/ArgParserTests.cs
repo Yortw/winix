@@ -124,10 +124,15 @@ public class ArgParserTests
         Assert.Equal(host, r.Options!.Host);
     }
 
-    [Fact]   // Pipe records carry no body, so --exit-on body~ could never match — reject at parse time.
-    public void Body_exit_on_is_usage_error_for_pipe()
+    [Theory]   // Serve and pipe never capture the body, so --exit-on body~ could never match — reject at parse.
+    [InlineData("pipe")]
+    [InlineData("serve")]
+    public void Body_exit_on_is_usage_error_outside_inspect(string mode)
     {
-        ArgParser.Result r = ArgParser.Parse(new[] { "pipe", "--exit-on", "body~done", "--", "cat" });
+        string[] argv = mode == "pipe"
+            ? new[] { "pipe", "--exit-on", "body~done", "--", "cat" }
+            : new[] { "serve", "--exit-on", "body~done" };
+        ArgParser.Result r = ArgParser.Parse(argv);
         Assert.False(r.Success);
         Assert.Contains("body", r.Error!);
     }
@@ -136,6 +141,14 @@ public class ArgParserTests
     public void Path_exit_on_parses_for_pipe()
     {
         ArgParser.Result r = ArgParser.Parse(new[] { "pipe", "--exit-on", "path=/done", "--", "cat" });
+        Assert.True(r.Success);
+        Assert.Equal("path=/done", r.Options!.ExitOn);
+    }
+
+    [Fact]
+    public void Path_exit_on_parses_for_serve()
+    {
+        ArgParser.Result r = ArgParser.Parse(new[] { "serve", "--exit-on", "path=/done" });
         Assert.True(r.Success);
         Assert.Equal("path=/done", r.Options!.ExitOn);
     }

@@ -373,6 +373,51 @@ public class IntegrationTests
         finally { cts.Cancel(); try { await run; } catch { } }
     }
 
+    [Fact]   // #2: serve --json emits a per-request access-log line {method,path,status} to stdout, and serve
+             // now honours --capture (the server self-terminates after N requests, exit 0).
+    public async Task Serve_json_emits_access_log_and_capture_stops()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "hcat-it-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "hello.txt"), "world");
+        var sink = new StringWriter();
+        var (baseUrl, run, cts) = await StartWithSinkAsync(
+            new HCatOptions { Mode = HCatMode.Serve, Directory = dir, CaptureCount = 1 }, sink);
+        try
+        {
+            using var http = new HttpClient();
+            Assert.Equal("world", await http.GetStringAsync($"{baseUrl}/hello.txt"));
+
+            int code = await run.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Equal(0, code);
+
+            string log = sink.ToString();
+            Assert.Contains("\"method\":\"GET\"", log);
+            Assert.Contains("\"path\":\"/hello.txt\"", log);
+            Assert.Contains("\"status\":200", log);
+        }
+        finally { cts.Cancel(); try { await run; } catch { } Directory.Delete(dir, true); }
+    }
+
+    [Fact]   // #2: serve --exit-on path= matches on the request path and self-terminates the server (exit 0).
+    public async Task Serve_exit_on_path_stops_on_match()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "hcat-it-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "done.txt"), "ok");
+        var sink = new StringWriter();
+        var (baseUrl, run, cts) = await StartWithSinkAsync(
+            new HCatOptions { Mode = HCatMode.Serve, Directory = dir, ExitOn = "path=/done.txt" }, sink);
+        try
+        {
+            using var http = new HttpClient();
+            await http.GetAsync($"{baseUrl}/done.txt");
+            int code = await run.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Equal(0, code);
+        }
+        finally { cts.Cancel(); try { await run; } catch { } Directory.Delete(dir, true); }
+    }
+
     [Fact]   // F9: --capture 1 --timeout with NO request → server stops, exit code 1.
     public async Task Inspect_timeout_without_request_yields_exit_1()
     {

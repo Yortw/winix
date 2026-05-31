@@ -28,6 +28,7 @@ internal sealed class CaptureLifecycle : IDisposable
 
     private readonly CaptureController _controller;
     private readonly TextWriter? _jsonSink;
+    private readonly TextWriter? _humanSink;
     private readonly object _sinkLock = new();
     private Timer? _timer;
     private int _outcome = OutcomeUndecided;
@@ -41,34 +42,71 @@ internal sealed class CaptureLifecycle : IDisposable
     /// <param name="controller">The stop-condition tracker (<c>--capture</c>/<c>--exit-on</c>).</param>
     /// <param name="jsonSink">When non-null, each captured record is written here as a JSONL line (stdout under
     /// <c>--json</c>). Null suppresses JSONL output.</param>
-    public CaptureLifecycle(CaptureController controller, TextWriter? jsonSink)
+    /// <param name="humanSink">When non-null AND <paramref name="jsonSink"/> is null, a terse per-request line is
+    /// written here (the human "watch requests" log; stderr in production). Ignored when JSONL is active.</param>
+    public CaptureLifecycle(CaptureController controller, TextWriter? jsonSink, TextWriter? humanSink = null)
     {
         _controller = controller;
         _jsonSink = jsonSink;
+        _humanSink = humanSink;
     }
 
-    /// <summary>Record sink invoked by the inspect/pipe handlers for each request. Writes the JSONL line, then
-    /// consults the controller. On satisfaction it latches outcome 0 and flags <see cref="StopRequested"/>;
-    /// it does NOT call <c>StopApplication()</c> here, so the triggering response can flush first (F6).</summary>
+    /// <summary>Record sink invoked by the inspect/pipe handlers for each request (before the response status is
+    /// known — pipe calls this prior to running the child). Emits the per-request line, then consults the
+    /// controller. It does NOT call <c>StopApplication()</c> here, so the triggering response can flush first
+    /// (F6). JSONL is the full request record; the human line is method + path.</summary>
     public void OnRecord(RequestRecord record)
     {
         if (_jsonSink is not null)
         {
-            string line = RequestRecord.ToJsonl(record);
-            // Kestrel handles requests concurrently; serialise writes so JSONL lines never interleave.
-            lock (_sinkLock)
-            {
-                _jsonSink.WriteLine(line);
-                _jsonSink.Flush();
-            }
+            WriteLineLocked(_jsonSink, RequestRecord.ToJsonl(record));
+        }
+        else if (_humanSink is not null)
+        {
+            WriteLineLocked(_humanSink, $"{record.Method} {record.Path}");
         }
 
+        ConsultController(record);
+    }
+
+    /// <summary>Per-request sink for SERVE mode, called AFTER the file server produced the response so the final
+    /// <paramref name="status"/> is known. Emits the access-log line — JSONL <c>{method,path,status}</c> under
+    /// <c>--json</c>, else a human <c>METHOD /path STATUS</c> line — then consults the controller (so serve also
+    /// honours <c>--capture</c>/<c>--exit-on</c>). Like <see cref="OnRecord"/>, it only flags the stop (F6).</summary>
+    public void OnServeAccess(RequestRecord record, int status)
+    {
+        if (_jsonSink is not null)
+        {
+            WriteLineLocked(_jsonSink, AccessLogRecord.ToJsonl(new AccessLogRecord(record.Method, record.Path, status)));
+        }
+        else if (_humanSink is not null)
+        {
+            WriteLineLocked(_humanSink, $"{record.Method} {record.Path} {status}");
+        }
+
+        ConsultController(record);
+    }
+
+    /// <summary>Feeds the request to the controller and, on stop-condition satisfaction, latches outcome 0 and
+    /// flags <see cref="StopRequested"/> (the post-handler middleware calls <c>StopApplication</c> after the
+    /// response flushes — F6/F9). Shared by <see cref="OnRecord"/> and <see cref="OnServeAccess"/>.</summary>
+    private void ConsultController(RequestRecord record)
+    {
         if (_controller.OnRequest(record))
         {
-            // F9: stop-satisfied wins the latch only if nothing (e.g. the timeout) has decided yet.
             Interlocked.CompareExchange(ref _outcome, OutcomeSatisfied, OutcomeUndecided);
-            // F6: flag only — the post-handler middleware calls StopApplication after the response flushes.
             Volatile.Write(ref _stopRequested, 1);
+        }
+    }
+
+    /// <summary>Writes one line + flush under the sink lock. Kestrel handles requests concurrently, so the lock
+    /// keeps lines from interleaving across requests.</summary>
+    private void WriteLineLocked(TextWriter sink, string line)
+    {
+        lock (_sinkLock)
+        {
+            sink.WriteLine(line);
+            sink.Flush();
         }
     }
 

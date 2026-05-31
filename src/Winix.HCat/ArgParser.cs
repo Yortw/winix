@@ -136,13 +136,13 @@ public static class ArgParser
             {
                 return Fail($"--exit-on key must be one of path, method, body (got '{raw}')");
             }
-            // Pipe mode streams the request body straight to the child's stdin and never captures it into
-            // the request record (Body stays null), so a body~ predicate could never match — it would run
-            // the server forever, or exit 1 on --timeout, with no hint. Reject at parse time (the F13 rule
-            // applied one layer down) rather than ship a silent never-match.
-            if (key == "body" && mode == HCatMode.Pipe)
+            // Only inspect captures the request body into the record. Serve never reads the body; pipe streams
+            // it straight to the child's stdin (Body stays null). So a body~ predicate could never match in
+            // serve/pipe — it would run forever, or exit 1 on --timeout, with no hint. Reject at parse time
+            // (the F13 rule applied one layer down) rather than ship a silent never-match.
+            if (key == "body" && mode != HCatMode.Inspect)
             {
-                return Fail("--exit-on body~ is not supported in pipe mode (the request body is streamed to the command, not captured); use path= or method=");
+                return Fail("--exit-on body~ is only supported in inspect mode (serve and pipe do not capture the request body); use path= or method=");
             }
             exitOn = raw;
         }

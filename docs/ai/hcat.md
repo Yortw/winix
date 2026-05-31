@@ -73,7 +73,7 @@ Pass `--json` for machine-readable output on **stdout**. In `inspect` (and `pipe
 | `remote` | Caller's remote address. |
 | `bodyTruncated` | `true` when the body exceeded the 1 MiB cap and was truncated. |
 
-In `serve` mode, `--json` emits a per-request access-log line to stdout instead.
+In `serve` mode, `--json` emits a per-request **access-log** line to stdout instead — `{"method":"GET","path":"/file.txt","status":200}` (method/path and the final HTTP status). Without `--json`, every mode writes a terse human request log to stderr (`GET /file.txt 200` for serve; `METHOD /path` for inspect/pipe).
 
 ## Stop Conditions for CI
 
@@ -88,9 +88,13 @@ hcat inspect --exit-on body~deploy-complete
 
 # Bound the wait — exit 1 if not met in time
 hcat inspect --exit-on path=/done --timeout 30s
+
+# CI stop conditions work in every mode, not just inspect
+hcat serve ./dist --capture 1            # serve one request, then exit 0
+hcat serve ./dist --exit-on path=/health # exit when /health is hit
 ```
 
-`--exit-on` keys are exactly `path`, `method` (compared with `=`), and `body` (substring match with `~`). An unknown key is a usage error (exit 125) at parse time, not a silent never-match. If the stop condition is met the tool exits 0; if `--timeout` elapses first it exits 1.
+`--exit-on` keys are exactly `path`, `method` (compared with `=`), and `body` (substring match with `~`). An unknown key is a usage error (exit 125) at parse time, not a silent never-match. `--capture`/`--exit-on`/`--timeout` apply to all modes (`serve`/`inspect`/`pipe`), but `--exit-on body~` is **inspect-only** — serve never reads the body and pipe streams it to the command, so neither captures it to match; a `body~` predicate in those modes is a usage error. If the stop condition is met the tool exits 0; if `--timeout` elapses first it exits 1.
 
 ## Composability
 
