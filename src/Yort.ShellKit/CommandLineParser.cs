@@ -329,11 +329,9 @@ public sealed class CommandLineParser
                 }
             }
 
-            // Check aliases first (e.g. -9 → --level 9)
+            // Check aliases first (e.g. -9 → --level 9). Aliases match the exact token (no =-split).
             if (_aliasLookup!.TryGetValue(arg, out AliasDef? alias))
             {
-                // Run the same type-check and validation as the direct --option path so
-                // that aliases are subject to identical constraints.
                 if (_optionLookup!.TryGetValue(alias.TargetOption, out OptionDef? aliasTarget))
                 {
                     if (aliasTarget.Type == OptionType.Int)
@@ -376,24 +374,51 @@ public sealed class CommandLineParser
                 continue;
             }
 
-            // Check flags
-            if (_flagLookup!.TryGetValue(arg, out FlagDef? flag))
+            // Split a long --key=value token into key + attached value. Short flags and bare long
+            // flags are unaffected (attachedValue stays null). The value may itself contain '='
+            // (we split on the first '=' only). GNU convention: long options use '=', short don't.
+            string lookupKey = arg;
+            string? attachedValue = null;
+            if (arg.StartsWith("--", StringComparison.Ordinal) && arg.Length > 2)
             {
+                int eq = arg.IndexOf('=');
+                if (eq >= 0)
+                {
+                    lookupKey = arg.Substring(0, eq);
+                    attachedValue = arg.Substring(eq + 1);
+                }
+            }
+
+            // Check flags
+            if (_flagLookup!.TryGetValue(lookupKey, out FlagDef? flag))
+            {
+                if (attachedValue is not null)
+                {
+                    errors.Add($"{flag.LongName} takes no value");
+                    continue;
+                }
                 flagsSet.Add(flag.LongName);
                 continue;
             }
 
             // Check options (string, int, double)
-            if (_optionLookup!.TryGetValue(arg, out OptionDef? option))
+            if (_optionLookup!.TryGetValue(lookupKey, out OptionDef? option))
             {
-                if (i + 1 >= args.Length)
+                string rawValue;
+                if (attachedValue is not null)
                 {
-                    errors.Add($"{option.LongName} requires a value");
-                    continue;
+                    rawValue = attachedValue;
                 }
-
-                i++;
-                string rawValue = args[i];
+                else
+                {
+                    if (i + 1 >= args.Length)
+                    {
+                        errors.Add($"{option.LongName} requires a value");
+                        continue;
+                    }
+                    i++;
+                    rawValue = args[i];
+                }
 
                 // Type validation
                 if (option.Type == OptionType.Int)
@@ -436,26 +461,34 @@ public sealed class CommandLineParser
             }
 
             // Check list options
-            if (_listOptionLookup!.TryGetValue(arg, out ListOptionDef? listOption))
+            if (_listOptionLookup!.TryGetValue(lookupKey, out ListOptionDef? listOption))
             {
-                if (i + 1 >= args.Length)
+                string listItem;
+                if (attachedValue is not null)
                 {
-                    errors.Add($"{listOption.LongName} requires a value");
-                    continue;
+                    listItem = attachedValue;
                 }
-
-                i++;
+                else
+                {
+                    if (i + 1 >= args.Length)
+                    {
+                        errors.Add($"{listOption.LongName} requires a value");
+                        continue;
+                    }
+                    i++;
+                    listItem = args[i];
+                }
                 if (!listValues.TryGetValue(listOption.LongName, out List<string>? list))
                 {
                     list = new List<string>();
                     listValues[listOption.LongName] = list;
                 }
-                list.Add(args[i]);
+                list.Add(listItem);
                 continue;
             }
 
-            // Unknown flag
-            errors.Add($"unknown option: {arg}");
+            // Unknown flag (report the key, not the whole --key=value token)
+            errors.Add($"unknown option: {lookupKey}");
         }
 
         // Handle --help, --version, --describe. Each writes a single line to stdout.
