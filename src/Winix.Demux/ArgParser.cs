@@ -144,8 +144,10 @@ public static class ArgParser
                 "demux --exec ERROR clip --default-to rest.log",
                 "Copy error lines to the clipboard, file the rest")
             .JsonField("tool", "string", "Tool name (\"demux\")")
+            .JsonField("version", "string", "demux version")
             .JsonField("exit_code", "int", "0/1/2 — see exit codes")
-            .JsonField("routes", "array", "Per-route delivered/undelivered/dead/child_exit_code");
+            .JsonField("exit_reason", "string", "success | partial_delivery_failure | watched_child_failed")
+            .JsonField("routes", "array", "Per-route {label, delivered, undelivered, dead, child_exit_code, killed_after_timeout}");
     }
 
     // -----------------------------------------------------------------------------------------
