@@ -1,0 +1,21 @@
+{
+  "version": "0.4.0",
+  "description": "Route each line of a stream to files or commands by regex — the partition verb for pipes.",
+  "homepage": "https://github.com/Yortw/winix",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/Yortw/winix/releases/download/v0.4.0/demux-win-x64.zip",
+      "hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "bin": "demux.exe"
+    }
+  },
+  "checkver": "github",
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/Yortw/winix/releases/download/v$version/demux-win-x64.zip"
+      }
+    }
+  }
+}
