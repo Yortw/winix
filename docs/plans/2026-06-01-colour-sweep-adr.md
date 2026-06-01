@@ -46,3 +46,5 @@
 | Expanding what tools colour beyond README claims | Out of scope — sweep makes claims true, not broader. |
 | Colour for the data tools (digest/url/clip/qr/mksecret/protect/unprotect) | They correctly emit none; only docs (C) are fixed. |
 | Re-shipping shipped v0.3.0 tools for doc fixes | Repo doc edits only; shipped copies self-heal on next release; wargs's functional fix rides v0.4.0. |
+| Concurrent-write integration test for hcat's coloured request-log (Sub-plan A, adversarial A6-DEFER) | Thread-safety rests on `_useColor` immutability + the unchanged `WriteLineLocked` lock scope (the coloured string is built as a local, then handed to the existing locked write); a Kestrel-concurrency repro is integration-tier and high-cost. |
+| hcat banner AOT serve-mode smoke is best-effort (Sub-plan A, adversarial A7-DEFER) | The `Banner.Render` + `CaptureLifecycle` unit tests are the primary guard; serve is long-running, so the AOT banner smoke is confirmatory only. |

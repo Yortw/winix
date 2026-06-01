@@ -403,3 +403,94 @@ git commit -m "feat(wargs): resolve + emit colour in failure summary (was unwire
 - **wargs is the heaviest task** — it adds colour resolution that doesn't exist today (no `ResolveColor` call, no `Cli.cs`); the test is formatter-level by necessity.
 - **hcat banner is long-running to smoke** — the unit test (Banner.Render + CaptureLifecycle) is the primary guard; the AOT serve smoke is best-effort.
 - Each tool's `--no-color` / non-TTY output MUST stay byte-identical to today (plain). The `AnsiColor.X(false)` returning `""` guarantees this — but the table-row wrapping in trash Task 1 Step 4 must place reset before `\n` so no stray bytes leak when colour is off (empty strings) or on.
+
+---
+
+## Adversarial Review Integration — Pass 1 (2026-06-01)
+
+Fresh-subagent review against the 15-category taxonomy: **2 blockers, 4 test gaps, 2 explicit defers**. Apply ALL of the following during the relevant task.
+
+| ID | Bucket | Disposition |
+|---|---|---|
+| **A1** no blanket caller-audit for 5 changed signatures (breaks existing callers AND existing tests) | Plan blocker | **Fixed:** each task gains a **Step 0 caller-audit** (below). |
+| **A2** wargs Program.cs resolve→thread wiring untested (formatter-only) — the unwired-caller class the sweep kills | Plan blocker | **Fixed:** Task 3 adds a minimal `EmitHumanSummary` seam + a test that drives resolve→thread (below). |
+| **A3** "no ESC when off" ≠ plain output unchanged | Test gap | **Fixed:** each tool's tests add an **exact-plain-string** assertion (below). |
+| **A4** hcat `ColorStatus` status-class boundaries untested | Test gap | **Fixed:** Task 2 adds a status-class `[Theory]` (below). |
+| **A5** trash/hcat colour-on tests use bare `--color` (auto-detect variable) | Test gap | **Fixed:** use `--color=always` in colour-on tests (bare→always is correct, but explicit removes the variable). |
+| **A6** CaptureLifecycle colour must not change the lock scope | Test gap→note | **Fixed:** Task 2 Step 4 note (below); concurrency repro deferred. |
+| **A6-DEFER** concurrent-write integration test for hcat coloured log | Explicit defer | ADR deferred (rests on `_useColor` immutability + unchanged lock scope). |
+| **A7-DEFER** hcat banner AOT serve smoke best-effort | Explicit defer | ADR deferred (unit test is the primary guard). |
+
+### A1 — add as **Step 0** of every task
+- [ ] **Step 0: Caller audit.** Grep `src/` AND `tests/` for callers of the signature(s) this task changes (`TrashSummary(` / `ListTable(` for Task 1; `Banner.Render(` / `new CaptureLifecycle(` for Task 2; `FormatHumanSummary(` for Task 3). Update **every** call site: production passes the resolved `useColor`; **pre-existing tests pass `useColor: false`** (preserving their asserted plain output). Confirm the test project compiles (`dotnet build`) before running the new colour tests. A missed caller is a hard compile break.
+
+### A2 — Task 3: minimal `EmitHumanSummary` seam (verifies the wiring)
+Add to `src/Winix.Wargs/` an internal seam so the resolve→thread→emit chain is testable without a full `Program.cs` refactor or process spawn:
+```csharp
+namespace Winix.Wargs;
+
+public static class HumanSummary
+{
+    /// <summary>Resolves colour from the parsed args (stderr stream) and writes the human failure
+    /// summary (if any) to <paramref name="stderr"/>. Extracted from Program.cs so the
+    /// resolve→colour→emit wiring is testable (wargs has no Cli.Run seam).</summary>
+    public static void Emit(Yort.ShellKit.ParseResult parsed, WargsResult result, System.IO.TextWriter stderr)
+    {
+        bool useColor = parsed.ResolveColor(checkStdErr: true);
+        string? summary = Formatting.FormatHumanSummary(result, useColor);
+        if (summary is not null) { stderr.WriteLine(summary); }
+    }
+}
+```
+`Program.cs` Step 4 then calls `HumanSummary.Emit(parseResult, wargsResult, Console.Error);` instead of inlining the resolve+format+write. Test (`tests/Winix.Wargs.Tests/ColorTests.cs`) drives the wiring:
+```csharp
+    private static readonly string Esc = ((char)27).ToString();
+
+    private static Yort.ShellKit.ParseResult ParsedWith(string colorFlag)
+        => /* build the SAME CommandLineParser wargs builds (StandardFlags + wargs flags), then .Parse(new[]{colorFlag}) */
+           BuildWargsParser().Parse(new[] { colorFlag });
+
+    [Fact]
+    public void Emit_ColorAlways_WritesAnsiSummary()
+    {
+        var sw = new System.IO.StringWriter();
+        HumanSummary.Emit(ParsedWith("--color=always"), Failed(), sw);
+        Assert.Contains(Esc, sw.ToString(), System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Emit_NoColor_WritesPlainSummary()
+    {
+        var sw = new System.IO.StringWriter();
+        HumanSummary.Emit(ParsedWith("--no-color"), Failed(), sw);
+        Assert.Equal("wargs: 2/3 jobs failed" + System.Environment.NewLine, sw.ToString()); // exact plain (A3)
+        Assert.DoesNotContain(Esc, sw.ToString(), System.StringComparison.Ordinal);
+    }
+```
+> **Verify-at-implementation:** `BuildWargsParser()` must construct the parser the SAME way `Program.cs` does (so `--color` is a registered optional-value flag via `StandardFlags`). Either expose Program.cs's parser-builder as an internal static method and call it from both Program.cs and the test, OR (simpler) the test builds a `new CommandLineParser("wargs", "0.0.0").StandardFlags()` — sufficient since only `--color`/`--no-color` resolution is under test. Confirm `WargsResult` ctor arity. This seam closes the A2 blocker: a regression where Program.cs passes `false` or doesn't wire `useColor` now fails `Emit_ColorAlways_WritesAnsiSummary`.
+
+### A3 — exact-plain-string assertions (each tool)
+- **trash** Task 1: in `List_NoColor_IsPlain`, additionally `Assert.Equal(<pinned plain table string>, outText.Replace("\r\n","\n"))` — capture the exact expected table once and pin it. And `Assert.Equal("trash: moved 3 item(s) to trash", Formatting.TrashSummary(3, useColor: false))`.
+- **hcat** Task 2: assert the exact plain banner line(s) for `useColor:false` and the exact plain log line `"GET /x 200"` for the no-colour `OnServeAccess`.
+- **wargs** Task 3: the `Emit_NoColor_WritesPlainSummary` exact-equal above + `Assert.Equal("wargs: 2/3 jobs failed", Formatting.FormatHumanSummary(Failed(), useColor:false))`.
+
+### A4 — Task 2: hcat status-class `[Theory]`
+```csharp
+    [Theory]
+    [InlineData(200)] [InlineData(204)] [InlineData(301)] [InlineData(404)] [InlineData(500)] [InlineData(503)]
+    public void RequestLog_StatusClasses_AllColoredOn(int status)
+    {
+        var sink = new System.IO.StringWriter();
+        var lifecycle = new CaptureLifecycle(new CaptureController(null, null), jsonSink: null, humanSink: sink, useColor: true);
+        lifecycle.OnServeAccess(new RequestRecord("GET", "/p", null, null, System.DateTimeOffset.UtcNow), status);
+        Assert.Contains(((char)27).ToString(), sink.ToString(), System.StringComparison.Ordinal);
+        Assert.Contains(status.ToString(System.Globalization.CultureInfo.InvariantCulture), sink.ToString(), System.StringComparison.Ordinal);
+    }
+```
+(Exercises 2xx/3xx/4xx/5xx; the status text must always be present regardless of colour.)
+
+### A5 — colour-on tests use `--color=always`
+In Task 1 `RunList(color:true)` use `"--color=always"`; in Task 2 the banner colour-on test already calls `Render(..., useColor:true)` directly (no flag) — fine. Anywhere a flag string drives colour-on, use `--color=always`, not bare `--color`.
+
+### A6 — Task 2 Step 4 note
+Add: "Build the coloured log line as a local string, then pass it to the existing `WriteLineLocked` path **unchanged** — do not move work into/out of the lock scope. `_useColor` is set once in the ctor (immutable), so `ColorStatus` is thread-safe." No concurrency test (deferred, A6-DEFER).
