@@ -494,3 +494,69 @@ In Task 1 `RunList(color:true)` use `"--color=always"`; in Task 2 the banner col
 
 ### A6 — Task 2 Step 4 note
 Add: "Build the coloured log line as a local string, then pass it to the existing `WriteLineLocked` path **unchanged** — do not move work into/out of the lock scope. `_useColor` is set once in the ctor (immutable), so `ColorStatus` is thread-safe." No concurrency test (deferred, A6-DEFER).
+
+---
+
+## Adversarial Review Integration — Pass 2 (confirming, 2026-06-01)
+
+Second fresh subagent confirmed the architecture is sound and the pass-1 integration is internally consistent (A1 Step-0 on all signature-changing tasks; A3 newline distinction correct; A4/A5/A6 sane). **0 new blockers, 2 new test gaps**, both fixed below. (Two passes run — skill maximum. Proceed to execution.)
+
+| ID | Bucket | Disposition |
+|---|---|---|
+| **P2-A** residual A2: nothing asserts `Program.cs` actually *calls* `HumanSummary.Emit` (the seam could be tested-but-dead — the unwired class one level up) | Test gap | **Fixed:** Task 3 Step 4 note (below) — Program.cs MUST emit via `HumanSummary.Emit`; Step-0 grep confirms it's the only `FormatHumanSummary(` caller outside the formatter+tests. |
+| **P2-B** two added colour branches untested: trash per-path failure line (red), hcat `OnRecord` dim-method line | Test gap | **Fixed:** one test each (below). |
+| (minor) `HumanSummary` prose says "internal seam" but code declares `public static class` | — | Keep it `public` (consistent with the other `public static` formatters); read the A2 prose "internal seam" as "a seam," not an access modifier. |
+
+### P2-A — Task 3 Step 4 note
+Add: "**Program.cs MUST emit the human summary via `HumanSummary.Emit(parseResult, wargsResult, Console.Error)`** — do NOT inline `FormatHumanSummary(...)` directly. After the change, the Step-0 caller-audit grep for `FormatHumanSummary(` must find exactly two callers: inside `HumanSummary.Emit` and inside the tests. Any direct `FormatHumanSummary(` call left in `Program.cs` means the seam test is dead and the production path is unguarded — re-route it through `Emit`."
+
+### P2-B — two added-branch tests
+
+**trash** — add to `tests/Winix.Trash.Tests/ColorTests.cs` (drives `RunTrash`'s red per-path failure line via a backend that fails one path):
+```csharp
+    [Fact]
+    public void TrashFailureLine_ColorTogglesAnsi()
+    {
+        var seColor = new StringWriter();
+        Cli.Run(new[] { "x.txt", "--color=always" }, new StringWriter(), seColor, backendOverride: new OneFailBackend());
+        Assert.Contains(Esc, seColor.ToString(), System.StringComparison.Ordinal);
+
+        var sePlain = new StringWriter();
+        Cli.Run(new[] { "x.txt", "--no-color" }, new StringWriter(), sePlain, backendOverride: new OneFailBackend());
+        Assert.DoesNotContain(Esc, sePlain.ToString(), System.StringComparison.Ordinal);
+        Assert.Contains("x.txt", sePlain.ToString(), System.StringComparison.Ordinal); // path still present
+    }
+
+    // Backend whose Trash returns one FAILED outcome (drives the red per-path failure line).
+    private sealed class OneFailBackend : ITrashBackend
+    {
+        public TrashResult Trash(System.Collections.Generic.IReadOnlyList<string> paths)
+            => /* a TrashResult with SuccessCount 0 and one failed PathOutcome(path: "x.txt", error: "no such file") */
+               throw new System.NotImplementedException(); // VERIFY: build the real TrashResult/PathOutcome shape
+        public System.Collections.Generic.IReadOnlyList<TrashedItem> List() => System.Array.Empty<TrashedItem>();
+        public EmptyResult Empty() => throw new System.NotImplementedException();
+    }
+```
+> **Verify-at-implementation:** construct a real `TrashResult` with one failed `PathOutcome` (the `OneFailBackend.Trash` body) — read `TrashResult`/`PathOutcome` ctors. The contract: a failed trash op writes a red failure line to stderr when colour is on, plain (path still present) when off.
+
+**hcat** — add to `tests/Winix.HCat.Tests/ColorTests.cs` (drives `OnRecord`, the non-serve per-request line):
+```csharp
+    [Fact]
+    public void OnRecord_MethodColoredOn_PlainOff()
+    {
+        var on = new StringWriter();
+        new CaptureLifecycle(new CaptureController(null, null), jsonSink: null, humanSink: on, useColor: true)
+            .OnRecord(new RequestRecord("POST", "/submit", null, null, System.DateTimeOffset.UtcNow));
+        Assert.Contains(Esc, on.ToString(), System.StringComparison.Ordinal);
+        Assert.Contains("/submit", on.ToString(), System.StringComparison.Ordinal);
+
+        var off = new StringWriter();
+        new CaptureLifecycle(new CaptureController(null, null), jsonSink: null, humanSink: off, useColor: false)
+            .OnRecord(new RequestRecord("POST", "/submit", null, null, System.DateTimeOffset.UtcNow));
+        Assert.DoesNotContain(Esc, off.ToString(), System.StringComparison.Ordinal);
+        Assert.Equal("POST /submit" + System.Environment.NewLine, off.ToString()); // exact plain (A3)
+    }
+```
+> **Verify-at-implementation:** confirm `OnRecord`'s plain human line is exactly `"{Method} {Path}"` (per CaptureLifecycle today) so the exact-equal holds; adjust the literal if the format differs.
+
+**Review status: COMPLETE** (two passes; architecture converged at pass 1; pass 2 added two branch tests + a wiring-assertion note). Proceed to execution.
