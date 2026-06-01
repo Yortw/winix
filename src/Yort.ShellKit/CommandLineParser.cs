@@ -31,6 +31,7 @@ public sealed class CommandLineParser
     private readonly List<FlagDef> _flags = new();
     private readonly List<OptionDef> _options = new();
     private readonly List<ListOptionDef> _listOptions = new();
+    private readonly List<OptionalValueOptionDef> _optionalValueOptions = new();
     private readonly List<AliasDef> _aliases = new();
     private readonly List<(string Title, string Body)> _sections = new();
     private readonly List<(int Code, string Description)> _exitCodes = new();
@@ -51,6 +52,7 @@ public sealed class CommandLineParser
     private Dictionary<string, FlagDef>? _flagLookup;
     private Dictionary<string, OptionDef>? _optionLookup;
     private Dictionary<string, ListOptionDef>? _listOptionLookup;
+    private Dictionary<string, OptionalValueOptionDef>? _optionalValueLookup;
     private Dictionary<string, AliasDef>? _aliasLookup;
     private bool _standardFlagsRegistered;
     private bool _parsed;
@@ -139,6 +141,16 @@ public sealed class CommandLineParser
         return this;
     }
 
+    /// <summary>Registers an optional-value flag: valid bare (resolves to <paramref name="defaultWhenBare"/>)
+    /// or as --name=VALUE where VALUE must be one of <paramref name="allowedValues"/>.</summary>
+    public CommandLineParser OptionalValueOption(string longName, string? shortName, string description,
+        string[] allowedValues, string defaultWhenBare)
+    {
+        ThrowIfParsed();
+        _optionalValueOptions.Add(new OptionalValueOptionDef(longName, shortName, description, allowedValues, defaultWhenBare));
+        return this;
+    }
+
     /// <summary>
     /// Registers a flag alias that expands to an option+value pair during parsing.
     /// Used for backward-compatibility shortcuts (e.g. -9 → --level 9).
@@ -177,7 +189,8 @@ public sealed class CommandLineParser
         _standardFlagsRegistered = true;
         Flag("--help", "-h", "Show help");
         Flag("--version", "Show version");
-        Flag("--color", "Force colored output");
+        OptionalValueOption("--color", null, "Coloured output: auto (default when omitted), always, or never",
+            new[] { "auto", "always", "never" }, "always");
         Flag("--no-color", "Disable colored output");
         Flag("--json", "JSON output");
         Flag("--describe", "Structured JSON metadata for AI agents");
@@ -389,6 +402,19 @@ public sealed class CommandLineParser
                 }
             }
 
+            // Optional-value flag (e.g. --color: bare → default, --color=never → explicit, enum-validated)
+            if (_optionalValueLookup!.TryGetValue(lookupKey, out OptionalValueOptionDef? ovOption))
+            {
+                if (attachedValue is not null && Array.IndexOf(ovOption.AllowedValues, attachedValue) < 0)
+                {
+                    errors.Add($"{ovOption.LongName}: '{attachedValue}' is not one of: {string.Join(", ", ovOption.AllowedValues)}");
+                    continue;
+                }
+                flagsSet.Add(ovOption.LongName);
+                optionValues[ovOption.LongName] = attachedValue ?? ovOption.DefaultWhenBare;
+                continue;
+            }
+
             // Check flags
             if (_flagLookup!.TryGetValue(lookupKey, out FlagDef? flag))
             {
@@ -547,6 +573,7 @@ public sealed class CommandLineParser
         _flagLookup = new Dictionary<string, FlagDef>(StringComparer.Ordinal);
         _optionLookup = new Dictionary<string, OptionDef>(StringComparer.Ordinal);
         _listOptionLookup = new Dictionary<string, ListOptionDef>(StringComparer.Ordinal);
+        _optionalValueLookup = new Dictionary<string, OptionalValueOptionDef>(StringComparer.Ordinal);
         _aliasLookup = new Dictionary<string, AliasDef>(StringComparer.Ordinal);
 
         foreach (FlagDef f in _flags)
@@ -579,6 +606,15 @@ public sealed class CommandLineParser
         foreach (AliasDef a in _aliases)
         {
             _aliasLookup[a.Alias] = a;
+        }
+
+        foreach (OptionalValueOptionDef ov in _optionalValueOptions)
+        {
+            _optionalValueLookup[ov.LongName] = ov;
+            if (ov.ShortName is not null)
+            {
+                _optionalValueLookup[ov.ShortName] = ov;
+            }
         }
     }
 
@@ -932,6 +968,11 @@ public sealed class CommandLineParser
 
     /// <summary>Definition of a boolean flag (e.g. --verbose).</summary>
     internal sealed record FlagDef(string LongName, string? ShortName, string Description);
+
+    /// <summary>Definition of an optional-value flag (e.g. --color: bare uses DefaultWhenBare,
+    /// or --color=VALUE where VALUE must be one of AllowedValues).</summary>
+    internal sealed record OptionalValueOptionDef(
+        string LongName, string? ShortName, string Description, string[] AllowedValues, string DefaultWhenBare);
 
     /// <summary>The value type of a parsed option.</summary>
     internal enum OptionType
