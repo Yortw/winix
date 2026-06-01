@@ -139,7 +139,8 @@ public sealed class ParseResult
 
     /// <summary>
     /// Resolves whether colour output should be used, applying Winix precedence:
-    /// explicit --color/--no-color flag &gt; NO_COLOR env var &gt; terminal auto-detection.
+    /// explicit <c>--color</c>/<c>--no-color</c> (always|never) &gt; NO_COLOR env &gt; terminal auto-detection;
+    /// <c>--color</c>/always overrides NO_COLOR.
     /// </summary>
     /// <param name="checkStdErr">
     /// When <see langword="true"/>, auto-detection checks whether stderr is a terminal instead of stdout.
@@ -147,12 +148,26 @@ public sealed class ParseResult
     /// so that piping stdout does not suppress colour on the still-visible stderr stream.
     /// </param>
     public bool ResolveColor(bool checkStdErr = false)
+        => ResolveColorCore(ConsoleEnv.IsTerminal(checkStdErr), ConsoleEnv.IsNoColorEnvSet());
+
+    /// <summary>Testable core of <see cref="ResolveColor"/>: maps the --color value
+    /// (always/never/auto) and --no-color to the colour decision given the supplied
+    /// terminal/NO_COLOR state. Internal seam so auto/absent cases are deterministic in tests.</summary>
+    internal bool ResolveColorCore(bool isTerminal, bool noColorEnv)
     {
+        bool colorAlways = false;
+        bool colorNever = false;
+        if (_optionValues.TryGetValue("--color", out string? colorValue))
+        {
+            colorAlways = string.Equals(colorValue, "always", StringComparison.Ordinal);
+            colorNever = string.Equals(colorValue, "never", StringComparison.Ordinal);
+        }
+
         return ConsoleEnv.ResolveUseColor(
-            Has("--color"),
-            Has("--no-color"),
-            ConsoleEnv.IsNoColorEnvSet(),
-            ConsoleEnv.IsTerminal(checkStdErr));
+            colorAlways,
+            colorNever || _flagsSet.Contains("--no-color"),
+            noColorEnv,
+            isTerminal);
     }
 
     /// <summary>
