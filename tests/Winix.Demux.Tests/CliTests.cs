@@ -92,6 +92,88 @@ public class CliTests
         Assert.Equal(2, code); // NOT 126 — proves command-not-found is a child exit, handled as exit 2
     }
 
+    // Reproducer for finally-close fix: Router.Run throws mid-read (simulating upstream pipe severed),
+    // sinks MUST still be closed so FileSink (AutoFlush=false) flushes buffered data.
+    [Fact]
+    public void ReaderThrowsMidRun_SinksStillClosed_DeliveredDataFlushed()
+    {
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        try
+        {
+            // Reader yields one matching line, then throws on the next read (e.g. upstream pipe severed).
+            var reader = new ThrowOnSecondReadLine("ERROR first");
+            var se = new StringWriter();
+            // Cli.Run is expected to propagate the throw — but it MUST close sinks first (finally),
+            // so the FileSink (AutoFlush=false) flushes "ERROR first" to disk. Without the finally,
+            // the close loop is skipped and the file is EMPTY (buffered, never flushed).
+            Assert.ThrowsAny<IOException>(() =>
+                Cli.Run(new[] { "--to", "ERROR", path }, reader, new StringWriter(), se));
+            Assert.Equal("ERROR first\n",
+                File.ReadAllText(path).Replace("\r\n", "\n"));  // proves FileSink.Close() ran
+        }
+        finally { File.Delete(path); }
+    }
+
+    // Integration test: --all broadcast delivers a line to EVERY matching FileSink through Cli.Run.
+    [Fact]
+    public void AllBroadcast_RoutesLineToEveryMatchingFile()
+    {
+        string pathA = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        string pathB = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        try
+        {
+            var (code, _, _) = Run("ERROR boom\n", "--all", "--to", "ERROR", pathA, "--to", "boom", pathB);
+            Assert.Equal(0, code);
+            Assert.Equal("ERROR boom\n", File.ReadAllText(pathA).Replace("\r\n", "\n"));
+            Assert.Equal("ERROR boom\n", File.ReadAllText(pathB).Replace("\r\n", "\n"));
+        }
+        finally
+        {
+            File.Delete(pathA);
+            File.Delete(pathB);
+        }
+    }
+
+    // Integration test: --default-to routes unmatched lines to the default file, NOT stdout.
+    [Fact]
+    public void DefaultTo_RoutesUnmatchedToDefaultFile_StdoutEmpty()
+    {
+        string pathMatched = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        string pathDefault = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        try
+        {
+            var so = new StringWriter();
+            var se = new StringWriter();
+            int code = Cli.Run(
+                new[] { "--to", "ERROR", pathMatched, "--default-to", pathDefault },
+                new StringReader("ERROR a\nplain b\n"), so, se);
+            Assert.Equal(0, code);
+            Assert.Equal("ERROR a\n", File.ReadAllText(pathMatched).Replace("\r\n", "\n"));
+            Assert.Equal("plain b\n", File.ReadAllText(pathDefault).Replace("\r\n", "\n"));
+            Assert.Equal("", so.ToString());  // unmatched went to default file, not stdout
+        }
+        finally
+        {
+            File.Delete(pathMatched);
+            File.Delete(pathDefault);
+        }
+    }
+
+    // Integration test: --append preserves existing file content through Cli.Run.
+    [Fact]
+    public void Append_ThroughCli_PreservesExistingFileContent()
+    {
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        File.WriteAllText(path, "OLD\n");
+        try
+        {
+            var (code, _, _) = Run("ERROR new\n", "--append", "--to", "ERROR", path);
+            Assert.Equal(0, code);
+            Assert.Equal("OLD\nERROR new\n", File.ReadAllText(path).Replace("\r\n", "\n"));
+        }
+        finally { File.Delete(path); }
+    }
+
     // Throws on the methods StdoutSink actually calls (Write(string)/Write(char) funnel through Write(char)).
     private sealed class ThrowingWriter : TextWriter
     {
@@ -101,5 +183,19 @@ public class CliTests
         // The Write(string) overload in TextWriter delegates to Write(char[]) which delegates to Write(char),
         // so overriding Write(char) is sufficient to intercept all paths.
         public override void Write(char value) => throw new IOException("downstream closed");
+    }
+
+    // Reader that yields one line then throws IOException — simulates an upstream pipe severed mid-stream.
+    private sealed class ThrowOnSecondReadLine : TextReader
+    {
+        private readonly string _first;
+        private int _calls;
+        public ThrowOnSecondReadLine(string first) { _first = first; }
+        public override string? ReadLine()
+        {
+            _calls++;
+            if (_calls == 1) { return _first; }
+            throw new IOException("upstream pipe severed");
+        }
     }
 }

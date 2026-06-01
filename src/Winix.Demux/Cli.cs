@@ -67,8 +67,18 @@ public static class Cli
 
         allSinks.Add(stdoutSink);
 
-        new Router().Run(stdin, options, routeSinks, defaultSink, stdoutSink);
-        foreach (ISink s in allSinks) { s.Close(); }
+        // Wrap in try/finally so sinks are ALWAYS closed even if Router.Run throws (e.g. upstream
+        // pipe severed mid-read). Without the finally, CommandSink children are orphaned and
+        // FileSink's buffered data is lost. Per-sink try/catch prevents one stuck Close() from
+        // skipping the remaining sinks — Close() is idempotent so a second call from re-entry is safe.
+        try
+        {
+            new Router().Run(stdin, options, routeSinks, defaultSink, stdoutSink);
+        }
+        finally
+        {
+            foreach (ISink s in allSinks) { try { s.Close(); } catch { /* best effort: never let one sink's close hide the real fault */ } }
+        }
 
         var summary = new RoutingSummary(allSinks, options.ExitOnChildError);
         // Compute exit code from sink counters before any formatting can throw.
