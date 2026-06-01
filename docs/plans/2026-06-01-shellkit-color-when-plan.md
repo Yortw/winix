@@ -960,3 +960,27 @@ Replace the Task 3 Step 3 `ResolveColor` body with a thin wrapper over an intern
 
 `Has("--color")` now returns true for `--color=never` too (it stores into `flagsSet`). `ResolveColor` is reworked to compensate, but any tool reading `--color` directly (bypassing `ResolveColor`) would now force colour on even for `--color=never`.
 Run a content search across `src/` for `Has("--color")` and `GetString("--color")`. Expected: the ONLY consumer is `ParseResult.ResolveColor`/`ResolveColorCore` (ShellKit). If any tool's own code calls either directly, that is a regression site — report it; it must route through `ResolveColor` instead. (This is read-only verification; fix any hit before declaring done.)
+
+---
+
+## Adversarial Review Integration — Pass 2 (confirming, 2026-06-01)
+
+A second fresh subagent confirmed the architecture is sound (integrable edge/test hardening, not a return to brainstorming) and that the Pass-1 integration is internally consistent (F8 test genuinely guards the lookup; F9 `ResolveColorCore` rows match the design precedence with no host-TTY dependence; the added tests' asserted outcomes match the routing-block code; no design/ADR/plan contradictions). **0 new blockers.** Two minor items, both resolved:
+
+| ID | Bucket | Disposition |
+|---|---|---|
+| **P2-F1** no `=`-form parse-failure test for the `double` option (int path is tested; double routes through the structurally-identical branch) | Test gap | **Test added** — append to `EqualsSyntaxTests` (below), closing int/double symmetry. |
+| **P2-F2** `Help_WithAttachedValue_IsError` asserts `r.IsHandled` — reviewer couldn't read the code to confirm the member name | Verify (resolved) | **Confirmed:** `ParseResult.IsHandled` exists (`public bool IsHandled { get; }`) and `Parse` sets it from `flagsSet.Contains("--help")`; `--help=x` takes the flag-with-value error path and never adds `--help` to `flagsSet`, so `IsHandled` stays false. The test compiles and is correct as written. No change. |
+
+### P2-F1 test — add to `EqualsSyntaxTests.cs`
+```csharp
+    [Fact]
+    public void DoubleOption_EqualsForm_BadValue_IsError()  // P2-F1: int/double symmetry
+    {
+        var r = NewParser().Parse(new[] { "--ratio=abc" });
+        Assert.True(r.HasErrors);
+        Assert.Contains(r.Errors, e => e.Contains("--ratio") && e.Contains("not a valid number"));
+    }
+```
+
+**Review status: COMPLETE.** Two passes run (the skill's maximum). The architecture converged at pass 1; pass 2 confirmed the integration with only two minor items, both now closed. Proceed to execution.
