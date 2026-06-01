@@ -33,6 +33,8 @@ When an arg `StartsWith("--")` **and** contains `=`, split on the **first** `=` 
 
 Empty attached value (`--output=`) is permitted and passed through as `""` — equivalent to a space-separated empty value; the option's own validator (if any) decides. For `--color=` the enum validation rejects it (§4).
 
+**Edge contracts (pinned by tests):** `--=x` (empty key) → `unknown option: --`. A value with a leading `=` (`--key==v`) splits on the first `=` → value `=v`, passed through verbatim. **Duplicate options → last-wins** (`--output=a --output=b` → `b`); list options **append** (both kept). A value that looks like a flag (`--output=--foo`) is taken literally as the value — a deliberate advantage of the `=` form over the space form.
+
 ## 4. `--color` as an optional-value flag
 
 A new lightweight definition type, `OptionalValueOptionDef` (distinct from `OptionDef`, which always requires a value):
@@ -47,6 +49,8 @@ Behaviour for `--color` (`AllowedValues = {auto, always, never}`, `DefaultWhenBa
 - `--color=auto` / `--color=always` / `--color=never` → that value
 - `--color=<other>` or `--color=` (empty) → usage error: `--color: '<x>' is not one of: auto, always, never`
 - absent → unset (ResolveColor treats unset as `auto`)
+- **case-sensitive:** `--color=Always` is rejected (matches GNU `ls`/`grep`); values must be lowercase `auto|always|never`.
+- **duplicate → last-wins:** `--color=always --color=never` resolves to `never`.
 
 `ParseResult` exposes the resolved value (e.g. `GetOptionalValue("--color")` returning `string?`: the explicit value, `DefaultWhenBare` if bare, or `null` if absent). Bare-vs-absent is distinguishable. `Has("--color")` continues to return `true` whenever the flag is present (bare or valued), so the standard-flag detection in `GenerateHelp`/`GenerateDescribe` and any `Has`-based checks keep working.
 
@@ -75,6 +79,7 @@ Tie `--color=always --no-color` → **on** (preserves current "colorFlag wins" b
 - `=value` on a boolean flag → exit 125 (`<flag> takes no value`).
 - Unknown `--key=value` → exit 125 (`unknown option: --key`).
 - Empty value on a plain string option → permitted (`""`), parity with space-separated empty value.
+- `--help` / `--version` / `--describe` with an attached value (`--help=x`) → `takes no value` error (exit 125), same as any boolean flag — the malformed token does **not** trigger help/version/describe. The handled-flag-vs-error ordering is otherwise unchanged from today (a well-formed `--help` is handled before error reporting).
 
 ## 8. Testing (`Yort.ShellKit.Tests`)
 

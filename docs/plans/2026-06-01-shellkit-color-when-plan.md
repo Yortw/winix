@@ -755,3 +755,208 @@ No code commit expected here (verification only). If the AOT smoke surfaced an i
 - **`InternalsVisibleTo`** — Task 4 tests call `internal` `GenerateHelp`/`GenerateDescribe`. Confirm `Yort.ShellKit.csproj` exposes internals to `Yort.ShellKit.Tests` (it should, since existing tests cover internals); if not, add it.
 - **`auto`/absent ResolveColor cases** are TTY-dependent and intentionally NOT asserted via `ResolveColor` (only via the pure `ResolveUseColor` Theory) to keep tests host-independent.
 - This plan is the **parser surface only**. It emits no colour. The emit-fixes (trash/hcat/wargs), end-to-end colour regression tests, and the 15-surface `WHEN`→`=WHEN` doc fix are the separate colour sweep (task #15).
+
+---
+
+## Adversarial Review Integration — Pass 1 (2026-06-01)
+
+A fresh subagent reviewed this plan against the 15-category taxonomy: **3 blockers, 6 test gaps, 5 explicit defers**. Dispositions below; fold the added tests into the named test files and apply the two code changes (F8 placement, F9 seam) during the relevant task.
+
+| ID | Bucket | Disposition |
+|---|---|---|
+| **F1** positional/CommandMode arg starting `--` containing `=` not split | Test gap | **Tests added** (T-A below). The split is correctly short-circuited (the `--` and non-flag branches run *before* the routing region), but it was unverified. |
+| **F2** `--=x` / leading-`=` value contract unspecified | Test gap + design note | **Tests added** (T-A) + design §3 contract line. (`--=x` → `unknown option: --`; `--key==v` → value `=v` passes through.) Downgraded from blocker: behaviour is acceptable, just was unpinned. |
+| **F3** duplicate / last-wins contract untested | Test gap + design note | **Tests added** (T-A, T-B) + design §3/§4 line: options & optional-value → last-wins; lists → append. |
+| **F4** enum case-sensitivity (`--color=Always`) | Test gap + design note | **Test added** (T-B) + design §4 / ADR D6: values are case-sensitive. |
+| **F5** value-looks-like-flag (`--output=--foo`) | Test gap | **Test added** (T-A). |
+| **F6** flag-shaped enum value (`--color=--always`) | Test gap | **Test added** (T-B). |
+| **F7** loose bad-value error assertion | Test gap | **Tightened** (T-B `Color_BadValue_ErrorMessageIsExact` pins the exact string). |
+| **F8** `BuildLookups` early-return could leave `_optionalValueLookup` null on 2nd parse | Plan blocker | **Fixed in plan:** Task 2 Step 3(e) MUST place the `_optionalValueLookup` assignment *after* the `if (_flagLookup is not null) return;` guard, alongside the other lookups (it already is, in the spec) — and **test added** (T-B `Parse_CalledTwice_OptionalValueStillResolves`) to lock it. |
+| **F9** `ResolveColor` never verifies auto/absent → TTY mapping | Plan blocker | **Fixed in plan:** Task 3 implementation now splits into a testable `internal ResolveColorCore(isTerminal, noColorEnv)` seam (code below); **tests added** (T-C) to verify the auto/absent argument-mapping deterministically. |
+| **F10** `Has("--color")`/`GetString("--color")` blast radius unaudited | Plan blocker | **Fixed in plan:** Task 5 gains a caller-audit step (below) — grep all tool source for direct `--color` reads outside `ResolveColor`; any direct caller is a regression site. |
+| **F11** `-o=x` short-flag loose assertion | Explicit defer + tighten | **Tightened** (T-A `ShortFlag_IsNotEqualsSplit` asserts `unknown option: -o=x`) + ADR D4 note. |
+| **F12** `--help=x` / handled-flag-with-value precedence unspecified | Explicit defer + test | **Test added** (T-B `Help_WithAttachedValue_IsError`) + design §7 line. |
+
+### T-A — add to `EqualsSyntaxTests.cs`
+
+```csharp
+    [Fact]
+    public void CommandMode_ArgsAfterSeparator_NotEqualsSplit()  // F1
+    {
+        var p = new CommandLineParser("t", "1.0").CommandMode().Flag("--verbose", "-v", "v");
+        var r = p.Parse(new[] { "--", "child", "--opt=v" });
+        Assert.False(r.HasErrors);
+        Assert.Equal(new[] { "child", "--opt=v" }, r.Command);
+    }
+
+    [Fact]
+    public void CommandMode_FirstNonFlagStops_LaterEqualsTokenNotSplit()  // F1
+    {
+        var p = new CommandLineParser("t", "1.0").CommandMode().Flag("--verbose", "-v", "v");
+        var r = p.Parse(new[] { "child", "--opt=v" });
+        Assert.False(r.HasErrors);
+        Assert.Equal(new[] { "child", "--opt=v" }, r.Command);
+    }
+
+    [Fact]
+    public void Positional_TokenWithEquals_NotSplit()  // F1
+    {
+        var p = new CommandLineParser("t", "1.0").Positional("files").Flag("--verbose", "-v", "v");
+        var r = p.Parse(new[] { "foo=bar" });
+        Assert.False(r.HasErrors);
+        Assert.Equal(new[] { "foo=bar" }, r.Positionals);
+    }
+
+    [Fact]
+    public void EmptyKey_DashDashEquals_IsUnknownOption()  // F2
+    {
+        var r = NewParser().Parse(new[] { "--=x" });
+        Assert.True(r.HasErrors);
+        Assert.Contains(r.Errors, e => e.Contains("unknown option: --"));
+    }
+
+    [Fact]
+    public void LeadingEqualsInValue_PassesThroughToStringOption()  // F2
+    {
+        var r = NewParser().Parse(new[] { "--output==v" });
+        Assert.False(r.HasErrors);
+        Assert.Equal("=v", r.GetString("--output"));
+    }
+
+    [Fact]
+    public void DuplicateOption_LastWins()  // F3
+    {
+        var r = NewParser().Parse(new[] { "--output=a", "--output=b" });
+        Assert.False(r.HasErrors);
+        Assert.Equal("b", r.GetString("--output"));
+    }
+
+    [Fact]
+    public void StringOption_EqualsForm_ValueLooksLikeFlag()  // F5
+    {
+        var r = NewParser().Parse(new[] { "--output=--foo" });
+        Assert.False(r.HasErrors);
+        Assert.Equal("--foo", r.GetString("--output"));
+    }
+```
+
+Also **replace** the existing `ShortFlag_IsNotEqualsSplit` body (F11 tighten) with:
+```csharp
+    [Fact]
+    public void ShortFlag_IsNotEqualsSplit()  // F11: -o=x is a single unknown token (long-only =-split)
+    {
+        var r = NewParser().Parse(new[] { "-o=x" });
+        Assert.True(r.HasErrors);
+        Assert.Contains(r.Errors, e => e.Contains("unknown option: -o=x"));
+    }
+```
+
+### T-B — add to `OptionalValueColorTests.cs`
+
+```csharp
+    [Fact]
+    public void Color_DuplicateValues_LastWins()  // F3
+    {
+        var r = NewParser().Parse(new[] { "--color=always", "--color=never" });
+        Assert.False(r.HasErrors);
+        Assert.Equal("never", r.GetString("--color"));
+    }
+
+    [Fact]
+    public void Color_MixedCaseValue_IsError()  // F4: values are case-sensitive
+    {
+        var r = NewParser().Parse(new[] { "--color=Always" });
+        Assert.True(r.HasErrors);
+    }
+
+    [Fact]
+    public void Color_FlagShapedValue_IsError()  // F6
+    {
+        var r = NewParser().Parse(new[] { "--color=--always" });
+        Assert.True(r.HasErrors);
+    }
+
+    [Fact]
+    public void Color_BadValue_ErrorMessageIsExact()  // F7: pin the docs-referenced contract
+    {
+        var r = NewParser().Parse(new[] { "--color=purple" });
+        Assert.Contains(r.Errors, e => e.Contains("--color: 'purple' is not one of: auto, always, never"));
+    }
+
+    [Fact]
+    public void Parse_CalledTwice_OptionalValueStillResolves()  // F8: locks the BuildLookups guard
+    {
+        var p = NewParser();
+        var r1 = p.Parse(new[] { "--color=never" });
+        Assert.Equal("never", r1.GetString("--color"));
+        var r2 = p.Parse(new[] { "--color=always" });
+        Assert.Equal("always", r2.GetString("--color"));
+    }
+
+    [Fact]
+    public void Help_WithAttachedValue_IsError()  // F12
+    {
+        var r = NewParser().Parse(new[] { "--help=x" });
+        Assert.True(r.HasErrors);
+        Assert.False(r.IsHandled); // malformed --help=x does not trigger help; it errors
+    }
+```
+
+### F9 — Task 3 implementation change (testable seam)
+
+Replace the Task 3 Step 3 `ResolveColor` body with a thin wrapper over an internal seam so the auto/absent → env/TTY mapping is testable without host-TTY dependence:
+```csharp
+    public bool ResolveColor(bool checkStdErr = false)
+        => ResolveColorCore(ConsoleEnv.IsTerminal(checkStdErr), ConsoleEnv.IsNoColorEnvSet());
+
+    /// <summary>Testable core of <see cref="ResolveColor"/>: maps the --color value
+    /// (always/never/auto) and --no-color to the colour decision given the supplied
+    /// terminal/NO_COLOR state. Internal seam so auto/absent cases are deterministic in tests.</summary>
+    internal bool ResolveColorCore(bool isTerminal, bool noColorEnv)
+    {
+        bool colorAlways = false;
+        bool colorNever = false;
+        if (_optionValues.TryGetValue("--color", out string? colorValue))
+        {
+            colorAlways = string.Equals(colorValue, "always", StringComparison.Ordinal);
+            colorNever = string.Equals(colorValue, "never", StringComparison.Ordinal);
+        }
+
+        return ConsoleEnv.ResolveUseColor(
+            colorAlways,
+            colorNever || _flagsSet.Contains("--no-color"),
+            noColorEnv,
+            isTerminal);
+    }
+```
+(`ResolveColorCore` is `internal`; the ShellKit.Tests project already sees internals — confirm `InternalsVisibleTo`, same note as Task 4.)
+
+### T-C — add to `ColorResolutionTests.cs` (verifies the auto/absent mapping F9)
+
+```csharp
+    [Theory]
+    [InlineData("--color=auto", true, false, true)]    // auto + TTY → on
+    [InlineData("--color=auto", false, false, false)]  // auto + non-TTY → off
+    [InlineData("--color=always", false, false, true)] // always forced on even non-TTY
+    [InlineData("--color=never", true, false, false)]  // never forced off even on a TTY
+    public void ResolveColorCore_MapsValueAndEnv(string arg, bool isTty, bool noColorEnv, bool expected)
+    {
+        var r = new CommandLineParser("t", "1.0").StandardFlags().Parse(new[] { arg });
+        Assert.Equal(expected, r.ResolveColorCore(isTty, noColorEnv));
+    }
+
+    [Fact]
+    public void ResolveColorCore_Absent_UsesTerminalBranch()
+    {
+        var r = new CommandLineParser("t", "1.0").StandardFlags().Parse(System.Array.Empty<string>());
+        Assert.True(r.ResolveColorCore(isTerminal: true, noColorEnv: false));
+        Assert.False(r.ResolveColorCore(isTerminal: false, noColorEnv: false));
+    }
+```
+
+### F10 — Task 5 added step (caller audit, the back-compat keystone)
+
+- [ ] **Task 5 Step 2a: Audit direct `--color` callers**
+
+`Has("--color")` now returns true for `--color=never` too (it stores into `flagsSet`). `ResolveColor` is reworked to compensate, but any tool reading `--color` directly (bypassing `ResolveColor`) would now force colour on even for `--color=never`.
+Run a content search across `src/` for `Has("--color")` and `GetString("--color")`. Expected: the ONLY consumer is `ParseResult.ResolveColor`/`ResolveColorCore` (ShellKit). If any tool's own code calls either directly, that is a regression site — report it; it must route through `ResolveColor` instead. (This is read-only verification; fix any hit before declaring done.)

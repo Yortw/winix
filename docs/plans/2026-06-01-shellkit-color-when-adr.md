@@ -36,7 +36,7 @@
 - **Context:** `-c=x` is ambiguous and non-standard.
 - **Decision:** Only `--key=value` is `=`-split; short flags stay space-separated.
 - **Rationale:** Matches GNU; avoids short-flag ambiguity.
-- **Trade-offs accepted:** `-c=never` is not supported (use `--color=never` or `-c never`-style space form where a short exists).
+- **Trade-offs accepted:** `-c=never` is not supported (use `--color=never` or `-c never`-style space form where a short exists). A short token like `-o=x` is a single unmatched token → `unknown option: -o=x` (pinned by test, not silently reinterpreted).
 - **Options considered:** Split `=` on short flags too (rejected: ambiguous, unconventional).
 
 ## D5 — `=value` on a boolean flag is an error
@@ -49,9 +49,9 @@
 
 ## D6 — Allowed values `auto`/`always`/`never` only
 
-- **Decision:** `--color` accepts exactly `auto`, `always`, `never`.
-- **Rationale:** Covers the suite; matches the common subset across git/ls/grep/fd.
-- **Trade-offs accepted:** No `ansi`/forced-ANSI variant.
+- **Decision:** `--color` accepts exactly `auto`, `always`, `never` — **case-sensitive** (lowercase only; `--color=Always` is rejected). Duplicate occurrences → last-wins.
+- **Rationale:** Covers the suite; matches the common subset across git/ls/grep/fd, which are also case-sensitive on the WHEN value.
+- **Trade-offs accepted:** No `ansi`/forced-ANSI variant; `--color=Always` (mixed case) is a usage error rather than leniently accepted.
 - **Options considered:** git's extra values (rejected: unneeded).
 
 ## D7 — `--no-color` kept permanently as a boolean alias for `never`
