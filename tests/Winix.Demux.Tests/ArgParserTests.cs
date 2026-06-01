@@ -91,4 +91,12 @@ public class ArgParserTests
         var (_, _, code) = Parse("--to", "E", "e.log", "--delimiter", "");
         Assert.Equal(125, code);
     }
+
+    // Lock the IntOption contract: non-numeric --field surfaces via HasErrors → exit 125, not FormatException.
+    [Fact]
+    public void FieldNonNumeric_IsUsageError()
+    {
+        var (_, _, code) = Parse("--to", "E", "e.log", "--field", "abc");
+        Assert.Equal(125, code);
+    }
 }

@@ -69,11 +69,6 @@ public static class ArgParser
 
         // --field is registered as IntOption so ShellKit already validated the value at parse time.
         int? field = result.Has("--field") ? result.GetInt("--field") : null;
-        if (field is int f && f < 1)
-        {
-            stderr.WriteLine("demux: --field must be >= 1");
-            return ExitCode.UsageError;
-        }
 
         // F10: an explicitly-empty --delimiter collides with the ""=whitespace sentinel; reject it.
         if (result.Has("--delimiter") && result.GetString("--delimiter").Length == 0)
@@ -145,9 +140,9 @@ public static class ArgParser
                 "cat app.log | demux --to ERROR err.log --default-exec 'gzip > rest.gz'",
                 "Split errors into a file, compress the rest")
             .ComposesWith(
-                "peep",
-                "peep -- sh -c 'produce-data | demux --to ERROR err.log'",
-                "Re-run a routing pipeline on file change")
+                "clip",
+                "demux --exec ERROR clip --default-to rest.log",
+                "Copy error lines to the clipboard, file the rest")
             .JsonField("tool", "string", "Tool name (\"demux\")")
             .JsonField("exit_code", "int", "0/1/2 — see exit codes")
             .JsonField("routes", "array", "Per-route delivered/undelivered/dead/child_exit_code");
