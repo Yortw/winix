@@ -10,6 +10,6 @@ internal sealed class Program
     {
         ConsoleEnv.EnableAnsiIfNeeded();
         ConsoleEnv.UseUtf8Streams();
-        return Cli.Run(args, Console.Out, Console.Error);
+        return Cli.Run(args, Console.In, Console.Out, Console.Error);
     }
 }
