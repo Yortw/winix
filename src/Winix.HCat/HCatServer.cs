@@ -285,7 +285,8 @@ public static class HCatServer
         var controller = new CaptureController(options.CaptureCount, options.ExitOn);
         // --json → JSONL request/access lines to stdout; otherwise a terse per-request line to the human
         // banner writer (stderr). Both share the lifecycle so serve/inspect/pipe all emit a per-request log.
-        using var lifecycle = new CaptureLifecycle(controller, options.Json ? Console.Out : null, banner);
+        using var lifecycle = new CaptureLifecycle(controller, options.Json ? Console.Out : null, banner,
+                                                   useColor: options.UseColor);
 
         WebApplication app;
         try
@@ -304,7 +305,7 @@ public static class HCatServer
 
         // When the bind is LAN-exposed, render a scannable terminal QR of the first reachable URL so a phone
         // can open it without typing. Loopback binds get no QR (nothing to scan from another device).
-        banner.Write(Banner.Render(bind, options, qr: RenderQr(bind)));
+        banner.Write(Banner.Render(bind, options, qr: RenderQr(bind), useColor: options.UseColor));
         banner.Flush();
 
         // Diagnostic: an SPA serve whose shell file is absent would 404 every navigation — a confusing silent

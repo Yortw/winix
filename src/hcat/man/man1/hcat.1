@@ -140,11 +140,11 @@ or per\-request access\-log lines (serve). The banner, human log, and errors sta
 .B \-\-describe
 Emit structured JSON metadata for AI discoverability.
 .TP
-.B \-\-color " " \fIWHEN\fR
-\fBauto\fR, \fBalways\fR, or \fBnever\fR. Respects \fBNO_COLOR\fR.
+.B \-\-color[=auto|always|never]
+Force or suppress coloured output. Bare \fB--color\fR means always. Respects \fBNO_COLOR\fR.
 .TP
 .B \-\-no\-color
-Equivalent to \fB--color never\fR.
+Disable coloured output. Respects \fBNO_COLOR\fR.
 .TP
 .BR \-h ", " \-\-help
 Show help and exit.

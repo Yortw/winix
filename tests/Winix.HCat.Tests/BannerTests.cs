@@ -11,7 +11,7 @@ public class BannerTests
     public void Loopback_banner_hints_lan_and_shows_no_qr()
     {
         var info = new BindInfo(IPAddress.Loopback, false, new[] { "http://127.0.0.1:8080" });
-        string text = Banner.Render(info, new HCatOptions(), qr: null);
+        string text = Banner.Render(info, new HCatOptions(), qr: null, useColor: false);
         Assert.Contains("http://127.0.0.1:8080", text);
         Assert.Contains("--lan", text);   // the "pass --lan to share" hint
     }
@@ -21,7 +21,7 @@ public class BannerTests
     {
         var info = new BindInfo(IPAddress.Any, true, new[] { "http://192.168.1.42:8080" });
         var opts = new HCatOptions { Mode = HCatMode.Serve, Upload = true, UploadDir = ".", Directory = "." };
-        string text = Banner.Render(info, opts, qr: "QRBLOCK");
+        string text = Banner.Render(info, opts, qr: "QRBLOCK", useColor: false);
         Assert.Contains("downloadable", text);   // the served-root upload warning
         Assert.Contains("QRBLOCK", text);
     }
@@ -34,7 +34,7 @@ public class BannerTests
         // (any within-tree dir) warned falsely here and contradicted the actual exclusion behaviour.
         var info = new BindInfo(IPAddress.Any, true, new[] { "http://192.168.1.42:8080" });
         var opts = new HCatOptions { Mode = HCatMode.Serve, Upload = true, UploadDir = "./sub", Directory = "." };
-        string text = Banner.Render(info, opts, qr: null);
+        string text = Banner.Render(info, opts, qr: null, useColor: false);
         Assert.DoesNotContain("downloadable", text);
     }
 
@@ -44,7 +44,7 @@ public class BannerTests
         // Default upload target (./uploads) is an in-tree subfolder, excluded from serving — no warning.
         var info = new BindInfo(IPAddress.Any, true, new[] { "http://192.168.1.42:8080" });
         var opts = new HCatOptions { Mode = HCatMode.Serve, Upload = true, UploadDir = null, Directory = "." };
-        string text = Banner.Render(info, opts, qr: null);
+        string text = Banner.Render(info, opts, qr: null, useColor: false);
         Assert.DoesNotContain("downloadable", text);
     }
 }

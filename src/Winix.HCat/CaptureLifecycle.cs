@@ -29,6 +29,7 @@ internal sealed class CaptureLifecycle : IDisposable
     private readonly CaptureController _controller;
     private readonly TextWriter? _jsonSink;
     private readonly TextWriter? _humanSink;
+    private readonly bool _useColor;
     private readonly object _sinkLock = new();
     private Timer? _timer;
     private int _outcome = OutcomeUndecided;
@@ -44,26 +45,37 @@ internal sealed class CaptureLifecycle : IDisposable
     /// <c>--json</c>). Null suppresses JSONL output.</param>
     /// <param name="humanSink">When non-null AND <paramref name="jsonSink"/> is null, a terse per-request line is
     /// written here (the human "watch requests" log; stderr in production). Ignored when JSONL is active.</param>
-    public CaptureLifecycle(CaptureController controller, TextWriter? jsonSink, TextWriter? humanSink = null)
+    /// <param name="useColor">When true, emit ANSI colour in the human log lines (method dim, status by class).
+    /// JSONL output is never coloured regardless of this flag. Pass <c>options.UseColor</c> at the production
+    /// call site; default false preserves existing callers that omit the parameter.</param>
+    public CaptureLifecycle(CaptureController controller, TextWriter? jsonSink, TextWriter? humanSink = null,
+                            bool useColor = false)
     {
         _controller = controller;
         _jsonSink = jsonSink;
         _humanSink = humanSink;
+        // A6: _useColor is immutable after construction so ColorStatus is thread-safe without locking.
+        _useColor = useColor;
     }
 
     /// <summary>Record sink invoked by the inspect/pipe handlers for each request (before the response status is
     /// known — pipe calls this prior to running the child). Emits the per-request line, then consults the
     /// controller. It does NOT call <c>StopApplication()</c> here, so the triggering response can flush first
-    /// (F6). JSONL is the full request record; the human line is method + path.</summary>
+    /// (F6). JSONL is the full request record; the human line is method (dim when colour on) + path.</summary>
     public void OnRecord(RequestRecord record)
     {
         if (_jsonSink is not null)
         {
+            // JSONL output is never coloured — byte-identical to the no-colour path.
             WriteLineLocked(_jsonSink, RequestRecord.ToJsonl(record));
         }
         else if (_humanSink is not null)
         {
-            WriteLineLocked(_humanSink, $"{record.Method} {record.Path}");
+            // A6: build the coloured line as a local before entering the lock so no work is done inside it.
+            string dim   = Yort.ShellKit.AnsiColor.Dim(_useColor);
+            string reset = Yort.ShellKit.AnsiColor.Reset(_useColor);
+            string line  = $"{dim}{record.Method}{reset} {record.Path}";
+            WriteLineLocked(_humanSink, line);
         }
 
         ConsultController(record);
@@ -71,20 +83,43 @@ internal sealed class CaptureLifecycle : IDisposable
 
     /// <summary>Per-request sink for SERVE mode, called AFTER the file server produced the response so the final
     /// <paramref name="status"/> is known. Emits the access-log line — JSONL <c>{method,path,status}</c> under
-    /// <c>--json</c>, else a human <c>METHOD /path STATUS</c> line — then consults the controller (so serve also
-    /// honours <c>--capture</c>/<c>--exit-on</c>). Like <see cref="OnRecord"/>, it only flags the stop (F6).</summary>
+    /// <c>--json</c>, else a human <c>METHOD /path STATUS</c> line (method dim, status coloured by class when
+    /// colour is on) — then consults the controller. Like <see cref="OnRecord"/>, it only flags the stop (F6).</summary>
     public void OnServeAccess(RequestRecord record, int status)
     {
         if (_jsonSink is not null)
         {
+            // JSONL output is never coloured — byte-identical to the no-colour path.
             WriteLineLocked(_jsonSink, AccessLogRecord.ToJsonl(new AccessLogRecord(record.Method, record.Path, status)));
         }
         else if (_humanSink is not null)
         {
-            WriteLineLocked(_humanSink, $"{record.Method} {record.Path} {status}");
+            // A6: build the coloured line as a local before entering the lock so no work is done inside it.
+            string dim   = Yort.ShellKit.AnsiColor.Dim(_useColor);
+            string reset = Yort.ShellKit.AnsiColor.Reset(_useColor);
+            string line  = $"{dim}{record.Method}{reset} {record.Path} {ColorStatus(status)}";
+            WriteLineLocked(_humanSink, line);
         }
 
         ConsultController(record);
+    }
+
+    /// <summary>Returns the status code as a string, wrapped in the appropriate ANSI colour when colour is
+    /// enabled: 2xx green, 3xx cyan, 4xx yellow, 5xx red. Returns a plain decimal string when colour is off.
+    /// <c>_useColor</c> is immutable (ctor-set), so this method is thread-safe without locking.</summary>
+    private string ColorStatus(int status)
+    {
+        if (!_useColor)
+        {
+            return status.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        string code =
+            status >= 500 ? Yort.ShellKit.AnsiColor.Red(true) :
+            status >= 400 ? Yort.ShellKit.AnsiColor.Yellow(true) :
+            status >= 300 ? Yort.ShellKit.AnsiColor.Cyan(true) :
+                            Yort.ShellKit.AnsiColor.Green(true);
+        return $"{code}{status.ToString(System.Globalization.CultureInfo.InvariantCulture)}{Yort.ShellKit.AnsiColor.Reset(true)}";
     }
 
     /// <summary>Feeds the request to the controller and, on stop-condition satisfaction, latches outcome 0 and
