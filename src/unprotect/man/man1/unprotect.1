@@ -79,8 +79,12 @@ This is symlink-safe: a symlink at the destination is unlinked itself rather tha
 so an attacker cannot redirect the write by planting a symlink (e.g. to \fI/etc/passwd\fR) at the output path.
 
 .TP
-.B \-\-color \fBwhen\fR
-Emit ANSI colour codes: \fBalways\fR, \fBnever\fR, or \fBauto\fR (default: respect \fBNO_COLOR\fR).
+.BR \-\-color [=\fIWHEN\fR]
+Force coloured output; bare \fB--color\fR = always.
+Valid values: \fBauto\fR (default), \fBalways\fR, \fBnever\fR.
+.TP
+.B \-\-no\-color
+Disable coloured output. Respects \fBNO_COLOR\fR.
 
 .TP
 .B \-\-describe

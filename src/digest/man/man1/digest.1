@@ -121,11 +121,12 @@ Not supported with multiple files.
 .B \-\-describe
 Emit structured JSON metadata for AI discoverability.
 .TP
-.B \-\-color " " \fIWHEN\fR
-\fBauto\fR, \fBalways\fR, or \fBnever\fR. Respects \fBNO_COLOR\fR.
+.BR \-\-color [=\fIWHEN\fR]
+Force coloured output; bare \fB--color\fR = always.
+Valid values: \fBauto\fR (default), \fBalways\fR, \fBnever\fR.
 .TP
 .B \-\-no\-color
-Equivalent to \fB--color never\fR.
+Disable coloured output. Respects \fBNO_COLOR\fR.
 .TP
 .BR \-h ", " \-\-help
 Show help and exit.

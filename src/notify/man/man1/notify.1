@@ -72,8 +72,12 @@ Show help and exit.
 .BR \-v ", " \-\-version
 Show version and exit.
 .TP
-.B \-\-color " " \fIWHEN\fR
-\fBauto\fR, \fBalways\fR, or \fBnever\fR. Respects \fBNO_COLOR\fR.
+.BR \-\-color [=\fIWHEN\fR]
+Force coloured output; bare \fB--color\fR = always.
+Valid values: \fBauto\fR (default), \fBalways\fR, \fBnever\fR.
+.TP
+.B \-\-no\-color
+Disable coloured output. Respects \fBNO_COLOR\fR.
 
 .SH EXIT STATUS
 .TP

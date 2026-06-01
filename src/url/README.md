@@ -119,7 +119,8 @@ Subcommand-specific flags are gated — passing one on a subcommand it doesn't a
 | `--describe` | | | Emit structured JSON metadata for AI discoverability. |
 | `--help` `-h` | | | Show help and exit. |
 | `--version` `-v` | | | Show version and exit. |
-| `--color WHEN` | `auto` | | `auto`, `always`, `never`. Respects `NO_COLOR`. |
+| `--color[=auto\|always\|never]` | `auto` | | Force coloured output (bare `--color` = always). |
+| `--no-color` | | | Disable coloured output. Respects `NO_COLOR`. |
 
 ## Build Flags
 

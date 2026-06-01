@@ -98,8 +98,8 @@ ids --type ulid --count 1000 | sort -c
 | `--describe` | | | Emit structured JSON metadata for AI discoverability. |
 | `--help` | `-h` | | Show help and exit. |
 | `--version` | `-v` | | Show version and exit. |
-| `--color WHEN` | | `auto` | `auto`, `always`, or `never`. Respects `NO_COLOR`. |
-| `--no-color` | | | Equivalent to `--color never`. |
+| `--color[=auto\|always\|never]` | | `auto` | Force coloured output (bare `--color` = always). |
+| `--no-color` | | | Disable coloured output. Respects `NO_COLOR`. |
 
 ## ID Types
 
