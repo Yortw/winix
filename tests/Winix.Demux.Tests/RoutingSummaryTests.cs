@@ -93,6 +93,30 @@ public class RoutingSummaryTests
         Assert.DoesNotContain("exit -1", result, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void FormatHuman_WithColor_EmitsAnsi_WithoutColorIsPlain()
+    {
+        // ESC (0x1B) introduces every ANSI sequence. Expressed as (char)27 to avoid escape-sequence
+        // ambiguity in the source.
+        string esc = ((char)27).ToString();
+
+        var dead = new FakeSink("bad", dieAfter: 0);
+        dead.Write("x");                // → dead + 1 undelivered (red annotation)
+        var ok = new FakeSink("good");
+        ok.Write("y");                  // → 1 delivered (green count)
+        var summary = Make(new ISink[] { dead, ok });
+
+        string colored = summary.FormatHuman(useColor: true);
+        string plain = summary.FormatHuman(useColor: false);
+
+        // --color actually does something: ANSI escapes present when on, completely absent when off.
+        Assert.Contains(esc, colored, StringComparison.Ordinal);
+        Assert.DoesNotContain(esc, plain, StringComparison.Ordinal);
+        // Plain output is the readable text the prior tests assert against (no codes interleaved).
+        Assert.Contains("good: 1 delivered", plain, StringComparison.Ordinal);
+        Assert.Contains("[DEAD, 1 undelivered]", plain, StringComparison.Ordinal);
+    }
+
     // ---- FormatJson tests ----
 
     [Fact]

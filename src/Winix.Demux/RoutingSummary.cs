@@ -56,19 +56,29 @@ public sealed class RoutingSummary
     /// child exits). The <c>-1</c> killed-after-timeout sentinel is rendered as
     /// "child killed after timeout" rather than the raw numeric value.
     /// </summary>
-    /// <param name="useColor">Reserved for colourised output via <see cref="AnsiColor"/>; currently unused.</param>
+    /// <param name="useColor">
+    ///   When true, ANSI colour is applied (delivered counts green, DEAD/undelivered red,
+    ///   child-exit issues yellow). When false, every colour helper returns the empty string so the
+    ///   output is plain text — honouring <c>--no-color</c>/<c>NO_COLOR</c> and non-terminal stderr.
+    /// </param>
     public string FormatHuman(bool useColor)
     {
+        string dim = AnsiColor.Dim(useColor);
+        string red = AnsiColor.Red(useColor);
+        string green = AnsiColor.Green(useColor);
+        string yellow = AnsiColor.Yellow(useColor);
+        string reset = AnsiColor.Reset(useColor);
+
         var lines = new List<string>(_sinks.Count);
         foreach (ISink s in _sinks)
         {
-            string dead = s.IsDead ? $" [DEAD, {s.UndeliveredCount} undelivered]" : "";
+            string dead = s.IsDead ? $" {red}[DEAD, {s.UndeliveredCount} undelivered]{reset}" : "";
             string child = s.ChildExitCode is int c
-                ? (c == -1 ? " (child killed after timeout)" : $" (child exit {c})")
+                ? (c == -1 ? $" {yellow}(child killed after timeout){reset}" : $" {yellow}(child exit {c}){reset}")
                 : "";
-            lines.Add($"  {s.Label}: {s.DeliveredCount} delivered{dead}{child}");
+            lines.Add($"  {s.Label}: {green}{s.DeliveredCount}{reset} delivered{dead}{child}");
         }
-        return "demux summary:\n" + string.Join("\n", lines);
+        return $"{dim}demux summary:{reset}\n" + string.Join("\n", lines);
     }
 
     /// <summary>
