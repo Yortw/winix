@@ -1,5 +1,7 @@
 #nullable enable
+using System.Diagnostics;
 using System.IO;
+using System.Threading;
 using Winix.Demux;
 using Xunit;
 
@@ -101,6 +103,8 @@ public class IntegrationTests_CommandSink
         sink.Write("a");
         sink.Close();
         // /bin/sh returns 127 for command-not-found. Confirms this is a child exit, not a 126 setup failure.
+        // NOTE: this locks the SINK-level 127 capture. The Cli-level half of T7-a (demux exits 2 under
+        // --exit-on-child-error on a command-not-found child, NOT 126) is covered in CliTests (Task 9).
         Assert.Equal(127, sink.ChildExitCode);
     }
 
@@ -109,7 +113,7 @@ public class IntegrationTests_CommandSink
     [SkippableFact]
     public void Windows_Write_DeliversLinesToChildStdin()
     {
-        Skip.IfNot(OperatingSystem.IsWindows(), "uses cmd /c findstr; Unix variant covered separately");
+        Skip.IfNot(OperatingSystem.IsWindows(), "uses cmd /c sort; Unix variant covered separately");
         if (!OperatingSystem.IsWindows()) { return; } // CA1416
 
         // "sort" reads all stdin lines to EOF, sorts them to stdout, and exits 0.
@@ -158,6 +162,62 @@ public class IntegrationTests_CommandSink
         var sink = new CommandSink("exit 3", "x");
         sink.Close();
         Assert.Equal(3, sink.ChildExitCode);
+    }
+
+    // FIX 1 reproducer: conservation race — a line deposited after the writer thread has fully exited
+    // is invisible to the writer's own finally-drain and must be reclaimed by Close() post-join.
+    [SkippableFact]
+    public void Windows_DeathRaceOrphan_IsCountedUndelivered_ConservationHolds()
+    {
+        Skip.IfNot(OperatingSystem.IsWindows(), "uses cmd /c set /p to trigger writer death; Unix variant in MidStreamDeath_ConservesLineCount");
+        if (!OperatingSystem.IsWindows()) { return; } // CA1416
+
+        // "set /p x=" reads exactly one line then cmd exits, closing the pipe read end.
+        // Subsequent writes from the writer thread raise IOException → _dead=true → writer exits.
+        // We flood with enough data to fill the OS pipe buffer so the broken-pipe IOException fires.
+        var sink = new CommandSink("set /p x=", "x");
+        sink.Write("trigger"); // consumed by set /p → cmd exits → pipe closes
+        // Flood until the sink goes dead (pipe buffer full, write throws) OR limit reached.
+        // Use large lines to fill the OS pipe buffer quickly.
+        var bigLine = new string('X', 4096);
+        long totalWritten = 1; // "trigger" already written
+        for (int i = 0; i < 5000 && !sink.IsDead; i++)
+        {
+            sink.Write(bigLine);
+            totalWritten++;
+        }
+
+        // Wait deterministically until the writer thread has FULLY exited (not just _dead=true).
+        var sw = Stopwatch.StartNew();
+        while (!sink.WriterExitedForTest && sw.Elapsed < TimeSpan.FromSeconds(5))
+        {
+            Thread.Sleep(5);
+        }
+        Assert.True(sink.WriterExitedForTest, "writer thread did not exit within 5s");
+
+        // Simulate the race: a line lands in the queue AFTER the writer is gone.
+        Assert.True(sink.TryEnqueueForTest("orphan"), "TryEnqueueForTest should succeed (queue not completed yet)");
+        totalWritten++; // the orphan is the extra line that the bug would lose
+
+        sink.Close();
+
+        // All lines that entered the sink (via Write or TryEnqueueForTest) must be accounted for.
+        // Without the FIX 1 drain in Close(), the orphan is lost: delivered+undelivered < totalWritten.
+        Assert.Equal(totalWritten, sink.DeliveredCount + sink.UndeliveredCount);
+    }
+
+    // FIX 2 reproducer: Close() must be idempotent — a second call must not throw.
+    [SkippableFact]
+    public void Windows_Close_IsIdempotent_SecondCallDoesNotThrow()
+    {
+        Skip.IfNot(OperatingSystem.IsWindows(), "cmd /c exit 0 child");
+        if (!OperatingSystem.IsWindows()) { return; } // CA1416
+
+        var sink = new CommandSink("exit 0", "x");
+        sink.Write("a");
+        sink.Close();
+        var ex = Record.Exception(() => sink.Close()); // second close — must not throw
+        Assert.Null(ex);
     }
 
     [SkippableFact]

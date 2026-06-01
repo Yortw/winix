@@ -21,6 +21,8 @@ public sealed class CommandSink : ISink
     private long _delivered;
     private long _undelivered;
     private volatile bool _dead;
+    // Close() is called from a single orchestrator thread, so no lock is needed for idempotency.
+    private bool _closed;
 
     /// <summary>Spawns the command. Throws if the shell process cannot start (caller maps to 126).
     /// <paramref name="exitTimeout"/> (default 10s) bounds shutdown — it is an injectable seam so tests
@@ -60,6 +62,15 @@ public sealed class CommandSink : ISink
 
     /// <inheritdoc/>
     public bool IsDead => _dead;
+
+    // Test-only seams: let a reproducer place a line in the queue AFTER the writer thread has exited,
+    // reproducing the death-race orphan deterministically (see Close()'s post-join drain).
+    internal bool WriterExitedForTest => !_writer.IsAlive;
+
+    /// <summary>Attempts to add a line directly to the internal queue. For test use only — simulates
+    /// the death-race window where a producer passes the <c>_dead</c> check and then deposits a line
+    /// after the writer thread has already exited and drained.</summary>
+    internal bool TryEnqueueForTest(string line) => _queue.TryAdd(line);
 
     /// <inheritdoc/>
     public int? ChildExitCode { get; private set; }
@@ -105,9 +116,13 @@ public sealed class CommandSink : ISink
 
     /// <summary>Signals EOF to the writer thread and waits for the child to exit (bounded).
     /// Kills the child if it does not exit within the configured timeout. Sets
-    /// <see cref="ChildExitCode"/> to -1 if the child was killed.</summary>
+    /// <see cref="ChildExitCode"/> to -1 if the child was killed. Safe to call more than once
+    /// (subsequent calls are no-ops).</summary>
     public void Close()
     {
+        if (_closed) { return; }
+        _closed = true;
+
         _queue.CompleteAdding();
 
         // P2-F1: the writer may be blocked in _stdin.Write (child alive, not reading, pipe full) — an
@@ -117,13 +132,25 @@ public sealed class CommandSink : ISink
         if (!_writer.Join(_exitTimeout))
         {
             try { _process.Kill(entireProcessTree: true); } catch { /* best effort */ }
-            _writer.Join();                       // bounded now: the kill unblocked the write
+            // Bounded: Kill normally unblocks the stuck write (broken pipe), but if Kill failed we must not
+            // hang forever — the writer is a background thread, so proceeding without it is safe. (Defensive;
+            // no verified interleaving reaches here, but the tool must never hang.)
+            _writer.Join(_exitTimeout);
+            // Reclaim any line the producer deposited in the death-race window after the writer exited
+            // (Close is the only place that can; the writer's own finally already ran). Idempotent: a no-op
+            // if the queue is empty. Closes the delivered+undelivered==written conservation gap.
+            while (_queue.TryTake(out _)) { Interlocked.Increment(ref _undelivered); }
             try { _stdin.Close(); } catch (IOException) { }
             try { _process.WaitForExit(); } catch { /* best effort */ }
             ChildExitCode = -1;                   // sentinel: killed after timeout
             _process.Dispose();
             return;
         }
+
+        // Reclaim any line the producer deposited in the death-race window after the writer exited
+        // (Close is the only place that can; the writer's own finally already ran). Idempotent: a no-op
+        // if the queue is empty. Closes the delivered+undelivered==written conservation gap.
+        while (_queue.TryTake(out _)) { Interlocked.Increment(ref _undelivered); }
 
         // Writer drained cleanly; signal EOF and wait (bounded) for the child to exit on its own.
         try { _stdin.Close(); } catch (IOException) { /* already gone */ }
