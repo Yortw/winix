@@ -59,8 +59,8 @@ The routing summary (`demux summary: …`) goes to **stderr**. `demux`'s stdout 
 | `--append` | 0 | File targets append instead of truncate. |
 | `--exit-on-child-error` | 0 | A watched child's non-zero exit makes demux exit 2. |
 | `--json` | 0 | Emit a JSON summary to stderr. |
-| `--color WHEN` | 1 | `auto`, `always`, or `never`. Respects `NO_COLOR`. |
-| `--no-color` | 0 | Disable colour output. |
+| `--color` | 0 | Force coloured output (overrides terminal auto-detection). |
+| `--no-color` | 0 | Disable coloured output. Respects `NO_COLOR`. |
 | `--describe` | 0 | Structured JSON metadata for AI agents. |
 | `--help`, `-h` | 0 | Show help and exit. |
 | `--version` | 0 | Show version and exit. |
@@ -138,4 +138,4 @@ A child's non-zero exit does **not** fail `demux` unless `--exit-on-child-error`
 
 ## Metadata
 
-Run `demux --describe` for full structured metadata (flags, types, examples, composability, exit codes).
+Run `demux --describe` for structured metadata (option flags, types, examples, composability, exit codes, JSON fields). Note: the two-operand route flags (`--to`, `--exec`, `--default-to`, `--default-exec`) are documented in the `--help` *Routes* section rather than as typed entries in the `--describe` `options` array — ShellKit's structured options model covers single-operand flags only.

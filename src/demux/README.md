@@ -105,8 +105,8 @@ demux --field 3 --delimiter $'\t' --to '^4' client_errors.tsv --to '^5' server_e
 | `--append` | 0 | File targets append instead of truncate (default: truncate, like `>`). |
 | `--exit-on-child-error` | 0 | A watched child's non-zero exit makes demux exit 2. |
 | `--json` | 0 | Emit a JSON summary envelope to stderr. |
-| `--color WHEN` | 1 | `auto`, `always`, or `never`. Respects `NO_COLOR`. |
-| `--no-color` | 0 | Equivalent to `--color never`. |
+| `--color` | 0 | Force coloured output (overrides terminal auto-detection). |
+| `--no-color` | 0 | Disable coloured output. Respects `NO_COLOR`. |
 | `--describe` | 0 | Emit structured JSON metadata for AI discoverability. |
 | `--help`, `-h` | 0 | Show help and exit. |
 | `--version` | 0 | Show version and exit. |
@@ -183,7 +183,7 @@ A child's non-zero exit is reported in the summary but does not fail `demux` unl
 
 ## Colour
 
-The summary and usage messages are written to **stderr**. `demux`'s stdout carries only passthrough data. Colour output respects `NO_COLOR` (no-color.org). Use `--color always`/`--no-color` to override.
+The summary and usage messages are written to **stderr**. `demux`'s stdout carries only passthrough data. Colour is auto-detected (on when stderr is a terminal) and respects `NO_COLOR` (no-color.org). Use `--color` to force it on or `--no-color` to force it off.
 
 ## Limitations
 
