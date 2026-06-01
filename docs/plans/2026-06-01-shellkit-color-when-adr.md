@@ -60,11 +60,12 @@
 - **Rationale:** Back-compat for every existing usage + `NO_COLOR` muscle memory; harmless alongside `--color=never`.
 - **Trade-offs accepted:** Two ways to say "off" (`--no-color`, `--color=never`) — acceptable redundancy.
 
-## D8 — ShellKit-first rollout; `--help`/`--describe` auto-update; READMEs lazy
+## D8 — ShellKit-first rollout; `--help`/`--describe` auto-update; only the 15 `--color WHEN` surfaces get a finite doc fix
 
-- **Decision:** Ship the ShellKit change first (surface only — emits no colour itself). `--help`/`--describe` regenerate correctly for all tools on rebuild. Hand-written README/man surfaces: the 15 `--color WHEN` ones become correct immediately; boolean-form ones migrate lazily per the suite's rebuild-time rollout policy. Emit-fixes + regression tests live in a separate colour-sweep plan.
-- **Rationale:** Decouples the parser surface from per-tool emit work and doc churn; avoids a 27-tool mass reship.
-- **Trade-offs accepted:** Temporary doc inconsistency (some READMEs say `--color`, some `--color=when`) — both are valid syntax after this change.
+- **Decision:** Ship the ShellKit change first (surface only — emits no colour itself). `--help`/`--describe` regenerate the canonical `--color[=auto|always|never]` for all tools on rebuild. Hand-written docs: the ~18 bare-`--color`/`--no-color` READMEs are **already correct and untouched**; the **15 `--color WHEN` surfaces (9 tools)** get a finite `WHEN` → `=WHEN` fix (they imply a space-separated value, but the implementation is equals-only) done **in the colour sweep**. README/man edits are repo commits, **not** tool re-ships. No open-ended "migrate over time" debt and no 27-tool reship.
+- **Rationale:** Decouples the parser surface from emit work; the only hand edits are 15 finite, scheduled clarifications, not a vague rolling migration the team might forget.
+- **Trade-offs accepted:** Shipped nuget/scoop README copies for un-rebuilt v0.3.0 tools stay ahead of their shipped (boolean-only) binary until that tool next releases — self-healing, pre-existing drift, no new debt.
+- **Options considered:** (a) Lazy rebuild-time doc migration of all tools (rejected — open-ended, forgettable, and unnecessary since bare-`--color` docs are already correct). (b) Mass reship of all 27 (rejected — user constraint, and unneeded).
 
 ---
 
@@ -74,6 +75,6 @@
 |---|---|
 | Short-flag `=` support (`-c=x`) | Ambiguous, non-standard, not needed (D4). |
 | `--flag=true/false` for boolean flags | Flags stay valueless (D5). |
-| Mass re-ship of all 27 READMEs to `=when` wording | Lazy rebuild-time rollout; `--help`/`--describe` auto-update covers AI discovery (D8). |
+| Mass re-ship / mass doc-edit of all 27 tools | Not needed — only the 15 `--color WHEN` surfaces get a finite `=WHEN` fix in the sweep; bare-`--color` READMEs already correct; `--help`/`--describe` auto-update (D8). |
 | Emit-fixes for trash/hcat/wargs + end-to-end colour regression tests | Separate colour-sweep plan; this is the parser surface only. |
 | `--color=ansi` / forced-ANSI value | Not needed for the suite (D6). |

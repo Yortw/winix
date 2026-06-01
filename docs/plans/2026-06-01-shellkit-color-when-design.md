@@ -87,7 +87,16 @@ Tie `--color=always --no-color` → **on** (preserves current "colorFlag wins" b
 
 ## 9. Rollout
 
-This change is ShellKit-only and ships first. It does **not** by itself emit any colour — it only fixes the flag *surface*. The follow-up **colour sweep** (separate design/plan) then: wires emit for trash/hcat/wargs, adds end-to-end colour regression tests, and standardizes hand-written READMEs/man to `--color[=auto|always|never]`. `--help`/`--describe` update automatically on rebuild; README/man are hand-edited (the 15 `--color WHEN` surfaces are already correct after this change; the boolean-form READMEs stay correct and migrate lazily per the suite's rebuild-time rollout policy). The `wargs` emit-fix (a v0.3.0-shipped defect) rides v0.4.0.
+This change is ShellKit-only and ships first. It does **not** by itself emit any colour — it only fixes the flag *surface*.
+
+Hand-written doc surfaces after this change:
+- The **~18 tools using the bare `--color` / `--no-color` form** are **already correct** (bare `--color` = always still works; `--no-color` still works) — **no edits, ever**.
+- The **15 surfaces / 9 tools that say `--color WHEN`** (READMEs: digest, ids, hcat, trash, notify, url, mksecret; man: digest, ids, notify, protect, hcat, mksecret, trash, unprotect) need a small `WHEN` → **`=WHEN`** fix: they imply a space-separated value, but the implementation is **equals-only** (`--color=never`), so a user typing `--color never` literally would get `always` + a stray positional. This is a **bounded, definite** edit done **in the colour sweep** (task #15) — and it is a repo doc commit, **not** a tool re-ship.
+- `--help` / `--describe` regenerate the canonical `--color[=auto|always|never]` for **every** tool automatically on rebuild (the authoritative/AI-discoverable surface).
+
+There is **no 27-tool re-ship and no open-ended "migrate over time"** debt: the only hand edits are the 15 finite `WHEN`→`=WHEN` clarifications. Shipped nuget/scoop README copies for un-rebuilt v0.3.0 tools self-heal on that tool's next release; the GitHub repo docs are correct as soon as the sweep commits land.
+
+The follow-up **colour sweep** (separate design/plan) additionally wires emit for trash/hcat/wargs and adds end-to-end colour regression tests. The `wargs` emit-fix (a v0.3.0-shipped defect) rides v0.4.0.
 
 ## 10. Out of scope / deferred
 
@@ -95,6 +104,6 @@ This change is ShellKit-only and ships first. It does **not** by itself emit any
 |---|---|
 | Short-flag `=` (`-c=x`) | Ambiguous; GNU short opts don't use `=`; not needed. Long-options-only. |
 | `--flag=true/false` for boolean flags | Flags stay valueless; `=value` on a boolean is an error. |
-| Mass re-ship of all 27 READMEs to `=when` form | Lazy rebuild-time rollout; `--help`/`--describe` auto-update covers AI discovery. |
+| Mass re-ship / mass doc-edit of all 27 tools | Not needed. Only the 15 `--color WHEN` surfaces get a finite `=WHEN` fix (in the sweep); the ~18 bare-`--color` READMEs stay correct untouched; `--help`/`--describe` auto-update covers AI discovery. README/man edits are repo commits, not re-ships. |
 | Emit-fixes (trash/hcat/wargs) + colour regression tests | Separate colour-sweep plan; this design is the parser surface only. |
 | `--color=ansi`/`always-ansi` (git's extra value) | Not needed; `auto/always/never` covers the suite. |
