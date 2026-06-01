@@ -23,9 +23,14 @@ public static class Formatting
 
     // ── Summary messages ──────────────────────────────────────────────────────
 
-    /// <summary>Returns the stderr summary line for a trash operation, e.g. <c>trash: moved 3 item(s) to trash</c>.</summary>
-    public static string TrashSummary(int n)
-        => $"trash: moved {n} item(s) to trash";
+    /// <summary>Returns the stderr summary line for a trash operation, e.g. <c>trash: moved 3 item(s) to trash</c>.
+    /// The count is rendered green when <paramref name="useColor"/> is set.</summary>
+    public static string TrashSummary(int n, bool useColor)
+    {
+        string green = Yort.ShellKit.AnsiColor.Green(useColor);
+        string reset = Yort.ShellKit.AnsiColor.Reset(useColor);
+        return $"trash: moved {green}{n}{reset} item(s) to trash";
+    }
 
     // ── List table (human-readable) ───────────────────────────────────────────
 
@@ -33,10 +38,14 @@ public static class Formatting
     /// separated by two-space gaps. Each column is padded to the maximum width across all rows (including
     /// the header). Returns an empty string for an empty list.</summary>
     /// <remarks>Column widths are determined dynamically; column order is fixed:
-    /// Name | Deleted | Original Path (or <c>—</c> when unknown).</remarks>
-    public static string ListTable(IReadOnlyList<TrashedItem> items)
+    /// Name | Deleted | Original Path (or <c>—</c> when unknown).
+    /// When <paramref name="useColor"/> is true, the header and separator rows are rendered dim.</remarks>
+    public static string ListTable(IReadOnlyList<TrashedItem> items, bool useColor)
     {
         if (items.Count == 0) { return string.Empty; }
+
+        string dim   = Yort.ShellKit.AnsiColor.Dim(useColor);
+        string reset = Yort.ShellKit.AnsiColor.Reset(useColor);
 
         // Compute max widths.
         int nameW     = ColName.Length;
@@ -53,14 +62,13 @@ public static class Formatting
 
         var sb = new StringBuilder();
 
-        // Header row.
-        AppendRow(sb, ColName, ColDeleted, ColOriginal, nameW, deletedW, origW);
-        // Separator row.
+        // Header + separator dimmed; data rows plain.
+        AppendRow(sb, ColName, ColDeleted, ColOriginal, nameW, deletedW, origW, dim, reset);
         AppendRow(sb,
             new string('-', nameW),
             new string('-', deletedW),
             new string('-', origW),
-            nameW, deletedW, origW);
+            nameW, deletedW, origW, dim, reset);
 
         // Data rows.
         foreach (TrashedItem item in items)
@@ -69,7 +77,7 @@ public static class Formatting
                 ? item.DeletedUtc.Value.ToUniversalTime().ToString(DateFormat, CultureInfo.InvariantCulture)
                 : string.Empty;
             string origCell = item.OriginalPath ?? "—";
-            AppendRow(sb, item.Name, deletedCell, origCell, nameW, deletedW, origW);
+            AppendRow(sb, item.Name, deletedCell, origCell, nameW, deletedW, origW); // plain — no wrap
         }
 
         return sb.ToString();
@@ -77,16 +85,21 @@ public static class Formatting
 
     // Appends one table row with two-space column separators; each cell is left-padded to its column width.
     // The last column is also padded so every line has the same total length.
+    // wrapPrefix/wrapSuffix bracket the whole row content (before the trailing '\n') so a colour reset
+    // cannot leak past the line. When colour is off, both are "" and output is byte-identical to before.
     private static void AppendRow(
         StringBuilder sb,
         string col1, string col2, string col3,
-        int w1, int w2, int w3)
+        int w1, int w2, int w3,
+        string wrapPrefix = "", string wrapSuffix = "")
     {
+        sb.Append(wrapPrefix);
         sb.Append(col1.PadRight(w1));
         sb.Append("  ");
         sb.Append(col2.PadRight(w2));
         sb.Append("  ");
         sb.Append(col3.PadRight(w3));
+        sb.Append(wrapSuffix);
         sb.Append('\n');
     }
 

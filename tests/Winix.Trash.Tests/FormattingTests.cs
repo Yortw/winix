@@ -13,13 +13,13 @@ public class FormattingTests
     [Fact]
     public void TrashSummary_returns_expected_message()
     {
-        Assert.Equal("trash: moved 3 item(s) to trash", Formatting.TrashSummary(3));
+        Assert.Equal("trash: moved 3 item(s) to trash", Formatting.TrashSummary(3, useColor: false));
     }
 
     [Fact]
     public void TrashSummary_singular_zero()
     {
-        Assert.Equal("trash: moved 0 item(s) to trash", Formatting.TrashSummary(0));
+        Assert.Equal("trash: moved 0 item(s) to trash", Formatting.TrashSummary(0, useColor: false));
     }
 
     // ── ListTable ───────────────────────────────────────────────────────────────
@@ -27,7 +27,7 @@ public class FormattingTests
     [Fact]
     public void ListTable_empty_list_returns_empty_string()
     {
-        Assert.Equal(string.Empty, Formatting.ListTable(Array.Empty<TrashedItem>()));
+        Assert.Equal(string.Empty, Formatting.ListTable(Array.Empty<TrashedItem>(), useColor: false));
     }
 
     [Fact]
@@ -43,7 +43,7 @@ public class FormattingTests
                 SizeBytes: 12,
                 TrashLocation: "home")
         };
-        string result = Formatting.ListTable(items);
+        string result = Formatting.ListTable(items, useColor: false);
         // Header + separator + single data row.
         string expected =
             "Name      Deleted               Original Path   \n" +
@@ -64,7 +64,7 @@ public class FormattingTests
                 SizeBytes: null,
                 TrashLocation: "home")
         };
-        string result = Formatting.ListTable(items);
+        string result = Formatting.ListTable(items, useColor: false);
         Assert.Contains("—", result);  // em dash — OriginalPath is null
     }
 
@@ -80,7 +80,7 @@ public class FormattingTests
                 SizeBytes: null,
                 TrashLocation: "home")
         };
-        string result = Formatting.ListTable(items);
+        string result = Formatting.ListTable(items, useColor: false);
         // Header + separator + row with empty deleted column
         Assert.Contains("b", result);
         // Deleted column is empty (double-space gap after padded empty field)
@@ -96,7 +96,7 @@ public class FormattingTests
             new TrashedItem("ab",      "/x",   new DateTime(2024,1,1,0,0,0,DateTimeKind.Utc), null, "home"),
             new TrashedItem("longnm",  "/y/z", new DateTime(2024,2,1,0,0,0,DateTimeKind.Utc), null, "home")
         };
-        string result = Formatting.ListTable(items);
+        string result = Formatting.ListTable(items, useColor: false);
         string[] lines = result.Split('\n', StringSplitOptions.RemoveEmptyEntries);
         // All lines must be the same length (uniform column widths).
         int len = lines[0].Length;

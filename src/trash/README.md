@@ -91,8 +91,8 @@ trash --empty --yes --json
 | `--describe` | | Emit structured JSON metadata for AI discoverability. |
 | `--help`, `-h` | | Show help and exit. |
 | `--version`, `-v` | | Show version and exit. |
-| `--color WHEN` | | `auto`, `always`, or `never`. Respects `NO_COLOR`. |
-| `--no-color` | | Equivalent to `--color never`. |
+| `--color[=auto\|always\|never]` | | Force or suppress coloured output. Bare `--color` = always. Respects `NO_COLOR`. |
+| `--no-color` | | Disable coloured output. Respects `NO_COLOR`. |
 
 ### JSON fields
 

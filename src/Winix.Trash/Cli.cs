@@ -88,12 +88,14 @@ public static class Cli
         }
         else
         {
-            stderr.WriteLine(Formatting.TrashSummary(result.SuccessCount));
+            stderr.WriteLine(Formatting.TrashSummary(result.SuccessCount, r.UseColor));
             foreach (PathOutcome outcome in result.Outcomes)
             {
                 if (!outcome.Succeeded)
                 {
-                    stderr.WriteLine($"trash: {outcome.Path}: {outcome.Error}");
+                    string red   = Yort.ShellKit.AnsiColor.Red(r.UseColor);
+                    string reset = Yort.ShellKit.AnsiColor.Reset(r.UseColor);
+                    stderr.WriteLine($"trash: {red}{outcome.Path}: {outcome.Error}{reset}");
                 }
             }
         }
@@ -114,7 +116,7 @@ public static class Cli
         }
         else
         {
-            string table = Formatting.ListTable(items);
+            string table = Formatting.ListTable(items, r.UseColor);
             if (!string.IsNullOrEmpty(table))
             {
                 stdout.Write(table);
