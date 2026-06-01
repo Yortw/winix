@@ -105,14 +105,14 @@ public class FormattingTests
     public void FormatHumanSummary_NoFailures_ReturnsNull()
     {
         var result = new WargsResult(3, 3, 0, 0, TimeSpan.FromSeconds(1), new List<JobResult>());
-        Assert.Null(Formatting.FormatHumanSummary(result));
+        Assert.Null(Formatting.FormatHumanSummary(result, useColor: false));
     }
 
     [Fact]
     public void FormatHumanSummary_WithFailures_ReturnsMessage()
     {
         var result = new WargsResult(10, 7, 3, 0, TimeSpan.FromSeconds(5), new List<JobResult>());
-        string? summary = Formatting.FormatHumanSummary(result);
+        string? summary = Formatting.FormatHumanSummary(result, useColor: false);
 
         Assert.NotNull(summary);
         Assert.Contains("3", summary);

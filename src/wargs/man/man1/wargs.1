@@ -62,11 +62,14 @@ Streaming NDJSON per job to stderr.
 \f[B]\(enno\-shell\-fallback\f[R]
 Disable shell fallback for shell builtins.
 .TP
-\f[B]\(encolor\f[R]
-Force coloured output.
+\f[B]\(encolor\f[R][\f[B]=auto\f[R]|\f[B]always\f[R]|\f[B]never\f[R]]
+Colour output.
+Bare \f[B]\(encolor\f[R] is equivalent to \f[B]\(encolor=always\f[R].
+The failure summary is coloured red when colour is active.
 .TP
 \f[B]\(enno\-color\f[R]
 Disable coloured output.
+Respects the \f[B]NO_COLOR\f[R] environment variable.
 .TP
 \f[B]\(enversion\f[R]
 Show version.

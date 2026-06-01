@@ -107,8 +107,8 @@ dir /b *.log | wargs del {}
 | `--json` | JSON summary to stderr on exit |
 | `--ndjson` | Streaming NDJSON per job to stderr |
 | `--no-shell-fallback` | Disable shell fallback for builtins |
-| `--no-color` | Disable colored output |
-| `--color` | Force colored output |
+| `--color[=auto\|always\|never]` | Colour output. Bare `--color` = always. |
+| `--no-color` | Disable coloured output. Respects `NO_COLOR`. |
 | `--version` | Show version |
 | `-h`, `--help` | Show help |
 
@@ -157,9 +157,10 @@ Use `--no-shell-fallback` to disable this and require all commands to be standal
 
 ## Colour
 
-- Automatic: colour when outputting to a terminal, plain when piped
-- `--color` forces colour on (overrides `NO_COLOR`)
-- `--no-color` forces colour off
+- Automatic: colour when stderr is a terminal, plain when piped
+- The failure summary (`wargs: N/M jobs failed`) is coloured red on a terminal
+- `--color[=always]` forces colour on (overrides `NO_COLOR`); bare `--color` = always
+- `--color=never` and `--no-color` force colour off
 - Respects the `NO_COLOR` environment variable ([no-color.org](https://no-color.org))
 
 ## Part of Winix

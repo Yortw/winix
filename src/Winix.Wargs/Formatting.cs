@@ -195,15 +195,18 @@ public static class Formatting
     /// <summary>
     /// Returns a human-readable failure summary, or <see langword="null"/> if there were no failures.
     /// Written to stderr so it doesn't pollute piped output.
+    /// When <paramref name="useColor"/> is <see langword="true"/>, the failure count is rendered in red.
     /// </summary>
-    public static string? FormatHumanSummary(WargsResult result)
+    public static string? FormatHumanSummary(WargsResult result, bool useColor)
     {
         if (result.Failed == 0)
         {
             return null;
         }
 
-        return $"wargs: {result.Failed}/{result.TotalJobs} jobs failed";
+        string red = Yort.ShellKit.AnsiColor.Red(useColor);
+        string reset = Yort.ShellKit.AnsiColor.Reset(useColor);
+        return $"wargs: {red}{result.Failed}/{result.TotalJobs} jobs failed{reset}";
     }
 
 }

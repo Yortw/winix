@@ -570,11 +570,7 @@ internal sealed class Program
                 }
             }
 
-            string? summary = Formatting.FormatHumanSummary(wargsResult);
-            if (summary is not null)
-            {
-                SafeWriteLine(Console.Error, summary);
-            }
+            HumanSummary.Emit(result, wargsResult, Console.Error);
         }
 
         return exitCode;
