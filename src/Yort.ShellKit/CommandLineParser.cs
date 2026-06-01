@@ -674,6 +674,16 @@ public sealed class CommandLineParser
             optionLines.Add((left, l.Description + " (repeatable)", false));
         }
 
+        foreach (OptionalValueOptionDef ov in _optionalValueOptions)
+        {
+            bool isStd = Array.IndexOf(standardNames, ov.LongName) >= 0;
+            string valueHint = $"[={string.Join("|", ov.AllowedValues)}]";
+            string left = ov.ShortName is not null
+                ? $"  {ov.ShortName}, {ov.LongName}{valueHint}"
+                : $"  {ov.LongName}{valueHint}";
+            optionLines.Add((left, ov.Description, isStd));
+        }
+
         // Sort: non-standard first (in registration order), then standard
         var nonStandard = optionLines.Where(o => !o.IsStandard).ToList();
         var standard = optionLines.Where(o => o.IsStandard).ToList();
@@ -823,8 +833,8 @@ public sealed class CommandLineParser
             }
             writer.WriteString("usage", usageSb.ToString());
 
-            // options (flags + options + list options)
-            bool hasOptions = _flags.Count > 0 || _options.Count > 0 || _listOptions.Count > 0;
+            // options (flags + options + list options + optional-value options)
+            bool hasOptions = _flags.Count > 0 || _options.Count > 0 || _listOptions.Count > 0 || _optionalValueOptions.Count > 0;
             if (hasOptions)
             {
                 writer.WriteStartArray("options");
@@ -876,6 +886,27 @@ public sealed class CommandLineParser
                     writer.WriteString("placeholder", l.Placeholder);
                     writer.WriteString("description", l.Description);
                     writer.WriteBoolean("repeatable", true);
+                    writer.WriteEndObject();
+                }
+
+                foreach (OptionalValueOptionDef ov in _optionalValueOptions)
+                {
+                    writer.WriteStartObject();
+                    writer.WriteString("long", ov.LongName);
+                    if (ov.ShortName is not null)
+                    {
+                        writer.WriteString("short", ov.ShortName);
+                    }
+                    writer.WriteString("type", "optional-value");
+                    writer.WriteStartArray("allowed_values");
+                    foreach (string v in ov.AllowedValues)
+                    {
+                        writer.WriteStringValue(v);
+                    }
+                    writer.WriteEndArray();
+                    writer.WriteString("default_when_bare", ov.DefaultWhenBare);
+                    writer.WriteString("description", ov.Description);
+                    writer.WriteBoolean("repeatable", false);
                     writer.WriteEndObject();
                 }
 

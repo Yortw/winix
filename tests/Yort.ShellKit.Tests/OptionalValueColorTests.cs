@@ -104,4 +104,29 @@ public class OptionalValueColorTests
         Assert.True(r.HasErrors);
         Assert.False(r.IsHandled); // malformed --help=x does not trigger help; it errors
     }
+
+    [Fact]
+    public void Help_RendersColorWithAllowedValues()
+    {
+        string help = new CommandLineParser("t", "1.0").StandardFlags().GenerateHelp();
+        Assert.Contains("--color[=auto|always|never]", help);
+    }
+
+    [Fact]
+    public void Describe_EmitsOptionalValueTypeAndAllowedValues()
+    {
+        string json = new CommandLineParser("t", "1.0").StandardFlags().GenerateDescribe();
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        var options = doc.RootElement.GetProperty("options");
+        System.Text.Json.JsonElement color = default;
+        foreach (var o in options.EnumerateArray())
+        {
+            if (o.GetProperty("long").GetString() == "--color") { color = o; break; }
+        }
+        Assert.Equal("optional-value", color.GetProperty("type").GetString());
+        Assert.Equal("always", color.GetProperty("default_when_bare").GetString());
+        var allowed = color.GetProperty("allowed_values");
+        Assert.Equal(3, allowed.GetArrayLength());
+        Assert.Equal("auto", allowed[0].GetString());
+    }
 }
