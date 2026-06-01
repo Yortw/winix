@@ -16,7 +16,9 @@ public class StdoutSinkTests
         sink.Write("alpha");
         sink.Write("beta");
 
-        Assert.Equal("alpha\nbeta\n", sw.ToString().Replace("\r\n", "\n"));
+        // StdoutSink writes explicit '\n', never WriteLine — the exact string must be "alpha\nbeta\n"
+        // with no \r. The Replace mask has been removed so a regression to WriteLine is visible.
+        Assert.Equal("alpha\nbeta\n", sw.ToString());
         Assert.Equal(2, sink.DeliveredCount);
         Assert.Equal(0, sink.UndeliveredCount);
         Assert.False(sink.IsDead);
@@ -33,6 +35,23 @@ public class StdoutSinkTests
         Assert.True(sink.IsDead);
         Assert.Equal(0, sink.DeliveredCount);
         Assert.Equal(2, sink.UndeliveredCount);
+    }
+
+    /// <summary>
+    /// D13 newline-policy: StdoutSink must write exactly LF ('\n'), never CRLF.
+    /// No Replace mask — a regression to WriteLine would produce "\r\n" and fail this.
+    /// </summary>
+    [Fact]
+    public void Write_PreservesLf_DoesNotEmitCrlf()
+    {
+        var sw = new StringWriter();
+        var sink = new StdoutSink(sw);
+
+        sink.Write("line");
+
+        string result = sw.ToString();
+        Assert.Equal("line\n", result);
+        Assert.DoesNotContain("\r", result, StringComparison.Ordinal);
     }
 
     private sealed class ThrowingWriter : TextWriter
