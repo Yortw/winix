@@ -56,12 +56,31 @@ run S03-describe "--describe" "$BIN --describe"
 run_server S04-serve "serve a dir, one request then stop" serve "$WORK"
 run_server S05-inspect "inspect one request then stop" inspect
 run_server S06-inspect-json "inspect --json (JSONL to stdout)" inspect --json
-run_server S07-pipe "pipe -- tr a-z A-Z, one request" pipe -- tr a-z A-Z
+# S07 pipe is bespoke: hcat's own flags MUST precede the `pipe -- <cmd>` child
+# separator, otherwise everything after `--` (incl. --capture/--timeout/--port) is
+# swallowed into the child argv — hcat then binds the DEFAULT port with no stop
+# condition and runs unbounded (orphaned listener). run_server appends flags, which
+# is incompatible with `--`, so this case is inlined with flags placed correctly.
+PORT=$((PORT + 1))
+echo "=== S07-pipe: pipe --capture/timeout/port BEFORE -- tr a-z A-Z (port $PORT) ==="
+echo "CMD: $BIN pipe --capture 1 --timeout 15s --port $PORT -- tr a-z A-Z" > "$OUT/S07-pipe.cmd"
+"$BIN" pipe --capture 1 --timeout 15s --port "$PORT" -- tr a-z A-Z \
+  1>"$OUT/S07-pipe.stdout" 2>"$OUT/S07-pipe.stderr" &
+s07pid=$!
+sleep 2
+curl -s -m 5 -X POST --data-binary 'deploy-complete' "http://127.0.0.1:$PORT/" \
+  1>"$OUT/S07-pipe.client.out" 2>/dev/null
+wait "$s07pid"
+echo $? > "$OUT/S07-pipe.exitcode"
+echo "  exit=$(cat "$OUT/S07-pipe.exitcode")"
+
 run_server S08-serve-json "serve --json access-log" serve "$WORK" --json
 run_server S09-color "serve --color" serve "$WORK" --color
 
-# Bad bind: --port 1 (privileged / unbindable as non-root) -> startup failure 126.
-run S10-badbind "unbindable port -> 126" "$BIN serve $WORK --port 1 --capture 1 --timeout 5s"
+# Bad bind -> startup failure 126. Use an unassignable address (TEST-NET-3, RFC 5737)
+# rather than a privileged port: AddressNotAvailable fails identically on Windows, Linux,
+# and macOS, whereas "--port 1" is bindable for a local user on Windows.
+run S10-badbind "unbindable host -> 126" "$BIN serve $WORK --host 203.0.113.1 --port 8799 --capture 1 --timeout 5s"
 
 # Teardown: nothing to kill — all servers were --capture/--timeout bounded.
 rm -rf "$WORK"
