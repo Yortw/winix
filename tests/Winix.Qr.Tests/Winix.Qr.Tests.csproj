@@ -8,6 +8,11 @@
          and ex.Message-from-framework-exception leaks ('Arg_ParamName_Name', 'IO_PathNotFound_Path')
          render normally during tests but fail in production. -->
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Mirror qr.csproj's UseSystemResourceKeys=true so framework exception .Message returns the
+         bare CoreLib resource key in tests, exactly as the shipped AOT binary does. This is what
+         actually makes the existing DoesNotContain("Arg_ParamName_Name", …) leak assertions
+         meaningful — InvariantGlobalization alone does not trigger the resource-key fallback. -->
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.*" />
