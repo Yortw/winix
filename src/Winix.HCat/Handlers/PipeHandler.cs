@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Yort.ShellKit;
 
 namespace Winix.HCat.Handlers;
 
@@ -111,7 +112,7 @@ public static class PipeHandler
                     {
                         context.Response.StatusCode = StatusCodes.Status500InternalServerError;
                     }
-                    Console.Error.WriteLine($"hcat: pipe transfer error: {ex.Message}");
+                    Console.Error.WriteLine($"hcat: pipe transfer error: {SafeError.Describe(ex)}");
                     return;
                 }
 

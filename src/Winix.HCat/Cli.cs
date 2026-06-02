@@ -58,7 +58,7 @@ public static class Cli
         catch (Exception ex)
         {
             // Unknown fault only — known startup faults are handled inside RunAsync. Short message (AOT).
-            stderr.WriteLine($"hcat: error: {ex.Message}");
+            stderr.WriteLine($"hcat: error: {SafeError.Describe(ex)}");
             return ExitCode.NotExecutable;
         }
         finally
