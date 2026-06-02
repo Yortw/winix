@@ -1,3 +1,5 @@
+using Yort.ShellKit;
+
 namespace Winix.When;
 
 /// <summary>
@@ -38,7 +40,7 @@ public static class TimezoneResolver
         }
         catch (InvalidTimeZoneException ex)
         {
-            error = $"Invalid timezone data for '{id}': {ex.Message}";
+            error = $"Invalid timezone data for '{id}': {SafeError.Describe(ex)}";
             return false;
         }
     }

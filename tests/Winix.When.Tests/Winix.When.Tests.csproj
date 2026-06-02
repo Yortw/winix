@@ -5,6 +5,11 @@
     <!-- InvariantGlobalization disabled so timezone and named-month parsing work in tests,
          matching the when console app's runtime environment. -->
     <InvariantGlobalization>false</InvariantGlobalization>
+    <!-- Match the runtime UseSystemResourceKeys=true setting on the production csproj so
+         framework exception .Message returns bare CoreLib resource keys here too. NOTE the
+         deliberate combination: ICU stays ON (InvariantGlobalization=false) for TZ/month
+         parsing, while system resource keys are also ON — this mirrors the shipped binary. -->
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.*" />
