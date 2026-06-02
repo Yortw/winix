@@ -285,7 +285,9 @@ internal sealed class Program
                     }
                     catch (NotSupportedException ex)
                     {
-                        SafeWriteLine(Console.Error, $"retry: warning: cannot kill child: {ex.Message}");
+                        // NotSupportedException here is a framework exception; under UseSystemResourceKeys
+                        // its .Message would be a bare CoreLib resource key. Route via SafeError for readable text.
+                        SafeWriteLine(Console.Error, $"retry: warning: cannot kill child: {SafeError.Describe(ex)}");
                     }
                 });
 
