@@ -98,18 +98,23 @@ public static class Cli
             Console.Error.WriteLine(Formatting.RuntimeError(invocationName, ex.Message));
             return RuntimeErrorExit;
         }
-        catch (UnauthorizedAccessException ex)
+        catch (UnauthorizedAccessException)
         {
-            Console.Error.WriteLine(Formatting.RuntimeError(invocationName, $"access denied: {ex.Message}"));
+            // SafeError.Describe(UnauthorizedAccessException) == "access denied", which would make the
+            // prefix read "access denied: access denied". The prefix already carries the diagnostic, so
+            // we drop the suffix rather than route through SafeError.
+            Console.Error.WriteLine(Formatting.RuntimeError(invocationName, "access denied"));
             return RuntimeErrorExit;
         }
-        catch (EndOfStreamException ex)
+        catch (EndOfStreamException)
         {
             // EndOfStreamException : IOException, so this catch must precede the IOException handlers
             // below — otherwise it'd be unreachable. Surfaces truncated headers / chunks as a clear
             // "not a protect file or truncated" error instead of bleeding through the generic IO path.
+            // EndOfStreamException is unmapped by SafeError (would yield just the type name), and the
+            // prefix is the real diagnostic. Drop the suffix to avoid a useless ": EndOfStreamException".
             Console.Error.WriteLine(Formatting.RuntimeError(invocationName,
-                $"ciphertext is truncated or not a protect file: {ex.Message}"));
+                "ciphertext is truncated or not a protect file"));
             return RuntimeErrorExit;
         }
         catch (IOException) when (ResolveEffectiveOutputPath(opts) is string effPath && File.Exists(effPath))
@@ -129,7 +134,7 @@ public static class Cli
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine(Formatting.RuntimeError(invocationName, $"unexpected error: {ex.Message}"));
+            Console.Error.WriteLine(Formatting.RuntimeError(invocationName, $"unexpected error: {SafeError.Describe(ex)}"));
             return RuntimeErrorExit;
         }
     }

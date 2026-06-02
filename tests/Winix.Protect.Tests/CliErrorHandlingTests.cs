@@ -23,6 +23,34 @@ public class CliErrorHandlingTests
     }
 
     [Fact]
+    public void Unprotect_TruncatedFile_StderrIsReadableNoResourceKey()
+    {
+        // The 2-byte file is shorter than the 22-byte header, so Header.Read throws
+        // EndOfStreamException, hitting Cli.Run's EndOfStreamException catch. Under
+        // UseSystemResourceKeys=true (mirrored in this test csproj) a leaked framework .Message
+        // would surface a bare CoreLib resource key; assert the prefix-only message is emitted.
+        string path = Path.Combine(Path.GetTempPath(), $"winix-trunc-msg-{Guid.NewGuid():N}.prot");
+        File.WriteAllBytes(path, [(byte)'W', (byte)'P']);
+        StringWriter capturedErr = new();
+        TextWriter originalErr = Console.Error;
+        Console.SetError(capturedErr);
+        try
+        {
+            int exit = Winix.Protect.Cli.Run([path], "unprotect");
+            Assert.Equal(126, exit);
+            string err = capturedErr.ToString();
+            Assert.Contains("truncated or not a protect file", err, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("EndOfStreamException", err, StringComparison.Ordinal);
+            Assert.DoesNotContain("IO_", err, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Console.SetError(originalErr);
+            try { File.Delete(path); } catch { }
+        }
+    }
+
+    [Fact]
     public void Unprotect_BadMagic_ReturnsRuntimeError()
     {
         string path = Path.Combine(Path.GetTempPath(), $"winix-badmagic-{Guid.NewGuid():N}.prot");
