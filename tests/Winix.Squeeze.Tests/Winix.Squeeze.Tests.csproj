@@ -7,6 +7,9 @@
          exception messages render under the same runtime config as the AOT binary.
          Per `feedback_invariant_globalization_resource_keys`. -->
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Mirror the shipping tool's UseSystemResourceKeys so resource-key-leak regression
+         tests observe the same bare-CoreLib-key behaviour the published binary does. -->
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.*" />

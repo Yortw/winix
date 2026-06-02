@@ -8,6 +8,9 @@
          (e.g. "FileNameMissing" from Process.Start with empty FileName) render as localised
          English in tests but as raw SR keys in production. -->
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Mirror the shipping tool's UseSystemResourceKeys so resource-key-leak regression
+         tests observe the same bare-CoreLib-key behaviour the published binary does. -->
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.*" />
