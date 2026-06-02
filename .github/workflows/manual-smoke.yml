@@ -91,7 +91,7 @@ jobs:
         run: |
           INPUT_TOOLS="${{ github.event.inputs.tools }}"
           if [ -z "$INPUT_TOOLS" ] || [ "$INPUT_TOOLS" = "all" ]; then
-            TOOLS="timeit,squeeze,peep,wargs,files,treex,man,less,whoholds,schedule,nc,winix,retry,when,clip,ids,digest,notify,url,qr,protect,unprotect,envvault"
+            TOOLS="timeit,squeeze,peep,wargs,files,treex,man,less,whoholds,schedule,nc,winix,retry,when,clip,ids,digest,notify,url,qr,protect,unprotect,envvault,demux,mksecret,trash,hcat"
           else
             TOOLS="$INPUT_TOOLS"
           fi
@@ -138,6 +138,8 @@ jobs:
                 echo "round-stop-2026-05-09/$1" ;;
               timeit|url|digest|notify|ids|when|qr|squeeze)
                 echo "reverify-2026-05-06/$1" ;;
+              demux|mksecret|trash|hcat)
+                echo "v0.4-smoke/$1" ;;
               *) echo "" ;;
             esac
           }
@@ -178,12 +180,20 @@ jobs:
               -e 's|[Dd]:/projects/winix/||g' \
               -e 's|artifacts/round-stop-2026-05-09/([a-z]+)/fresh-publish/\1\.exe|artifacts/manual-smoke/'"${{ matrix.rid }}"'/\1/\1|g' \
               -e 's|artifacts/reverify-2026-05-06/([a-z]+)/bin/\1\.exe|artifacts/manual-smoke/'"${{ matrix.rid }}"'/\1/\1|g' \
+              -e 's|artifacts/v0.4-smoke/([a-z]+)/bin/\1\.exe|artifacts/manual-smoke/'"${{ matrix.rid }}"'/\1/\1|g' \
               -e 's|artifacts/round-stop-2026-05-09/([a-z]+)|artifacts/manual-smoke/'"${{ matrix.rid }}"'/\1|g' \
               -e 's|artifacts/reverify-2026-05-06/([a-z]+)|artifacts/manual-smoke/'"${{ matrix.rid }}"'/\1|g' \
+              -e 's|artifacts/v0.4-smoke/([a-z]+)|artifacts/manual-smoke/'"${{ matrix.rid }}"'/\1|g' \
               -e 's|fresh-publish/([a-z]+)\.exe|\1|g' \
               -e 's|bin/([a-z]+)\.exe|\1|g' \
               "$dst_runner"
             rm -f "$dst_runner.bak"
+
+            # Fail loud: a stale v0.4-smoke path means the retarget sed missed,
+            # so the runner would hit a nonexistent binary and vacuously "pass".
+            if grep -q "v0.4-smoke" "$dst_runner"; then
+              echo "::error::sed retarget failed for $t — stale v0.4-smoke path remains" ; exit 1
+            fi
 
             echo "  running smokes (timeout 240s) ..." | tee -a "$SUMMARY"
             timeout 240s bash "$dst_runner" > "$ART/$t/run-smokes.stdout" 2> "$ART/$t/run-smokes.stderr"
