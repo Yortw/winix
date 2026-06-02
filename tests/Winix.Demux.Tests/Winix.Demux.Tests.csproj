@@ -3,6 +3,11 @@
     <TargetFramework>net10.0</TargetFramework>
     <IsTestProject>true</IsTestProject>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Mirror the AOT app's resource behaviour so the test host reproduces the framework's
+         SR-resource-key substitution (e.g. "IO_PathNotFound_Path" instead of English). Without
+         this, exception .Message resolves to English in the JIT test host and resource-key leaks
+         stay invisible until they hit the trimmed native binary. See demux.csproj line 9. -->
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.*" />

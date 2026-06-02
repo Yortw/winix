@@ -45,6 +45,19 @@ public class CliTests
         Assert.Equal(126, code);
     }
 
+    // Regression (InvariantGlobalization resource-key leak): a setup failure must report a readable,
+    // type-mapped reason ("no such directory") rather than the framework IOException .Message, which
+    // under InvariantGlobalization returns an SR resource key ("IO_PathNotFound_Path, <path>").
+    [Fact]
+    public void UnopenableFile_MessageIsReadable_NoResourceKeyLeak()
+    {
+        string bad = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName(), "x.log"); // missing dir
+        var (_, _, err) = Run("ERROR\n", "--to", "ERROR", bad);
+        Assert.DoesNotContain("IO_PathNotFound_Path", err, System.StringComparison.Ordinal);
+        Assert.Contains("setup failure", err, System.StringComparison.Ordinal);
+        Assert.Contains("no such directory", err, System.StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Help_Exits0()
     {

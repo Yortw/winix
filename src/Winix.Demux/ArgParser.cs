@@ -262,9 +262,20 @@ public static class ArgParser
             rx = SafeRegex.Create(pattern, RegexOptions.None);
             return true;
         }
-        catch (Exception ex)
+        catch (RegexParseException ex)
         {
-            stderr.WriteLine($"demux: invalid regex '{pattern}': {ex.Message}");
+            // Don't surface ex.Message: with UseSystemResourceKeys (the AOT/trim default — see
+            // demux.csproj) the framework returns an SR resource key ("MakeException, …") instead of
+            // English. RegexParseException.Error/.Offset are structured and invariant-stable, so we
+            // build a readable diagnostic from them.
+            stderr.WriteLine($"demux: invalid regex '{pattern}': {ex.Error} at offset {ex.Offset}");
+            rx = null;
+            return false;
+        }
+        catch (Exception)
+        {
+            // Any other compile failure: same rule — never echo a framework ex.Message to the user.
+            stderr.WriteLine($"demux: invalid regex '{pattern}': not a valid regular expression");
             rx = null;
             return false;
         }

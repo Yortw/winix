@@ -61,7 +61,7 @@ public static class Cli
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             foreach (ISink s in allSinks) { try { s.Close(); } catch { /* best effort */ } }
-            stderr.WriteLine($"demux: setup failure: {ex.Message}");
+            stderr.WriteLine($"demux: setup failure: {DescribeWriteError(ex)}");
             return ExitCode.NotExecutable;
         }
 
@@ -128,13 +128,26 @@ public static class Cli
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
             {
-                stderr.WriteLine($"demux: setup failure: cannot write '{r.Target}': {ex.Message}");
+                stderr.WriteLine($"demux: setup failure: cannot write '{r.Target}': {DescribeWriteError(ex)}");
                 code = ExitCode.NotExecutable;
                 return false;
             }
         }
         return true;
     }
+
+    /// <summary>Maps a file-open failure to a stable, readable reason. Avoids the framework
+    /// exception <c>.Message</c>, which under <c>UseSystemResourceKeys</c> (the AOT/trim default —
+    /// see demux.csproj) returns an SR resource key (e.g. <c>IO_PathNotFound_Path</c>) rather than
+    /// English. The caller already prints the offending path; this supplies the human reason.</summary>
+    private static string DescribeWriteError(Exception ex) => ex switch
+    {
+        DirectoryNotFoundException => "no such directory",
+        FileNotFoundException => "no such file",
+        UnauthorizedAccessException => "access denied",
+        System.Security.SecurityException => "access denied",
+        _ => "cannot open for writing",
+    };
 
     private static string GetVersion()
     {

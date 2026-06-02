@@ -67,6 +67,20 @@ public class ArgParserTests
         Assert.Equal(125, code);
     }
 
+    // Regression (InvariantGlobalization resource-key leak): under InvariantGlobalization — the AOT
+    // default, mirrored on this test csproj — a framework regex-parse exception's .Message returns
+    // SR resource keys (e.g. "MakeException, (, 1, InsufficientClosingParentheses") not English.
+    // The diagnostic must surface a readable message built from RegexParseException.Error/.Offset,
+    // never the raw framework .Message.
+    [Fact]
+    public void BadRegex_MessageIsReadable_NoResourceKeyLeak()
+    {
+        var (_, err, _) = Parse("--to", "(unclosed", "e.log");
+        Assert.DoesNotContain("MakeException", err, System.StringComparison.Ordinal);
+        Assert.Contains("invalid regex", err, System.StringComparison.Ordinal);
+        Assert.Contains("offset", err, System.StringComparison.Ordinal);
+    }
+
     [Fact]
     public void FieldZero_IsUsageError()
     {
