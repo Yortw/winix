@@ -2,6 +2,9 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <IsTestProject>true</IsTestProject>
+    <!-- Mirror the AOT apps' UseSystemResourceKeys=true so SafeError's contract
+         (never emit SR resource keys) is exercised under the real runtime condition. -->
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.*" />
