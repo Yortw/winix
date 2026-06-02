@@ -3,6 +3,7 @@ using System;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using Yort.ShellKit;
 
 namespace Winix.Notify;
 
@@ -47,19 +48,25 @@ internal static class AumidShortcut
         // Narrow catches replace the previous bare `catch`. Each is realistic for this code
         // path: COM init failures, missing/locked Programs folder, AV blocking lnk write.
         // Anything else (NRE, OOM) is a programmer fault and propagates.
-        catch (InvalidOperationException ex)
+        catch (InvalidOperationException)
         {
-            error = $"COM error: {ex.Message}";
+            // ex.Message would be a bare SR key under UseSystemResourceKeys and SafeError would
+            // only echo the type name — the "COM error" prefix is the diagnostic, so drop the suffix.
+            error = "COM error";
             return false;
         }
-        catch (UnauthorizedAccessException ex)
+        catch (UnauthorizedAccessException)
         {
-            error = $"access denied: {ex.Message}";
+            // SafeError maps UnauthorizedAccessException to "access denied" — appending it would
+            // read "access denied: access denied". The prefix already states the category.
+            error = "access denied";
             return false;
         }
         catch (IOException ex)
         {
-            error = $"I/O error: {ex.Message}";
+            // Route through SafeError so IO subtypes (not-found / path-too-long) keep their useful
+            // English detail instead of leaking an SR key; generic IOException degrades to the type name.
+            error = $"I/O error: {SafeError.Describe(ex)}";
             return false;
         }
         catch (System.Runtime.InteropServices.COMException ex)
