@@ -94,7 +94,7 @@ public static class Cli
         }
         catch (Exception ex)
         {
-            try { stderr.WriteLine($"demux: (summary unavailable: {ex.Message})"); } catch { /* give up */ }
+            try { stderr.WriteLine($"demux: (summary unavailable: {SafeError.Describe(ex)})"); } catch { /* give up */ }
         }
 
         return exit;
