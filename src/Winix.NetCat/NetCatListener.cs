@@ -88,7 +88,7 @@ public sealed class NetCatListener
             {
                 sw.Stop();
                 stderr.WriteLine(Formatting.FormatErrorLine(
-                    $"peer disconnected before stream was established — {(string.IsNullOrEmpty(ex.Message) ? ex.GetType().Name : ex.Message)}",
+                    $"peer disconnected before stream was established — {SafeError.Describe(ex)}",
                     options.UseColor));
                 return new RunResult { ExitCode = 1, ExitReason = "socket_error",
                     DurationMilliseconds = sw.Elapsed.TotalMilliseconds, LocalAddress = $"{bind}:{port}" };
@@ -205,8 +205,7 @@ public sealed class NetCatListener
             // the way to Main's 126 "unexpected_error" safety-net, losing the JSON envelope.
             // Mirror the client's treatment here for symmetric class-B coverage.
             sw.Stop();
-            string msg = string.IsNullOrEmpty(ex.Message) ? ex.GetType().Name : ex.Message;
-            stderr.WriteLine(Formatting.FormatErrorLine($"accept {bind}:{port} — {msg}", options.UseColor));
+            stderr.WriteLine(Formatting.FormatErrorLine($"accept {bind}:{port} — {SafeError.Describe(ex)}", options.UseColor));
             return new RunResult { ExitCode = 1, ExitReason = "accept_failed", DurationMilliseconds = sw.Elapsed.TotalMilliseconds };
         }
         finally
