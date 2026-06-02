@@ -161,7 +161,7 @@ public static class Cli
             // mismatch detection in a `digest --verify ... || alert` script. Anything
             // unexpected reaching here is a runtime fault, which POSIX convention maps to
             // 125 in this suite (Winix's NotExecutable / 'tool's own error' code).
-            stderr.WriteLine($"digest: error: {ex.Message}");
+            stderr.WriteLine($"digest: error: {SafeError.Describe(ex)}");
             return ExitCode.NotExecutable;
         }
     }

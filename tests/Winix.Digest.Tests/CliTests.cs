@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text;
 using Xunit;
 using Winix.Digest;
@@ -157,5 +158,62 @@ public class CliTests
         var r = RunCli(new[] { "--sha256" }, payloadStdin: binary);
         Assert.Equal(ExitCode.Success, r.exit);
         Assert.Equal(expectedHex, r.stdout.Trim());
+    }
+
+    // -- Resource-key-leak sweep — when a file passes the ArgParser File.Exists guard but
+    //    OpenRead fails, the HashRunner read-catch reports the failure. Under
+    //    UseSystemResourceKeys (which this test csproj mirrors) the framework
+    //    exception .Message is a bare CoreLib resource key, not English. SafeError.Describe
+    //    maps it to readable text and never leaks the key. The trigger differs per platform
+    //    (exclusive lock on Windows → IOException; chmod 000 on Unix → UnauthorizedAccess)
+    //    but the contract is identical: no resource-key fragment in stderr, readable text. --
+
+    [SkippableFact]
+    public void FileReadLocked_Windows_NoResourceKeyLeak_ReadableError()
+    {
+        Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.Windows), "Windows-only — exclusive file lock (FileShare.None) blocks a second OpenRead.");
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return; // redundant, satisfies analyzer parity with the Unix test
+
+        string path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllBytes(path, Encoding.UTF8.GetBytes("secret"));
+            // Hold an exclusive (no-share) handle so the tool's OpenRead hits a sharing violation.
+            using (var hold = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                var r = RunCli(new[] { "--sha256", path });
+                Assert.Equal(ExitCode.NotExecutable, r.exit);
+                // Under UseSystemResourceKeys the leaked key would be a fragment like 'IO_SharingViolation_File'.
+                Assert.DoesNotContain("IO_", r.stderr, StringComparison.Ordinal);
+                Assert.DoesNotContain("_File", r.stderr, StringComparison.Ordinal);
+                Assert.Contains("failed to read", r.stderr, StringComparison.Ordinal);
+            }
+        }
+        finally { File.Delete(path); }
+    }
+
+    [SkippableFact]
+    public void FileReadDenied_Unix_NoResourceKeyLeak_ReadableError()
+    {
+        Skip.If(RuntimeInformation.IsOSPlatform(OSPlatform.Windows), "Unix-only — uses File.SetUnixFileMode to force a deterministic read denial.");
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return; // redundant, satisfies CA1416 analyzer
+
+        string path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllBytes(path, Encoding.UTF8.GetBytes("secret"));
+            File.SetUnixFileMode(path, UnixFileMode.None); // chmod 000 → OpenRead throws UnauthorizedAccessException
+            var r = RunCli(new[] { "--sha256", path });
+            Assert.Equal(ExitCode.NotExecutable, r.exit);
+            Assert.DoesNotContain("UnauthorizedAccess", r.stderr, StringComparison.Ordinal);
+            Assert.DoesNotContain("_Path", r.stderr, StringComparison.Ordinal);
+            Assert.Contains("access denied", r.stderr, StringComparison.Ordinal);
+        }
+        finally
+        {
+            // Restore owner write so Delete succeeds even if the chmod above stuck.
+            try { File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite); } catch { }
+            File.Delete(path);
+        }
     }
 }

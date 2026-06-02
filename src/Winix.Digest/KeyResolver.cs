@@ -2,6 +2,7 @@
 using System;
 using System.IO;
 using System.Text;
+using Yort.ShellKit;
 
 namespace Winix.Digest;
 
@@ -103,7 +104,7 @@ public static class KeyResolver
                 }
                 catch (IOException ex)
                 {
-                    error = $"failed to stat key file '{file.Path}': {ex.Message}";
+                    error = $"failed to stat key file '{file.Path}': {SafeError.Describe(ex)}";
                     return null;
                 }
                 string? permWarning = KeyFilePermissionsCheck.GetWarningOrNull(file.Path);
@@ -124,7 +125,7 @@ public static class KeyResolver
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
-                    error = $"failed to read key file '{file.Path}': {ex.Message}";
+                    error = $"failed to read key file '{file.Path}': {SafeError.Describe(ex)}";
                     return null;
                 }
                 if (fileExceeded)

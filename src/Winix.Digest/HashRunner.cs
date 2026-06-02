@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using Yort.ShellKit;
 
 namespace Winix.Digest;
 
@@ -94,7 +95,7 @@ public static class HashRunner
         // pointed out by the round-3 test analyzer. Same diagnostic text either way.
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            error = $"failed to read '{path}': {ex.Message}";
+            error = $"failed to read '{path}': {SafeError.Describe(ex)}";
             return Array.Empty<HashResult>();
         }
     }
@@ -123,7 +124,7 @@ public static class HashRunner
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                error = $"failed to read '{path}': {ex.Message}";
+                error = $"failed to read '{path}': {SafeError.Describe(ex)}";
                 return Array.Empty<HashResult>();
             }
         }
