@@ -86,7 +86,7 @@ public static class Cli
         {
             // Unexpected runtime error (e.g. OS CSPRNG failure, OOM). Keep the message
             // short — AOT builds have StackTraceSupport=false, so we can't offer a trace.
-            stderr.WriteLine($"ids: error: {ex.Message}");
+            stderr.WriteLine($"ids: error: {SafeError.Describe(ex)}");
             return 1;
         }
     }

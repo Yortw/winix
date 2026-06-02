@@ -125,7 +125,11 @@ public class CliTests
         var r = RunCli(new[] { "--type", "uuid4", "--count", "1" }, gen);
         Assert.Equal(1, r.exit);
         Assert.Contains("ids: error:", r.stderr, StringComparison.Ordinal);
-        Assert.Contains("CSPRNG failed", r.stderr, StringComparison.Ordinal);
+        // Resource-key-leak sweep: the catch-all now routes through SafeError, which never
+        // returns ex.Message (a bare CoreLib key under UseSystemResourceKeys). It maps an
+        // unrecognised exception to its type name, so the diagnostic carries the type rather
+        // than the literal "CSPRNG failed" message.
+        Assert.Contains("InvalidOperationException", r.stderr, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -136,6 +140,22 @@ public class CliTests
         var r = RunCli(new[] { "--type", "uuid4", "--count", "1" }, gen);
         Assert.Equal(1, r.exit);
         Assert.Contains("ids: error:", r.stderr, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Run_GeneratorThrowsFrameworkException_NoResourceKeyLeak()
+    {
+        // Resource-key-leak sweep — a framework exception with NO custom message has a
+        // .Message that, under UseSystemResourceKeys (mirrored by this test csproj), is a
+        // bare CoreLib resource key (e.g. 'Arg_*'). FormatException is not an IOException,
+        // so it reaches the catch-all. SafeError.Describe must render the type name and
+        // never the leaked key.
+        var gen = new ThrowAfterGenerator(throwAfter: 0, new FormatException());
+        var r = RunCli(new[] { "--type", "uuid4", "--count", "1" }, gen);
+        Assert.Equal(1, r.exit);
+        Assert.Contains("ids: error:", r.stderr, StringComparison.Ordinal);
+        Assert.Contains("FormatException", r.stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain("Arg_", r.stderr, StringComparison.Ordinal);
     }
 
     // ── Usage errors — should not reach the generator ──
