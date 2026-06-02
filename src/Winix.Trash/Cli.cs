@@ -67,7 +67,7 @@ public static class Cli
             // A closed downstream pipe does NOT throw on .NET (the runtime absorbs it silently at
             // the Console.Out layer on both Windows and Linux), so a pipe-close always stays exit 0
             // without needing a special catch arm. Mirrors src/Winix.MkSecret/Cli.cs.
-            stderr.WriteLine($"trash: error: {ex.Message}");
+            stderr.WriteLine($"trash: error: {SafeError.Describe(ex)}");
             return ExitCode.NotExecutable;
         }
     }

@@ -261,7 +261,10 @@ public class CliTests
 
         Assert.Equal(ExitCode.NotExecutable, code);
         Assert.Contains("trash: error:", errText);
-        Assert.Contains("OS API failed", errText);
+        // The catch-all routes through SafeError, which never echoes arbitrary ex.Message (that could
+        // leak a resource key under UseSystemResourceKeys). For an unmapped exception it surfaces the
+        // type name as readable context. Intent preserved: a backend throw is reported on stderr.
+        Assert.Contains("InvalidOperationException", errText);
         Assert.Equal(string.Empty, outText);
     }
 
@@ -279,6 +282,25 @@ public class CliTests
         Assert.Equal(ExitCode.NotExecutable, code);
         Assert.Contains("trash: error:", errText);
         Assert.Equal(string.Empty, outText);
+    }
+
+    [Fact]
+    public void Backend_throws_framework_exception_error_text_is_readable_no_resource_key()
+    {
+        // Regression: under UseSystemResourceKeys=true (the AOT publish setting, mirrored on this
+        // test csproj), a framework exception's default .Message returns a bare CoreLib resource key
+        // (e.g. "IO_FileNotFound") instead of English. The catch-all must route through SafeError so
+        // the user sees readable text, never the leaked key.
+        var backend = new FakeTrashBackend(
+            trashException: new FileNotFoundException());
+        var (code, _, errText) = Run(new[] { "/fake/file.txt" }, backend);
+
+        Assert.Equal(ExitCode.NotExecutable, code);
+        Assert.Contains("trash: error:", errText);
+        // The resource key for FileNotFoundException's parameterless message must NOT leak through.
+        Assert.DoesNotContain("IO_FileNotFound", errText, StringComparison.Ordinal);
+        // SafeError maps FileNotFoundException → readable English.
+        Assert.Contains("no such file", errText, StringComparison.Ordinal);
     }
 
     [Fact]
