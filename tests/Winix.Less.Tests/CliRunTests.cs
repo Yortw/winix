@@ -117,6 +117,29 @@ public sealed class CliRunTests : IDisposable
         Assert.Contains("Is a directory", stderr.ToString(), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Run_DirectoryPath_PrintsIsADirectoryVerbatimWithPath()
+    {
+        // Resource-key-leak sweep: a directory argument must STILL print the verbatim
+        // project-controlled "Is a directory: <path>" message — NOT get regressed to the
+        // generic "IOException" that SafeError.Describe falls back to for framework IO errors.
+        // Goes red if the directory case were routed through SafeError.Describe (which has no
+        // mapping for DirectoryInputException and would emit the type name).
+        var (stdout, stderr) = Sinks();
+
+        int exit = Cli.Run(
+            new[] { _tempDir },
+            stdout, stderr,
+            isStdoutRedirected: true,
+            isStdinRedirected: false,
+            pagerRunner: CapturingPagerRunner());
+
+        Assert.Equal(1, exit);
+        Assert.Contains($"less: Is a directory: {_tempDir}", stderr.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("IOException", stderr.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("DirectoryInputException", stderr.ToString(), StringComparison.Ordinal);
+    }
+
     // ── F7: catch broadening + InvariantGlobalization SR-key safety ───────────────
 
     [Fact]

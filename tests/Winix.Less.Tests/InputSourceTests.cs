@@ -106,11 +106,16 @@ public class InputSourceTests : IDisposable
     // FileNotFoundException with the misleading "File not found" message because File.Exists
     // returns false for directories AND missing paths. Now distinguished via Directory.Exists
     // probe — directory case throws IOException with the POSIX-aligned "Is a directory" text.
+    //
+    // Resource-key-leak sweep 2026-06-02: the concrete type is now DirectoryInputException
+    // (a subclass of IOException) so Cli can print this safe message verbatim while routing
+    // genuine framework read IOExceptions through SafeError.Describe. ThrowsAny preserves the
+    // original "is an IOException with 'Is a directory' message" contract intent.
     [Fact]
     public void FromFile_DirectoryPath_ThrowsIOExceptionWithIsADirectoryMessage()
     {
         // _tempDir is a directory created in the constructor; pass it as the input path.
-        var ex = Assert.Throws<IOException>(() => InputSource.FromFile(_tempDir));
+        var ex = Assert.ThrowsAny<IOException>(() => InputSource.FromFile(_tempDir));
 
         Assert.Contains("Is a directory", ex.Message, StringComparison.Ordinal);
         Assert.Contains(_tempDir, ex.Message, StringComparison.Ordinal);

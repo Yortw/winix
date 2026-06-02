@@ -184,10 +184,17 @@ public static class Cli
             stderr.WriteLine($"less: {ex.Message}");
             return 1;
         }
+        catch (DirectoryInputException ex)
+        {
+            // ex.Message is our project-controlled "Is a directory: ..." string — safe verbatim.
+            stderr.WriteLine($"less: {ex.Message}");
+            return 1;
+        }
         catch (IOException ex)
         {
-            // Covers our "Is a directory" (from F6) plus genuine read errors.
-            stderr.WriteLine($"less: {ex.Message}");
+            // Genuine framework read error: ex.Message would be a bare SR resource key under
+            // UseSystemResourceKeys, so route through SafeError.Describe for readable English.
+            stderr.WriteLine($"less: {SafeError.Describe(ex)}");
             return 1;
         }
         catch (UnauthorizedAccessException)

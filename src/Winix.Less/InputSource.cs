@@ -43,10 +43,11 @@ public sealed class InputSource
     /// <param name="filePath">Absolute or relative path to the file to read.</param>
     /// <returns>An <see cref="InputSource"/> whose <see cref="Lines"/> reflect the file contents.</returns>
     /// <exception cref="FileNotFoundException">Thrown when <paramref name="filePath"/> does not exist on disk.</exception>
-    /// <exception cref="IOException">
+    /// <exception cref="DirectoryInputException">
     /// Thrown when <paramref name="filePath"/> exists but refers to a directory rather than a regular
     /// file. The exception message reads "Is a directory: {filePath}" — distinguished from the
-    /// not-found case for the caller's benefit (see Tier-2 baseline finding F6).
+    /// not-found case for the caller's benefit (see Tier-2 baseline finding F6). Subclasses
+    /// <see cref="IOException"/>, so callers catching <see cref="IOException"/> still match.
     /// </exception>
     public static InputSource FromFile(string filePath)
     {
@@ -59,7 +60,10 @@ public sealed class InputSource
             // not a permissions error.
             if (Directory.Exists(filePath))
             {
-                throw new IOException($"Is a directory: {filePath}");
+                // Distinct subtype of IOException so Cli can print this project-controlled
+                // message verbatim, while routing genuine framework read IOExceptions (whose
+                // .Message is an SR key under UseSystemResourceKeys) through SafeError.Describe.
+                throw new DirectoryInputException(filePath);
             }
             throw new FileNotFoundException($"File not found: {filePath}", filePath);
         }
