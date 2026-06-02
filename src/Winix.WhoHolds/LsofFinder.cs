@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
+using Yort.ShellKit;
 
 namespace Winix.WhoHolds;
 
@@ -263,11 +264,11 @@ public static class LsofFinder
         }
         catch (System.IO.FileNotFoundException ex)
         {
-            return new LsofRun(-1, string.Empty, string.Empty, TimedOut: false, StartError: ex.Message, ReadError: null);
+            return new LsofRun(-1, string.Empty, string.Empty, TimedOut: false, StartError: SafeError.Describe(ex), ReadError: null);
         }
         catch (InvalidOperationException ex)
         {
-            return new LsofRun(-1, string.Empty, string.Empty, TimedOut: false, StartError: ex.Message, ReadError: null);
+            return new LsofRun(-1, string.Empty, string.Empty, TimedOut: false, StartError: SafeError.Describe(ex), ReadError: null);
         }
 
         if (process is null)
@@ -336,7 +337,7 @@ public static class LsofFinder
             catch (AggregateException ex)
             {
                 allCompleted = stdoutTask.IsCompleted && stderrTask.IsCompleted;
-                readError = ex.GetType().Name + ": " + ex.InnerException?.Message;
+                readError = ex.GetType().Name + ": " + SafeError.Describe(ex.InnerException);
             }
 
             // Round-2 fresh-eyes 2026-05-08 silent-failure-hunter R2-1: defensive guard for
@@ -360,7 +361,7 @@ public static class LsofFinder
             }
             else if (readError is null && stdoutTask.IsFaulted)
             {
-                readError = "stdout read faulted: " + stdoutTask.Exception?.GetBaseException().Message;
+                readError = "stdout read faulted: " + SafeError.Describe(stdoutTask.Exception?.GetBaseException());
             }
 
             if (stderrTask.IsCompletedSuccessfully)
@@ -369,7 +370,7 @@ public static class LsofFinder
             }
             else if (readError is null && stderrTask.IsFaulted)
             {
-                readError = "stderr read faulted: " + stderrTask.Exception?.GetBaseException().Message;
+                readError = "stderr read faulted: " + SafeError.Describe(stderrTask.Exception?.GetBaseException());
             }
 
             return new LsofRun(process.ExitCode, output, error, TimedOut: false, StartError: null, ReadError: readError);
