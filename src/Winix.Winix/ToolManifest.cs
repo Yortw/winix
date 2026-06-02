@@ -1,6 +1,7 @@
 #nullable enable
 
 using System.Text.Json;
+using Yort.ShellKit;
 
 namespace Winix.Winix;
 
@@ -52,7 +53,7 @@ public sealed class ToolManifest
         }
         catch (JsonException ex)
         {
-            throw new ManifestParseException("Manifest JSON is invalid: " + ex.Message, ex);
+            throw new ManifestParseException("Manifest JSON is invalid: " + SafeError.Describe(ex), ex);
         }
 
         using (document)

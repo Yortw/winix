@@ -112,6 +112,20 @@ public class ToolManifestTests
     }
 
     [Fact]
+    public void Parse_InvalidJson_MessageIsReadable_NoResourceKey()
+    {
+        // Resource-key-leak regression: under UseSystemResourceKeys=true the raw
+        // JsonException.Message is a bare CoreLib resource key. ToolManifest.Parse now
+        // routes the inner JsonException through SafeError.Describe, which yields
+        // "invalid JSON at line N" (or "invalid JSON") — never a Json*-prefixed key.
+        var ex = Assert.Throws<ManifestParseException>(() => ToolManifest.Parse("not json"));
+        Assert.Contains("Manifest JSON is invalid", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("invalid JSON", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Json_", ex.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("JsonReaderException", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void GetPackageId_UnknownPm_ReturnsNull()
     {
         const string json = """

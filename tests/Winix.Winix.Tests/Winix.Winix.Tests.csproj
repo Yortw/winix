@@ -2,6 +2,10 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <IsTestProject>true</IsTestProject>
+    <!-- Match the runtime UseSystemResourceKeys=true setting on the production csproj so
+         framework exception .Message returns bare CoreLib resource keys here too — this is
+         what makes the SafeError resource-key-leak regression tests meaningful. -->
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.*" />
