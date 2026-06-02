@@ -9,6 +9,7 @@ using System.Net.Sockets;
 using System.Security.Authentication;
 using System.Threading;
 using System.Threading.Tasks;
+using Yort.ShellKit;
 
 namespace Winix.NetCat;
 
@@ -83,7 +84,7 @@ public sealed class NetCatClient
             // DNS/transport failures that surface as IOException (e.g. some .NET runtime paths
             // wrap resolver errors). Previously escaped to Main's safety-net → exit 126 with
             // "unexpected error". Round-3 C (class B) fix — classify as connect_failed.
-            stderr.WriteLine(Formatting.FormatErrorLine($"{options.Host}:{port} — {ex.Message}", options.UseColor));
+            stderr.WriteLine(Formatting.FormatErrorLine($"{options.Host}:{port} — {SafeError.Describe(ex)}", options.UseColor));
             return new RunResult { ExitCode = 1, ExitReason = "socket_error", DurationMilliseconds = sw.Elapsed.TotalMilliseconds };
         }
         catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException and not StackOverflowException)
@@ -93,7 +94,7 @@ public sealed class NetCatClient
             // otherwise escape to Main → exit 126 "unexpected error" with no JSON envelope —
             // the SFH-class-B defect. Classify as connect_failed so the user gets a proper
             // exit 1 and JSON consumers see a complete envelope. Mirrors PortChecker.ProbeOneAsync.
-            stderr.WriteLine(Formatting.FormatErrorLine($"{options.Host}:{port} — {ex.Message}", options.UseColor));
+            stderr.WriteLine(Formatting.FormatErrorLine($"{options.Host}:{port} — {SafeError.Describe(ex)}", options.UseColor));
             return new RunResult { ExitCode = 1, ExitReason = "connect_failed", DurationMilliseconds = sw.Elapsed.TotalMilliseconds };
         }
 
@@ -139,14 +140,14 @@ public sealed class NetCatClient
                 {
                     // Cert validation failure, protocol mismatch, etc. Specific type so
                     // consumers can distinguish "bad cert" from "transport failure".
-                    stderr.WriteLine(Formatting.FormatErrorLine($"TLS — certificate validation failed: {ex.Message}", options.UseColor));
+                    stderr.WriteLine(Formatting.FormatErrorLine($"TLS — certificate validation failed: {SafeError.Describe(ex)}", options.UseColor));
                     return new RunResult { ExitCode = 1, ExitReason = "tls_failed", DurationMilliseconds = sw.Elapsed.TotalMilliseconds };
                 }
                 catch (IOException ex)
                 {
                     // Transport error mid-handshake (peer RST, network blip). Same exit code
                     // as auth failure but distinct reason text for diagnostics.
-                    stderr.WriteLine(Formatting.FormatErrorLine($"TLS — handshake I/O error: {ex.Message}", options.UseColor));
+                    stderr.WriteLine(Formatting.FormatErrorLine($"TLS — handshake I/O error: {SafeError.Describe(ex)}", options.UseColor));
                     return new RunResult { ExitCode = 1, ExitReason = "tls_failed", DurationMilliseconds = sw.Elapsed.TotalMilliseconds };
                 }
             }
@@ -209,7 +210,7 @@ public sealed class NetCatClient
                     // trace. Surface as exit 1 + socket_error with partial byte counts so the
                     // JSON envelope reflects what actually moved.
                     sw.Stop();
-                    stderr.WriteLine(Formatting.FormatErrorLine($"{options.Host}:{port} — {ex.Message}", options.UseColor));
+                    stderr.WriteLine(Formatting.FormatErrorLine($"{options.Host}:{port} — {SafeError.Describe(ex)}", options.UseColor));
                     return new RunResult { ExitCode = 1, ExitReason = "socket_error",
                         BytesSent = pump.BytesSent, BytesReceived = pump.BytesReceived,
                         DurationMilliseconds = sw.Elapsed.TotalMilliseconds, RemoteAddress = remote };
@@ -232,7 +233,7 @@ public sealed class NetCatClient
                     // the JSON envelope. Round-4's onSendComplete broad catch swallows the
                     // shutdown-side error, making the recv-side bad-state path more likely.
                     sw.Stop();
-                    stderr.WriteLine(Formatting.FormatErrorLine($"{options.Host}:{port} — {ex.Message}", options.UseColor));
+                    stderr.WriteLine(Formatting.FormatErrorLine($"{options.Host}:{port} — {SafeError.Describe(ex)}", options.UseColor));
                     return new RunResult { ExitCode = 1, ExitReason = "pump_failed",
                         BytesSent = pump.BytesSent, BytesReceived = pump.BytesReceived,
                         DurationMilliseconds = sw.Elapsed.TotalMilliseconds, RemoteAddress = remote };
@@ -278,7 +279,7 @@ public sealed class NetCatClient
             // this arm those escape to Main's safety-net → exit 126 "unexpected error" with no
             // JSON envelope. Round-3 class-B (SFH C2) fix.
             sw.Stop();
-            stderr.WriteLine(Formatting.FormatErrorLine($"{options.Host}:{port} — {ex.Message}", options.UseColor));
+            stderr.WriteLine(Formatting.FormatErrorLine($"{options.Host}:{port} — {SafeError.Describe(ex)}", options.UseColor));
             return new RunResult { ExitCode = 1, ExitReason = "connect_failed", DurationMilliseconds = sw.Elapsed.TotalMilliseconds };
         }
 
@@ -319,7 +320,7 @@ public sealed class NetCatClient
             // stdin pipe broken (redirected-from-file hit bad sector, closed pipe in some
             // shells). Previously escaped to Main → exit 126. Round-3 class-B (SFH C3) fix.
             sw.Stop();
-            stderr.WriteLine(Formatting.FormatErrorLine($"stdin — {ex.Message}", options.UseColor));
+            stderr.WriteLine(Formatting.FormatErrorLine($"stdin — {SafeError.Describe(ex)}", options.UseColor));
             return new RunResult { ExitCode = 1, ExitReason = "io_error",
                 BytesSent = sent, DurationMilliseconds = sw.Elapsed.TotalMilliseconds };
         }

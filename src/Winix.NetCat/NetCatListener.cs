@@ -7,6 +7,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
+using Yort.ShellKit;
 
 namespace Winix.NetCat;
 
@@ -137,7 +138,7 @@ public sealed class NetCatListener
                 // Post-connect transport failure — peer RST mid-transfer, TLS-alert after
                 // handshake, etc. Matches NetCatClient's symmetric arm so exit codes line up.
                 sw.Stop();
-                stderr.WriteLine(Formatting.FormatErrorLine($"{remote} — {ex.Message}", options.UseColor));
+                stderr.WriteLine(Formatting.FormatErrorLine($"{remote} — {SafeError.Describe(ex)}", options.UseColor));
                 return new RunResult { ExitCode = 1, ExitReason = "socket_error",
                     BytesSent = pump.BytesSent, BytesReceived = pump.BytesReceived,
                     DurationMilliseconds = sw.Elapsed.TotalMilliseconds, LocalAddress = local, RemoteAddress = remote };
@@ -157,7 +158,7 @@ public sealed class NetCatListener
                 // socket state during half-close can no longer escape to Main's 126 safety-net
                 // (which would lose byte counts from the JSON envelope).
                 sw.Stop();
-                stderr.WriteLine(Formatting.FormatErrorLine($"{remote} — {ex.Message}", options.UseColor));
+                stderr.WriteLine(Formatting.FormatErrorLine($"{remote} — {SafeError.Describe(ex)}", options.UseColor));
                 return new RunResult { ExitCode = 1, ExitReason = "pump_failed",
                     BytesSent = pump.BytesSent, BytesReceived = pump.BytesReceived,
                     DurationMilliseconds = sw.Elapsed.TotalMilliseconds, LocalAddress = local, RemoteAddress = remote };
