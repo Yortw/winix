@@ -109,6 +109,24 @@ public class CliTests
     }
 
     [Fact]
+    public void Framework_exception_in_generate_path_error_text_is_readable_no_resource_key()
+    {
+        // Regression: under UseSystemResourceKeys=true (the AOT publish setting, mirrored on this
+        // test csproj), a framework exception's parameterless .Message returns a bare CoreLib resource
+        // key instead of English. The catch-all must route through SafeError. UnauthorizedAccessException
+        // (no custom message) leaks "UnauthorizedAccess_" family keys; SafeError maps it to "access denied".
+        var so = new StringWriter();
+        var se = new StringWriter();
+        int code = Cli.Run(new[] { "password", "--length", "8" }, so, se, new FrameworkThrowingRandom());
+
+        Assert.Equal(ExitCode.NotExecutable, code);
+        Assert.Contains("mksecret: error:", se.ToString());
+        Assert.DoesNotContain("UnauthorizedAccess", se.ToString(), System.StringComparison.Ordinal);
+        Assert.Contains("access denied", se.ToString(), System.StringComparison.Ordinal);
+        Assert.Equal("", so.ToString());
+    }
+
+    [Fact]
     public void Json_streams_a_wellformed_envelope_for_multiple_values()
     {
         // Locks the streamed JSON bytes (Cli no longer buffers all values before emitting the envelope).
@@ -128,4 +146,12 @@ internal sealed class ThrowingWriter : TextWriter
     public override void Write(char value) => throw new IOException("broken pipe");
     public override void Write(string? value) => throw new IOException("broken pipe");
     public override void WriteLine(string? value) => throw new IOException("broken pipe");
+}
+
+/// <summary>CSPRNG seam that throws a parameterless framework exception. Unlike <see cref="ThrowingRandom"/>
+/// (which throws with a custom message that survives UseSystemResourceKeys), the parameterless message
+/// leaks a CoreLib resource key — exercising the SafeError path on the catch-all.</summary>
+internal sealed class FrameworkThrowingRandom : Winix.Codec.ISecureRandom
+{
+    public void Fill(System.Span<byte> destination) => throw new System.UnauthorizedAccessException();
 }

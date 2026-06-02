@@ -57,7 +57,7 @@ public static class Cli
         catch (Exception ex)
         {
             // Unexpected (OS CSPRNG failure, OOM). Short message — AOT has StackTraceSupport=false.
-            stderr.WriteLine($"mksecret: error: {ex.Message}");
+            stderr.WriteLine($"mksecret: error: {SafeError.Describe(ex)}");
             return ExitCode.NotExecutable;
         }
     }
