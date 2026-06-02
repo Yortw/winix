@@ -47,11 +47,24 @@
 
 ---
 
+## Decision 6 — Broad-catch sites get type-name-only diagnosability (adversarial-review F2)
+
+- **Context:** Review F2 argued that routing broad `catch (Exception)` through `SafeError.Describe` (→ `GetType().Name` for unmapped types) hides real bugs and loses detail.
+- **Decision:** Accept type-name-only output for broad-catch sites; do NOT build a verbose/detail channel this version.
+- **Rationale:** It is not a regression. On the shipped AOT binary the status quo is already a keyed/thin `ex.Message`, and `Message` never carried a stack trace. `GetType().Name` is the same ACCEPTABLE shape the audit already blessed for the 24 ACCEPTABLE sites. A real exception still surfaces with a non-zero exit code and its type name. Full detail is recoverable by re-running under JIT / non-AOT (where `Message` resolves to English).
+- **Trade-offs accepted:** A genuine programming bug caught by a broad catch prints e.g. `"NullReferenceException"` and looks intentional; the message text is gone.
+- **Options considered:** Verbose `error_detail` field / debug-flag stack emission (deferred — YAGNI for cosmetic scope; revisit if a real diagnosis is hampered).
+
+---
+
 ## Decisions Explicitly Deferred
 
 | Topic | Why deferred |
 |---|---|
 | Auto-run native smokes on every PR | `manual-smoke.yml` stays on-demand; wiring native AOT publish into per-PR CI is a separate cost/CI-time decision. |
 | `Cli.Run` seam retrofit for schedule/nc/retry/wargs/peep | Tracked separately (`cli-seam-retrofit-backlog`); orchestration-heavy, its own scoped effort. Some of their leak sites live in Program.cs and will be fixed in place regardless. |
-| Reclassifying COMException / native-message sites as strict-ACCEPTABLE | Left SAFE; their `.Message` is native-OS text, not a CoreLib key. Revisit only if a real key leak is observed there. |
-| Extending `SafeError` mappings beyond audited types | Add mappings only as real sites demand; no speculative coverage. |
+| Reclassifying COMException / native-message sites as strict-ACCEPTABLE | Left SAFE; their `.Message` is native-OS text, not a CoreLib key. One cheap probe (Final task Step 4) validates the whole class. (F12) |
+| Verbose detail channel for broad-catch sites | Type-name-only this version (Decision 6); recover via JIT re-run. Build a detail channel only if a real diagnosis is blocked. (F2) |
+| Friendly mapping for long-tail exception types | `SafeError` falls back to `GetType().Name` (no message). Extend mappings only as real sites demand; no speculative coverage. (F9) |
+| End-to-end wiring test for no-seam tools (nc/peep/retry) | Their leak-fix wiring is verified by per-site grep + commit-diff, not an end-to-end test, until the seam retrofit lands. Residual tracked in `cli-seam-retrofit-backlog`. (F10) |
+| SAFE/ACCEPTABLE classifications unverified by per-site test | They are classifier predictions; the native smokes would catch a misclassification, and Step 4's probe de-risks the SAFE set. (F12) |

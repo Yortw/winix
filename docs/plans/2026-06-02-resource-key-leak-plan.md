@@ -140,6 +140,34 @@ public class SafeErrorTests
         string s = SafeError.Describe(new InvalidOperationException("some-internal-key"));
         Assert.Equal(nameof(InvalidOperationException), s);
     }
+
+    // F1: the helper must NEVER throw — it runs inside the error-reporting path. A null inner
+    // (common for wrapper exceptions built with a null inner) must not NRE.
+    [Fact]
+    public void Null_ReturnsPlaceholder_DoesNotThrow()
+    {
+        Assert.Equal("unknown error", SafeError.Describe(null));
+    }
+
+    // F11: aggregate/wrapper exceptions must describe the real cause, not the wrapper type.
+    [Fact]
+    public void Aggregate_UnwrapsToInnerCause()
+    {
+        var agg = new AggregateException(new DirectoryNotFoundException());
+        Assert.Equal("no such directory", SafeError.Describe(agg));
+    }
+
+    // F4: JSON parse errors must keep their location, not collapse to "JsonException".
+    [Fact]
+    public void JsonException_KeepsLocation_NotMessage()
+    {
+        System.Text.Json.JsonException jex;
+        try { System.Text.Json.JsonSerializer.Deserialize<int>("{bad"); throw new InvalidOperationException("unreachable"); }
+        catch (System.Text.Json.JsonException ex) { jex = ex; }
+        string s = SafeError.Describe(jex);
+        Assert.Contains("JSON", s, StringComparison.Ordinal);
+        Assert.Contains("line", s, StringComparison.Ordinal); // location preserved
+    }
 }
 ```
 
@@ -171,23 +199,38 @@ namespace Yort.ShellKit;
 /// </remarks>
 public static class SafeError
 {
-    /// <summary>Returns a readable, resource-key-free description of <paramref name="ex"/>.</summary>
-    public static string Describe(Exception ex)
+    /// <summary>Returns a readable, resource-key-free description of <paramref name="ex"/>.
+    /// Null-safe: this runs inside error-reporting paths and must never throw.</summary>
+    public static string Describe(Exception? ex)
     {
+        if (ex is null) { return "unknown error"; } // F1: never NRE inside the error path.
+
         return ex switch
         {
+            // F11: unwrap aggregate/wrapper so the real cause is described, not the wrapper type.
+            AggregateException agg when agg.InnerException is not null => Describe(agg.InnerException),
             DirectoryNotFoundException => "no such directory",
             FileNotFoundException => "no such file",
             UnauthorizedAccessException => "access denied",
             PathTooLongException => "path too long",
-            // RegexParseException.Error/.Offset are an enum + int — invariant-stable, never SR keys.
+            // RegexParseException.Error/.Offset are an enum + int — VERIFY at implementation that they
+            // are invariant-stable under the mirrored flag (probe). The enum-name form
+            // ("InsufficientClosingParentheses at offset N") matches the already-shipped demux fix
+            // (edc7262), so the enum name is the accepted user-facing text. (F6)
             RegexParseException rex => $"{rex.Error} at offset {rex.Offset}",
+            // F4: System.Text.Json carries structured location; keep it (Message would be an SR key).
+            System.Text.Json.JsonException jex when jex.LineNumber is long line => $"invalid JSON at line {line + 1}",
+            System.Text.Json.JsonException => "invalid JSON",
             // Unknown: the type name gives the user context to act/report; the message might be a key.
+            // Documented limitation (ADR): broad-catch sites get type-name only; recover full detail
+            // by re-running under JIT / non-AOT where Message resolves to English.
             _ => ex.GetType().Name,
         };
     }
 }
 ```
+
+> **F6 note for implementer:** before finalising the regex test's expected fragment, run a 10-line probe under `UseSystemResourceKeys=true` confirming `rex.Error.ToString()` and `rex.Offset` are stable (they are not SR-resolved). The demux native binary already emits this exact form, so the format is pre-validated — this just confirms stability for the helper's own test.
 
 - [ ] **Step 5: Run tests to verify they pass**
 
@@ -227,6 +270,36 @@ In `d:\projects\winix\CLAUDE.md`, under the "When adding a new tool:" bullet lis
 ```bash
 git add CLAUDE.md
 git commit -m "docs(claude): require UseSystemResourceKeys test mirror, SafeError, and run-smokes fixture for new tools"
+```
+
+---
+
+## Task 1b: pre-sweep substring-dependency triage (F3)
+
+Before mirroring the flag onto any tool, enumerate code/tests that depend on framework message *text* (not just assertions of English — control-flow on message substrings silently changes behaviour under the flag).
+
+**Files:** none modified; produces a triage note committed to the plan dir.
+
+- [ ] **Step 1: Grep src + tests for message-text dependencies**
+
+Run (ripgrep):
+```
+rg -n "\.Message\.(Contains|StartsWith|IndexOf|Equals)|\bMessage ==|Assert.*\bex\.Message" src tests
+```
+
+- [ ] **Step 2: Triage each hit into one of:**
+  - **Assertion text update** — a test asserts framework English; will be updated when its tool's flag is mirrored (the common case).
+  - **Control-flow dependency (DEFECT)** — production or test code branches on a framework message substring. Under `UseSystemResourceKeys` that substring becomes a key and the branch silently changes. This is a real bug to fix at that tool's task — NOT a text edit. Record each here.
+
+- [ ] **Step 3: Verify `when`'s flag interaction explicitly**
+
+`when` keeps `InvariantGlobalization=false` but will gain `UseSystemResourceKeys=true`. Run `dotnet test tests/Winix.When.Tests` with both flags set and record the result before committing when's csproj change (ICU-on + system-resource-keys-on is an untested combination).
+
+- [ ] **Step 4: Commit the triage note**
+
+```bash
+git add docs/plans/2026-06-02-resource-key-leak-substring-triage.md
+git commit -m "docs(plan): pre-sweep triage of framework-message-substring dependencies"
 ```
 
 ---
@@ -341,7 +414,11 @@ Each row is one task. **Order:** v0.4 tools first (gate v0.4.0), then v0.3 alpha
 | **when** | `TimezoneResolver.cs:41` (InvalidTimeZone) | typed | Add `UseSystemResourceKeys=true` but KEEP `InvariantGlobalization=false`. Cli.Run with a bad `--tz` if triggerable; else —(inspect). |
 | **winix** | `ToolManifest.cs:55` (Json, embedded into ManifestParseException) | json (embedded) | Cli.Run / manifest-load path on malformed JSON → assert no `Json`-prefixed key; swap `ex.Message`→`SafeError.Describe(ex)` at the throw. |
 
-**Note for sweep executor:** for tools whose orchestration is in `Program.cs` with no `Cli.Run` seam (`nc`, `peep`, `retry`), the fix lands in their library classes (`Winix.NetCat`, `Winix.Peep`) or `Program.cs` directly; the regression test targets the library class where one exists, otherwise the site is covered by SafeError's unit tests + code inspection (state explicitly in the commit — do not fake a test). This is the residual recorded in `cli-seam-retrofit-backlog`.
+**Note for sweep executor (F5 — close the wiring gap, don't reopen it):** "—(inspect)" must NOT mean "untested." For each such site:
+- If the leak site is a **pure function** reachable without orchestration (regex-parse helpers in `peep`/`treex`/`files`, decoder/encoding helpers in `envvault`, the cron/JSON parse in `schedule`/`winix`), write a direct **unit test on that helper** asserting clean output — no `Cli.Run` seam needed. This covers most "—(inspect)" sites.
+- Only where the site is genuinely unreachable deterministically (live socket I/O in `nc`, Windows COM in `notify`) is code-inspection the fallback — and then the wiring is proven mechanically by the per-site grep in the Final task (the exact line no longer matches `{ex.Message}`), NOT by eyeballing. State the chosen path per site in the commit. Never write `Assert.True(true)`.
+
+For tools with no `Cli.Run` seam (`nc`, `peep`, `retry`), fixes land in their library classes (`Winix.NetCat`, `Winix.Peep`) or `Program.cs`; this seam residual is tracked in `cli-seam-retrofit-backlog`.
 
 ---
 
@@ -358,7 +435,7 @@ Each row is one task. **Order:** v0.4 tools first (gate v0.4.0), then v0.3 alpha
 set +e
 BIN="$(pwd)/artifacts/v0.4-smoke/demux/bin/demux.exe"
 OUT="$(pwd)/artifacts/v0.4-smoke/demux/out"
-mkdir -p "$OUT"
+rm -rf "$OUT"; mkdir -p "$OUT"   # F8: idempotent — safe to re-run, no leftover state
 run() {
   local id="$1"; local desc="$2"; shift 2
   echo "=== $id: $desc ==="
@@ -381,10 +458,11 @@ echo "=== Smoke run complete ==="
 
 ### Task: mksecret / trash / hcat fixtures
 
-- [ ] Create `artifacts/v0.4-smoke/{mksecret,trash,hcat}/run-smokes.sh` following the same harness, with cases derived from each README's options/exit-code table:
+- [ ] Create `artifacts/v0.4-smoke/{mksecret,trash,hcat}/run-smokes.sh` following the same harness (each starts `rm -rf "$OUT"; mkdir -p "$OUT"` — F8 idempotency), with cases derived from each README's options/exit-code table:
   - **mksecret:** `--help`, `--version`, `--describe`, default generation, each charset/length flag, `--json`, `--no-color`/`--color`, an invalid-arg → 125.
-  - **trash:** `--help`, `--version`, `--describe`, `--list` (empty + with items), trash a file, `--json`, a nonexistent target → error path, `--color`/`--no-color`. (Use a temp dir; avoid destroying real files.)
-  - **hcat:** `--help`, `--version`, `--describe`, serve a temp dir on an ephemeral port with `--once`/CI-stop, inspect, pipe, bad bind → 126, `--json`. (Reuse the CI stop conditions hcat already supports.)
+  - **trash:** `--help`, `--version`, `--describe`, `--list` (empty + with items), trash a file. **F8: operate ONLY inside a fixture-created temp dir (`WORK="$OUT/work"`); create throwaway files there and trash those — never a real path. Teardown `rm -rf "$WORK"` at the end.** `--json`, a nonexistent target → error path, `--color`/`--no-color`.
+  - **hcat:** `--help`, `--version`, `--describe`, serve a temp dir, inspect, pipe, bad bind → 126, `--json`. **F8: bind an ephemeral port (`:0` or a CI-stop/`--once` mode) so a leftover listener cannot wedge a rerun; ensure the server process is stopped/awaited before the fixture exits (no orphaned listener).**
+  - **F8 (all three):** prefer direct invocation over `eval "$*"` for cases that don't need a shell pipe, to limit the quoting surface (CLAUDE.md child-arg rule). Use `eval` only where a pipe/redirect is genuinely required.
 
 ### Task: wire `manual-smoke.yml`
 
@@ -396,10 +474,17 @@ echo "=== Smoke run complete ==="
               demux|mksecret|trash|hcat)
                 echo "v0.4-smoke/$1" ;;
 ```
-- [ ] **Step 3:** Add a sed retarget rule for the new dir (in the `sed -E -i.bak` block, mirroring the existing dir rules):
+- [ ] **Step 3 (F7 — order- and BSD-sed-sensitive):** Add the retarget rules for the new dir to the `sed -E -i.bak` block. **The bin-path rule MUST come BEFORE the bare-dir rule** (else the dir rule rewrites the prefix first and the bin rule never matches). manual-smoke runs on `ubuntu-latest` AND `macos-latest` (BSD sed) — `sed -E -i.bak` + `\1` backrefs work on both, but verify on macOS. Place these two lines immediately after the existing `reverify-2026-05-06` dir rule:
 ```bash
               -e 's|artifacts/v0.4-smoke/([a-z]+)/bin/\1\.exe|artifacts/manual-smoke/'"${{ matrix.rid }}"'/\1/\1|g' \
               -e 's|artifacts/v0.4-smoke/([a-z]+)|artifacts/manual-smoke/'"${{ matrix.rid }}"'/\1|g' \
+```
+
+- [ ] **Step 3b (F7 — fail loudly, not vacuously):** After the `sed` block (before the `timeout 240s bash "$dst_runner"` line), add a guard so a non-rewritten path fails the smoke instead of silently running a missing binary (the fixture's `set +e` would otherwise swallow it):
+```bash
+            if grep -q "v0.4-smoke" "$dst_runner"; then
+              echo "::error::sed retarget failed for $t — stale v0.4-smoke path remains" ; exit 1
+            fi
 ```
 - [ ] **Step 4:** Commit:
 ```bash
@@ -413,7 +498,13 @@ git commit -m "test(smoke): add native run-smokes fixtures + manual-smoke wiring
 
 - [ ] **Step 1:** Full solution green: `dotnet test Winix.sln --nologo` → 0 failures (the parallel-run `IsOnPath_DoesNotSpawnProcess` flake is known; re-run in isolation if it appears).
 - [ ] **Step 2:** Native re-smoke locally: publish each of demux/mksecret/trash/hcat (`dotnet publish src/<tool>/<tool>.csproj -c Release -r win-x64`), run its `run-smokes.sh` against the published binary (adapt path), confirm error-path messages are readable (no `IO_`/`MakeException`/SR keys) and exit codes correct.
-- [ ] **Step 3:** Confirm no shipped `{ex.Message}` LEAK remains: re-run the audit grep; every remaining `.Message` site is ACCEPTABLE (has `GetType().Name`) or SAFE.
+- [ ] **Step 3 (F5 — per-site wiring proof):** For every LEAK site in the table, assert the exact line no longer pipes raw `{ex.Message}`. Run:
+```
+rg -n "\{ex\.Message\}|\{inner\.Message\}|\{e\.Message\}" src
+```
+Every remaining hit must be a known ACCEPTABLE site (has `ex.GetType().Name` adjacent) — cross-check against the audit's ACCEPTABLE list. Zero LEAK-table lines may remain. This is the mechanical proof that "—(inspect)" sites were actually rewired.
+
+- [ ] **Step 4 (F12 — de-risk the 21 SAFE sites with one probe):** Construct a `Win32Exception` and a `SocketException` under `UseSystemResourceKeys=true` and print `.Message`. Confirm they yield native-OS English (not an SR key) — this validates the audit's "SAFE: native-OS text unaffected by the flag" assumption across all 21 SAFE sites at once. Record the probe output. If either leaks, the SAFE classification is wrong and those sites re-enter scope.
 
 ---
 
