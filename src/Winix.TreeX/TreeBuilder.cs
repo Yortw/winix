@@ -143,25 +143,28 @@ public sealed class TreeBuilder
         {
             entries = Directory.EnumerateFileSystemEntries(dirPath);
         }
-        catch (UnauthorizedAccessException ex)
+        catch (UnauthorizedAccessException)
         {
             // SFH C1 round-1 2026-05-09: surface as walk error so CLI exits 1 + diagnoses.
-            _walkErrors.Add(new WalkError(dirPath, "permission denied: " + ex.Message));
+            // SafeError.Describe(UnauthorizedAccessException) == "access denied"; the prefix
+            // already states that, so drop the suffix to avoid "permission denied: access denied".
+            _walkErrors.Add(new WalkError(dirPath, "permission denied"));
             parentNode.IsUnreadable = true;
             return;
         }
-        catch (DirectoryNotFoundException ex)
+        catch (DirectoryNotFoundException)
         {
             // Race: directory existed at the parent's enumeration moment but vanished
             // before we descended. Surface as a non-permission walk error.
-            _walkErrors.Add(new WalkError(dirPath, "directory not found (removed during walk?): " + ex.Message));
+            // SafeError.Describe == "no such directory"; the prefix already conveys that.
+            _walkErrors.Add(new WalkError(dirPath, "directory not found (removed during walk?)"));
             return;
         }
         catch (IOException ex)
         {
             // Catch-all for transient filesystem failures (network share dropped,
             // file-system reset). Surface; do not pretend the directory was empty.
-            _walkErrors.Add(new WalkError(dirPath, "I/O error: " + ex.Message));
+            _walkErrors.Add(new WalkError(dirPath, "I/O error: " + SafeError.Describe(ex)));
             parentNode.IsUnreadable = true;
             return;
         }
@@ -176,9 +179,10 @@ public sealed class TreeBuilder
             {
                 attrs = File.GetAttributes(fullPath);
             }
-            catch (UnauthorizedAccessException ex)
+            catch (UnauthorizedAccessException)
             {
-                _walkErrors.Add(new WalkError(fullPath, "permission denied (attributes): " + ex.Message));
+                // SafeError.Describe == "access denied"; prefix already states it, drop suffix.
+                _walkErrors.Add(new WalkError(fullPath, "permission denied (attributes)"));
                 continue;
             }
             catch (FileNotFoundException)
@@ -278,9 +282,10 @@ public sealed class TreeBuilder
                     fileSize = info.Length;
                     modified = new DateTimeOffset(info.LastWriteTimeUtc, TimeSpan.Zero);
                 }
-                catch (UnauthorizedAccessException ex)
+                catch (UnauthorizedAccessException)
                 {
-                    _walkErrors.Add(new WalkError(fullPath, "permission denied (stat): " + ex.Message));
+                    // SafeError.Describe == "access denied"; prefix already states it, drop suffix.
+                    _walkErrors.Add(new WalkError(fullPath, "permission denied (stat)"));
                     continue;
                 }
                 catch (FileNotFoundException)
@@ -515,17 +520,18 @@ public sealed class TreeBuilder
             // an unsupported platform). Documented intent for this catch.
             return false;
         }
-        catch (UnauthorizedAccessException ex)
+        catch (UnauthorizedAccessException)
         {
             // The user can list this directory but not stat the file. Surface so the CLI
             // can report it; degrade exec detection to false rather than crash the walk.
-            _walkErrors.Add(new WalkError(fullPath, "permission denied (mode): " + ex.Message));
+            // SafeError.Describe == "access denied"; prefix already states it, drop suffix.
+            _walkErrors.Add(new WalkError(fullPath, "permission denied (mode)"));
             return false;
         }
         catch (IOException ex)
         {
             // Transient FS failure (network share dropped, file vanished mid-stat).
-            _walkErrors.Add(new WalkError(fullPath, "I/O error reading mode: " + ex.Message));
+            _walkErrors.Add(new WalkError(fullPath, "I/O error reading mode: " + SafeError.Describe(ex)));
             return false;
         }
     }

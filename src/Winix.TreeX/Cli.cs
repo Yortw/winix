@@ -339,13 +339,13 @@ public static class Cli
             }
             catch (ArgumentException ex) when (ex is System.Text.RegularExpressions.RegexParseException)
             {
-                stderr.WriteLine($"treex: invalid regex: {ex.Message}");
+                stderr.WriteLine($"treex: invalid regex: {SafeError.Describe(ex)}");
                 exitCode = ExitCode.UsageError;
                 exitReason = "usage_error";
             }
             catch (Exception ex)
             {
-                stderr.WriteLine($"treex: {ex.Message}");
+                stderr.WriteLine($"treex: {SafeError.Describe(ex)}");
                 exitCode = 1;
                 exitReason = "runtime_error";
             }

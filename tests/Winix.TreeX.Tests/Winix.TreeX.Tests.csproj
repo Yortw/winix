@@ -7,6 +7,10 @@
          under InvariantGlobalization returns SR keys not English; this property keeps
          tests aligned with shipped runtime behaviour. -->
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Match the runtime UseSystemResourceKeys=true setting on the production csproj so
+         framework exception .Message returns bare CoreLib resource keys here too — this is
+         what makes the SafeError resource-key-leak regression tests meaningful. -->
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.*" />

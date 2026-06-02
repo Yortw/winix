@@ -159,7 +159,30 @@ public sealed class WalkErrorTests : IDisposable
         int exit = Cli.Run(new[] { _tempDir }, stdout, stderr, isStdoutRedirected: true);
 
         Assert.Equal(1, exit);
-        Assert.Contains("permission denied", stderr.ToString(), StringComparison.OrdinalIgnoreCase);
+        string err = stderr.ToString();
+        Assert.Contains("permission denied", err, StringComparison.OrdinalIgnoreCase);
+        // Resource-key-leak regression: under UseSystemResourceKeys=true the raw
+        // UnauthorizedAccessException.Message is a bare CoreLib key. The walk-IO path now
+        // routes through SafeError, so no key fragment may appear.
+        Assert.DoesNotContain("UnauthorizedAccess", err, StringComparison.Ordinal);
+        Assert.DoesNotContain("IO_", err, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Cli_InvalidRegex_Exits125WithReadableMessage_NoResourceKey()
+    {
+        // RegexParseException.Message is a bare CoreLib resource key (e.g. MakeException)
+        // under UseSystemResourceKeys=true. The invalid-regex catch now routes through
+        // SafeError.Describe, which yields "<Error> at offset N".
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        int exit = Cli.Run(new[] { "--regex", "[unterminated", _tempDir }, stdout, stderr, isStdoutRedirected: true);
+
+        Assert.NotEqual(0, exit);
+        string err = stderr.ToString();
+        Assert.Contains("invalid regex", err, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("offset", err, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("MakeException", err, StringComparison.Ordinal);
     }
 
     [SkippableFact]
