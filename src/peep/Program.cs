@@ -143,7 +143,7 @@ internal sealed class Program
                     ExitCode.UsageError, "usage_error", "peep", version));
                 return ExitCode.UsageError;
             }
-            return result.WriteError($"invalid regex pattern: {ex.Message}", Console.Error);
+            return result.WriteError($"invalid regex pattern: {SafeError.Describe(ex)}", Console.Error);
         }
 
         if (once)

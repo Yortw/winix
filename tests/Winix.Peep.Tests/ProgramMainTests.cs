@@ -1,4 +1,5 @@
 #nullable enable
+using System;
 using System.Diagnostics;
 using System.Text.Json;
 using Xunit;
@@ -181,6 +182,11 @@ public class ProgramMainTests
         var result = RunPeep("--exit-on-match", "[unclosed", "--once", "--", "echo", "hi");
         Assert.Equal(125, result.ExitCode);
         Assert.Contains("invalid regex pattern", result.Stderr);
+        // Resource-key-leak sweep: the spawned peep binary builds with UseSystemResourceKeys=true,
+        // so RegexParseException.Message would be a bare CoreLib resource key. SafeError.Describe
+        // renders it as "{Error} at offset {Offset}" instead. Assert the readable form appears and
+        // no SR key leaks through. (Before the fix this test passed on the constant prefix alone.)
+        Assert.Contains("at offset", result.Stderr, StringComparison.Ordinal);
     }
 
     // --- --once mode end-to-end (typed exit code paths) ---

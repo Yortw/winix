@@ -2,6 +2,10 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <IsTestProject>true</IsTestProject>
+    <!-- Mirror the production csproj so framework ex.Message returns bare CoreLib resource
+         keys (UseSystemResourceKeys=true) in tests too — otherwise SR-key-leak regressions
+         are invisible locally. Part of the suite-wide resource-key-leak sweep. -->
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.*" />
