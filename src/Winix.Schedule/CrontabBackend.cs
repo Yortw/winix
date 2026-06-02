@@ -7,6 +7,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
+using Yort.ShellKit;
 
 namespace Winix.Schedule;
 
@@ -412,7 +413,7 @@ public sealed class CrontabBackend : ISchedulerBackend
                 DrainStderrTask(stderrTask);
                 throw new CrontabUnavailableException(
                     $"crontab connection failed mid-write — your crontab may be partially modified; "
-                  + $"run 'crontab -l' to verify. Underlying error: {ex.Message}", ex);
+                  + $"run 'crontab -l' to verify. Underlying error: {SafeError.Describe(ex)}", ex);
             }
             finally
             {
