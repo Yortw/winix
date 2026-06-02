@@ -157,7 +157,7 @@ public static class Cli
                 // outer catch's generic "envvault: {msg}" reads like an unrelated secondary
                 // error after a successful store.
                 SafeWriteLine(stderr, Formatting.ErrorLine(
-                    $"failed to store {o.Namespaces[0]}.{o.Keys[0]}: {ex.Message}", o.UseColor));
+                    $"failed to store {o.Namespaces[0]}.{o.Keys[0]}: {SafeError.Describe(ex)}", o.UseColor));
                 return ExitCode.NotExecutable;
             }
             return 0;
@@ -236,7 +236,7 @@ public static class Cli
         catch (DecoderFallbackException ex)
         {
             SafeWriteLine(stderr, Formatting.ErrorLine(
-                $"stored value for {o.Namespaces[0]}.{o.Keys[0]} is not valid UTF-8: {ex.Message}",
+                $"stored value for {o.Namespaces[0]}.{o.Keys[0]} is not valid UTF-8: {SafeError.Describe(ex)}",
                 o.UseColor));
             return ExitCode.NotExecutable;
         }

@@ -483,7 +483,12 @@ public class CliTests
         Assert.Equal(Yort.ShellKit.ExitCode.NotExecutable, code);
         Assert.Contains("failed to store", stderr);
         Assert.Contains("aws.TOKEN", stderr);   // specific key named
-        Assert.Contains("backend rejected", stderr);  // underlying cause preserved
+        // Resource-key-leak sweep: the store exception's .Message is now routed through
+        // SafeError (under UseSystemResourceKeys a framework backend exception's .Message
+        // would be a bare CoreLib key). SafeError maps an unrecognised type to its type
+        // name rather than the raw message, so the diagnostic carries the exception type
+        // (InvalidOperationException) instead of the literal "backend rejected" text.
+        Assert.Contains("InvalidOperationException", stderr);  // safe type-name description, not a leaked key
         AssertNoStackTrace(stderr);
     }
 

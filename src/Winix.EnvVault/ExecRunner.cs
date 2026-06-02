@@ -82,7 +82,7 @@ public sealed class ExecRunner
                 catch (DecoderFallbackException ex)
                 {
                     throw new InvalidOperationException(
-                        $"stored value for {ns}.{key} is not valid UTF-8: {ex.Message}", ex);
+                        $"stored value for {ns}.{key} is not valid UTF-8: {SafeError.Describe(ex)}", ex);
                 }
             }
         }
@@ -130,12 +130,12 @@ public sealed class ExecRunner
         }
         catch (FileNotFoundException ex)
         {
-            try { _stderr?.WriteLine(Formatting.ErrorLine($"{fileName}: {ex.Message}", _useColor)); } catch { }
+            try { _stderr?.WriteLine(Formatting.ErrorLine($"{fileName}: {SafeError.Describe(ex)}", _useColor)); } catch { }
             return ExitCode.NotFound;
         }
         catch (UnauthorizedAccessException ex)
         {
-            try { _stderr?.WriteLine(Formatting.ErrorLine($"{fileName}: {ex.Message}", _useColor)); } catch { }
+            try { _stderr?.WriteLine(Formatting.ErrorLine($"{fileName}: {SafeError.Describe(ex)}", _useColor)); } catch { }
             return ExitCode.NotExecutable;
         }
     }

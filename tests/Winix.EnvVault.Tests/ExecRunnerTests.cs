@@ -156,6 +156,44 @@ public class ExecRunnerTests
         Assert.True(ex is System.ComponentModel.Win32Exception, $"expected Win32Exception, got {ex.GetType().Name}");
     }
 
+    [Fact]
+    public void Run_LaunchThrowsFileNotFound_NoResourceKeyLeak_ReadableError()
+    {
+        // Resource-key-leak sweep — when the launcher reports the command missing as a
+        // framework FileNotFoundException (no custom message), .Message under
+        // UseSystemResourceKeys (mirrored by this test csproj) is the bare CoreLib key
+        // 'IO_FileNotFound', not English. The exec-failure catch must route through
+        // SafeError so stderr carries readable text and never the key.
+        NullSecretStore store = StoreWith(("x", "K", "v"));
+        FakeProcessLauncher launcher = new() { ThrowOnLaunch = new System.IO.FileNotFoundException() };
+        System.IO.StringWriter stderr = new();
+        ExecRunner runner = new(store, launcher, stderr);
+
+        int code = runner.Run(new[] { "x" }, new[] { "nope-cmd" });
+
+        Assert.Equal(Yort.ShellKit.ExitCode.NotFound, code);
+        string err = stderr.ToString();
+        Assert.DoesNotContain("IO_FileNotFound", err, System.StringComparison.Ordinal);
+        Assert.Contains("no such file", err, System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Run_LaunchThrowsUnauthorized_NoResourceKeyLeak_ReadableError()
+    {
+        // Companion to the FileNotFound case for the UnauthorizedAccessException catch arm.
+        NullSecretStore store = StoreWith(("x", "K", "v"));
+        FakeProcessLauncher launcher = new() { ThrowOnLaunch = new System.UnauthorizedAccessException() };
+        System.IO.StringWriter stderr = new();
+        ExecRunner runner = new(store, launcher, stderr);
+
+        int code = runner.Run(new[] { "x" }, new[] { "denied-cmd" });
+
+        Assert.Equal(Yort.ShellKit.ExitCode.NotExecutable, code);
+        string err = stderr.ToString();
+        Assert.DoesNotContain("UnauthorizedAccess", err, System.StringComparison.Ordinal);
+        Assert.Contains("access denied", err, System.StringComparison.Ordinal);
+    }
+
     /// <summary>TextWriter that throws on every write — simulates a closed or broken stderr handle.</summary>
     private sealed class ThrowingWriter : System.IO.TextWriter
     {
