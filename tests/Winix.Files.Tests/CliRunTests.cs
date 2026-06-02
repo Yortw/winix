@@ -215,10 +215,14 @@ public sealed class CliRunTests : IDisposable
 
         Assert.Equal(ExitCodeUsageError, exit);
         Assert.Contains("invalid regex", stderr.ToString(), StringComparison.Ordinal);
-        // Should not leak SR resource keys — RegexParseException's English message
-        // should always include some recognisable English content.
+        // Should not leak SR resource keys. Under UseSystemResourceKeys (which this test
+        // csproj now mirrors) RegexParseException.Message is the bare key 'MakeException';
+        // SafeError.Describe instead renders the structured .Error + .Offset, so the output
+        // must NOT contain the key and MUST contain the readable "offset" rendering.
         Assert.DoesNotContain("Arg_", stderr.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain("IO_", stderr.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("MakeException", stderr.ToString(), StringComparison.Ordinal);
+        Assert.Contains("offset", stderr.ToString(), StringComparison.Ordinal);
     }
 
     // ── --ext leading-dot warning ─────────────────────────────────────────────────

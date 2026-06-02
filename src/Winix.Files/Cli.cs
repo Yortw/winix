@@ -327,9 +327,11 @@ public static class Cli
             }
             catch (System.Text.RegularExpressions.RegexParseException ex)
             {
-                // RegexParseException carries an English description (the pattern parser
-                // produces literal text, not SR keys). Safe to include ex.Message.
-                stderr.WriteLine($"files: invalid regex: {ex.Message}");
+                // RegexParseException.Message is NOT safe under UseSystemResourceKeys — it
+                // returns a bare CoreLib resource key (e.g. 'MakeException') rather than
+                // English. SafeError.Describe reads the structured .Error/.Offset properties
+                // (which are populated regardless of resource keys) and renders readable text.
+                stderr.WriteLine($"files: invalid regex: {SafeError.Describe(ex)}");
                 exitCode = ExitCode.UsageError;
                 exitReason = "usage_error";
             }
