@@ -1,4 +1,5 @@
 using Microsoft.Extensions.FileSystemGlobbing;
+using Yort.ShellKit;
 
 namespace Winix.Peep;
 
@@ -186,7 +187,7 @@ public sealed class FileWatcher : IDisposable
     /// </summary>
     private void OnWatcherError(object sender, ErrorEventArgs e)
     {
-        string message = e.GetException().Message;
+        string message = SafeError.Describe(e.GetException());
         WatchError?.Invoke(message);
 
         // Trigger a debounced re-run since we may have missed file change events
