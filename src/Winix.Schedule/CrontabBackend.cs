@@ -199,7 +199,7 @@ public sealed class CrontabBackend : ISchedulerBackend
         }
         catch (InvalidOperationException ex)
         {
-            return ScheduleResult.Fail(FormatRunFailureGeneric(name, ex.Message));
+            return ScheduleResult.Fail(FormatRunFailureGeneric(name, SafeError.Describe(ex)));
         }
 
         return ScheduleResult.Ok($"Triggered task '{name}'.");
