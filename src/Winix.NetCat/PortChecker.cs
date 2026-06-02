@@ -7,6 +7,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
+using Yort.ShellKit;
 
 namespace Winix.NetCat;
 
@@ -104,7 +105,7 @@ public sealed class PortChecker
             }
             catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException and not StackOverflowException)
             {
-                return PortCheckResult.Error(port, ex.Message);
+                return PortCheckResult.Error(port, SafeError.Describe(ex));
             }
             if (addresses.Length == 0)
             {
@@ -146,7 +147,7 @@ public sealed class PortChecker
             // NotSupportedException on bad AddressFamily, etc.) must NOT abort the entire scan —
             // Task.WhenAll would re-throw it, losing the other 1023 port results. Classify as
             // Error so the per-port scan completes. Round-1 I-4 fix.
-            return PortCheckResult.Error(port, ex.Message);
+            return PortCheckResult.Error(port, SafeError.Describe(ex));
         }
     }
 }

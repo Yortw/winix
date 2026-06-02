@@ -126,7 +126,7 @@ internal sealed class Program
             try { Console.Error.WriteLine(msg); } catch (IOException) { } catch (ObjectDisposedException) { }
             if (options.JsonOutput)
             {
-                string err = string.IsNullOrEmpty(surface.Message) ? surface.GetType().Name : surface.Message;
+                string err = SafeError.Describe(surface);
                 TryWriteJson(Console.Error, () => Formatting.FormatErrorJson(version, options, ExitCode.NotExecutable, "unexpected_error", err));
             }
             return ExitCode.NotExecutable;
