@@ -58,10 +58,21 @@ public class IntegrationTests_CommandSink
         if (OperatingSystem.IsWindows()) { return; }
 
         var sink = new CommandSink("head -n1 >/dev/null", "x", exitTimeout: TimeSpan.FromSeconds(2));
-        const int written = 500;
-        for (int i = 0; i < written; i++) { sink.Write("line-" + i); }
+        // Use large lines (not small "line-N") so the OS pipe buffer (~64KB) fills quickly and the
+        // broken-pipe IOException fires deterministically after `head -n1` exits. With small lines,
+        // all 500 can drain into the buffer before the child's exit is observed, so UndeliveredCount
+        // stays 0 on fast Unix CI — the cross-platform flake this rewrite fixes. Mirrors the
+        // deterministic Windows_DeathRaceOrphan pattern.
+        var bigLine = new string('X', 4096);
+        sink.Write("first"); // consumed by head -n1 → head exits → pipe read end closes
+        long written = 1;
+        for (int i = 0; i < 5000 && !sink.IsDead; i++) { sink.Write(bigLine); written++; }
+        // Wait deterministically for the writer to observe the dead pipe before asserting/closing.
+        var sw = Stopwatch.StartNew();
+        while (!sink.IsDead && sw.Elapsed < TimeSpan.FromSeconds(5)) { Thread.Sleep(5); }
         sink.Close();
 
+        Assert.True(sink.IsDead, "sink should be dead after head closed its stdin read end");
         Assert.Equal(written, sink.DeliveredCount + sink.UndeliveredCount);
         Assert.True(sink.UndeliveredCount > 0);
     }
@@ -73,8 +84,14 @@ public class IntegrationTests_CommandSink
         if (OperatingSystem.IsWindows()) { return; }
 
         var sink = new CommandSink("head -n1 >/dev/null", "x");
-        sink.Write("first");
-        for (int i = 0; i < 1000 && !sink.IsDead; i++) { sink.Write("flood-" + i); }
+        sink.Write("first"); // head reads one line then exits, closing its stdin read end
+        // Large lines fill the OS pipe buffer fast so the broken-pipe IOException fires
+        // deterministically; small lines can all drain into the buffer before the child exit is seen.
+        var bigLine = new string('X', 4096);
+        for (int i = 0; i < 5000 && !sink.IsDead; i++) { sink.Write(bigLine); }
+        // Bounded wait for the writer thread to observe the dead pipe (avoids a timing race on Unix).
+        var sw = Stopwatch.StartNew();
+        while (!sink.IsDead && sw.Elapsed < TimeSpan.FromSeconds(5)) { Thread.Sleep(5); }
         sink.Close();
 
         Assert.True(sink.IsDead);

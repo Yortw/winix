@@ -57,14 +57,19 @@ public class RoutingSummaryTests
     }
 
     [Fact]
-    public void ExitCode_UndeliveredAndChildError_PrecedenceIsOne()
+    public void ExitCode_UndeliveredAndChildError_PrecedenceIsTwo()
     {
-        // dieAfter:0 — undelivered AND non-zero child; exit code 1 must win
+        // Contract: under --exit-on-child-error, a non-zero child exit (2) takes precedence over
+        // undelivered records (1). The child death is the root cause; undelivered lines routed to a
+        // dead child are its symptom. This also makes the exit code deterministic across platforms —
+        // a command-not-found child breaks its stdin pipe before/after the write lands depending on
+        // OS scheduling, so undelivered-first would flip 1-vs-2 (the cross-platform CI failure that
+        // motivated this contract change). Previously this asserted 1.
         var sink = new FakeSink("a", dieAfter: 0) { ChildExitCode = 5 };
-        sink.Write("x"); // triggers death → UndeliveredCount = 1
+        sink.Write("x"); // triggers death → UndeliveredCount = 1, plus a non-zero ChildExitCode
         var summary = Make(new[] { sink }, exitOnChildError: true);
 
-        Assert.Equal(1, summary.ExitCode);
+        Assert.Equal(2, summary.ExitCode);
     }
 
     [Fact]

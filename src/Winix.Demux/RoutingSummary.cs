@@ -30,14 +30,18 @@ public sealed class RoutingSummary
     /// Computes the process exit code from the aggregated sink outcomes.
     /// <list type="bullet">
     ///   <item><term>0</term><description>All records delivered; no watched-child failure.</description></item>
-    ///   <item><term>1</term><description>
-    ///     Partial delivery failure — at least one sink has <see cref="ISink.UndeliveredCount"/> &gt; 0
-    ///     (data lost). Takes precedence over code 2.
-    ///   </description></item>
     ///   <item><term>2</term><description>
     ///     Watched-child failure — under <c>--exit-on-child-error</c>, at least one sink has a
-    ///     non-zero <see cref="ISink.ChildExitCode"/>. The killed-after-timeout sentinel <c>-1</c>
-    ///     counts as non-zero.
+    ///     non-zero <see cref="ISink.ChildExitCode"/>. <b>Takes precedence over code 1:</b> a child
+    ///     exiting non-zero is the root cause, and any undelivered records routed to that child are
+    ///     its symptom (you cannot deliver to a dead process). Checking this first also keeps the
+    ///     exit code deterministic across platforms — a command-not-found child breaks its stdin pipe
+    ///     before/after the write lands depending on OS scheduling, so undelivered-first would flip
+    ///     between 1 and 2. The killed-after-timeout sentinel <c>-1</c> counts as non-zero.
+    ///   </description></item>
+    ///   <item><term>1</term><description>
+    ///     Partial delivery failure — at least one sink has <see cref="ISink.UndeliveredCount"/> &gt; 0
+    ///     (data lost) and no watched-child failure took precedence.
     ///   </description></item>
     /// </list>
     /// </summary>
@@ -45,8 +49,11 @@ public sealed class RoutingSummary
     {
         get
         {
-            if (_sinks.Any(s => s.UndeliveredCount > 0)) { return 1; }
+            // Child-error (2) is checked BEFORE undelivered (1): the child death is the root cause of
+            // any lines undelivered to it, and ordering it first makes the code deterministic across
+            // platforms (the write-vs-child-exit race no longer decides 1-vs-2). See the doc above.
             if (_exitOnChildError && _sinks.Any(s => s.ChildExitCode is int c && c != 0)) { return 2; }
+            if (_sinks.Any(s => s.UndeliveredCount > 0)) { return 1; }
             return 0;
         }
     }
