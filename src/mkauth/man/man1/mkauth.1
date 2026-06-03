@@ -260,7 +260,7 @@ Set \fBiat\fR to now.
 \fBkid\fR JOSE header parameter.
 .TP
 .BI \-\-header " k=v"
-Additional JOSE header parameter (repeatable).
+Additional JOSE header parameter (repeatable). Accepts \fBname=value\fR or \fBname: value\fR.
 
 .SS azure\-storage flags
 .TP
@@ -283,7 +283,7 @@ The \fBx\-ms\-date\fR header value (RFC1123 GMT). Defaults to now. Must match th
 \fBx\-ms\-version\fR header value. Defaults to a pinned stable version.
 .TP
 .BI \-\-header " k:v"
-Additional header (repeatable). Used for StringToSign fixed headers (Content\-Type, Content\-Length, …) and \fBx\-ms\-*\fR CanonicalizedHeaders.
+Additional header (repeatable). Accepts \fBname: value\fR or \fBname=value\fR. Used for StringToSign fixed headers (Content\-Type, Content\-Length, …) and \fBx\-ms\-*\fR CanonicalizedHeaders. (\fBx\-ms\-date\fR/\fBx\-ms\-version\fR have dedicated flags \(em prefer those.)
 
 .SH EXIT STATUS
 .TP

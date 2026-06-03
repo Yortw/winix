@@ -195,6 +195,27 @@ public class ArgParserTests
         Assert.Equal("q2gT+oN==", value);
     }
 
+    [Fact] // --header accepts HTTP-style 'name: value' (colon) and trims OWS
+    public void Azure_header_accepts_colon_form_and_trims_ows()
+    {
+        var r = ArgParser.Parse(new[] { "azure-storage", "--account", "a", "--key", "literal:k",
+            "--method", "GET", "--url", "https://a.blob.core.windows.net/c/b",
+            "--header", "x-ms-meta-color: blue" });
+        Assert.True(r.Ok);
+        var (key, value) = r.AzureStorage!.Headers.Single();
+        Assert.Equal("x-ms-meta-color", key);
+        Assert.Equal("blue", value); // split on ':', leading OWS trimmed
+    }
+
+    [Fact] // '=' before ':' wins, so an '='-form value containing a colon stays intact
+    public void Header_equals_before_colon_keeps_colon_in_value()
+    {
+        var r = ArgParser.Parse(new[] { "jwt", "--alg", "HS256", "--key", "literal:k",
+            "--header", "x5u=https://example/jwks" });
+        Assert.True(r.Ok);
+        Assert.Equal(("x5u", "https://example/jwks"), r.Jwt!.Headers.Single());
+    }
+
     [Fact] // Global flags bind on every scheme.
     public void Global_output_flags_bind()
     {

@@ -219,7 +219,7 @@ curl -H "$(mkauth jwt --alg RS256 --key file:private.pem \
 | `--iat` | no | off | Set `iat` to now. |
 | `--nbf DURATION` | no | — | `nbf` = now + DURATION. |
 | `--kid S` | no | — | `kid` JOSE header parameter. |
-| `--header k=v` | no | — | Additional JOSE header parameters (repeatable). |
+| `--header k=v` | no | — | Additional JOSE header parameters (repeatable; accepts `name=value` or `name: value`). |
 
 ### azure-storage — Azure Storage SharedKey
 
@@ -231,12 +231,12 @@ mkauth azure-storage --account mystorageacct \
                      --key env:STORAGE_ACCOUNT_KEY \
                      --method GET \
                      --url 'https://mystorageacct.blob.core.windows.net/mycontainer/myblob' \
-                     --header 'x-ms-version:2023-11-03'
+                     --x-ms-version 2023-11-03
 
 # Show the StringToSign (debug)
 mkauth azure-storage --account mystorageacct --key env:STORAGE_KEY \
                      --method PUT --url 'https://mystorageacct.blob.core.windows.net/c/b' \
-                     --header 'Content-Type:application/octet-stream' \
+                     --header 'Content-Type: application/octet-stream' \
                      --show-base-string
 
 # Feed to curl (note: x-ms-date and x-ms-version must match the headers you send)
@@ -245,7 +245,7 @@ curl -H "x-ms-date: $DATE" \
      -H "x-ms-version: 2023-11-03" \
      -H "$(mkauth azure-storage --account mystorageacct --key env:STORAGE_KEY \
                --method GET --url 'https://mystorageacct.blob.core.windows.net/c/b' \
-               --header "x-ms-date:$DATE" --header 'x-ms-version:2023-11-03')" \
+               --x-ms-date "$DATE" --x-ms-version 2023-11-03)" \
      'https://mystorageacct.blob.core.windows.net/c/b'
 ```
 
@@ -259,7 +259,7 @@ curl -H "x-ms-date: $DATE" \
 | `--url URL` | yes | — | Request URL → canonicalized resource (`/account/path` + sorted query). |
 | `--x-ms-date S` | no | auto (RFC1123 GMT) | The `x-ms-date` header value. Must match the value sent with the request. |
 | `--x-ms-version V` | no | pinned default | `x-ms-version` header value. |
-| `--header k:v` | no | — | Additional headers (repeatable). Used for fixed StringToSign headers (Content-Type, Content-Length, …) and `x-ms-*` CanonicalizedHeaders. |
+| `--header NAME:VAL` | no | — | Additional headers (repeatable). Accepts HTTP-style `name: value` or `name=value`. Used for fixed StringToSign headers (Content-Type, Content-Length, …) and `x-ms-*` CanonicalizedHeaders. (`x-ms-date`/`x-ms-version` have dedicated flags — prefer those.) |
 
 ### Common flags (all subcommands)
 

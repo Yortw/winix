@@ -237,7 +237,7 @@ public static class ArgParser
                 {
                     return Fail(jsonError);
                 }
-                if (!TrySplitPairs(parsed.GetList("--header"), "--header", out var headers, out string? headerError))
+                if (!TrySplitHeaders(parsed.GetList("--header"), "--header", out var headers, out string? headerError))
                 {
                     return Fail(headerError);
                 }
@@ -279,7 +279,7 @@ public static class ArgParser
                     return Fail("azure-storage requires --url");
                 }
 
-                if (!TrySplitPairs(parsed.GetList("--header"), "--header", out var headers, out string? headerError))
+                if (!TrySplitHeaders(parsed.GetList("--header"), "--header", out var headers, out string? headerError))
                 {
                     return Fail(headerError);
                 }
@@ -322,6 +322,39 @@ public static class ArgParser
                 return false;
             }
             result.Add((token.Substring(0, eq), token.Substring(eq + 1)));
+        }
+        pairs = result;
+        error = "";
+        return true;
+    }
+
+    /// <summary>
+    /// Splits a repeatable header token on the FIRST <c>:</c> or <c>=</c> (whichever appears
+    /// earliest), so both HTTP-style <c>Name: value</c> and <c>Name=value</c> are accepted — the
+    /// curl/HTTP convention as well as the suite's k=v form. "Whichever earliest" keeps an
+    /// <c>=</c>-form value that contains a colon intact (e.g. <c>x5u=https://example/jwks</c> splits
+    /// on the <c>=</c>, not the <c>:</c>). Leading/trailing whitespace around name and value is
+    /// trimmed (HTTP OWS is not significant). A token with neither separator is a usage error.
+    /// </summary>
+    private static bool TrySplitHeaders(
+        string[] tokens,
+        string flagName,
+        out IReadOnlyList<(string Key, string Value)> pairs,
+        out string error)
+    {
+        var result = new List<(string, string)>(tokens.Length);
+        foreach (string token in tokens)
+        {
+            int colon = token.IndexOf(':');
+            int eq = token.IndexOf('=');
+            int sep = colon < 0 ? eq : (eq < 0 ? colon : Math.Min(colon, eq));
+            if (sep < 0)
+            {
+                pairs = Array.Empty<(string, string)>();
+                error = $"{flagName} expected 'name: value' or name=value, got '{token}'";
+                return false;
+            }
+            result.Add((token.Substring(0, sep).Trim(), token.Substring(sep + 1).Trim()));
         }
         pairs = result;
         error = "";
@@ -378,7 +411,7 @@ public static class ArgParser
             .Option("--nbf", null, "DURATION", "(jwt) nbf = now + DURATION")
             .Flag("--iat", "(jwt) set iat to now")
             .Option("--kid", null, "S", "(jwt) kid JOSE header parameter")
-            .ListOption("--header", null, "K=V", "(jwt) JOSE header parameter; (azure-storage) extra header; repeatable")
+            .ListOption("--header", null, "NAME:VAL", "(jwt) JOSE header parameter; (azure-storage) HTTP header. Accepts 'name: value' or name=value. Repeatable.")
             // azure-storage
             .Option("--account", null, "NAME", "(azure-storage) storage account name — required")
             .Option("--x-ms-date", null, "DATE", "(azure-storage) x-ms-date header value (default: clock, RFC1123 GMT)")

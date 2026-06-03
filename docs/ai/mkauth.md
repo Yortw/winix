@@ -60,7 +60,7 @@ mkauth jwt --alg RS256 --key file:service-account.pem \
 # Azure Storage SharedKey
 mkauth azure-storage --account mystorageacct --key env:STORAGE_KEY \
                      --method GET --url 'https://mystorageacct.blob.core.windows.net/c/b' \
-                     --header 'x-ms-version:2023-11-03'
+                     --x-ms-version 2023-11-03
 ```
 
 ## JSON Output
