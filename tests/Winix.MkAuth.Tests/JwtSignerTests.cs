@@ -130,6 +130,21 @@ public class JwtSignerTests
         Assert.DoesNotContain("ArgumentException", ex.Message, StringComparison.Ordinal);
     }
 
+    [Fact]                                              // regression (round 2): armored PEM with corrupt DER -> friendly message (CryptographicException branch)
+    public void Rs_alg_armored_but_corrupt_pem_gives_friendly_message()
+    {
+        // Valid PEM armor wrapping invalid DER makes ImportFromPem throw CryptographicException
+        // (not ArgumentException); the widened catch must still yield the friendly MkAuthException.
+        var req = new JwtRequest
+        {
+            Algorithm = "RS256",
+            KeyPem = "-----BEGIN PRIVATE KEY-----\nAAAAAAAAAAAAAAAA\n-----END PRIVATE KEY-----",
+            Claims = new(),
+        };
+        var ex = Assert.Throws<MkAuthException>(() => JwtSigner.Sign(req));
+        Assert.Contains("valid PEM private key", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static byte[] Base64UrlDecode(string s)
     {
         string b = s.Replace('-', '+').Replace('_', '/');

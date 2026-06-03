@@ -205,6 +205,23 @@ public class CliTests
         Assert.DoesNotContain("\"exp\":\"123\"", payload); // string --claim did not win and did not leak
     }
 
+    [Fact] // regression (round 2): jwt without --alg defaults to HS256 (the docs now rely on this)
+    public void Jwt_without_alg_defaults_to_hs256()
+    {
+        var (code, outp, _) = Run(new[] { "jwt", "--key", "literal:k", "--sub", "x", "--value-only" });
+        Assert.Equal(0, code);
+        string jwt = outp.Trim().Split(' ')[1]; // "Bearer <jwt>" -> the token
+        string header = System.Text.Encoding.UTF8.GetString(B64UrlDecode(jwt.Split('.')[0]));
+        Assert.Contains("\"alg\":\"HS256\"", header);
+    }
+
+    [Fact] // regression: -v is not a valid flag (guards against re-introducing the phantom short alias)
+    public void Dash_v_is_usage_error()
+    {
+        var (code, _, _) = Run(new[] { "-v" });
+        Assert.Equal(125, code);
+    }
+
     private static byte[] B64UrlDecode(string s)
     {
         string b = s.Replace('-', '+').Replace('_', '/');
