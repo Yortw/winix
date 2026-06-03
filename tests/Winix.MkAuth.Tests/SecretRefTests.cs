@@ -19,15 +19,17 @@ public class SecretRefTests
     }
 
     [Fact]
-    public void Parse_unknown_scheme_throws_FormatException()
+    public void Parse_unknown_scheme_throws_MkAuthException()
     {
-        Assert.Throws<FormatException>(() => SecretRef.Parse("bogus:x"));
+        // MkAuthException carries readable English; framework FormatException would leak SR keys under
+        // UseSystemResourceKeys when surfaced by Cli.
+        Assert.Throws<MkAuthException>(() => SecretRef.Parse("bogus:x"));
     }
 
     [Fact]
     public void Parse_bare_value_without_scheme_throws()
     {
         // No implicit literal — a bare value is ambiguous and rejected.
-        Assert.Throws<FormatException>(() => SecretRef.Parse("justavalue"));
+        Assert.Throws<MkAuthException>(() => SecretRef.Parse("justavalue"));
     }
 }

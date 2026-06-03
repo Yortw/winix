@@ -173,6 +173,14 @@ public static class Cli
 
             return ExitCode.Success;
         }
+        catch (MkAuthException ex)
+        {
+            // Project-authored, human-readable English (e.g. "Environment variable 'X' is not set.",
+            // "Algorithm RS256 needs a PEM private key…"). Safe to surface verbatim — this is the ONLY
+            // exception type whose Message we print directly.
+            stderr.WriteLine($"mkauth: error: {ex.Message}");
+            return ExitCode.NotExecutable;
+        }
         catch (IOException)
         {
             // Downstream pipe closed (e.g. `mkauth … | head`). The runtime absorbs most of these at the
@@ -181,10 +189,13 @@ public static class Cli
         }
         catch (Exception ex)
         {
-            // Covers bad --url (UriFormatException), missing env var / file (resolver), malformed base64
-            // azure key (FormatException), invalid --claim-num/duration, key/alg mismatch, etc. SafeError
-            // avoids leaking bare SR resource keys under UseSystemResourceKeys.
-            stderr.WriteLine($"mkauth: error: {DescribeError(ex)}");
+            // Framework exceptions: bad --url (UriFormatException), malformed base64 azure --key
+            // (FormatException), bad RS/ES PEM (ArgumentException from ImportFromPem), malformed JSON
+            // claims body (JsonException), missing --claims-file (FileNotFoundException), etc. Under
+            // UseSystemResourceKeys these .Message values are bare SR resource keys (net_uri_BadFormat,
+            // Format_BadBase64Char, Argument_PemImport_NoPemFound…), so route through SafeError.Describe
+            // for English (or a readable type name) — never the raw key.
+            stderr.WriteLine($"mkauth: error: {SafeError.Describe(ex)}");
             return ExitCode.NotExecutable;
         }
     }
@@ -209,13 +220,13 @@ public static class Cli
             claims[k] = v;
         }
 
-        // --claim-num → long (so NumericDate-style claims serialize as JSON numbers). Invalid → usage-ish
-        // error surfaced via the catch-all (FormatException → SafeError).
+        // --claim-num → long (so NumericDate-style claims serialize as JSON numbers). Invalid → a
+        // project-authored MkAuthException with readable English (surfaced verbatim by Cli's catch).
         foreach (var (k, v) in o.NumericClaims)
         {
             if (!long.TryParse(v, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out long n))
             {
-                throw new FormatException($"--claim-num {k}={v} is not an integer.");
+                throw new MkAuthException($"--claim-num {k}={v} is not an integer.");
             }
             claims[k] = n;
         }
@@ -271,13 +282,15 @@ public static class Cli
     }
 
     /// <summary>Parses a JSON object string and merges its top-level members into <paramref name="claims"/>,
-    /// preserving JSON types. Throws <see cref="FormatException"/> if the content is not a JSON object.</summary>
+    /// preserving JSON types. Throws <see cref="MkAuthException"/> if the content is not a JSON object.
+    /// (A malformed JSON body throws a framework <see cref="System.Text.Json.JsonException"/>, which Cli
+    /// routes through <see cref="SafeError.Describe"/>.)</summary>
     private static void MergeJsonObject(Dictionary<string, object?> claims, string json, string source)
     {
         JsonNode? node = JsonNode.Parse(json);
         if (node is not JsonObject obj)
         {
-            throw new FormatException($"{source} must contain a JSON object.");
+            throw new MkAuthException($"{source} must contain a JSON object.");
         }
         foreach (var kv in obj)
         {
@@ -295,7 +308,7 @@ public static class Cli
             "HMAC-SHA256" => OAuth1SignatureMethod.HmacSha256,
             "PLAINTEXT" => OAuth1SignatureMethod.Plaintext,
             // ArgParser validates the set, so this is unreachable in practice.
-            _ => throw new FormatException($"unknown --signature-method '{method}'."),
+            _ => throw new MkAuthException($"unknown --signature-method '{method}'."),
         };
     }
 
@@ -303,7 +316,7 @@ public static class Cli
     {
         if (!long.TryParse(value, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out long ts))
         {
-            throw new FormatException($"--timestamp '{value}' is not an integer (Unix seconds).");
+            throw new MkAuthException($"--timestamp '{value}' is not an integer (Unix seconds).");
         }
         return ts;
     }
@@ -329,22 +342,6 @@ public static class Cli
     }
 
     private static bool ContainsNewline(string s) => s.IndexOf('\r') >= 0 || s.IndexOf('\n') >= 0;
-
-    /// <summary>
-    /// Resolver/format errors carry actionable, project-authored English messages (e.g. "Environment
-    /// variable 'X' is not set."), so we surface those verbatim. Framework exceptions go through
-    /// <see cref="SafeError.Describe"/> to avoid leaking bare SR resource keys under UseSystemResourceKeys.
-    /// </summary>
-    private static string DescribeError(Exception ex)
-    {
-        // These three are thrown by our own code (SecretResolver, JwtSigner, this Cli) with literal
-        // English text — keep it; it's more useful than the bare type name SafeError would yield.
-        if (ex is InvalidOperationException or FormatException or ArgumentException)
-        {
-            return ex.Message;
-        }
-        return SafeError.Describe(ex);
-    }
 
     /// <summary>
     /// An <see cref="ISecretStore"/> that constructs the real OS-native store on first access. Used so a

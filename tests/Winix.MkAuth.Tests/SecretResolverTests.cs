@@ -41,7 +41,7 @@ public class SecretResolverTests
         var sut = new SecretResolver(new InMemorySecretStore(), stdin: new StringReader("piped\n"));
         Assert.Equal("piped", sut.Resolve(SecretRef.Parse("stdin"), _ => { }));
         // Use explicit Action cast to avoid selecting the Func<Task> overload (which is [Obsolete]).
-        Assert.Throws<InvalidOperationException>((Action)(() => sut.Resolve(SecretRef.Parse("stdin"), _ => { })));
+        Assert.Throws<MkAuthException>((Action)(() => sut.Resolve(SecretRef.Parse("stdin"), _ => { })));
     }
 
     [Fact]
@@ -49,6 +49,6 @@ public class SecretResolverTests
     {
         var sut = new SecretResolver(new InMemorySecretStore(), stdin: new StringReader(""));
         // Use explicit Action cast to avoid selecting the Func<Task> overload (which is [Obsolete]).
-        Assert.Throws<InvalidOperationException>((Action)(() => sut.Resolve(SecretRef.Parse("vault:no/such"), _ => { })));
+        Assert.Throws<MkAuthException>((Action)(() => sut.Resolve(SecretRef.Parse("vault:no/such"), _ => { })));
     }
 }

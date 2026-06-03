@@ -78,7 +78,7 @@ public class JwtSignerTests
     public void Hs_alg_without_raw_key_is_clear_error()
     {
         var req = new JwtRequest { Algorithm = "HS256", KeyPem = "-----BEGIN PRIVATE KEY-----\n...", Claims = new() };
-        var ex = Assert.Throws<ArgumentException>(() => JwtSigner.Sign(req));
+        var ex = Assert.Throws<MkAuthException>(() => JwtSigner.Sign(req));
         Assert.Contains("secret", ex.Message, StringComparison.OrdinalIgnoreCase); // readable, not an SR key
     }
 
@@ -86,7 +86,7 @@ public class JwtSignerTests
     public void Rs_alg_without_pem_is_clear_error()
     {
         var req = new JwtRequest { Algorithm = "RS256", Key = Encoding.UTF8.GetBytes("notapem"), Claims = new() };
-        var ex = Assert.Throws<ArgumentException>(() => JwtSigner.Sign(req));
+        var ex = Assert.Throws<MkAuthException>(() => JwtSigner.Sign(req));
         Assert.Contains("PEM", ex.Message);
     }
 

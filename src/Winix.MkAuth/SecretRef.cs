@@ -13,7 +13,7 @@ public enum SecretRefKind { Env, File, Vault, Stdin, Literal }
 /// </summary>
 public readonly record struct SecretRef(SecretRefKind Kind, string Value)
 {
-    /// <summary>Parses a reference string. Throws <see cref="FormatException"/> on an unknown or
+    /// <summary>Parses a reference string. Throws <see cref="MkAuthException"/> on an unknown or
     /// missing scheme.</summary>
     public static SecretRef Parse(string input)
     {
@@ -25,7 +25,7 @@ public readonly record struct SecretRef(SecretRefKind Kind, string Value)
         int colon = input.IndexOf(':');
         if (colon <= 0)
         {
-            throw new FormatException(
+            throw new MkAuthException(
                 $"Secret reference '{input}' has no scheme. Use env:NAME, file:PATH, vault:NS/KEY, literal:VALUE, or stdin.");
         }
 
@@ -37,7 +37,7 @@ public readonly record struct SecretRef(SecretRefKind Kind, string Value)
             "file" => new SecretRef(SecretRefKind.File, value),
             "vault" => new SecretRef(SecretRefKind.Vault, value),
             "literal" => new SecretRef(SecretRefKind.Literal, value),
-            _ => throw new FormatException(
+            _ => throw new MkAuthException(
                 $"Unknown secret-reference scheme '{scheme}'. Use env, file, vault, literal, or stdin."),
         };
     }

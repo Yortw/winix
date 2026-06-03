@@ -53,7 +53,7 @@ public static class JwtSigner
     /// </summary>
     /// <param name="req">The minting request (algorithm, key material, claims, header params).</param>
     /// <returns>The token and a <c>Bearer</c> header.</returns>
-    /// <exception cref="ArgumentException">
+    /// <exception cref="MkAuthException">
     /// Thrown when the key kind does not match the algorithm family (HS* needs <see cref="JwtRequest.Key"/>,
     /// RS*/ES* needs <see cref="JwtRequest.KeyPem"/>), or when the algorithm is unsupported.
     /// </exception>
@@ -89,7 +89,7 @@ public static class JwtSigner
             "ES256" => Ec(req.KeyPem!, signingBytes, HashAlgorithmName.SHA256),
             "ES384" => Ec(req.KeyPem!, signingBytes, HashAlgorithmName.SHA384),
             "ES512" => Ec(req.KeyPem!, signingBytes, HashAlgorithmName.SHA512),
-            _ => throw new ArgumentException($"Unsupported JWT algorithm '{req.Algorithm}'."),
+            _ => throw new MkAuthException($"Unsupported JWT algorithm '{req.Algorithm}'."),
         };
 
         string token = $"{signingInput}.{Base64Url.EncodeNoPad(sig)}";
@@ -164,12 +164,12 @@ public static class JwtSigner
         bool hmac = req.Algorithm.StartsWith("HS", StringComparison.Ordinal);
         if (hmac && req.Key is null)
         {
-            throw new ArgumentException($"Algorithm {req.Algorithm} needs a raw secret key (e.g. --key env:SECRET), not a PEM.");
+            throw new MkAuthException($"Algorithm {req.Algorithm} needs a raw secret key (e.g. --key env:SECRET), not a PEM.");
         }
 
         if (!hmac && req.KeyPem is null)
         {
-            throw new ArgumentException($"Algorithm {req.Algorithm} needs a PEM private key (e.g. --key file:key.pem), not a raw secret.");
+            throw new MkAuthException($"Algorithm {req.Algorithm} needs a PEM private key (e.g. --key file:key.pem), not a raw secret.");
         }
     }
 }

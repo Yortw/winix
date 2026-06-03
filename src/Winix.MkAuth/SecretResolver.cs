@@ -30,17 +30,17 @@ public sealed class SecretResolver
     /// </summary>
     /// <param name="reference">The parsed secret reference to resolve.</param>
     /// <param name="warn">Invoked with a human-readable warning for exposure-prone sources (e.g. <c>literal:</c>).</param>
-    /// <exception cref="InvalidOperationException">
-    /// Thrown when an env var is missing, a vault key is not found, or stdin is consumed a second time.
+    /// <exception cref="MkAuthException">
+    /// Thrown when an env var is missing, a vault key is not found, a vault reference lacks the required
+    /// NS/KEY slash separator, or stdin is consumed a second time.
     /// </exception>
-    /// <exception cref="FormatException">Thrown when a vault reference lacks the required NS/KEY slash separator.</exception>
     public string Resolve(SecretRef reference, Action<string> warn)
     {
         switch (reference.Kind)
         {
             case SecretRefKind.Env:
                 return Environment.GetEnvironmentVariable(reference.Value)
-                    ?? throw new InvalidOperationException($"Environment variable '{reference.Value}' is not set.");
+                    ?? throw new MkAuthException($"Environment variable '{reference.Value}' is not set.");
 
             case SecretRefKind.File:
                 // TrimEnd to strip the trailing newline that editors commonly append.
@@ -50,7 +50,7 @@ public sealed class SecretResolver
                 int slash = reference.Value.IndexOf('/');
                 if (slash <= 0)
                 {
-                    throw new FormatException($"vault reference '{reference.Value}' must be NS/KEY (slash-separated namespace and key).");
+                    throw new MkAuthException($"vault reference '{reference.Value}' must be NS/KEY (slash-separated namespace and key).");
                 }
                 string ns = reference.Value.Substring(0, slash);
                 string key = reference.Value.Substring(slash + 1);
@@ -58,7 +58,7 @@ public sealed class SecretResolver
                 byte[]? raw = _store.Get(ns, key);
                 if (raw == null)
                 {
-                    throw new InvalidOperationException($"No vault entry '{ns}/{key}'.");
+                    throw new MkAuthException($"No vault entry '{ns}/{key}'.");
                 }
                 // Vault values are stored as UTF-8 bytes (convention established by EnvVault/Protect).
                 return Encoding.UTF8.GetString(raw);
@@ -66,7 +66,7 @@ public sealed class SecretResolver
             case SecretRefKind.Stdin:
                 if (_stdinConsumed)
                 {
-                    throw new InvalidOperationException("stdin can supply only one secret per invocation.");
+                    throw new MkAuthException("stdin can supply only one secret per invocation.");
                 }
                 _stdinConsumed = true;
                 return _stdin.ReadToEnd().TrimEnd('\r', '\n');

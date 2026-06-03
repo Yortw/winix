@@ -106,7 +106,59 @@ public class CliTests
             "--consumer-key", "k", "--consumer-secret", "literal:s" });
         Assert.NotEqual(0, code);
         Assert.False(string.IsNullOrWhiteSpace(err));
-        Assert.DoesNotContain("_Name", err); // no bare SR resource key (e.g. Arg_ParamName_Name)
+        // The specific leaking SR key under UseSystemResourceKeys was "net_uri_BadFormat".
+        Assert.DoesNotContain("net_uri", err, StringComparison.OrdinalIgnoreCase);
+        AssertNoSrResourceKey(err);
+    }
+
+    [Fact]                                              // azure --key not base64 → framework FormatException
+    public void Azure_bad_base64_key_is_clean_error()
+    {
+        var (code, _, err) = Run(new[] { "azure-storage", "--account", "a", "--key", "literal:not_base64!!",
+            "--method", "GET", "--url", "https://a.blob.core.windows.net/c/b", "--x-ms-version", "2021-08-06" });
+        Assert.NotEqual(0, code);
+        Assert.False(string.IsNullOrWhiteSpace(err));
+        // The leaking SR key under UseSystemResourceKeys was "Format_BadBase64Char".
+        Assert.DoesNotContain("Format_BadBase64", err, StringComparison.OrdinalIgnoreCase);
+        AssertNoSrResourceKey(err);
+    }
+
+    [Fact]                                              // RS256 with non-PEM key → framework ArgumentException
+    public void Jwt_bad_pem_is_clean_error()
+    {
+        var (code, _, err) = Run(new[] { "jwt", "--alg", "RS256", "--key", "literal:not-a-pem", "--claim", "sub=x" });
+        Assert.NotEqual(0, code);
+        Assert.False(string.IsNullOrWhiteSpace(err));
+        // The leaking SR keys under UseSystemResourceKeys were "Argument_PemImport_NoPemFound" + "Arg_ParamName_Name".
+        Assert.DoesNotContain("Argument_PemImport", err, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Arg_ParamName_Name", err, StringComparison.OrdinalIgnoreCase);
+        AssertNoSrResourceKey(err);
+    }
+
+    /// <summary>
+    /// Asserts the error line after "mkauth: error:" is readable text, not a bare SR resource key.
+    /// SR keys are single tokens shaped like <c>Xxx_Yyy_Zzz</c> (underscores, no spaces). SafeError.Describe
+    /// yields either an English sentence (with spaces) or a CLR type name (e.g. UriFormatException, no
+    /// underscores). Either is acceptable; an underscore-joined token with no spaces is not.
+    /// </summary>
+    private static void AssertNoSrResourceKey(string err)
+    {
+        foreach (string raw in err.Split('\n'))
+        {
+            string line = raw.Trim();
+            const string prefix = "mkauth: error:";
+            if (!line.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            string message = line.Substring(prefix.Length).Trim();
+            Assert.False(string.IsNullOrWhiteSpace(message)); // must say something
+
+            // An SR-key leak looks like "net_uri_BadFormat" — at least one underscore and no spaces.
+            bool looksLikeSrKey = message.IndexOf(' ') < 0 && message.IndexOf('_') >= 0;
+            Assert.False(looksLikeSrKey, $"error message looks like a bare SR resource key: '{message}'");
+        }
     }
 
     [Fact]                                              // G2: typed --exp wins over a string --claim exp= AND stays numeric
