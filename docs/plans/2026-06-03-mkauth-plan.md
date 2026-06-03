@@ -1060,7 +1060,7 @@ public class JwtSignerTests
         string[] parts = jwt.Split('.');
         byte[] sig = Base64UrlDecode(parts[2]);
         Assert.Equal(64, sig.Length); // P-256 r||s is fixed 64 bytes (the JOSE requirement)
-        Assert.True(ec.VerifyData(Encoding.ASCII.GetBytes(parts[0] + "." + parts[1]), sig, HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363));
+        Assert.True(ec.VerifyData(Encoding.ASCII.GetBytes(parts[0] + "." + parts[1]), sig, HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation));
     }
 
     [Fact]                                              // F4: HS alg given a PEM
@@ -1182,7 +1182,7 @@ public static class JwtSigner
     {
         using var ec = ECDsa.Create();
         ec.ImportFromPem(pem);
-        return ec.SignData(data, hash, DSASignatureFormat.IeeeP1363); // JOSE requires raw r||s
+        return ec.SignData(data, hash, DSASignatureFormat.IeeeP1363FixedFieldConcatenation); // JOSE requires raw r||s
     }
 
     // F2: preserve the JSON type of a claim value (so NumericDate stays a number).
