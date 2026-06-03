@@ -1,4 +1,5 @@
 using System;
+using Winix.MkAuth;
 using Yort.ShellKit;
 
 namespace MkAuth;
@@ -9,7 +10,6 @@ internal sealed class Program
     {
         ConsoleEnv.EnableAnsiIfNeeded();
         ConsoleEnv.UseUtf8Streams();
-        // Cli.Run wired in a later task.
-        throw new NotImplementedException("mkauth not yet implemented.");
+        return Cli.Run(args, Console.Out, Console.Error, Console.In);
     }
 }
