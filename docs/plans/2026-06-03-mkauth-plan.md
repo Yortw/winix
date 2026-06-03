@@ -1570,6 +1570,24 @@ public class ArgParserTests
         var r = ArgParser.Parse(new[] { "jwt", "--alg", "ZZ9", "--key", "literal:k" });
         Assert.False(r.Ok);
     }
+
+    [Fact]                                              // G1: k=v value may contain '=' (split on first only)
+    public void Param_value_may_contain_equals()
+    {
+        var r = ArgParser.Parse(new[] { "oauth1", "--method", "GET", "--url", "https://x/y",
+            "--consumer-key", "k", "--consumer-secret", "literal:s", "--param", "state=a=b" });
+        Assert.True(r.Ok);
+        // The implementer asserts the parsed param is key "state", value "a=b" against whatever
+        // shape ParseResult exposes the params in (e.g. r.OAuth1.ExtraParams).
+    }
+
+    [Fact]                                              // G1/F5: k=v with no '=' is a usage error
+    public void Param_without_equals_is_usage_error()
+    {
+        var r = ArgParser.Parse(new[] { "oauth1", "--method", "GET", "--url", "https://x/y",
+            "--consumer-key", "k", "--consumer-secret", "literal:s", "--param", "novalue" });
+        Assert.False(r.Ok);
+    }
 }
 ```
 
@@ -1590,7 +1608,7 @@ public enum AuthScheme { Basic, Bearer, OAuth1, Jwt, AzureStorage }
 Create `src/Winix.MkAuth/ArgParser.cs` using `Yort.ShellKit.CommandLineParser`:
 - Dispatch on `positional[0]` to one of the five schemes (`basic|bearer|oauth1|jwt|azure-storage`); anything else → `ParseResult` with `Ok=false` and a usage message.
 - Bind global flags: `--value-only`, `--json`, `--show-base-string`, plus ShellKit's standard `--help/--version/--describe/--color/--no-color`.
-- Per-scheme required/optional flags exactly as the design's option tables specify. Validate: unknown `--signature-method` (allowed: `HMAC-SHA1|HMAC-SHA256|PLAINTEXT`), unknown `--alg` (allowed: the 9 HS/RS/ES names), missing required flags → `Ok=false`. **F5:** any repeated `k=v` flag (`--param`, `--header`, `--claim`, `--claim-num`, `--claim-json`) whose value has no `=` → `Ok=false` with `expected k=v, got '<value>'` (add an `ArgParserTests` case pinning this).
+- Per-scheme required/optional flags exactly as the design's option tables specify. Validate: unknown `--signature-method` (allowed: `HMAC-SHA1|HMAC-SHA256|PLAINTEXT`), unknown `--alg` (allowed: the 9 HS/RS/ES names), missing required flags → `Ok=false`. **F5/G1:** every repeated `k=v` flag (`--param`, `--header`, `--claim`, `--claim-num`, `--claim-json`) splits on the **first** `=` only — the key is everything before it, the value is the full remainder (which MAY contain further `=`, e.g. base64 padding or `state=a=b`). A token with **no** `=` at all → `Ok=false` with `expected k=v, got '<value>'`. Pin both halves with `ArgParserTests` cases.
 - Expose a `ParseResult` carrying `Ok`, an error message, the chosen `AuthScheme`, the global output flags, and a per-scheme options object (e.g. `BasicOptions`, `OAuth1Options`, …) holding the raw flag values **including the unresolved `SecretRef` strings** (resolution happens in `Cli`, which owns stdin + the secret store).
 - Register `.Example(...)` and `.ComposesWith(...)` entries: the curl pipe and the `digest` recipes for the deliberately-excluded HMAC cases (verify the `digest`/`curl`/`envvault` flags against their `--help` before pinning — `feedback_composes_with_snippets_must_be_verified`).
 
@@ -1726,6 +1744,25 @@ public class CliTests
         Assert.NotEqual(0, code);
         Assert.False(string.IsNullOrWhiteSpace(err));
         Assert.DoesNotContain("_Name", err); // no bare SR resource key (e.g. Arg_ParamName_Name)
+    }
+
+    [Fact]                                              // G2: typed --exp wins over a string --claim exp= AND stays numeric
+    public void Explicit_exp_overrides_claim_and_stays_a_number()
+    {
+        var deps = new MkAuthDeps { Clock = new FixedClock(DateTimeOffset.FromUnixTimeSeconds(1000)) };
+        // --claim exp=123 (string) and --exp 60s (now+60 = 1060 as a number). Explicit wins, as a number.
+        var (code, outp, _) = Run(new[] { "jwt", "--alg", "HS256", "--key", "literal:k",
+            "--claim", "exp=123", "--exp", "60s", "--value-only" }, deps: deps);
+        Assert.Equal(0, code);
+        string payload = System.Text.Encoding.UTF8.GetString(B64UrlDecode(outp.Trim().Split('.')[1]));
+        Assert.Contains("\"exp\":1060", payload);          // numeric, from --exp
+        Assert.DoesNotContain("\"exp\":\"123\"", payload); // string --claim did not win and did not leak
+    }
+
+    private static byte[] B64UrlDecode(string s)
+    {
+        string b = s.Replace('-', '+').Replace('_', '/');
+        return Convert.FromBase64String(b.PadRight(b.Length + (4 - b.Length % 4) % 4, '='));
     }
 }
 ```
@@ -1900,3 +1937,12 @@ A fresh-subagent `adversarial-plan-review` pass produced 8 findings; all integra
 | F6 | Explicit defer | `vault:NS/KEY` first-slash split documented in README + XML docs (Task 14; design updated). |
 | F7 | Explicit defer | `file:`/`stdin` trailing-trim semantics documented in README + XML docs (Task 14; design updated). |
 | F8 | Test gap | PLAINTEXT-over-non-HTTPS warning test (Task 11). |
+
+**Confirming pass (2026-06-03, second/final — review caps at two):** F1–F4, F6–F8 confirmed CLOSED;
+F5 was PARTIALLY closed (malformed-url test present; the no-`=` validation test was described but not
+written). Two new test gaps, no new blockers — all integrated:
+
+| ID | Bucket | Where integrated |
+|----|--------|------------------|
+| G1 | Test gap (closes F5) | `k=v` flags split on the **first** `=` (value may contain `=`); no-`=` token → usage error. `ArgParserTests.Param_value_may_contain_equals` + `Param_without_equals_is_usage_error` (Task 10). |
+| G2 | Test gap | Explicit `--exp` overrides a string `--claim exp=` AND stays a JSON number (guards against F2 re-entering via claim precedence). `CliTests.Explicit_exp_overrides_claim_and_stays_a_number` (Task 11). |
