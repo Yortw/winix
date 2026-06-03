@@ -1,0 +1,388 @@
+.TH MKAUTH 1 "2026-06-03" "Winix" "User Commands"
+.SH NAME
+mkauth \- compute HTTP Authorization headers for curl and scripts
+
+.SH SYNOPSIS
+.B mkauth basic
+\fB\-\-user\fR \fINAME\fR
+\fB\-\-password\fR \fIREF\fR
+[\fIoptions\fR]
+
+.B mkauth bearer
+\fB\-\-token\fR \fIREF\fR
+[\fIoptions\fR]
+
+.B mkauth oauth1
+\fB\-\-method\fR \fIVERB\fR
+\fB\-\-url\fR \fIURL\fR
+\fB\-\-consumer\-key\fR \fIK\fR
+\fB\-\-consumer\-secret\fR \fIREF\fR
+[\fIoptions\fR]
+
+.B mkauth jwt
+\fB\-\-alg\fR \fIALG\fR
+\fB\-\-key\fR \fIREF\fR
+[\fIclaim flags\fR]
+[\fIoptions\fR]
+
+.B mkauth azure\-storage
+\fB\-\-account\fR \fINAME\fR
+\fB\-\-key\fR \fIREF\fR
+\fB\-\-method\fR \fIVERB\fR
+\fB\-\-url\fR \fIURL\fR
+[\fIoptions\fR]
+
+.SH DESCRIPTION
+.B mkauth
+is a pure, stateless HTTP Authorization header calculator.
+It computes one header and prints it to stdout, then exits.
+No network I/O, no token storage, no caching.
+
+Use it in command substitution with
+.BR curl :
+.RS
+.nf
+curl \-H "$(mkauth oauth1 \-\-method GET \-\-url https://api.example.com/v1/me \\
+              \-\-consumer\-key abc \-\-consumer\-secret 'vault:api/consumer' \\
+              \-\-token def \-\-token\-secret 'vault:api/token')" \\
+     https://api.example.com/v1/me
+.fi
+.RE
+
+The computed header is written to stdout as a \fBName: Value\fR line.
+.B \-\-show\-base\-string
+debug output goes to stderr.
+Warnings (literal\-secret exposure, PLAINTEXT over non\-HTTPS) go to stderr.
+
+.SH SUBCOMMANDS
+
+.SS basic
+Computes \fBAuthorization: Basic base64(user:password)\fR per RFC 7617.
+A username containing \fB:\fR is a usage error.
+
+.SS bearer
+Outputs \fBAuthorization: Bearer <token>\fR per RFC 6750.
+Pure passthrough \(em the resolved token value is used as\-is.
+
+.SS oauth1
+Computes the full OAuth 1.0a \fBAuthorization\fR header (RFC 5849) including
+the signature base string, signing key, and HMAC or PLAINTEXT signature.
+
+.B Scope note:
+.B mkauth oauth1
+.I signs
+a request given credentials; it does
+.B not
+perform the OAuth 1.0a 3\-legged request\-token\(enauthorize\(enaccess\-token dance.
+Token acquisition is a separate flow, out of scope for this tool.
+
+The signature base string is
+\fBMETHOD & pct(base_url) & pct(normalized_params)\fR.
+The signing key is
+\fBpct(consumer_secret) & pct(token_secret)\fR.
+Percent\-encoding follows RFC 3986 (unreserved set only; \fB~\fR is literal, space is \fB%20\fR, not \fB+\fR).
+Parameters are sorted lexicographically and merged from URL query, \fB\-\-param\fR, and \fBoauth_*\fR params (excluding \fBrealm\fR and \fBoauth_signature\fR).
+PLAINTEXT sends the signing key as the signature; a warning is emitted to stderr if the URL scheme is not \fBhttps\fR.
+
+.SS jwt
+Mints a JSON Web Token (RFC 7519) and wraps it as \fBAuthorization: Bearer <jwt>\fR.
+Supports HS256/384/512, RS256/384/512, and ES256/384/512.
+ES signatures use IEEE\-P1363 \fBr\(cbs\fR form per JOSE (RFC 7518).
+
+.SS azure\-storage
+Computes the \fBAuthorization: SharedKey account:signature\fR header for Azure Storage
+REST API requests (Blob, Queue, and File services).
+StringToSign = VERB + 12 fixed header lines + CanonicalizedHeaders + CanonicalizedResource.
+Signature = base64(HMAC\-SHA256(base64\-decode(key), UTF\-8(StringToSign))).
+Table canonicalization and SharedKeyLite are not supported.
+
+.SH SECRET REFERENCES
+Every secret\-bearing flag takes a secret reference string with a scheme prefix.
+Secrets are never required as bare values on argv.
+
+.TP
+.BI env: NAME
+Value of environment variable
+.I NAME
+at runtime.
+
+.TP
+.BI file: PATH
+Contents of file at
+.IR PATH .
+A single trailing \fB\er\en\fR or \fB\en\fR run is trimmed; all other bytes are preserved verbatim.
+
+.TP
+.BI vault: NS/KEY
+Value from the OS keychain via Winix.SecretStore
+(DPAPI on Windows, Keychain on macOS, libsecret on Linux).
+Splits on the
+.B first
+\fB/\fR \(em namespace cannot contain \fB/\fR, key may.
+
+.TP
+.B \- or stdin
+Read from standard input.
+At most one secret per invocation may use stdin.
+
+.TP
+.BI literal: VALUE
+The literal value.
+.B Emits a ps/shell\-history exposure warning to stderr.
+Use as an explicit escape hatch only.
+
+.SH OPTIONS
+
+.SS Common flags (all subcommands)
+.TP
+.B \-\-value\-only
+Print the header value only; strips the \fBAuthorization:\fR name but keeps the
+scheme prefix (e.g. \fBBearer <jwt>\fR, \fBBasic <b64>\fR). Not a bare token.
+.TP
+.B \-\-json
+Emit a JSON envelope to stdout:
+\fB{"scheme":"...","header_name":"Authorization","header_value":"..."}\fR.
+With \fB\-\-show\-base\-string\fR, adds \fB"base_string":"..."\fR.
+.TP
+.B \-\-show\-base\-string
+Emit the computed signature base string or StringToSign.
+In plain mode: to stderr. In \fB\-\-json\fR mode: included in the envelope.
+Applies to \fBoauth1\fR and \fBazure\-storage\fR.
+.TP
+.B \-\-describe
+Emit structured JSON metadata for AI discoverability.
+.TP
+.BR \-\-color [=\fIWHEN\fR]
+Force coloured output; bare \fB--color\fR = always.
+Valid values: \fBauto\fR (default), \fBalways\fR, \fBnever\fR.
+.TP
+.B \-\-no\-color
+Disable coloured output. Respects \fBNO_COLOR\fR.
+.TP
+.BR \-h ", " \-\-help
+Show help and exit.
+.TP
+.B \-\-version
+Show version and exit.
+
+.SS basic flags
+.TP
+.BI \-\-user " NAME"
+Username (required). Must not contain \fB:\fR.
+.TP
+.BI \-\-password " REF"
+Secret reference for the password (required).
+
+.SS bearer flags
+.TP
+.BI \-\-token " REF"
+Secret reference for the bearer token (required).
+
+.SS oauth1 flags
+.TP
+.BI \-\-method " VERB"
+HTTP method (required). Upper-cased for the base string.
+.TP
+.BI \-\-url " URL"
+Full request URL (required). Query params are parsed and included in the signature base.
+.TP
+.BI \-\-consumer\-key " K"
+\fBoauth_consumer_key\fR (required).
+.TP
+.BI \-\-consumer\-secret " REF"
+Secret reference for the consumer secret (required).
+.TP
+.BI \-\-token " T"
+\fBoauth_token\fR (optional; omit for 2\-legged).
+.TP
+.BI \-\-token\-secret " REF"
+Secret reference for the token secret (optional; empty = 2\-legged).
+.TP
+.BI \-\-signature\-method " M"
+Signature method: \fBHMAC\-SHA1\fR (default), \fBHMAC\-SHA256\fR, \fBPLAINTEXT\fR.
+.TP
+.BI \-\-param " k=v"
+Extra/body parameter for the signature base (repeatable).
+Use for \fBapplication/x\-www\-form\-urlencoded\fR body params.
+.TP
+.BI \-\-realm " R"
+\fBrealm\fR value (not part of the signature base).
+.TP
+.BI \-\-timestamp " N"
+\fBoauth_timestamp\fR (Unix seconds). Overrides the auto\-generated value.
+.TP
+.BI \-\-nonce " S"
+\fBoauth_nonce\fR. Overrides the auto\-generated value.
+
+.SS jwt flags
+.TP
+.BI \-\-alg " ALG"
+Signing algorithm (default: \fBHS256\fR): \fBHS256\fR, \fBHS384\fR, \fBHS512\fR, \fBRS256\fR, \fBRS384\fR, \fBRS512\fR, \fBES256\fR, \fBES384\fR, \fBES512\fR.
+.TP
+.BI \-\-key " REF"
+Secret reference for the signing key (required).
+HS: shared secret; RS/ES: PEM private key.
+.TP
+.BI \-\-claim " k=v"
+String claim (repeatable).
+.TP
+.BI \-\-claim\-num " k=v"
+Numeric claim — value parsed as a number (for NumericDate fields like \fBexp\fR).
+.TP
+.BI \-\-claim\-json " k=v"
+Raw JSON claim — value parsed as raw JSON.
+.TP
+.BI \-\-claims\-file " PATH"
+JSON object file merged into the claim set.
+.TP
+.B \-\-claims\-stdin
+Merge a JSON object from stdin. Mutually exclusive with \fB\-\-key stdin\fR.
+.TP
+.BI \-\-iss " S"
+\fBiss\fR (issuer) standard claim.
+.TP
+.BI \-\-sub " S"
+\fBsub\fR (subject) standard claim.
+.TP
+.BI \-\-aud " S"
+\fBaud\fR (audience) standard claim.
+.TP
+.BI \-\-exp " DURATION"
+\fBexp\fR = now + DURATION (e.g. \fB1h\fR, \fB30m\fR, \fB3600s\fR).
+.TP
+.B \-\-iat
+Set \fBiat\fR to now.
+.TP
+.BI \-\-nbf " DURATION"
+\fBnbf\fR = now + DURATION.
+.TP
+.BI \-\-kid " S"
+\fBkid\fR JOSE header parameter.
+.TP
+.BI \-\-header " k=v"
+Additional JOSE header parameter (repeatable). Accepts \fBname=value\fR or \fBname: value\fR.
+
+.SS azure\-storage flags
+.TP
+.BI \-\-account " NAME"
+Storage account name (required).
+.TP
+.BI \-\-key " REF"
+Account key, base64\-encoded (required). Decoded to the HMAC key.
+.TP
+.BI \-\-method " VERB"
+HTTP method (required).
+.TP
+.BI \-\-url " URL"
+Request URL (required). Canonicalized to \fB/account/path\fR + sorted query.
+.TP
+.BI \-\-x\-ms\-date " S"
+The \fBx\-ms\-date\fR header value (RFC1123 GMT). Defaults to now. Must match the value sent with the request.
+.TP
+.BI \-\-x\-ms\-version " V"
+\fBx\-ms\-version\fR header value. Defaults to a pinned stable version.
+.TP
+.BI \-\-header " k:v"
+Additional header (repeatable). Accepts \fBname: value\fR or \fBname=value\fR. Used for StringToSign fixed headers (Content\-Type, Content\-Length, …) and \fBx\-ms\-*\fR CanonicalizedHeaders. (\fBx\-ms\-date\fR/\fBx\-ms\-version\fR have dedicated flags \(em prefer those.)
+
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+The computed header was written to stdout.
+.TP
+.B 125
+Usage error \(em unknown subcommand, missing required flag, invalid flag value, conflicting flags
+(e.g. two stdin secret references), or unexpected positional.
+Stderr carries the message.
+.TP
+.B 126
+Runtime error \(em keychain access failure, key file not found, signing error, or output write failure.
+Stderr carries the message.
+
+.SH EXAMPLES
+Basic authentication with password from keychain:
+.RS
+.nf
+curl \-H "$(mkauth basic \-\-user alice \-\-password 'vault:myapp/password')" \\
+     https://api.example.com/data
+.fi
+.RE
+
+OAuth 1.0a 3\-legged signed request with HMAC\-SHA1:
+.RS
+.nf
+curl \-H "$(mkauth oauth1 \-\-method GET \\
+              \-\-url 'https://api.example.com/timeline?count=10' \\
+              \-\-consumer\-key mykey \-\-consumer\-secret env:CONSUMER_SECRET \\
+              \-\-token mytoken \-\-token\-secret env:TOKEN_SECRET)" \\
+     'https://api.example.com/timeline?count=10'
+.fi
+.RE
+
+JWT HS256 with 1\-hour expiry:
+.RS
+.nf
+mkauth jwt \-\-alg HS256 \-\-key 'vault:myapp/jwt\-secret' \\
+           \-\-iss myapp \-\-sub user123 \-\-exp 1h
+.fi
+.RE
+
+JWT RS256 from a PEM file:
+.RS
+.nf
+curl \-H "$(mkauth jwt \-\-alg RS256 \-\-key file:service\-account.pem \\
+              \-\-iss svc@project.iam.gserviceaccount.com \\
+              \-\-aud https://api.example.com/ \-\-exp 1h \-\-iat)" \\
+     https://api.example.com/data
+.fi
+.RE
+
+Bearer token from environment:
+.RS
+.nf
+curl \-H "$(mkauth bearer \-\-token env:ACCESS_TOKEN)" \\
+     https://api.example.com/data
+.fi
+.RE
+
+Azure Storage Blob GET:
+.RS
+.nf
+curl \-H "x\-ms\-date: $(date \-u '+%a, %d %b %Y %H:%M:%S GMT')" \\
+     \-H "x\-ms\-version: 2023\-11\-03" \\
+     \-H "$(mkauth azure\-storage \-\-account mystorageacct \\
+               \-\-key env:STORAGE_KEY \-\-method GET \\
+               \-\-url 'https://mystorageacct.blob.core.windows.net/c/b')" \\
+     'https://mystorageacct.blob.core.windows.net/c/b'
+.fi
+.RE
+
+Show the OAuth 1.0a signature base string for debugging:
+.RS
+.nf
+mkauth oauth1 \-\-method POST \-\-url https://api.example.com/post \\
+              \-\-consumer\-key k \-\-consumer\-secret env:CS \\
+              \-\-show\-base\-string
+.fi
+.RE
+
+Generic HMAC for other schemes (use digest, not mkauth):
+.RS
+.nf
+printf '%s.%s' "$ts" "$body" | digest \-\-hmac sha256 \-\-key\-env WEBHOOK_SECRET \-\-base64
+.fi
+.RE
+
+.SH ENVIRONMENT
+.TP
+.B NO_COLOR
+Disables colour output.
+.B mkauth
+output is plain; this flag is accepted for suite consistency.
+
+.SH SEE ALSO
+.BR curl (1),
+.BR digest (1),
+.BR envvault (1),
+.BR mksecret (1)
