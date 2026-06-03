@@ -187,7 +187,7 @@ public static class OAuth1Signer
             // Query arrives percent-encoded on the URL; decode so it is encoded exactly once in the base string.
             yield return eq < 0
                 ? new(Uri.UnescapeDataString(pair), "")
-                : new(Uri.UnescapeDataString(pair[..eq]), Uri.UnescapeDataString(pair[(eq + 1)..]));
+                : new(Uri.UnescapeDataString(pair.Substring(0, eq)), Uri.UnescapeDataString(pair.Substring(eq + 1)));
         }
     }
 }
