@@ -74,6 +74,7 @@ jobs:
           update_manifest bucket/unprotect.json aot/unprotect-win-x64.zip
           update_manifest bucket/envvault.json aot/envvault-win-x64.zip
           update_manifest bucket/mksecret.json aot/mksecret-win-x64.zip
+          update_manifest bucket/mkauth.json aot/mkauth-win-x64.zip
           update_manifest bucket/trash.json aot/trash-win-x64.zip
           update_manifest bucket/hcat.json aot/hcat-win-x64.zip
           update_manifest bucket/demux.json aot/demux-win-x64.zip
@@ -214,6 +215,7 @@ jobs:
           generate_manifests "unprotect" "Unprotect" "Companion tool to protect — decrypts files that protect encrypted." "decryption,dpapi,keychain,libsecret,at-rest,crypto"
           generate_manifests "envvault" "EnvVault" "Cross-platform keychain-backed env var manager; envchain-compatible with a Windows backend." "env,secrets,keychain,envchain,dpapi"
           generate_manifests "mksecret" "MkSecret" "Cross-platform secret generator — random passwords, EFF diceware passphrases, and encoded high-entropy keys." "password,passphrase,diceware,secret,token"
+          generate_manifests "mkauth" "MkAuth" "Compute HTTP Authorization headers (OAuth 1.0a, JWT, Basic, Bearer, Azure Storage) for curl and scripts." "oauth,oauth1,jwt,http,authorization,curl"
           generate_manifests "trash" "Trash" "Move files to the recycle bin or Trash instead of deleting them — cross-platform, recoverable." "recycle-bin,delete,undo,rm"
           generate_manifests "hcat" "HCat" "Netcat for HTTP — an instant HTTP server in one native binary: serve files, inspect requests, or pipe a command over HTTP." "http,server,webhook,netcat"
           generate_manifests "demux" "Demux" "Route each line of a stream to files or commands by regex — the partition verb for pipes." "pipe,filter,router,partition,awk"
