@@ -65,6 +65,22 @@
 **Options Considered:**
 - *Derive release-asset URLs by convention (tool name + suite version) instead of storing them:* fewer manifest fields, but couples winix to the exact asset-naming scheme and breaks the moment naming changes — the same fragility the installer ADR cited when rejecting the GitHub Releases API. Rejected in favour of explicit URLs.
 
+## Decision 5: CI and scripted installs use direct download or `dotnet tool` — not winget
+
+**Context:** CI is an explicit use case for these tools. The front-door model (Decision 1) describes an *interactive* onboarding path (`winget install winix` → `winix install <tool>`), which would be poor in CI: multi-step, depends on winget being present non-interactively (it is desktop/App-Installer oriented, not the conventional CI provisioning tool), and awkward to pin to an exact version. The question arose whether CI friction argues for keeping per-tool winget after all.
+
+**Decision:** The supported CI / scripted-install paths are (a) **direct download of the per-tool GitHub Release zip** (`<tool>-<rid>.zip`) + extract + PATH, and (b) **`dotnet tool install -g Winix.<Tool>`** on runners with the .NET SDK. winget is explicitly *not* a CI provisioning path. Both supported paths already exist today (the release pipeline already produces per-tool zips; the tools already ship as NuGet global tools).
+
+**Rationale:** winget was never the CI channel — per-tool winget would be the *worst* CI option (unreliable non-interactively, hard to pin, slow), so CI friction does **not** argue for per-tool winget. Direct download and `dotnet tool` are pinnable, PM-independent, and free of moderation lag. The self-install backend (Decision 3) is the same direct-download primitive, so it generalizes path (a) and can also serve CI via a single downloaded `winix` binary running `winix install --all` on a PM-free machine — without any winget involvement.
+
+**Trade-offs Accepted:** No single canonical CI one-liner across all platforms (direct-download on PM-free runners, `dotnet tool` where the SDK is present). Acceptable — both are standard CI idioms and can be documented per platform. A dedicated `setup-winix` GitHub Action could smooth this later but is GitHub-Actions-only and is not required.
+
+**Options Considered:**
+- *Keep per-tool winget for CI:* Rejected — winget is not a sound CI provisioning mechanism, and this would reinstate the volunteer dependency Decisions 1–2 exist to remove.
+- *Make `winget install winix` the documented CI path too:* Rejected — multi-step, non-pinnable, depends on winget in CI; the interactive front door and the CI path are deliberately different.
+
+> **Constraint for the release-pipeline change (Deferred):** the cleanup that drops per-tool winget *manifests* MUST continue to produce per-tool GitHub Release *zips* — those zips are the CI primitive (path a). Removing per-tool winget must not over-reach into removing per-tool release artifacts.
+
 ---
 
 ## Decisions Explicitly Deferred
@@ -75,5 +91,5 @@
 | Independent (per-tool) vs lockstep suite versioning | Plan is: keep v0.4 lockstep (in progress), then move to individual tool versions afterward. The cutover is a separate decision; Decision 4 lays the data foundation but doesn't mandate the switch. |
 | Whether to keep scoop/winget/dotnet/brew adapters as *secondary* backends | The self-install backend (Decision 3) is the primary path for front-door users; the existing adapters can stay for users who prefer a managed PM. Keep-vs-retire is a later call once the self-install backend exists. |
 | CLAUDE.md "When adding a new tool" checklist revision | Downstream documentation change (drop per-tool winget step); to be done alongside implementation, not in this ADR. |
-| Release pipeline changes (`release.yml` / `post-publish.yml`) | Stop generating per-tool winget manifests; populate manifest URLs/versions. Implementation-plan scope. |
+| Release pipeline changes (`release.yml` / `post-publish.yml`) | Stop generating per-tool winget manifests; populate manifest URLs/versions. **Must keep producing per-tool GitHub Release zips** (the CI primitive, Decision 5). Implementation-plan scope. |
 | Verifying winget single-package / bootstrapper policy in current moderation terms | `winix` is already accepted on winget so the precedent holds in practice; a fuller policy check is prudent before relying on it long-term. |
