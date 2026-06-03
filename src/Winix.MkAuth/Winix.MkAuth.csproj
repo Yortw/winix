@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsTrimmable>true</IsTrimmable>
+    <IsAotCompatible>true</IsAotCompatible>
+    <IsPackable>false</IsPackable>
+    <PackageId>Winix.MkAuth.Library</PackageId>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Winix.Codec\Winix.Codec.csproj" />
+    <ProjectReference Include="..\Winix.SecretStore\Winix.SecretStore.csproj" />
+    <ProjectReference Include="..\Yort.ShellKit\Yort.ShellKit.csproj" />
+    <InternalsVisibleTo Include="Winix.MkAuth.Tests" />
+  </ItemGroup>
+</Project>
