@@ -346,7 +346,6 @@ public static class ArgParser
             .StderrDescription("Warnings (literal: secret exposure, PLAINTEXT-over-HTTP), --show-base-string debug, errors")
             // Global output flags.
             .Flag("--value-only", "Print the bare header value instead of the full 'Name: value' line")
-            .Flag("--json", "Emit a JSON object: { scheme, header_name, header_value, [base_string] }")
             .Flag("--show-base-string", "(oauth1/azure-storage) emit the computed signature base string for debugging")
             // basic
             .Option("--user", null, "NAME", "(basic) username — required")
@@ -395,7 +394,7 @@ public static class ArgParser
             .Example("curl -H \"$(mkauth oauth1 --method GET --url https://api.x.com/x --consumer-key CK --consumer-secret env:CS)\" https://api.x.com/x", "Pipe the header straight into curl")
             .ComposesWith("curl", "curl -H \"$(mkauth bearer --token env:TOKEN)\" https://api.example.com/", "Use the computed header in a request")
             .ComposesWith("envvault", "envvault api mkauth oauth1 --method GET --url https://api.x.com/x --consumer-key CK --consumer-secret env:CONSUMER_SECRET", "Inject secrets from a vault namespace, then sign")
-            .ComposesWith("digest", "printf '%s.%s' \"$ts\" \"$body\" | digest --hmac sha256 --key-stdin --base64", "Generic webhook HMAC (deliberately not a mkauth scheme — compose with digest)");
+            .ComposesWith("digest", "printf '%s.%s' \"$ts\" \"$body\" | digest --hmac sha256 --key-env WEBHOOK_SECRET --base64", "Generic webhook HMAC (deliberately not a mkauth scheme — compose with digest)");
     }
 
     private static string ResolveVersion()

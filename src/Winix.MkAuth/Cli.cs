@@ -75,6 +75,7 @@ public static class Cli
                 case AuthScheme.OAuth1:
                 {
                     ArgParser.OAuth1Options o = r.OAuth1!;
+                    ValidateAbsoluteUrl(o.Url);
                     OAuth1SignatureMethod sigMethod = ParseSignatureMethod(o.SignatureMethod);
 
                     // F8: PLAINTEXT signs with the bare key; only safe over TLS. Warn (but still emit) on http://.
@@ -128,10 +129,13 @@ public static class Cli
                 case AuthScheme.AzureStorage:
                 {
                     ArgParser.AzureStorageOptions o = r.AzureStorage!;
+                    ValidateAbsoluteUrl(o.Url);
+                    string azureKey = Resolve(o.KeyRef);
+                    ValidateBase64(azureKey);
                     var req = new AzureStorageRequest
                     {
                         Account = o.Account,
-                        KeyBase64 = Resolve(o.KeyRef),
+                        KeyBase64 = azureKey,
                         Method = o.Method,
                         Url = o.Url,
                         XmsDate = o.XMsDate ?? deps.Clock.UtcNow.ToString("R"),
@@ -342,6 +346,37 @@ public static class Cli
     }
 
     private static bool ContainsNewline(string s) => s.IndexOf('\r') >= 0 || s.IndexOf('\n') >= 0;
+
+    /// <summary>
+    /// Pre-validates a <c>--url</c> in Cli so a malformed value surfaces a friendly
+    /// <see cref="MkAuthException"/> instead of a bare <c>UriFormatException</c> from the signer's
+    /// internal <c>new Uri(...)</c>. The signer still parses the URL itself; this is purely for a
+    /// readable error.
+    /// </summary>
+    private static void ValidateAbsoluteUrl(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out _))
+        {
+            throw new MkAuthException($"--url is not a valid absolute URL: '{url}'");
+        }
+    }
+
+    /// <summary>
+    /// Pre-validates the azure-storage account key is valid base64 in Cli so a malformed key surfaces a
+    /// friendly <see cref="MkAuthException"/> instead of a bare <c>FormatException</c> from the signer's
+    /// internal <c>Convert.FromBase64String</c>.
+    /// </summary>
+    private static void ValidateBase64(string value)
+    {
+        // A throwaway buffer; we only care whether the decode succeeds, not the bytes.
+        Span<byte> buffer = value.Length <= 1024
+            ? stackalloc byte[value.Length]
+            : new byte[value.Length];
+        if (!Convert.TryFromBase64String(value, buffer, out _))
+        {
+            throw new MkAuthException("azure-storage --key is not valid base64");
+        }
+    }
 
     /// <summary>
     /// An <see cref="ISecretStore"/> that constructs the real OS-native store on first access. Used so a

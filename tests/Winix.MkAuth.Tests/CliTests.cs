@@ -111,6 +111,37 @@ public class CliTests
         AssertNoSrResourceKey(err);
     }
 
+    [Fact]                                              // M2: malformed --url gets a friendly MkAuthException
+    public void Oauth1_malformed_url_gives_friendly_message()
+    {
+        var (code, _, err) = Run(new[] { "oauth1", "--method", "GET", "--url", "not-a-url",
+            "--consumer-key", "k", "--consumer-secret", "literal:s" });
+        Assert.NotEqual(0, code);
+        Assert.Contains("--url is not a valid absolute URL", err, StringComparison.Ordinal);
+        Assert.Contains("not-a-url", err, StringComparison.Ordinal);
+        AssertNoSrResourceKey(err);
+    }
+
+    [Fact]                                              // M2: malformed azure --url gets the same friendly message
+    public void Azure_malformed_url_gives_friendly_message()
+    {
+        var (code, _, err) = Run(new[] { "azure-storage", "--account", "a", "--key", "literal:bm90LWEtdXJs",
+            "--method", "GET", "--url", "not-a-url", "--x-ms-version", "2021-08-06" });
+        Assert.NotEqual(0, code);
+        Assert.Contains("--url is not a valid absolute URL", err, StringComparison.Ordinal);
+        AssertNoSrResourceKey(err);
+    }
+
+    [Fact]                                              // M2: azure --key not base64 gets a friendly MkAuthException
+    public void Azure_bad_base64_key_gives_friendly_message()
+    {
+        var (code, _, err) = Run(new[] { "azure-storage", "--account", "a", "--key", "literal:not_base64!!",
+            "--method", "GET", "--url", "https://a.blob.core.windows.net/c/b", "--x-ms-version", "2021-08-06" });
+        Assert.NotEqual(0, code);
+        Assert.Contains("azure-storage --key is not valid base64", err, StringComparison.Ordinal);
+        AssertNoSrResourceKey(err);
+    }
+
     [Fact]                                              // azure --key not base64 → framework FormatException
     public void Azure_bad_base64_key_is_clean_error()
     {

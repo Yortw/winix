@@ -103,7 +103,7 @@ Every secret-bearing flag accepts a secret reference — never a bare value on a
 
 ```bash
 # Generic HMAC-SHA256 over a body
-printf '%s.%s' "$ts" "$body" | digest --hmac sha256 --key-stdin --base64
+printf '%s.%s' "$ts" "$body" | digest --hmac sha256 --key-env WEBHOOK_SECRET --base64
 
 # Stripe/GitHub webhook style
 echo -n "${ts}.${payload}" | digest --hmac sha256 --key env:WEBHOOK_SECRET --base64
