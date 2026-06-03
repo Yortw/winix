@@ -83,12 +83,12 @@ public static class JwtSigner
             "HS256" => Hmac<HMACSHA256>(req.Key!, signingBytes),
             "HS384" => Hmac<HMACSHA384>(req.Key!, signingBytes),
             "HS512" => Hmac<HMACSHA512>(req.Key!, signingBytes),
-            "RS256" => Rsa(req.KeyPem!, signingBytes, HashAlgorithmName.SHA256),
-            "RS384" => Rsa(req.KeyPem!, signingBytes, HashAlgorithmName.SHA384),
-            "RS512" => Rsa(req.KeyPem!, signingBytes, HashAlgorithmName.SHA512),
-            "ES256" => Ec(req.KeyPem!, signingBytes, HashAlgorithmName.SHA256),
-            "ES384" => Ec(req.KeyPem!, signingBytes, HashAlgorithmName.SHA384),
-            "ES512" => Ec(req.KeyPem!, signingBytes, HashAlgorithmName.SHA512),
+            "RS256" => Rsa(req.KeyPem!, signingBytes, HashAlgorithmName.SHA256, req.Algorithm),
+            "RS384" => Rsa(req.KeyPem!, signingBytes, HashAlgorithmName.SHA384, req.Algorithm),
+            "RS512" => Rsa(req.KeyPem!, signingBytes, HashAlgorithmName.SHA512, req.Algorithm),
+            "ES256" => Ec(req.KeyPem!, signingBytes, HashAlgorithmName.SHA256, req.Algorithm),
+            "ES384" => Ec(req.KeyPem!, signingBytes, HashAlgorithmName.SHA384, req.Algorithm),
+            "ES512" => Ec(req.KeyPem!, signingBytes, HashAlgorithmName.SHA512, req.Algorithm),
             _ => throw new MkAuthException($"Unsupported JWT algorithm '{req.Algorithm}'."),
         };
 
@@ -102,19 +102,33 @@ public static class JwtSigner
         return h.ComputeHash(data);
     }
 
-    private static byte[] Rsa(string pem, byte[] data, HashAlgorithmName hash)
+    private static byte[] Rsa(string pem, byte[] data, HashAlgorithmName hash, string algorithm)
     {
         using var rsa = RSA.Create();
-        rsa.ImportFromPem(pem);
+        ImportPem(rsa, pem, algorithm);
         return rsa.SignData(data, hash, RSASignaturePadding.Pkcs1);
     }
 
-    private static byte[] Ec(string pem, byte[] data, HashAlgorithmName hash)
+    private static byte[] Ec(string pem, byte[] data, HashAlgorithmName hash, string algorithm)
     {
         using var ec = ECDsa.Create();
-        ec.ImportFromPem(pem);
+        ImportPem(ec, pem, algorithm);
         // JOSE requires the raw fixed-length r||s concatenation (P1363), not the default DER sequence.
         return ec.SignData(data, hash, DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
+    }
+
+    // F8: ImportFromPem throws a framework ArgumentException on a malformed/non-PEM key, which SafeError
+    // flattens to a bare "ArgumentException". Wrap it so the user gets an actionable English message.
+    private static void ImportPem(AsymmetricAlgorithm key, string pem, string algorithm)
+    {
+        try
+        {
+            key.ImportFromPem(pem);
+        }
+        catch (ArgumentException ex)
+        {
+            throw new MkAuthException($"Algorithm {algorithm} requires a valid PEM private key; the supplied key could not be parsed.", ex);
+        }
     }
 
     // F2: preserve the JSON type of a claim value (so NumericDate stays a number, not a quoted string).
@@ -158,18 +172,34 @@ public static class JwtSigner
         return JsonValue.Create(value.ToString());
     }
 
-    // F4: fail fast with a clear message when the key kind doesn't match the algorithm family.
+    // F4/F7: fail fast with a clear message when the key kind doesn't match the algorithm family — reject
+    // BOTH the missing-required key and the wrong-family key being also set. The wrong-family checks are
+    // latent today (Cli always sets exactly one of Key/KeyPem) but JwtRequest is public, so a caller could
+    // construct an inconsistent request; rejecting it explicitly beats silently ignoring the stray key.
     private static void RequireKeyForAlg(JwtRequest req)
     {
         bool hmac = req.Algorithm.StartsWith("HS", StringComparison.Ordinal);
-        if (hmac && req.Key is null)
+        if (hmac)
         {
-            throw new MkAuthException($"Algorithm {req.Algorithm} needs a raw secret key (e.g. --key env:SECRET), not a PEM.");
+            if (req.KeyPem is not null)
+            {
+                throw new MkAuthException($"Algorithm {req.Algorithm} takes a raw secret key, not a PEM.");
+            }
+            if (req.Key is null)
+            {
+                throw new MkAuthException($"Algorithm {req.Algorithm} needs a raw secret key (e.g. --key env:SECRET), not a PEM.");
+            }
         }
-
-        if (!hmac && req.KeyPem is null)
+        else
         {
-            throw new MkAuthException($"Algorithm {req.Algorithm} needs a PEM private key (e.g. --key file:key.pem), not a raw secret.");
+            if (req.Key is not null)
+            {
+                throw new MkAuthException($"Algorithm {req.Algorithm} takes a PEM private key, not a raw secret.");
+            }
+            if (req.KeyPem is null)
+            {
+                throw new MkAuthException($"Algorithm {req.Algorithm} needs a PEM private key (e.g. --key file:key.pem), not a raw secret.");
+            }
         }
     }
 }

@@ -162,16 +162,21 @@ public static class Cli
                 return ExitCode.NotExecutable;
             }
 
+            // Output writes go through SafeWriteLine so a closed downstream pipe (broken-pipe IOException /
+            // ObjectDisposedException) maps to success, WITHOUT swallowing file-read or signing IOExceptions
+            // raised earlier in the pipeline (FIX 1: FileNotFoundException derives from IOException and was
+            // previously caught by a pipeline-wide `catch (IOException) → Success`).
+            bool pipeClosed = false;
             if (r.Json)
             {
-                stdout.WriteLine(Formatting.Json(header, schemeName, includeBaseString: r.ShowBaseString));
+                pipeClosed = !SafeWriteLine(stdout, Formatting.Json(header, schemeName, includeBaseString: r.ShowBaseString));
             }
             else
             {
-                stdout.WriteLine(Formatting.Plain(header, r.ValueOnly));
-                if (r.ShowBaseString && header.BaseString is not null)
+                pipeClosed = !SafeWriteLine(stdout, Formatting.Plain(header, r.ValueOnly));
+                if (!pipeClosed && r.ShowBaseString && header.BaseString is not null)
                 {
-                    stderr.WriteLine(header.BaseString);
+                    SafeWriteLine(stderr, header.BaseString);
                 }
             }
 
@@ -182,25 +187,51 @@ public static class Cli
             // Project-authored, human-readable English (e.g. "Environment variable 'X' is not set.",
             // "Algorithm RS256 needs a PEM private key…"). Safe to surface verbatim — this is the ONLY
             // exception type whose Message we print directly.
-            stderr.WriteLine($"mkauth: error: {ex.Message}");
+            SafeWriteLine(stderr, $"mkauth: error: {ex.Message}");
             return ExitCode.NotExecutable;
-        }
-        catch (IOException)
-        {
-            // Downstream pipe closed (e.g. `mkauth … | head`). The runtime absorbs most of these at the
-            // Console.Out layer; a leaked one is not an error from our perspective.
-            return ExitCode.Success;
         }
         catch (Exception ex)
         {
             // Framework exceptions: bad --url (UriFormatException), malformed base64 azure --key
             // (FormatException), bad RS/ES PEM (ArgumentException from ImportFromPem), malformed JSON
-            // claims body (JsonException), missing --claims-file (FileNotFoundException), etc. Under
-            // UseSystemResourceKeys these .Message values are bare SR resource keys (net_uri_BadFormat,
-            // Format_BadBase64Char, Argument_PemImport_NoPemFound…), so route through SafeError.Describe
-            // for English (or a readable type name) — never the raw key.
-            stderr.WriteLine($"mkauth: error: {SafeError.Describe(ex)}");
+            // claims body (JsonException), etc. Under UseSystemResourceKeys these .Message values are bare
+            // SR resource keys (net_uri_BadFormat, Format_BadBase64Char, Argument_PemImport_NoPemFound…),
+            // so route through SafeError.Describe for English (or a readable type name) — never the raw key.
+            // Note: file-read IOExceptions are now wrapped as MkAuthException at the read site (FIX 1), so a
+            // genuine framework IOException reaching here is a real runtime error, not a closed output pipe.
+            SafeWriteLine(stderr, $"mkauth: error: {SafeError.Describe(ex)}");
             return ExitCode.NotExecutable;
+        }
+    }
+
+    /// <summary>
+    /// Writes a line to <paramref name="writer"/>, treating a closed downstream pipe as a non-error.
+    /// Returns <c>true</c> if the write succeeded (or the pipe was already closed and the line was
+    /// silently dropped — both are "success" from the tool's perspective), <c>false</c> only when the
+    /// caller should stop writing because the pipe is gone.
+    /// </summary>
+    /// <remarks>
+    /// This narrows broken-pipe handling to the OUTPUT phase only. The previous design wrapped the whole
+    /// pipeline in <c>catch (IOException) → Success</c>, which silently swallowed file-read failures
+    /// (FileNotFoundException/DirectoryNotFoundException both derive from IOException) and exited 0 with no
+    /// output — a missing <c>file:</c> secret or <c>--claims-file</c> looked like success.
+    /// </remarks>
+    private static bool SafeWriteLine(TextWriter writer, string line)
+    {
+        try
+        {
+            writer.WriteLine(line);
+            return true;
+        }
+        catch (IOException)
+        {
+            // Downstream pipe closed (e.g. `mkauth … | head`). Not an error from our perspective.
+            return false;
+        }
+        catch (ObjectDisposedException)
+        {
+            // Output stream torn down underneath us (same closed-pipe class).
+            return false;
         }
     }
 
@@ -241,10 +272,26 @@ public static class Cli
             claims[k] = JsonNode.Parse(v);
         }
 
-        // --claims-file → merge a JSON object.
+        // --claims-file → merge a JSON object. Wrap the read so a missing/unreadable file surfaces a named,
+        // actionable MkAuthException — FileNotFoundException/DirectoryNotFoundException derive from
+        // IOException, which the broken-pipe handler would otherwise have mistaken for a closed output pipe
+        // (silent exit 0, no output / a silently-wrong JWT).
         if (o.ClaimsFile is not null)
         {
-            MergeJsonObject(claims, File.ReadAllText(o.ClaimsFile), "--claims-file");
+            string claimsJson;
+            try
+            {
+                claimsJson = File.ReadAllText(o.ClaimsFile);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                throw new MkAuthException($"Cannot read --claims-file '{o.ClaimsFile}': access denied ({SafeError.Describe(ex)}).", ex);
+            }
+            catch (IOException ex)
+            {
+                throw new MkAuthException($"Cannot read --claims-file '{o.ClaimsFile}': {SafeError.Describe(ex)}", ex);
+            }
+            MergeJsonObject(claims, claimsJson, "--claims-file");
         }
 
         // --claims-stdin → merge a JSON object read from stdin (single-use; the F3 arbiter guarantees the
@@ -261,8 +308,24 @@ public static class Cli
         if (o.Aud is not null) { claims["aud"] = o.Aud; }
 
         long now = deps.Clock.UtcNow.ToUnixTimeSeconds();
-        if (o.Exp is not null) { claims["exp"] = now + (long)DurationParser.Parse(o.Exp).TotalSeconds; }
-        if (o.Nbf is not null) { claims["nbf"] = now + (long)DurationParser.Parse(o.Nbf).TotalSeconds; }
+        // FIX 2: TryParse so a bad duration gives a friendly MkAuthException, not a framework FormatException
+        // flattened to "FormatException" by SafeError.Describe. Peers --claim-num/--timestamp already do this.
+        if (o.Exp is not null)
+        {
+            if (!DurationParser.TryParse(o.Exp, out TimeSpan exp))
+            {
+                throw new MkAuthException($"--exp '{o.Exp}' is not a valid duration (e.g. 30s, 5m, 1h, 7d).");
+            }
+            claims["exp"] = now + (long)exp.TotalSeconds;
+        }
+        if (o.Nbf is not null)
+        {
+            if (!DurationParser.TryParse(o.Nbf, out TimeSpan nbf))
+            {
+                throw new MkAuthException($"--nbf '{o.Nbf}' is not a valid duration (e.g. 30s, 5m, 1h, 7d).");
+            }
+            claims["nbf"] = now + (long)nbf.TotalSeconds;
+        }
         if (o.Iat) { claims["iat"] = now; }
 
         var headerParams = new Dictionary<string, string>(StringComparer.Ordinal);

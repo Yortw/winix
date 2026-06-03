@@ -51,4 +51,16 @@ public class SecretResolverTests
         // Use explicit Action cast to avoid selecting the Func<Task> overload (which is [Obsolete]).
         Assert.Throws<MkAuthException>((Action)(() => sut.Resolve(SecretRef.Parse("vault:no/such"), _ => { })));
     }
+
+    [Fact]                                              // FIX 1: missing file: secret must not be swallowed
+    public void File_miss_throws_mkauth_exception_naming_the_path()
+    {
+        string missing = Path.Combine(Path.GetTempPath(), "mkauth-no-such-" + Guid.NewGuid().ToString("N") + ".txt");
+        var sut = new SecretResolver(new InMemorySecretStore(), stdin: new StringReader(""));
+        // Use explicit Action cast to avoid selecting the Func<Task> overload (which is [Obsolete]).
+        var ex = Assert.Throws<MkAuthException>((Action)(() => sut.Resolve(SecretRef.Parse("file:" + missing), _ => { })));
+        Assert.Contains(missing, ex.Message, StringComparison.Ordinal); // the path must be named
+        // SafeError.Describe yields English / a CLR type name, not a bare SR key like "IO_FileNotFound_FileName".
+        Assert.DoesNotContain("IO_FileNotFound", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
 }

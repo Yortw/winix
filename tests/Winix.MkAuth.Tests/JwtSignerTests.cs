@@ -90,6 +90,46 @@ public class JwtSignerTests
         Assert.Contains("PEM", ex.Message);
     }
 
+    [Fact]                                              // FIX 7: HS alg with a stray PEM is rejected
+    public void Hs_alg_with_pem_set_is_rejected()
+    {
+        var req = new JwtRequest
+        {
+            Algorithm = "HS256",
+            Key = Encoding.UTF8.GetBytes("k"),
+            KeyPem = "-----BEGIN PRIVATE KEY-----\n...",
+            Claims = new(),
+        };
+        var ex = Assert.Throws<MkAuthException>(() => JwtSigner.Sign(req));
+        Assert.Contains("not a PEM", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]                                              // FIX 7: RS alg with a stray raw key is rejected
+    public void Rs_alg_with_raw_key_set_is_rejected()
+    {
+        using var rsa = RSA.Create(2048);
+        var req = new JwtRequest
+        {
+            Algorithm = "RS256",
+            Key = Encoding.UTF8.GetBytes("stray"),
+            KeyPem = rsa.ExportRSAPrivateKeyPem(),
+            Claims = new(),
+        };
+        var ex = Assert.Throws<MkAuthException>(() => JwtSigner.Sign(req));
+        Assert.Contains("not a raw secret", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]                                              // FIX 8: malformed PEM gives a friendly message
+    public void Rs_alg_malformed_pem_gives_friendly_message()
+    {
+        var req = new JwtRequest { Algorithm = "RS256", KeyPem = "not-a-pem", Claims = new() };
+        var ex = Assert.Throws<MkAuthException>(() => JwtSigner.Sign(req));
+        Assert.Contains("valid PEM private key", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("RS256", ex.Message, StringComparison.Ordinal);
+        // Not a bare framework SR key / "ArgumentException".
+        Assert.DoesNotContain("ArgumentException", ex.Message, StringComparison.Ordinal);
+    }
+
     private static byte[] Base64UrlDecode(string s)
     {
         string b = s.Replace('-', '+').Replace('_', '/');

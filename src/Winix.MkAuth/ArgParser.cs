@@ -342,10 +342,10 @@ public static class ArgParser
                 (ExitCode.UsageError, "Usage error: bad flags, unknown subcommand, missing required flag"),
                 (ExitCode.NotExecutable, "Runtime error: secret resolution failed, malformed URL, signing error"))
             .StdinDescription("Reads a secret/key or claims body when a flag uses 'stdin'")
-            .StdoutDescription("The computed header line, bare value (--value-only), or JSON (--json)")
+            .StdoutDescription("The computed header line, the header value only (--value-only), or JSON (--json)")
             .StderrDescription("Warnings (literal: secret exposure, PLAINTEXT-over-HTTP), --show-base-string debug, errors")
             // Global output flags.
-            .Flag("--value-only", "Print the bare header value instead of the full 'Name: value' line")
+            .Flag("--value-only", "Print the header value only — keeps the scheme prefix (e.g. 'Bearer <jwt>'); not a bare token")
             .Flag("--show-base-string", "(oauth1/azure-storage) emit the computed signature base string for debugging")
             // basic
             .Option("--user", null, "NAME", "(basic) username — required")

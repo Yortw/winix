@@ -162,4 +162,4 @@ mkauth bearer --token env:TOKEN --json | jq -r '.header_value'
 ## Metadata
 
 Run `mkauth --describe` for full structured metadata (subcommands, flags, examples, composability, platform scope).
-Run `mkauth SUBCOMMAND --help` for subcommand-specific help.
+See `mkauth --help` for the full flag list.

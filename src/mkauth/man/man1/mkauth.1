@@ -162,7 +162,7 @@ Disable coloured output. Respects \fBNO_COLOR\fR.
 .BR \-h ", " \-\-help
 Show help and exit.
 .TP
-.BR \-v ", " \-\-version
+.B \-\-version
 Show version and exit.
 
 .SS basic flags
@@ -370,7 +370,7 @@ mkauth oauth1 \-\-method POST \-\-url https://api.example.com/post \\
 Generic HMAC for other schemes (use digest, not mkauth):
 .RS
 .nf
-printf '%s.%s' "$ts" "$body" | digest \-\-hmac sha256 \-\-key\-stdin \-\-base64
+printf '%s.%s' "$ts" "$body" | digest \-\-hmac sha256 \-\-key\-env WEBHOOK_SECRET \-\-base64
 .fi
 .RE
 

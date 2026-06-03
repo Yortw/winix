@@ -46,7 +46,7 @@ mkauth jwt       --alg ALG --key REF [claim flags] [options]
 mkauth azure-storage --account NAME --key REF --method VERB --url URL [options]
 ```
 
-Run `mkauth SUBCOMMAND --help` for subcommand-specific flags.
+All flags are listed in `mkauth --help`; per-subcommand flags are documented in the tables below.
 
 The computed header is written to **stdout** as a `Name: Value` line, suitable for `curl -H "$(…)"`. `--show-base-string` debug output goes to stderr. Warnings (literal-secret exposure, PLAINTEXT over non-HTTPS) go to stderr.
 
@@ -270,7 +270,7 @@ curl -H "x-ms-date: $DATE" \
 | `--show-base-string` | Emit the computed signature base string or StringToSign to stderr (or in `--json`). Applies to `oauth1` and `azure-storage`. |
 | `--describe` | Emit structured JSON metadata for AI discoverability. |
 | `--help`, `-h` | Show help and exit. |
-| `--version`, `-v` | Show version and exit. |
+| `--version` | Show version and exit. |
 | `--color[=auto\|always\|never]` | Force coloured output; bare `--color` = always. |
 | `--no-color` | Disable coloured output. Respects `NO_COLOR`. |
 

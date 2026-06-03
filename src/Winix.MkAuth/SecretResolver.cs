@@ -3,6 +3,7 @@ using System;
 using System.IO;
 using System.Text;
 using Winix.SecretStore;
+using Yort.ShellKit;
 
 namespace Winix.MkAuth;
 
@@ -43,8 +44,22 @@ public sealed class SecretResolver
                     ?? throw new MkAuthException($"Environment variable '{reference.Value}' is not set.");
 
             case SecretRefKind.File:
-                // TrimEnd to strip the trailing newline that editors commonly append.
-                return File.ReadAllText(reference.Value).TrimEnd('\r', '\n');
+                // TrimEnd to strip the trailing newline that editors commonly append. Wrap the read so a
+                // missing/unreadable file surfaces a named, actionable MkAuthException — FileNotFoundException
+                // and DirectoryNotFoundException both derive from IOException, which Cli's broken-pipe handler
+                // would otherwise have mistaken for a closed output pipe (silent exit 0, no output).
+                try
+                {
+                    return File.ReadAllText(reference.Value).TrimEnd('\r', '\n');
+                }
+                catch (UnauthorizedAccessException ex)
+                {
+                    throw new MkAuthException($"Cannot read secret file '{reference.Value}': access denied ({SafeError.Describe(ex)}).", ex);
+                }
+                catch (IOException ex)
+                {
+                    throw new MkAuthException($"Cannot read secret file '{reference.Value}': {SafeError.Describe(ex)}", ex);
+                }
 
             case SecretRefKind.Vault:
                 int slash = reference.Value.IndexOf('/');

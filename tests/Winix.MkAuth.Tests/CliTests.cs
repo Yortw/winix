@@ -210,4 +210,43 @@ public class CliTests
         string b = s.Replace('-', '+').Replace('_', '/');
         return Convert.FromBase64String(b.PadRight(b.Length + (4 - b.Length % 4) % 4, '='));
     }
+
+    private static string MissingPath()
+        => Path.Combine(Path.GetTempPath(), "mkauth-no-such-" + Guid.NewGuid().ToString("N") + ".txt");
+
+    [Fact]                                              // FIX 1 (C1): missing file: secret must NOT exit 0 silently
+    public void Bearer_missing_file_token_is_nonzero_with_message_and_no_header()
+    {
+        string missing = MissingPath();
+        var (code, outp, err) = Run(new[] { "bearer", "--token", "file:" + missing });
+        Assert.NotEqual(0, code);
+        Assert.True(string.IsNullOrWhiteSpace(outp), "no header should be emitted to stdout");
+        Assert.False(string.IsNullOrWhiteSpace(err), "an error must be reported on stderr");
+        Assert.Contains(missing, err, StringComparison.Ordinal); // path named
+        Assert.DoesNotContain("Authorization", outp, StringComparison.Ordinal);
+        AssertNoSrResourceKey(err);
+    }
+
+    [Fact]                                              // FIX 1 (C1): missing --claims-file must NOT exit 0 / wrong JWT
+    public void Jwt_missing_claims_file_is_nonzero_and_emits_no_token()
+    {
+        string missing = MissingPath();
+        var (code, outp, err) = Run(new[] { "jwt", "--alg", "HS256", "--key", "literal:k",
+            "--claims-file", missing, "--value-only" });
+        Assert.NotEqual(0, code); // NOT 0, NOT a silently-wrong JWT
+        Assert.True(string.IsNullOrWhiteSpace(outp), "no token should be emitted");
+        Assert.Contains(missing, err, StringComparison.Ordinal);
+        AssertNoSrResourceKey(err);
+    }
+
+    [Fact]                                              // FIX 2: bad --exp duration → friendly message, no SR leak
+    public void Jwt_bad_exp_duration_gives_friendly_message()
+    {
+        var (code, _, err) = Run(new[] { "jwt", "--alg", "HS256", "--key", "literal:k",
+            "--exp", "banana", "--value-only" });
+        Assert.NotEqual(0, code);
+        Assert.Contains("--exp 'banana' is not a valid duration", err, StringComparison.Ordinal);
+        Assert.DoesNotContain("FormatException", err, StringComparison.Ordinal);
+        AssertNoSrResourceKey(err);
+    }
 }
