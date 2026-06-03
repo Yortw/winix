@@ -191,7 +191,7 @@ mkauth jwt --alg ES256 --key 'vault:apps/jwt-key' \
 mkauth jwt --alg HS256 --key env:JWT_SECRET \
            --claims-file /path/to/claims.json --exp 15m
 
-# Bare JWT value only (no 'Authorization: Bearer ' prefix)
+# Header value only: strips the 'Authorization:' name but KEEPS the 'Bearer ' prefix -> 'Bearer <jwt>'
 mkauth jwt --alg HS256 --key env:JWT_SECRET --sub user --exp 1h --value-only
 
 # Feed to curl
@@ -265,7 +265,7 @@ curl -H "x-ms-date: $DATE" \
 
 | Flag | Description |
 |------|-------------|
-| `--value-only` | Print the header value only (no `Authorization: ` prefix). Useful for `curl --oauth2-bearer "$(mkauth bearer --value-only …)"` or for scripting. |
+| `--value-only` | Print the header value only — strips the `Authorization:` name but keeps the scheme prefix (e.g. `Bearer <jwt>`, `Basic <b64>`). Useful for scripts or config that store a header value rather than a full header line. (Note: this is *not* a bare token — `curl --oauth2-bearer` wants the raw token, so don't feed it `--value-only` output.) |
 | `--json` | Emit a JSON envelope to stdout: `{"scheme":"…","header_name":"Authorization","header_value":"…"}`. With `--show-base-string`, adds `"base_string":"…"`. |
 | `--show-base-string` | Emit the computed signature base string or StringToSign to stderr (or in `--json`). Applies to `oauth1` and `azure-storage`. |
 | `--describe` | Emit structured JSON metadata for AI discoverability. |

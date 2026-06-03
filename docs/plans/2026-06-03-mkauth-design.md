@@ -208,7 +208,7 @@ calculator (ADR §1, Deferred).
 Builds `base64url(header) "." base64url(payload)`, signs per `alg`
 (`HMACSHA*` for HS; RSASSA-PKCS1-v1_5 for RS; ECDSA in IEEE-P1363 `r‖s` form for ES — the JOSE
 requirement), appends `"." base64url(signature)`. Output: `Authorization: Bearer <jwt>` (or
-`--value-only` for the bare JWT). AOT serialization of arbitrary claims is a **build-time spike**
+`--value-only` for the header value `Bearer <jwt>`). AOT serialization of arbitrary claims is a **build-time spike**
 (ADR §8) — likely `JsonNode`/`JsonObject` (reflection-free).
 
 ### `mkauth azure-storage` *(spike-gated — ADR §7)*
@@ -237,7 +237,7 @@ Table canonicalization and SharedKeyLite are deferred.
 **Output routing** (suite convention — the header is the tool's own data → stdout):
 
 - The computed header → **stdout**: full `Name: value` line by default (so `-H "$(…)"` just works);
-  `--value-only` prints the bare value.
+  `--value-only` prints the header value only (strips the `Name:` part, keeps the scheme prefix, e.g. `Bearer <jwt>`).
 - `--json` → stdout: `{ "scheme": "oauth1", "header_name": "Authorization", "header_value": "OAuth …" }`,
   plus `"base_string": "…"` when `--show-base-string` is set.
 - `--show-base-string` debug (non-JSON mode) → **stderr**, so it never pollutes the header on stdout.

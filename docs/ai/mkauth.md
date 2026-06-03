@@ -95,7 +95,7 @@ Every secret-bearing flag accepts a secret reference — never a bare value on a
 ## Output Flags
 
 - Default: `Authorization: Value` (full header line, for `curl -H "$(…)"`)
-- `--value-only`: bare value only (no prefix)
+- `--value-only`: header value only — strips the `Authorization:` name but keeps the scheme prefix (e.g. `Bearer <jwt>`, `Basic <b64>`); not a bare token
 - `--json`: JSON envelope on stdout
 - `--show-base-string`: OAuth1 signature base / Azure StringToSign; to stderr in plain mode, in envelope in JSON mode
 
@@ -140,7 +140,7 @@ curl -H "$(mkauth jwt --alg RS256 --key file:service-account.pem \
               --aud https://www.googleapis.com/oauth2/v4/token --exp 1h --iat)" \
      https://www.googleapis.com/oauth2/v4/token
 
-# Bare JWT value (e.g. for another tool)
+# Header value only -> 'Bearer <jwt>' (strips the 'Authorization:' name; the 'Bearer ' prefix remains)
 mkauth jwt --alg HS256 --key env:SECRET --sub user --exp 1h --value-only
 
 # JSON envelope for scripted pipelines

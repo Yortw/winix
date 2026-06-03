@@ -136,7 +136,8 @@ Use as an explicit escape hatch only.
 .SS Common flags (all subcommands)
 .TP
 .B \-\-value\-only
-Print the header value only (no \fBAuthorization: \fR prefix).
+Print the header value only; strips the \fBAuthorization:\fR name but keeps the
+scheme prefix (e.g. \fBBearer <jwt>\fR, \fBBasic <b64>\fR). Not a bare token.
 .TP
 .B \-\-json
 Emit a JSON envelope to stdout:
