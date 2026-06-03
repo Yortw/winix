@@ -205,7 +205,7 @@ curl -H "$(mkauth jwt --alg RS256 --key file:private.pem \
 
 | Flag | Required | Default | Description |
 |------|----------|---------|-------------|
-| `--alg ALG` | yes | `HS256` | Signing algorithm: `HS256/384/512`, `RS256/384/512`, `ES256/384/512`. |
+| `--alg ALG` | no | `HS256` | Signing algorithm: `HS256/384/512`, `RS256/384/512`, `ES256/384/512`. |
 | `--key REF` | yes | — | HS: shared secret. RS/ES: PEM private key (use `file:` or `vault:`). |
 | `--claim k=v` | no | — | String claim (repeatable). |
 | `--claim-num k=v` | no | — | Numeric claim — `v` is parsed as a number (for NumericDate fields). |

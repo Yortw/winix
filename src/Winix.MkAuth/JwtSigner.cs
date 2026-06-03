@@ -117,15 +117,16 @@ public static class JwtSigner
         return ec.SignData(data, hash, DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
     }
 
-    // F8: ImportFromPem throws a framework ArgumentException on a malformed/non-PEM key, which SafeError
-    // flattens to a bare "ArgumentException". Wrap it so the user gets an actionable English message.
+    // F8: ImportFromPem throws a framework ArgumentException on a malformed/non-PEM key, and a
+    // CryptographicException on PEM that is well-armored but wraps corrupt/wrong-type DER. SafeError
+    // flattens both to a bare type name; wrap them so the user gets an actionable English message.
     private static void ImportPem(AsymmetricAlgorithm key, string pem, string algorithm)
     {
         try
         {
             key.ImportFromPem(pem);
         }
-        catch (ArgumentException ex)
+        catch (Exception ex) when (ex is ArgumentException or CryptographicException)
         {
             throw new MkAuthException($"Algorithm {algorithm} requires a valid PEM private key; the supplied key could not be parsed.", ex);
         }
