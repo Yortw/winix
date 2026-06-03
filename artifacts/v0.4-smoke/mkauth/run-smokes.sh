@@ -101,7 +101,7 @@ run S34-jwt-claim "jwt --claim custom value" \
   "$BIN jwt --alg HS256 --key 'literal:my-hmac-secret-key-32bytes-long!!' \
     --claim scope=read:data --claim-num priority=1 \
     --sub user123 --exp 30m"
-run S35-jwt-missing-alg "jwt missing --alg -> 125" \
+run S35-jwt-default-alg "jwt default alg HS256 when --alg omitted -> 0" \
   "$BIN jwt --key 'literal:secret' --sub user"
 run S36-jwt-missing-key "jwt missing --key -> 125" \
   "$BIN jwt --alg HS256 --sub user"
@@ -117,7 +117,8 @@ run S39-azurestorage "azure-storage SharedKey" \
     --method GET \
     --url 'https://mystorageacct.blob.core.windows.net/mycontainer/myblob' \
     --x-ms-date 'Wed, 03 Jun 2026 00:00:00 GMT' \
-    --header 'x-ms-version:2023-11-03'"
+    --x-ms-version 2023-11-03 \
+    --header 'x-ms-meta-author=troy'"
 run S40-azurestorage-show-base "azure-storage --show-base-string" \
   "$BIN azure-storage \
     --account mystorageacct \
