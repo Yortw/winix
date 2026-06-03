@@ -106,7 +106,7 @@ Every secret-bearing flag accepts a secret reference — never a bare value on a
 printf '%s.%s' "$ts" "$body" | digest --hmac sha256 --key-env WEBHOOK_SECRET --base64
 
 # Stripe/GitHub webhook style
-echo -n "${ts}.${payload}" | digest --hmac sha256 --key env:WEBHOOK_SECRET --base64
+echo -n "${ts}.${payload}" | digest --hmac sha256 --key-env WEBHOOK_SECRET --base64
 
 # File HMAC
 digest --hmac sha256 --key-file signing.key payload.json

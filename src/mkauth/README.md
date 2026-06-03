@@ -309,7 +309,7 @@ curl -H "$(mkauth bearer --token 'vault:myapp/access-token')" \
 printf '%s.%s' "$ts" "$body" | digest --hmac sha256 --key-env WEBHOOK_SECRET --base64
 
 # Stripe webhook signature
-echo -n "${ts}.${payload}" | digest --hmac sha256 --key env:STRIPE_WEBHOOK_SECRET --base64
+echo -n "${ts}.${payload}" | digest --hmac sha256 --key-env STRIPE_WEBHOOK_SECRET --base64
 
 # HMAC over a file
 digest --hmac sha256 --key-file signing.key payload.json
