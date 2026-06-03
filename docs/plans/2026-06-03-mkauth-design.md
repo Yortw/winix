@@ -130,7 +130,10 @@ string with a scheme prefix, resolved by `SecretResolver`:
 A single ref syntax (rather than `digest`'s five separate `--key-*` flags) is used because some
 subcommands need **two** secrets (`oauth1`: consumer secret + token secret), and a per-source flag
 explosion (`--consumer-secret-env`, `--consumer-secret-vault`, …) would be unwieldy. See ADR §5.
-`stdin` is single-use; if two secrets both request `stdin`, that is a usage error.
+`stdin` is single-use; if two secrets both request `stdin`, that is a usage error. For `jwt`, stdin
+may feed the key (`--key stdin`) or the claims body (`--claims-stdin`) but not both. `vault:NS/KEY`
+splits on the **first** `/` (a namespace cannot contain `/`; a key may). `file:`/`stdin` values have a
+single trailing `\r\n`/`\n` run trimmed; all other bytes (including trailing spaces) are preserved.
 
 ---
 
@@ -194,7 +197,8 @@ calculator (ADR §1, Deferred).
 | `--key REF` | *(required)* | HS: shared secret. RS/ES: PEM private key (typically `file:`/`vault:`). |
 | `--claim k=v` | — | Claim (repeatable). Typed coercion rules documented (string by default; `--claim-num`/`--claim-json` for non-string). |
 | `--claims-file PATH` | — | JSON object merged into the claim set. |
-| (stdin) | — | A JSON object on stdin is merged into the claim set. |
+| `--claims-stdin` | — | Merge a JSON object read from stdin into the claim set. Mutually exclusive with `--key stdin` (stdin can feed the key or the claims, not both). |
+| `--claim-num k=v` | — | Numeric claim (`v` parsed as a number so NumericDate claims serialize correctly). `--claim-json k=v` parses `v` as raw JSON. |
 | `--iss / --sub / --aud S` | — | Convenience standard claims. |
 | `--exp DURATION` | — | Expiry as `now + DURATION` (ShellKit `DurationParser`). |
 | `--iat` | off | Set `iat` to now (`IClock`). |

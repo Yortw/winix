@@ -254,6 +254,43 @@ a real endpoint/captured fixture. Both are the point.
 
 ---
 
+## 10. Output & Claim-Typing Safety (adversarial-review hardening)
+
+**Context:** The `adversarial-plan-review` pass surfaced three correctness/safety decisions the design
+left implicit: what to do when a computed header contains a newline; how typed JWT claims serialize;
+and how `jwt` resolves stdin contention.
+
+**Decision:**
+1. **Refuse, don't escape, on newline (F1).** If a computed `Authorization` header value/name contains
+   `\r` or `\n`, `mkauth` writes an error and exits non-zero **without emitting the header**. It does
+   not strip or escape the newline.
+2. **Type-preserving claims (F2).** JWT claims serialize with their JSON type: `--exp/--iat/--nbf`
+   and `--claim-num` emit JSON **numbers** (RFC 7519 NumericDate), `--claim-json` emits raw JSON, bare
+   `--claim` stays a string. `JwtSigner` type-switches on the runtime value rather than relying on
+   `JsonValue.Create(object?)`.
+3. **stdin arbiter for `jwt` (F3).** stdin feeds either the key (`--key stdin`) or the claims body
+   (`--claims-stdin`), never both; requesting both is a usage error. Claims-from-stdin is an explicit
+   flag, not implicit-if-piped, so the contention is unambiguous.
+
+**Rationale:** (1) The dominant consumer is `curl -H "$(mkauth …)"`; silently escaping a newline would
+mask a malformed/hostile token and could still confuse downstream parsers, whereas refusing is loud
+and safe — the same "fail rather than emit something subtly wrong" stance as `protect`'s create-only
+master-key split. (2) A string NumericDate is rejected by essentially every JWT verifier, so emitting
+one is a silent-wrong-output defect, not a cosmetic one. (3) Two code paths reading the same stdin is
+a classic silent mis-feed; an explicit flag + early usage error removes the ambiguity.
+
+**Trade-offs Accepted:** A legitimate (if unusual) multi-line secret can't be emitted as a header —
+correct, since HTTP headers can't contain bare newlines anyway. The claim type-switch is a little more
+code than a blanket `JsonValue.Create`.
+
+**Options Considered:**
+- **Escape/strip the newline (F1).** Rejected — hides malformed input and risks downstream
+  mis-parsing; refusing is the safe contract.
+- **Serialize all claims as strings (F2).** Rejected — produces invalid NumericDate tokens.
+- **Implicit claims-from-stdin (F3).** Rejected — collides invisibly with `--key stdin`.
+
+---
+
 ## Decisions Explicitly Deferred
 
 | Topic | Why deferred |
