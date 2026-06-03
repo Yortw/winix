@@ -59,7 +59,7 @@ The routing summary (`demux summary: …`) goes to **stderr**. `demux`'s stdout 
 | `--append` | 0 | File targets append instead of truncate. |
 | `--exit-on-child-error` | 0 | A watched child's non-zero exit makes demux exit 2. |
 | `--json` | 0 | Emit a JSON summary to stderr. |
-| `--color` | 0 | Force coloured output (overrides terminal auto-detection). |
+| `--color[=auto\|always\|never]` | 0 | Coloured output: auto (default when omitted), always, or never. |
 | `--no-color` | 0 | Disable coloured output. Respects `NO_COLOR`. |
 | `--describe` | 0 | Structured JSON metadata for AI agents. |
 | `--help`, `-h` | 0 | Show help and exit. |

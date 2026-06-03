@@ -38,8 +38,8 @@ Two modes of operation:
 **--json**
 :   Output results as JSON to stdout.
 
-**--color**
-:   Force coloured output (overrides **NO_COLOR**).
+**--color**[=_WHEN_]
+:   Coloured output: auto (default when omitted), always, or never.
 
 **--no-color**
 :   Disable coloured output.

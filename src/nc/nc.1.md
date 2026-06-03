@@ -63,8 +63,8 @@ Check mode (**-z** / **--check**) opens a TCP connection to each specified port,
 **--describe**
 :   Output structured tool metadata as JSON (flags, examples, composability) and exit.
 
-**--color**
-:   Force coloured output, overriding **NO_COLOR**.
+**--color**[=_WHEN_]
+:   Coloured output: auto (default when omitted), always, or never.
 
 **--no-color**
 :   Disable coloured output.

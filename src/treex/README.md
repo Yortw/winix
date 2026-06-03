@@ -91,7 +91,7 @@ treex --describe
 | `--json` | JSON envelope to stdout on exit (suite convention; pipe-friendly for `jq`) |
 | `--describe` | Print machine-readable metadata (flags, examples, composability) and exit |
 | `--no-color` | Disable colored output |
-| `--color` | Force colored output |
+| `--color[=auto\|always\|never]` | Colored output: auto (default when omitted), always, or never. |
 | `--version` | Show version |
 | `-h`, `--help` | Show help |
 

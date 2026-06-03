@@ -89,7 +89,7 @@ retry: attempt 4/4 failed (exit 1), no retries remaining
 | `--until X,Y` | | (none) | Stop retrying when exit code matches |
 | `--stdout` | | off | Write summary to stdout instead of stderr |
 | `--json` | | off | JSON output |
-| `--color` | | auto | Force coloured output (overrides `NO_COLOR`) |
+| `--color[=auto\|always\|never]` | | auto | Coloured output: auto (default when omitted), always, or never. |
 | `--no-color` | | auto | Disable coloured output |
 | `--version` | | | Show version |
 | `--help` | `-h` | | Show help |

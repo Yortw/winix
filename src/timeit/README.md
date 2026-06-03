@@ -86,7 +86,7 @@ timeit -- myapp --help
 | `--stdout` | Write summary to stdout instead of stderr |
 | `--describe` | Emit structured JSON metadata for AI agents |
 | `--no-color` | Disable colored output |
-| `--color` | Force colored output (even when piped) |
+| `--color[=auto\|always\|never]` | Colored output: auto (default when omitted), always, or never. |
 | `--version` | Show version |
 | `-h`, `--help` | Show help |
 

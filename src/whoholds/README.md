@@ -74,7 +74,7 @@ whoholds --describe
 | `--full-path`, `-l` | Show the full executable path instead of just the process name. Requires elevation for system processes. |
 | `--json` | Output results as a JSON object on **stdout** (suite convention — pipe-friendly for `jq`). Envelope fields: `tool`, `version`, `exit_code`, `exit_reason`, plus `processes` array on success or `error` string on failure. Each process entry includes `pid`, `name`, `path`, `state`, and `resource`. |
 | `--describe` | Output structured tool metadata as JSON (flags, examples, composability). |
-| `--color` | Force coloured output (overrides `NO_COLOR`). |
+| `--color[=auto\|always\|never]` | Coloured output: auto (default when omitted), always, or never. |
 | `--no-color` | Disable coloured output. |
 | `--help` | Show help and exit. |
 | `--version` | Show version and exit. |

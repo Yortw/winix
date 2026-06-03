@@ -62,8 +62,8 @@ With no *command*, items are echoed to stdout (like **echo**).
 **--no-shell-fallback**
 :   Disable shell fallback for shell builtins.
 
-**--color**
-:   Force coloured output.
+**--color**[=_WHEN_]
+:   Coloured output: auto (default when omitted), always, or never.
 
 **--no-color**
 :   Disable coloured output.

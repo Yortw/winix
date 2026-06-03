@@ -171,7 +171,7 @@ On **Linux/macOS**, Winix-managed crontab entries are tagged with a `# winix:<na
 | `--count N` | Number of fire times to show for `next` (default: 5). |
 | `--all` | Show all tasks, not just Winix-managed. Used with `list`. |
 | `--json` | Output results as a JSON envelope on stdout (usage-error envelopes go to stderr). |
-| `--color` | Force coloured output (overrides `NO_COLOR`). |
+| `--color[=auto\|always\|never]` | Coloured output: auto (default when omitted), always, or never. |
 | `--no-color` | Disable coloured output. |
 | `--help` | Show help and exit. |
 | `--version` | Show version and exit. |

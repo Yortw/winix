@@ -27,8 +27,8 @@ Use **man --manpath** to inspect the effective search path.
 **--no-pager**
 :   Print output directly to stdout without opening a pager.
 
-**--color**
-:   Force coloured output (overrides **NO_COLOR**).
+**--color**[=_WHEN_]
+:   Coloured output: auto (default when omitted), always, or never.
 
 **--no-color**
 :   Disable coloured output.

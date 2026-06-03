@@ -59,8 +59,8 @@ Decompression (**-d**) auto-detects the format from magic bytes — the file ext
 **--json**
 :   JSON output to stderr.
 
-**--color**
-:   Force coloured output.
+**--color**[=_WHEN_]
+:   Coloured output: auto (default when omitted), always, or never.
 
 **--no-color**
 :   Disable coloured output.

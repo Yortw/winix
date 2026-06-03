@@ -45,8 +45,8 @@ Cross-platform installer for the Winix CLI tool suite. Installs, updates, and un
 **--describe**
 :   Print machine-readable metadata and exit.
 
-**--color**
-:   Force coloured output, overriding **NO_COLOR**.
+**--color**[=_WHEN_]
+:   Coloured output: auto (default when omitted), always, or never.
 
 **--no-color**
 :   Disable coloured output.

@@ -81,7 +81,7 @@ less -F somefile.txt
 | `+/pattern` | Start with an initial forward search for `pattern` |
 | `--help` | Show help and exit |
 | `--version` | Show version and exit |
-| `--color` | Force coloured output (overrides `NO_COLOR`) |
+| `--color[=auto\|always\|never]` | Coloured output: auto (default when omitted), always, or never. |
 | `--no-color` | Disable coloured output |
 
 ## Key Bindings

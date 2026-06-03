@@ -70,7 +70,7 @@ man --describe
 | Option | Description |
 |--------|-------------|
 | `--no-pager` | Print output directly to stdout instead of opening a pager |
-| `--color` | Force coloured output (overrides `NO_COLOR`) |
+| `--color[=auto\|always\|never]` | Coloured output: auto (default when omitted), always, or never. |
 | `--no-color` | Disable coloured output |
 | `--width N` | Override output width in columns (must be ≥ 10). Without `--width`, the value comes from `$MANWIDTH` if set, otherwise terminal width capped at 80 columns (matches GNU man-db's effective behaviour via groff). |
 | `-w`, `--path` | Print the path to the man page file and exit (do not render) |

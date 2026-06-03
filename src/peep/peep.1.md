@@ -60,8 +60,8 @@ While running, peep responds to keyboard input (see INTERACTIVE CONTROLS). Press
 **--json-output**
 :   Include the last captured output in JSON (implies **--json**).
 
-**--color**
-:   Force coloured output.
+**--color**[=_WHEN_]
+:   Coloured output: auto (default when omitted), always, or never.
 
 **--no-color**
 :   Disable coloured output.

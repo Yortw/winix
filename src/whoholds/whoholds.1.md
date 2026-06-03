@@ -36,8 +36,8 @@ Without elevation, only processes belonging to the current user are visible. A w
 **--describe**
 :   Output structured tool metadata as JSON (flags, examples, composability) and exit.
 
-**--color**
-:   Force coloured output, overriding **NO_COLOR**.
+**--color**[=_WHEN_]
+:   Coloured output: auto (default when omitted), always, or never.
 
 **--no-color**
 :   Disable coloured output.

@@ -104,7 +104,7 @@ When `--tz ZONE` is set in conversion mode, the JSON envelope additionally inclu
 | `--local` | | off | Output only local ISO 8601 string (conversion mode) |
 | `--iso` | | off | Output only ISO 8601 duration string (diff mode) |
 | `--json` | | off | JSON output |
-| `--color` | | auto | Force coloured output (overrides `NO_COLOR`) |
+| `--color[=auto\|always\|never]` | | auto | Coloured output: auto (default when omitted), always, or never. |
 | `--no-color` | | auto | Disable coloured output |
 | `--version` | `-v` | | Show version |
 | `--help` | `-h` | | Show help |

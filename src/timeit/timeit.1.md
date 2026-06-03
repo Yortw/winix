@@ -27,8 +27,8 @@ A transparent wrapper — the child's stdout, stderr, and exit code pass through
 **--stdout**
 :   Write the summary to stdout instead of stderr.
 
-**--color**
-:   Force coloured output (overrides **NO_COLOR**).
+**--color**[=_WHEN_]
+:   Coloured output: auto (default when omitted), always, or never.
 
 **--no-color**
 :   Disable coloured output.

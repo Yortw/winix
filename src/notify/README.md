@@ -91,7 +91,7 @@ notify "release published" --ntfy phone | tee log.txt
 | `--describe` | | Emit structured JSON metadata for AI agents. |
 | `--help` `-h` | | Show help and exit. |
 | `--version` `-v` | | Show version and exit. |
-| `--color[=auto\|always\|never]` | `auto` | Force coloured output (bare `--color` = always). |
+| `--color[=auto\|always\|never]` | `auto` | Coloured output: auto (default when omitted), always, or never. |
 | `--no-color` | | Disable coloured output. Respects `NO_COLOR`. |
 
 ## Backend Behaviour

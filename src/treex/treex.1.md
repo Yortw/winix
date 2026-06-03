@@ -81,8 +81,8 @@ A cross-platform **tree** replacement with full ANSI colour and filtering capabi
 **--describe**
 :   Print machine-readable metadata and exit.
 
-**--color**
-:   Force coloured output.
+**--color**[=_WHEN_]
+:   Coloured output: auto (default when omitted), always, or never.
 
 **--no-color**
 :   Disable coloured output.

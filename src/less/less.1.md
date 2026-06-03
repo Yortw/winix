@@ -48,8 +48,8 @@ ANSI escape codes are passed through unchanged by default, so coloured output fr
 **+/**_pattern_
 :   Start with an initial forward search for _pattern_.
 
-**--color**
-:   Force coloured output, overriding **NO_COLOR**.
+**--color**[=_WHEN_]
+:   Coloured output: auto (default when omitted), always, or never.
 
 **--no-color**
 :   Disable ANSI colour passthrough; raw escape sequences are displayed as text.

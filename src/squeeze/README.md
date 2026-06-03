@@ -106,7 +106,7 @@ data.csv → data.csv.gz  1,234,567 → 456,789 (63.0% saved)  gzip/6  0.12s
 | `-q`, `--quiet` | Suppress stats even on terminal |
 | `--json` | JSON output to stderr |
 | `--no-color` | Disable colored output |
-| `--color` | Force colored output |
+| `--color[=auto\|always\|never]` | Colored output: auto (default when omitted), always, or never. |
 | `--version` | Show version |
 | `-h`, `--help` | Show help |
 

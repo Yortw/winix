@@ -114,7 +114,7 @@ Press `Left` to enter time-machine mode, browsing historical snapshots of comman
 | `--json` | JSON summary to stderr on exit |
 | `--json-output` | Include last captured output in JSON (implies `--json`) |
 | `--no-color` | Disable colored output |
-| `--color` | Force colored output |
+| `--color[=auto\|always\|never]` | Colored output: auto (default when omitted), always, or never. |
 | `--version` | Show version |
 | `-h`, `--help` | Show help |
 

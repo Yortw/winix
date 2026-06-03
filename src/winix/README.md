@@ -87,7 +87,7 @@ winix --describe
 | `--dry-run` | Print what would be done without executing any changes |
 | `--json` | Emit machine-readable JSON to stdout (supported on `list` and `status`) |
 | `--describe` | Print machine-readable metadata (flags, examples, composability) and exit |
-| `--color` | Force coloured output (overrides `NO_COLOR`) |
+| `--color[=auto\|always\|never]` | Coloured output: auto (default when omitted), always, or never. |
 | `--no-color` | Disable colored output |
 | `--version` | Show version |
 | `-h`, `--help` | Show help |

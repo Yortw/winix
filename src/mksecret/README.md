@@ -159,7 +159,7 @@ mksecret key --json
 | `--describe` | Emit structured JSON metadata for AI discoverability. |
 | `--help`, `-h` | Show help and exit. |
 | `--version`, `-v` | Show version and exit. |
-| `--color[=auto\|always\|never]` | Force coloured output (bare `--color` = always). |
+| `--color[=auto\|always\|never]` | Coloured output: auto (default when omitted), always, or never. |
 | `--no-color` | Disable coloured output. Respects `NO_COLOR`. |
 
 ## Copying to the clipboard

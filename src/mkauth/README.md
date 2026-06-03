@@ -271,7 +271,7 @@ curl -H "x-ms-date: $DATE" \
 | `--describe` | Emit structured JSON metadata for AI discoverability. |
 | `--help`, `-h` | Show help and exit. |
 | `--version` | Show version and exit. |
-| `--color[=auto\|always\|never]` | Force coloured output; bare `--color` = always. |
+| `--color[=auto\|always\|never]` | Coloured output: auto (default when omitted), always, or never. |
 | `--no-color` | Disable coloured output. Respects `NO_COLOR`. |
 
 ## Composability with curl
