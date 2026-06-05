@@ -57,6 +57,14 @@ public sealed class CommandLineParser
     private bool _standardFlagsRegistered;
     private bool _parsed;
 
+    private bool _expandGlobPositionals;
+    private int _globSkipFirst;
+
+    // Test seams for glob expansion (precedent: ResolveColorCore). Null → production behaviour.
+    internal Func<bool>? GlobWindowsGateOverride;
+    internal Func<string?>? GlobRawCommandLineProvider;
+    internal GlobArgExpander? GlobExpanderOverride;
+
     /// <summary>
     /// Creates a new parser for the specified tool.
     /// </summary>
@@ -182,6 +190,27 @@ public sealed class CommandLineParser
     }
 
     /// <summary>
+    /// Opts this tool into Windows glob expansion of positional arguments. On Windows
+    /// (cmd.exe and PowerShell do not expand wildcards), positionals containing
+    /// <c>*</c> or <c>?</c> are expanded in-process before they reach
+    /// <see cref="ParseResult.Positionals"/>; on other platforms this is a no-op (the
+    /// shell has already expanded). A pattern matching nothing passes through literally;
+    /// <c>[...]</c> is never treated as a pattern; <c>**</c> produces a usage error.
+    /// Arguments quoted on the raw command line are not expanded (effective from cmd.exe;
+    /// PowerShell strips quotes before the process starts). Only opt in when ALL
+    /// positionals (after <paramref name="skipFirst"/>) are file paths — never for
+    /// subcommand verbs or cron expressions.
+    /// </summary>
+    /// <param name="skipFirst">Number of leading positionals to exempt (e.g. 1 for a subcommand verb).</param>
+    public CommandLineParser ExpandGlobPositionals(int skipFirst = 0)
+    {
+        ThrowIfParsed();
+        _expandGlobPositionals = true;
+        _globSkipFirst = skipFirst;
+        return this;
+    }
+
+    /// <summary>
     /// Registers the standard Winix CLI flags: --help, -h, --version, --color, --no-color, --json.
     /// </summary>
     public CommandLineParser StandardFlags()
@@ -298,6 +327,7 @@ public sealed class CommandLineParser
         var listValues = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         var errors = new List<string>();
         var positionals = new List<string>();
+        var positionalArgvIndices = new List<int>();
         var command = new List<string>();
         bool isHandled = false;
         int handledExitCode = 0;
@@ -318,6 +348,7 @@ public sealed class CommandLineParser
                     else
                     {
                         positionals.Add(args[j]);
+                        positionalArgvIndices.Add(j);
                     }
                 }
                 break;
@@ -338,6 +369,7 @@ public sealed class CommandLineParser
                 else
                 {
                     positionals.Add(arg);
+                    positionalArgvIndices.Add(i);
                     continue;
                 }
             }
@@ -548,6 +580,13 @@ public sealed class CommandLineParser
             handledExitCode = 0;
         }
 
+        if (_expandGlobPositionals && !_commandMode && !isHandled
+            && positionals.Count > _globSkipFirst
+            && (GlobWindowsGateOverride?.Invoke() ?? OperatingSystem.IsWindows()))
+        {
+            ExpandGlobPositionalsInPlace(args, positionals, positionalArgvIndices, errors);
+        }
+
         return new ParseResult(
             toolName: _toolName,
             version: _version,
@@ -616,6 +655,88 @@ public sealed class CommandLineParser
                 _optionalValueLookup[ov.ShortName] = ov;
             }
         }
+    }
+
+    private void ExpandGlobPositionalsInPlace(string[] args, List<string> positionals,
+        List<int> argvIndices, List<string> errors)
+    {
+        bool[]? quoted = TryGetQuotedFlags(args);
+        GlobArgExpander expander = GlobExpanderOverride ?? new GlobArgExpander();
+        var result = new List<string>(positionals.Count);
+
+        for (int p = 0; p < positionals.Count; p++)
+        {
+            string value = positionals[p];
+            if (p < _globSkipFirst)
+            {
+                result.Add(value);
+                continue;
+            }
+
+            // quoted == null → raw line unavailable/misaligned → fail OPEN (expand). A quoted
+            // glob falling back to expansion is benign (a '*'-bearing literal can never name a
+            // real Windows file); silently disabling expansion would be an invisible outage.
+            if (quoted is not null && quoted[argvIndices[p]])
+            {
+                result.Add(value);
+                continue;
+            }
+
+            GlobExpansionResult expansion = expander.Expand(value);
+            switch (expansion.Kind)
+            {
+                case GlobExpansionKind.Expanded:
+                    result.AddRange(expansion.Matches);
+                    break;
+                case GlobExpansionKind.UnsupportedRecursive:
+                    errors.Add($"recursive glob '**' is not supported in argument expansion: {value} (use the tool's recursive matching options instead)");
+                    result.Add(value);
+                    break;
+                default: // NotAPattern, NoMatch → literal passthrough
+                    result.Add(value);
+                    break;
+            }
+        }
+
+        positionals.Clear();
+        positionals.AddRange(result);
+    }
+
+    /// <summary>
+    /// Maps each argv index to whether that token was quoted on the raw command line.
+    /// Returns null (caller fails open) when the raw line is unavailable or does not
+    /// align with args — e.g. <c>dotnet tool.dll args</c> hosting, or a tokenizer gap.
+    /// </summary>
+    private bool[]? TryGetQuotedFlags(string[] args)
+    {
+        string? raw = GlobRawCommandLineProvider is not null
+            ? GlobRawCommandLineProvider()
+            : Environment.CommandLine;
+        if (string.IsNullOrEmpty(raw))
+        {
+            return null;
+        }
+
+        IReadOnlyList<CommandLineToken> tokens = RawCommandLineTokenizer.Tokenize(raw);
+        if (tokens.Count != args.Length + 1) // + argv[0]
+        {
+            return null;
+        }
+        for (int i = 0; i < args.Length; i++)
+        {
+            // Text alignment too, not just count — belt-and-braces against rule drift.
+            if (!string.Equals(tokens[i + 1].Text, args[i], StringComparison.Ordinal))
+            {
+                return null;
+            }
+        }
+
+        var quoted = new bool[args.Length];
+        for (int i = 0; i < args.Length; i++)
+        {
+            quoted[i] = tokens[i + 1].WasQuoted;
+        }
+        return quoted;
     }
 
     internal string GenerateHelp()
