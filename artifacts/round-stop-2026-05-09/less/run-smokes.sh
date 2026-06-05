@@ -189,18 +189,34 @@ if $IS_WINDOWS; then
   echo "aaa" > "$WGLOB/a.txt"
   echo "bbb" > "$WGLOB/b.txt"
 
+  # W-section uses inline capture blocks instead of the smoke() helper because smoke()
+  # passes args via exec (no shell eval), making it impossible to use a subshell-cd pattern.
+  # Subshell cd prevents MSYS-style absolute path (/d/...) reaching the tool; the tool sees
+  # only the relative bare glob pattern, which it expands against its cwd.
+
   # W01: *.log expands to single file — less pages/dumps it, exit 0
-  # Double-quoted $WGLOB/*.log: bash doesn't glob-expand inside ""; tool receives the literal.
-  smoke W01 "*.log expands to single match (exit 0)" -- "$LESS_EXE" "$WGLOB/*.log"
+  echo "[W01] *.log expands to single match (exit 0)"
+  ( cd "$WGLOB" && timeout "${SMOKE_TIMEOUT}s" "$LESS_EXE" '*.log' ) \
+    > "$RES/W01.stdout.txt" 2> "$RES/W01.stderr.txt"
+  echo "$?" > "$RES/W01.exit.txt"
 
   # W02: *.txt expands to two files — less rejects multi-file positional, exit 2
-  smoke W02 "*.txt expands to two files → multi-file error (exit 2)" -- "$LESS_EXE" "$WGLOB/*.txt"
+  echo "[W02] *.txt expands to two files → multi-file error (exit 2)"
+  ( cd "$WGLOB" && timeout "${SMOKE_TIMEOUT}s" "$LESS_EXE" '*.txt' ) \
+    > "$RES/W02.stdout.txt" 2> "$RES/W02.stderr.txt"
+  echo "$?" > "$RES/W02.exit.txt"
 
   # W03: ** → usage error, exit 2 (less uses 2 for usage errors per POSIX convention)
-  smoke W03 "** rejected with usage error (exit 2)" -- "$LESS_EXE" "$WGLOB/**"
+  echo "[W03] ** rejected with usage error (exit 2)"
+  ( cd "$WGLOB" && timeout "${SMOKE_TIMEOUT}s" "$LESS_EXE" '**' ) \
+    > "$RES/W03.stdout.txt" 2> "$RES/W03.stderr.txt"
+  echo "$?" > "$RES/W03.exit.txt"
 
   # W04: no-match pattern → not-found, exit 1
-  smoke W04 "*.nope no-match → not-found (exit 1)" -- "$LESS_EXE" "$WGLOB/*.nope"
+  echo "[W04] *.nope no-match → not-found (exit 1)"
+  ( cd "$WGLOB" && timeout "${SMOKE_TIMEOUT}s" "$LESS_EXE" '*.nope' ) \
+    > "$RES/W04.stdout.txt" 2> "$RES/W04.stderr.txt"
+  echo "$?" > "$RES/W04.exit.txt"
 else
   echo "[W01-W04 SKIPPED] Windows glob expansion — not Windows."
 fi

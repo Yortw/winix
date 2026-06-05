@@ -51,13 +51,17 @@ if $IS_WINDOWS; then
   printf 'keep\n' > "$GLOB_WORK/keep.txt"
 
   # W01: *.log expands — trash moves x.log + y.log, keep.txt stays, exit 0
-  run W01-glob-expand "glob *.log expands to two files (exit 0)" "$BIN '$GLOB_WORK/*.log'"
+  # Subshell cd prevents MSYS-style absolute path (/d/...) from reaching the tool; the tool
+  # sees only the relative bare pattern *.log and expands it against its cwd.
+  run W01-glob-expand "glob *.log expands to two files (exit 0)" "( cd '$GLOB_WORK' && '$BIN' '*.log' )"
 
   # W02: ** → usage error, exit 125
-  run W02-double-star "** rejected with usage error (exit 125)" "$BIN '$GLOB_WORK/**'"
+  # Subshell-relative: avoids MSYS-path passthrough; tool sees literal ** from cwd.
+  run W02-double-star "** rejected with usage error (exit 125)" "( cd '$GLOB_WORK' && '$BIN' '**' )"
 
   # W03: no-match pattern → literal passthrough → not-found, exit 1
-  run W03-no-match "*.nope no-match → not-found (exit 1)" "$BIN '$GLOB_WORK/*.nope'"
+  # Subshell-relative: avoids MSYS-path passthrough; tool sees literal *.nope from cwd.
+  run W03-no-match "*.nope no-match → not-found (exit 1)" "( cd '$GLOB_WORK' && '$BIN' '*.nope' )"
 
   rm -rf "$GLOB_WORK"
 else

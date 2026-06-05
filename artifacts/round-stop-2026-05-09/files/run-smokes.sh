@@ -186,16 +186,20 @@ if $IS_WINDOWS; then
 
   # W01: glob * expands — tool receives two dir paths and lists each, exit 0
   # files takes directories as roots; put two dirs under GLOB_DIR and use *.
+  # Subshell cd prevents MSYS-style absolute path (/d/...) from reaching the tool; the tool
+  # sees only the relative bare pattern * and expands it against its cwd.
   mkdir -p "$GLOB_DIR/one" "$GLOB_DIR/two"
   echo "aaa" > "$GLOB_DIR/one/f.txt"
   echo "bbb" > "$GLOB_DIR/two/g.txt"
-  run W01-glob-expand "glob * expands to two dir roots (exit 0)" "$BIN '$GLOB_DIR/*'"
+  run W01-glob-expand "glob * expands to two dir roots (exit 0)" "( cd '$GLOB_DIR' && '$BIN' '*' )"
 
   # W02: ** → usage error, exit 125
-  run W02-double-star "** rejected with usage error (exit 125)" "$BIN '$GLOB_DIR/**'"
+  # Subshell-relative: avoids MSYS-path passthrough; tool sees literal ** from cwd.
+  run W02-double-star "** rejected with usage error (exit 125)" "( cd '$GLOB_DIR' && '$BIN' '**' )"
 
   # W03: no-match pattern → literal passthrough → not-found, exit 1
-  run W03-no-match "*.nope no-match → not-found (exit 1)" "$BIN '$GLOB_DIR/*.nope'"
+  # Subshell-relative: avoids MSYS-path passthrough; tool sees literal *.nope from cwd.
+  run W03-no-match "*.nope no-match → not-found (exit 1)" "( cd '$GLOB_DIR' && '$BIN' '*.nope' )"
 else
   echo "=== W: Windows glob expansion — SKIPPED (not Windows) ==="
 fi

@@ -88,14 +88,18 @@ if $IS_WINDOWS; then
   echo -n "aaa" > "$GLOB_DIR/a.txt"
   echo -n "bbb" > "$GLOB_DIR/b.txt"
 
-  # W01: unquoted *.txt expands — tool compresses both files, exit 0
-  run W01-glob-expand "glob *.txt expands to two files (exit 0)" "$BIN -k -f '$GLOB_DIR/*.txt'"
+  # W01: glob *.txt expands — tool compresses both files, exit 0
+  # Subshell cd prevents MSYS-style absolute path (/d/...) from reaching the tool; the tool
+  # sees only the relative bare pattern *.txt and expands it against its cwd.
+  run W01-glob-expand "glob *.txt expands to two files (exit 0)" "( cd '$GLOB_DIR' && '$BIN' -k -f '*.txt' )"
 
   # W02: ** → usage error, exit 2 (squeeze uses 2 for usage errors)
-  run W02-double-star "** rejected with usage error (exit 2)" "$BIN '$GLOB_DIR/**/*.txt'"
+  # Subshell-relative: avoids MSYS-path passthrough; tool sees literal **/*.txt from cwd.
+  run W02-double-star "** rejected with usage error (exit 2)" "( cd '$GLOB_DIR' && '$BIN' '**/*.txt' )"
 
   # W03: no-match pattern → literal passthrough → not-found, non-zero exit
-  run W03-no-match "*.nope no-match → not-found error" "$BIN '$GLOB_DIR/*.nope'"
+  # Subshell-relative: avoids MSYS-path passthrough; tool sees literal *.nope from cwd.
+  run W03-no-match "*.nope no-match → not-found error" "( cd '$GLOB_DIR' && '$BIN' '*.nope' )"
 else
   echo "=== W: Windows glob expansion — SKIPPED (not Windows) ==="
 fi
