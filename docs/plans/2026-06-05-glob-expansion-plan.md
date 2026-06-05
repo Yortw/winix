@@ -1768,6 +1768,10 @@ Do NOT merge to `release/v0.4.0` yet — per project workflow, a fresh-eyes revi
 - **Tasks 4–5 quality review:** `..`/`.` literal segments after a wildcard never match — documented as design known-limitation 7 + pinned by `DotDotAfterWildcard_IsNoMatch_DocumentedLimitation` (commit `bdcd712`). One sanctioned extra tokenizer vector `Argv0Only_QuotedExe_SingleToken` (quality finding M3).
 - **Task 6:** `GlobExpansionParserTests` placed in `[Collection("ConsoleOutput")]` to serialize against `StandardFlagsBrokenPipeTests`, which installs a disposed `Console.Out`; `HelpRequested_SkipsExpansion` writes help output and races on it under parallel execution. Existing collection infrastructure; no production change.
 
+> Note: the Task 2/Task 6 code snippets above retain the original
+> `Environment.CommandLine` text as historical record — the GetCommandLineW fix
+> entry below supersedes them; the committed code uses `NativeCommandLine.Get()`.
+
 ## Adversarial review integration (pass 1, 2026-06-05)
 
 Findings F1–F7 integrated:
