@@ -109,60 +109,49 @@ Examples: \f[B]500\f[R], \f[B]10k\f[R], \f[B]2M\f[R], \f[B]1G\f[R].
 a unit: \f[B]s\f[R] (seconds), \f[B]m\f[R] (minutes), \f[B]h\f[R]
 (hours), \f[B]d\f[R] (days), \f[B]w\f[R] (weeks).
 Examples: \f[B]30m\f[R], \f[B]1h\f[R], \f[B]7d\f[R].
-
 .SH WILDCARDS
-On Windows, cmd.exe and PowerShell do not expand
-.B *
-and
-.B ?
-wildcards before starting programs, so
-.B files
+On Windows, cmd.exe and PowerShell do not expand \f[B]*\f[R] and
+\f[B]?\f[R] wildcards before starting programs, so \f[B]files\f[R]
 expands them itself.
-.B files\ src*
-works the same as in bash.
-.B [...]
-is matched literally (brackets are legal Windows filename characters).
-.B **
-is rejected with a usage error \(em use the tool's own recursive options instead.
+\f[B]files src*\f[R] works the same as in bash.
+\f[B][\&...]\f[R] is matched literally (brackets are legal Windows
+filename characters).
+\f[B]**\f[R] is rejected with a usage error \(em use the tool\(cqs own
+recursive options instead.
 A pattern that matches nothing is passed through unchanged so the normal
 \(lqnot found\(rq error follows.
-In cmd, quoting a pattern (e.g.\&
-.IR \(dqsrc*\(dq )
-suppresses expansion.
+In cmd, quoting a pattern (e.g.\ \f[I]\(lqsrc*\(rq\f[R]) suppresses
+expansion.
 On Linux and macOS the shell expands wildcards as usual and
-.B files
-does nothing extra.
-Option values for
-.B \-\-glob
-and
-.B \-\-regex
-are never expanded.
+\f[B]files\f[R] does nothing extra.
+Option values for \f[B]\(englob\f[R] and \f[B]\(enregex\f[R] are never
+expanded.
 .SH EXIT CODES
 .TP
 \f[B]0\f[R]
 Success.
 .TP
 \f[B]1\f[R]
-Runtime error (permission denied, invalid path, or partial walk with
-one or more unreadable directories).
+Runtime error (permission denied, invalid path, or partial walk with one
+or more unreadable directories).
 .TP
 \f[B]125\f[R]
 Usage error (bad arguments).
 .PP
 When directories cannot be enumerated, each unreadable path is reported
-on stderr and the process exits \f[B]1\f[R] with
-\f[B]exit_reason: walk_error_partial\f[R] in the \f[B]\(enjson\f[R]
-envelope, plus a populated \f[B]walk_errors[]\f[R] array.
+on stderr and the process exits \f[B]1\f[R] with \f[B]exit_reason:
+walk_error_partial\f[R] in the \f[B]\(enjson\f[R] envelope, plus a
+populated \f[B]walk_errors[]\f[R] array.
 .SH STRUCTURED OUTPUT
-Both \f[B]\(enndjson\f[R] and \f[B]\(enjson\f[R] write to \f[B]stdout\f[R]
-per suite convention.
+Both \f[B]\(enndjson\f[R] and \f[B]\(enjson\f[R] write to
+\f[B]stdout\f[R] per suite convention.
 .PP
 \f[B]\(enndjson\f[R] emits one JSON object per matching entry with
 fields \f[B]path\f[R] (relative or absolute per \f[B]\(enabsolute\f[R]),
 \f[B]name\f[R], \f[B]type\f[R] (\f[B]file\f[R] | \f[B]directory\f[R] |
-\f[B]symlink\f[R]), \f[B]size_bytes\f[R] (integer, or \f[B]null\f[R]
-for directory entries), \f[B]modified\f[R] (ISO 8601, or \f[B]null\f[R]
-when not populated), \f[B]depth\f[R] (integer; \f[B]0\f[R] = root), and
+\f[B]symlink\f[R]), \f[B]size_bytes\f[R] (integer, or \f[B]null\f[R] for
+directory entries), \f[B]modified\f[R] (ISO 8601, or \f[B]null\f[R] when
+not populated), \f[B]depth\f[R] (integer; \f[B]0\f[R] = root), and
 \f[B]is_text\f[R] (boolean, only present when \f[B]\(entext\f[R] or
 \f[B]\(enbinary\f[R] is used).
 .PP
@@ -170,11 +159,11 @@ when not populated), \f[B]depth\f[R] (integer; \f[B]0\f[R] = root), and
 \f[B]tool\f[R], \f[B]version\f[R], \f[B]exit_code\f[R],
 \f[B]exit_reason\f[R], \f[B]count\f[R], \f[B]searched_roots\f[R],
 \f[B]walk_errors\f[R] (array of \f[B]{path, reason}\f[R] for unreadable
-paths; empty on success). Pre\-walk error envelopes
-(\f[B]path_not_found\f[R], \f[B]not_a_directory\f[R]) additionally
-carry \f[B]error\f[R] (human\-readable detail) with empty
-\f[B]searched_roots\f[R] and \f[B]walk_errors\f[R] arrays for shape
-parity.
+paths; empty on success).
+Pre\-walk error envelopes (\f[B]path_not_found\f[R],
+\f[B]not_a_directory\f[R]) additionally carry \f[B]error\f[R]
+(human\-readable detail) with empty \f[B]searched_roots\f[R] and
+\f[B]walk_errors\f[R] arrays for shape parity.
 .PP
 The \f[B]exit_reason\f[R] values are: \f[B]success\f[R],
 \f[B]walk_error_partial\f[R], \f[B]path_not_found\f[R],

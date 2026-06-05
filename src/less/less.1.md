@@ -104,6 +104,10 @@ End / **G**
 **-S**
 :   Toggle line chopping.
 
+# WILDCARDS
+
+On Windows, cmd.exe and PowerShell do not expand **\*** and **?** wildcards before starting programs, so **less** expands them itself. **less \*.log** works the same as in bash. **[...]** is matched literally (brackets are legal Windows filename characters). **\*\*** is rejected with a usage error — **less** has no recursive mode; use **files** to find files recursively. A pattern that matches nothing is passed through unchanged so the normal "not found" error follows. In cmd, quoting a pattern (e.g. _"*.log"_) suppresses expansion. On Linux and macOS the shell expands wildcards as usual and **less** does nothing extra.
+
 # EXIT CODES
 
 **0**

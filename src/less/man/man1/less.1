@@ -5,12 +5,13 @@
 less \- terminal pager with ANSI colour passthrough, search, and follow
 mode
 .SH SYNOPSIS
-\f[B]less\f[R] [\f[I]options\f[R]] [\f[I]+command\f[R]] [\f[I]file\f[R]]
+\f[B]less\f[R] [\f[I]options\f[R]] [\f[I]+command\f[R]] [\f[I]file\f[R]
+\&...]
 .SH DESCRIPTION
 Displays file content (or stdin) one screen at a time.
 When no file is given, reads from stdin.
-At most one file argument is currently accepted; for concatenated
-paging of multiple files, use \f[B]cat file1 file2 | less\f[R].
+At most one file argument is currently accepted; for concatenated paging
+of multiple files, use \f[B]cat file1 file2 | less\f[R].
 Multi\-file paging with \f[B]:n\f[R] / \f[B]:p\f[R] navigation is
 tracked for a future release.
 .PP
@@ -107,33 +108,20 @@ Toggle line numbers.
 .TP
 \f[B]\-S\f[R]
 Toggle line chopping.
-
 .SH WILDCARDS
-On Windows, cmd.exe and PowerShell do not expand
-.B *
-and
-.B ?
-wildcards before starting programs, so
-.B less
+On Windows, cmd.exe and PowerShell do not expand \f[B]*\f[R] and
+\f[B]?\f[R] wildcards before starting programs, so \f[B]less\f[R]
 expands them itself.
-.B less\ *.log
-works the same as in bash.
-.B [...]
-is matched literally (brackets are legal Windows filename characters).
-.B **
-is rejected with a usage error \(em
-.B less
-has no recursive mode; use
-.B files
-to find files recursively.
+\f[B]less *.log\f[R] works the same as in bash.
+\f[B][\&...]\f[R] is matched literally (brackets are legal Windows
+filename characters).
+\f[B]**\f[R] is rejected with a usage error \(em \f[B]less\f[R] has no
+recursive mode; use \f[B]files\f[R] to find files recursively.
 A pattern that matches nothing is passed through unchanged so the normal
 \(lqnot found\(rq error follows.
-In cmd, quoting a pattern (e.g.\&
-.IR \(dq*.log\(dq )
-suppresses expansion.
+In cmd, quoting a pattern (e.g.\ _\(lq*.log\(rq_) suppresses expansion.
 On Linux and macOS the shell expands wildcards as usual and
-.B less
-does nothing extra.
+\f[B]less\f[R] does nothing extra.
 .SH EXIT CODES
 .TP
 \f[B]0\f[R]
@@ -147,13 +135,13 @@ Usage error (bad arguments).
 .SH ENVIRONMENT
 .TP
 \f[B]LESS\f[R]
-Controls default options. Three states distinguished:
-when unset, Winix \f[B]less\f[R] uses modern defaults
-\f[B]FRX\f[R] (quit\-if\-one\-screen, raw colour, no\-init);
-when set to a non\-empty value, replaces the defaults entirely
-(parsed as list of options, unknown flags ignored);
-when set to an empty string (\f[B]LESS=\f[R]), disables all defaults
-so every option must come from CLI flags.
+Controls default options.
+Three states distinguished: when \f[B]unset\f[R], Winix \f[B]less\f[R]
+uses modern defaults \f[B]FRX\f[R] (quit\-if\-one\-screen, raw colour,
+no\-init); when \f[B]set to a non\-empty value\f[R], replaces the
+defaults entirely (parsed as list of options, unknown flags ignored);
+when \f[B]set to an empty string\f[R] (\f[B]LESS=\f[R]), disables all
+defaults so every option must come from CLI flags.
 .TP
 \f[B]NO_COLOR\f[R]
 If set, disables ANSI colour passthrough (no\-color.org).

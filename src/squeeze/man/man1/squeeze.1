@@ -116,27 +116,19 @@ Fast default, excellent at high
 T}
 .TE
 .SH WILDCARDS
-On Windows, cmd.exe and PowerShell do not expand
-.B *
-and
-.B ?
-wildcards before starting programs, so
-.B squeeze
+On Windows, cmd.exe and PowerShell do not expand \f[B]*\f[R] and
+\f[B]?\f[R] wildcards before starting programs, so \f[B]squeeze\f[R]
 expands them itself.
-.B squeeze\ *.log
-works the same as in bash.
-.B [...]
-is matched literally (brackets are legal Windows filename characters).
-.B **
-is rejected with a usage error \(em use the tool's recursive matching options instead.
+\f[B]squeeze *.log\f[R] works the same as in bash.
+\f[B][\&...]\f[R] is matched literally (brackets are legal Windows
+filename characters).
+\f[B]**\f[R] is rejected with a usage error \(em use the tool\(cqs
+recursive matching options instead.
 A pattern that matches nothing is passed through unchanged so the normal
 \(lqnot found\(rq error follows.
-In cmd, quoting a pattern (e.g.\&
-.IR \(dq*.log\(dq )
-suppresses expansion.
+In cmd, quoting a pattern (e.g.\ _\(lq*.log\(rq_) suppresses expansion.
 On Linux and macOS the shell expands wildcards as usual and
-.B squeeze
-does nothing extra.
+\f[B]squeeze\f[R] does nothing extra.
 .SH EXIT CODES
 .TP
 \f[B]0\f[R]

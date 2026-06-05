@@ -101,6 +101,10 @@ A cross-platform **tree** replacement with full ANSI colour and filtering capabi
 
 **--newer** and **--older** accept a number followed by a unit: **s** (seconds), **m** (minutes), **h** (hours), **d** (days), **w** (weeks).
 
+# WILDCARDS
+
+On Windows, cmd.exe and PowerShell do not expand **\*** and **?** wildcards before starting programs, so **treex** expands them itself. **treex src\*** works the same as in bash. **[...]** is matched literally (brackets are legal Windows filename characters). **\*\*** is rejected with a usage error — use the tool's own recursive options instead. A pattern that matches nothing is passed through unchanged so the normal "not found" error follows. In cmd, quoting a pattern (e.g. _"src\*"_) suppresses expansion. On Linux and macOS the shell expands wildcards as usual and **treex** does nothing extra. Option values for **--glob** and **--regex** are never expanded.
+
 # EXIT CODES
 
 **0**
