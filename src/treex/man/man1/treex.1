@@ -105,6 +105,34 @@ No suffix means bytes.
 \f[B]\(ennewer\f[R] and \f[B]\(enolder\f[R] accept a number followed by
 a unit: \f[B]s\f[R] (seconds), \f[B]m\f[R] (minutes), \f[B]h\f[R]
 (hours), \f[B]d\f[R] (days), \f[B]w\f[R] (weeks).
+
+.SH WILDCARDS
+On Windows, cmd.exe and PowerShell do not expand
+.B *
+and
+.B ?
+wildcards before starting programs, so
+.B treex
+expands them itself.
+.B treex\ src*
+works the same as in bash.
+.B [...]
+is matched literally (brackets are legal Windows filename characters).
+.B **
+is rejected with a usage error \(em use the tool's own recursive options instead.
+A pattern that matches nothing is passed through unchanged so the normal
+\(lqnot found\(rq error follows.
+In cmd, quoting a pattern (e.g.\&
+.IR \(dqsrc*\(dq )
+suppresses expansion.
+On Linux and macOS the shell expands wildcards as usual and
+.B treex
+does nothing extra.
+Option values for
+.B \-\-glob
+and
+.B \-\-regex
+are never expanded.
 .SH EXIT CODES
 .TP
 \f[B]0\f[R]
