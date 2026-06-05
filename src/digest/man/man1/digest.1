@@ -133,6 +133,28 @@ Show help and exit.
 .BR \-v ", " \-\-version
 Show version and exit.
 
+.SH WILDCARDS
+On Windows, cmd.exe and PowerShell do not expand
+.B *
+and
+.B ?
+wildcards before starting programs, so
+.B digest
+expands them itself.
+.B digest\ *.dll
+works the same as in bash.
+.B [...]
+is matched literally (brackets are legal Windows filename characters).
+.B **
+is rejected with a usage error \(em use Git Bash for recursive patterns.
+A pattern that matches nothing is passed through unchanged so the normal
+\(lqnot found\(rq error follows.
+In cmd, quoting a pattern (e.g.\&
+.IR \(dq*.dll\(dq )
+suppresses expansion.
+On Linux and macOS the shell expands wildcards as usual and
+.B digest
+does nothing extra.
 .SH EXIT STATUS
 .TP
 .B 0
