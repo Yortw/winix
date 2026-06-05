@@ -951,8 +951,10 @@ public sealed class CommandLineParser
                 writer.WriteEndObject();
             }
 
-            // glob_expansion
-            if (_expandGlobPositionals)
+            // glob_expansion — gate on !_commandMode to match the runtime hook and --help
+            // section, so a misconfigured CommandMode tool can't advertise a capability
+            // the runtime never applies (quality-review finding, Tasks 6-7).
+            if (_expandGlobPositionals && !_commandMode)
             {
                 writer.WriteStartObject("glob_expansion");
                 writer.WriteBoolean("positionals", true);
