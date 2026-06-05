@@ -202,3 +202,8 @@ Both rejected.
 | Single-path tool adoption (man, whoholds, hcat serve) | Little value now; one-line opt-in whenever next touched |
 | pwsh quote-suppression beyond `--%` | Not fixable from our side — pwsh discards the user's original quoting before we run |
 | `[...]` character classes | Permanent exclusion by design (legal filename chars), recorded here so it isn't re-proposed as a "gap" |
+| Access-denied literal prefix → "not found" diagnostics (review F2) | bash behaves identically; Decision 5 anchors bash parity. A targeted error for unlistable user-typed prefixes is ~10 LOC if support traffic ever justifies diverging |
+| Fixed-arity adopter guard (review F3) | Expansion changes positional arity; contract is documentation-only (CLAUDE.md convention note): only variable-arity path tools may opt in. No runtime guard in v1 |
+| Directory-size cap / streaming enumeration (review F4) | One level fully materialized per candidate; bash has no cap either. Revisit only on a real pathological case |
+| Per-invocation expansion trace (review F7) | No artifact records expanded/failed-open/passthrough in v1; `--describe glob_expansion` is the only machine surface. Debugging relies on the documented semantics |
+| Drive-relative patterns `C:*.txt` (review F1) | Segment model can't express per-drive CWD; never matches → literal passthrough preserves today's failure shape |

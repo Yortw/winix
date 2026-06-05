@@ -179,6 +179,21 @@ data-dependent divergence. Documented in README/docs-ai sections.
    nil-practical-impact argument as above. Documented caveat.
 3. **`**` not supported** — loud error in v1; can be added later behind the same
    opt-in if demand shows up.
+4. **Drive-relative patterns (`C:*.txt`) are not supported.** The segment model
+   cannot express "current directory of drive C:"; such a pattern never matches
+   and passes through literally — same failure the user gets today. (Adversarial
+   review F1.)
+5. **Access-denied on a user-typed literal prefix reads as "not found".** An
+   unlistable `protected\` in `protected\*.txt` yields literal passthrough and
+   the tool's normal not-found error, which is misleading about *why*. Deliberate:
+   bash behaves identically (`cat protected/*.txt` → "No such file or directory"),
+   and Decision 5 anchors bash parity. Revisit if it generates support traffic.
+   (Adversarial review F2.)
+6. **No expansion cap, no expansion trace.** A directory level is fully enumerated
+   regardless of size (bash has no cap either), and no artifact records whether a
+   given invocation expanded, failed open, or passed a literal through —
+   `--describe`'s `glob_expansion` field is the only machine-discoverable surface
+   in v1. (Adversarial review F4, F7.)
 
 ## Testing strategy
 

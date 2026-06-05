@@ -244,6 +244,20 @@ public class RawCommandLineTokenizerTests
     {
         Assert.Empty(RawCommandLineTokenizer.Tokenize(""));
     }
+
+    [Fact]
+    public void NonAsciiAndSurrogatePairTokens_RoundTrip()
+    {
+        // Review F5: non-BMP filenames (surrogate pairs) and accented chars must survive
+        // tokenization unmangled. Strings built from code points, not source literals, so
+        // the test is immune to source-file encoding round-trips (same rationale as the
+        // (char)27 convention for ESC).
+        string emoji = char.ConvertFromUtf32(0x1F600);                       // non-BMP, surrogate pair
+        string accented = "h" + (char)0xE9 + "llo w" + (char)0xF6 + "rld";   // héllo wörld
+        var t = Tok($"t.exe \"{accented}\" a{emoji}.txt");
+        Assert.Equal((accented, true), t[1]);
+        Assert.Equal(($"a{emoji}.txt", false), t[2]);
+    }
 }
 ```
 
@@ -402,7 +416,7 @@ public static class RawCommandLineTokenizer
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `dotnet test tests/Yort.ShellKit.Tests/Yort.ShellKit.Tests.csproj --filter RawCommandLineTokenizerTests`
-Expected: PASS (14 tests).
+Expected: PASS (15 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -651,7 +665,45 @@ public class GlobArgExpanderTests
         var boom = new GlobArgExpander(_ => throw new UnauthorizedAccessException("nope"));
         // The DEFAULT enumerator swallows; the seam contract is "throw = let it surface"?
         // No: the expander itself must guard, so a custom seam may throw too.
+        // NOTE (review F2, explicit defer): this includes access-denied on the user-typed
+        // literal prefix — it reads as "not found" downstream, same as bash. See ADR.
         Assert.Equal(GlobExpansionKind.NoMatch, boom.Expand("*.txt").Kind);
+    }
+
+    [Fact]
+    public void UncSharePrefix_KeptVerbatim()
+    {
+        // Review F1: design advertises UNC; lock the verbatim-prefix + root-separator handling.
+        var x = Fake(new() { [@"\\server\share\"] = new[] { F("a.log"), F("b.txt") } });
+        Assert.Equal(new[] { @"\\server\share\a.log" }, x.Expand(@"\\server\share\*.log").Matches);
+    }
+
+    [Fact]
+    public void WildcardInUncShareComponent_IsNoMatch()
+    {
+        // \\server\*\x → prefix "\\server\" — enumerating a server (share enumeration) is
+        // not supported; the seam returning nothing/throwing yields literal passthrough.
+        var x = Fake(new());
+        Assert.Equal(GlobExpansionKind.NoMatch, x.Expand(@"\\server\*\x.log").Kind);
+    }
+
+    [Fact]
+    public void DriveRelativePattern_IsNoMatch_LiteralPassthrough()
+    {
+        // Review F1: C:*.txt (drive-relative, no separator) is deliberately unsupported —
+        // the segment text contains "C:" so no filename can ever match; the literal passes
+        // through and the tool reports its normal not-found. Documented known limitation.
+        var x = Fake(new() { ["."] = new[] { F("a.txt") } });
+        Assert.Equal(GlobExpansionKind.NoMatch, x.Expand("C:*.txt").Kind);
+    }
+
+    [Fact]
+    public void SurrogatePairFilename_StarMatches_NamePreserved()
+    {
+        // Review F5: non-BMP filename must match * and come back byte-identical.
+        string name = "a" + char.ConvertFromUtf32(0x1F600) + ".txt";
+        var x = Fake(new() { ["."] = new[] { F(name) } });
+        Assert.Equal(new[] { name }, x.Expand("a*.txt").Matches);
     }
 }
 ```
@@ -879,7 +931,7 @@ Note: `DefaultEnumerate` does NOT catch — the `Expand` loop catches around the
 - [ ] **Step 4: Run tests**
 
 Run: `dotnet test tests/Yort.ShellKit.Tests/Yort.ShellKit.Tests.csproj --filter GlobArgExpanderTests`
-Expected: PASS (14 tests).
+Expected: PASS (18 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -1119,6 +1171,16 @@ public class GlobExpansionParserTests
         var p = new CommandLineParser("tool", "1.0").StandardFlags();
         p.Parse(Array.Empty<string>());
         Assert.Throws<InvalidOperationException>(() => p.ExpandGlobPositionals());
+    }
+
+    [Fact]
+    public void TwoPatterns_PerPatternSort_SplicedInPatternOrder()
+    {
+        // Review F6: each pattern's matches are sorted independently and spliced at that
+        // pattern's argv position — NOT one globally merged sort. *.log first must yield
+        // its match BEFORE the *.txt matches, even though a global sort would interleave.
+        var r = NewParser("\"t.exe\" *.log *.txt").Parse(new[] { "*.log", "*.txt" });
+        Assert.Equal(new[] { "c.log", "a.txt", "b.txt" }, r.Positionals);
     }
 }
 ```
@@ -1675,7 +1737,7 @@ Expected: publish succeeds with zero trim/AOT warnings from the new ShellKit cod
 
 In `CLAUDE.md`, in the "When adding a new tool" bullet list, add after the arg-parsing bullet:
 ```markdown
-  - If ALL the tool's positionals are file paths, opt into Windows glob expansion with `.ExpandGlobPositionals()` (after `.StandardFlags()`). Never opt in for subcommand verbs, cron expressions, or other positionals that legitimately contain `*` (use `skipFirst:` if mixing). See docs/plans/2026-06-05-glob-expansion-design.md.
+  - If ALL the tool's positionals are file paths AND the tool accepts a variable number of them, opt into Windows glob expansion with `.ExpandGlobPositionals()` (after `.StandardFlags()`). Never opt in for subcommand verbs, cron expressions, or other positionals that legitimately contain `*` (use `skipFirst:` if mixing) — and never for fixed-arity positional shapes (e.g. exactly `src dst`): expansion changes arity. See docs/plans/2026-06-05-glob-expansion-design.md.
 ```
 
 - [ ] **Step 5: Commit, push, 3-OS CI**
@@ -1699,3 +1761,14 @@ Do NOT merge to `release/v0.4.0` yet — per project workflow, a fresh-eyes revi
 - **Spec coverage:** every design-doc rule-table row has a test (tokenizer/engine/parser layer) or a smoke step; help/describe advertisement → Task 7; six adopters → Tasks 8–13; trash #6 → Task 10; AOT → Task 14.
 - **Verified-against-source:** parser internals (positional collection sites ~lines 320/340, help sections loop ~line 721, describe writer style ~lines 787–909), adopter chain locations (Explore agent, 2026-06-05), net10.0 TFM, existing `InternalsVisibleTo`.
 - **Marked verify-at-implementation:** the CRT `""`-inside-quotes rule (Task 2 vector exists but Task 3's oracle is ground truth — fix tokenizer to match oracle, never vice versa); ArgvEcho apphost copy behaviour (Task 1 Step 2 has the fallback); exact line numbers may have drifted by the time of execution — match on the quoted context, not the number.
+
+## Adversarial review integration (pass 1, 2026-06-05)
+
+Findings F1–F7 integrated:
+- **F1** (UNC/drive-relative): reviewer's mechanism claim verified FALSE by hand-walk (verbatim prefix includes the root separator; append rule handles it), but the test gap was real → added `UncSharePrefix_KeptVerbatim`, `WildcardInUncShareComponent_IsNoMatch`, `DriveRelativePattern_IsNoMatch_LiteralPassthrough` (Task 4); drive-relative documented as a known limitation (design doc).
+- **F2** (access-denied literal prefix reads as "not found"): explicit defer — bash behaves identically and Decision 5 anchors bash parity; recorded in ADR deferred table + design known limitations; comment added to `EnumerationFailure_IsNoMatch`.
+- **F3** (fixed-arity adopters): CLAUDE.md convention note extended (Task 14 Step 4) + ADR deferred row.
+- **F4** (unbounded directory fan-out): explicit defer — bash has no cap either; single-level materialization documented in ADR deferred table + design known limitations.
+- **F5** (non-ASCII/surrogate pairs): tests added — tokenizer round-trip (Task 2), expander surrogate-pair match (Task 4), built from code points to avoid source-encoding round-trips.
+- **F6** (per-pattern vs global sort at parser layer): discriminating test added (Task 6, `TwoPatterns_PerPatternSort_SplicedInPatternOrder` — pattern order chosen so a global merge would differ).
+- **F7** (no expansion trace): explicit defer — recorded in ADR deferred table + design known limitations; `--describe glob_expansion` is the only machine surface in v1.
