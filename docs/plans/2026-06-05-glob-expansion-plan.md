@@ -1762,6 +1762,12 @@ Do NOT merge to `release/v0.4.0` yet — per project workflow, a fresh-eyes revi
 - **Verified-against-source:** parser internals (positional collection sites ~lines 320/340, help sections loop ~line 721, describe writer style ~lines 787–909), adopter chain locations (Explore agent, 2026-06-05), net10.0 TFM, existing `InternalsVisibleTo`.
 - **Marked verify-at-implementation:** the CRT `""`-inside-quotes rule (Task 2 vector exists but Task 3's oracle is ground truth — fix tokenizer to match oracle, never vice versa); ArgvEcho apphost copy behaviour (Task 1 Step 2 has the fallback); exact line numbers may have drifted by the time of execution — match on the quoted context, not the number.
 
+## Implementation deviations (recorded per plan-divergence rule)
+
+- **Task 4:** `ResolveDir` helper added — the plan's inline `candidate.Length == 0 ? "." : candidate` contradicted the plan's own fake-FS test keys (literal prefix carries a trailing separator; keys don't). Strips trailing separators except on drive roots (`C:\`) and UNC roots. Recorded in commit `12c9ad1`; adjudicated justified by spec review.
+- **Tasks 4–5 quality review:** `..`/`.` literal segments after a wildcard never match — documented as design known-limitation 7 + pinned by `DotDotAfterWildcard_IsNoMatch_DocumentedLimitation` (commit `bdcd712`). One sanctioned extra tokenizer vector `Argv0Only_QuotedExe_SingleToken` (quality finding M3).
+- **Task 6:** `GlobExpansionParserTests` placed in `[Collection("ConsoleOutput")]` to serialize against `StandardFlagsBrokenPipeTests`, which installs a disposed `Console.Out`; `HelpRequested_SkipsExpansion` writes help output and races on it under parallel execution. Existing collection infrastructure; no production change.
+
 ## Adversarial review integration (pass 1, 2026-06-05)
 
 Findings F1–F7 integrated:
