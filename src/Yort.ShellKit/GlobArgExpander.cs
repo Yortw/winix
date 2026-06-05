@@ -149,6 +149,7 @@ internal sealed class GlobArgExpander
                     {
                         // Literal segment after a wildcard: case-insensitive equality,
                         // emitting on-disk casing.
+                        // Note: '.'/'..' literal segments never match here (no dot entries in enumeration) — documented known limitation.
                         isMatch = string.Equals(entry.Name, segText, StringComparison.OrdinalIgnoreCase);
                     }
 

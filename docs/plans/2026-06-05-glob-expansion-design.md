@@ -194,6 +194,11 @@ data-dependent divergence. Documented in README/docs-ai sections.
    given invocation expanded, failed open, or passed a literal through —
    `--describe`'s `glob_expansion` field is the only machine-discoverable surface
    in v1. (Adversarial review F4, F7.)
+7. **`.`/`..` segments after a wildcard never match.** `*\..\x.txt` collapses to
+   no-match → literal passthrough (enumeration returns no dot entries; literal
+   segments after a wildcard match by enumerated-name equality). bash would expand
+   it. Monotonic — the literal fails exactly as it does today. Pinned by
+   `DotDotAfterWildcard_IsNoMatch_DocumentedLimitation`. (Tasks 4–5 quality review.)
 
 ## Testing strategy
 

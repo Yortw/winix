@@ -169,4 +169,19 @@ public class GlobArgExpanderTests
         var x = Fake(new() { ["."] = new[] { F(name) } });
         Assert.Equal(new[] { name }, x.Expand("a*.txt").Matches);
     }
+
+    [Fact]
+    public void DotDotAfterWildcard_IsNoMatch_DocumentedLimitation()
+    {
+        // Quality-review finding (Tasks 4-5): '.'/'..' literal segments AFTER a wildcard can
+        // never match (enumeration returns no dot entries; literal-after-wildcard matches by
+        // name equality). bash WOULD expand '*/../x.txt' — documented as a known limitation;
+        // monotonic (the literal passes through and fails exactly as it does today).
+        var x = Fake(new()
+        {
+            ["."] = new[] { D("one") },
+            ["one"] = new[] { F("x.txt") },
+        });
+        Assert.Equal(GlobExpansionKind.NoMatch, x.Expand(@"*\..\x.txt").Kind);
+    }
 }
