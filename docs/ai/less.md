@@ -126,4 +126,5 @@ Support matrix: `*` and `?` in any segment — yes; `[...]` — matched literall
 match — literal passthrough (normal "not found" follows). Quoted args are not
 expanded when launched from cmd; PowerShell strips quotes before launch, so
 prefer explicit paths there if a literal is required. On Unix the shell expands;
-the tool adds nothing. `--describe` exposes this as `glob_expansion`.
+the tool adds nothing. `--describe` exposes this as `glob_expansion`. less takes a
+single file: a pattern matching 2+ files exits 2 (same as bash post-expansion).

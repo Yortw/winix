@@ -119,7 +119,11 @@ filename characters).
 recursive mode; use \f[B]files\f[R] to find files recursively.
 A pattern that matches nothing is passed through unchanged so the normal
 \(lqnot found\(rq error follows.
-In cmd, quoting a pattern (e.g.\ _\(lq*.log\(rq_) suppresses expansion.
+In cmd, quoting a pattern (e.g.\ \f[I]\(lq*.log\(rq\f[R]) suppresses
+expansion.
+Note \f[B]less\f[R] accepts a single file, so a pattern must resolve to
+exactly one match \(em two or more matches exit 2 with a usage error
+(the same thing happens in bash when the shell expands).
 On Linux and macOS the shell expands wildcards as usual and
 \f[B]less\f[R] does nothing extra.
 .SH EXIT CODES

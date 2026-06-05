@@ -123,7 +123,9 @@ recursive mode; use `files` to find files recursively. A pattern that matches no
 is passed through unchanged, so you get the normal "not found" error. In cmd, quoting
 a pattern (`"*.log"`) suppresses expansion; PowerShell removes quotes before less sees
 them, so use `--%` there if you need a literal. On Linux/macOS your shell expands
-wildcards as usual and less does nothing extra.
+wildcards as usual and less does nothing extra. Note `less` accepts a single file, so
+a pattern must resolve to exactly one match — two or more matches exit 2 with a usage
+error (the same thing happens in bash when the shell expands).
 
 ## Exit Codes
 
