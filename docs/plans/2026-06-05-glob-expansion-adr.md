@@ -80,7 +80,7 @@ results.
 ## Decision 3: Honour quoting via raw-command-line tokenizer; fail open on misalignment
 
 **Context.** On Unix, quoting is how users suppress globbing. .NET argv cannot
-see quoting; `Environment.CommandLine` (the raw line) can. Prior art: Rust's
+see quoting; `GetCommandLineW` (the true native raw line, P/Invoked via `NativeCommandLine.Get()` — `Environment.CommandLine` on .NET Core is argv re-joined with quotes destroyed, verified by probe 2026-06-05) can. Prior art: Rust's
 `wild` crate (ripgrep).
 
 **Decision.** Tokenize the raw command line with CRT-compatible rules; expand

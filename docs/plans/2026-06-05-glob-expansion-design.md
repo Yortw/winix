@@ -76,7 +76,7 @@ Three units in `Yort.ShellKit` + a thin parser integration:
 
 ### 1. `RawCommandLineTokenizer` (pure, ~150 LOC)
 
-- Input: raw command-line string (`Environment.CommandLine` at runtime — no P/Invoke).
+- Input: raw command-line string (GetCommandLineW via LibraryImport at runtime — `Environment.CommandLine` on .NET Core is argv re-joined with quotes destroyed, verified by probe 2026-06-05).
 - Output: ordered tokens, each carrying `Text` (quotes stripped, escapes resolved)
   and `WasQuoted`.
 - Replicates the CRT / `CommandLineToArgvW` rules so token boundaries align 1:1

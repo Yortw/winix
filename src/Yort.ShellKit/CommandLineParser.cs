@@ -707,11 +707,17 @@ public sealed class CommandLineParser
     /// Returns null (caller fails open) when the raw line is unavailable or does not
     /// align with args — e.g. <c>dotnet tool.dll args</c> hosting, or a tokenizer gap.
     /// </summary>
+    /// <remarks>
+    /// Uses <see cref="NativeCommandLine.Get"/> (P/Invoke <c>GetCommandLineW</c>) rather than
+    /// <c>Environment.CommandLine</c>. On .NET Core, <c>Environment.CommandLine</c> is
+    /// <c>GetCommandLineArgs()</c> re-joined with spaces — quote information is destroyed,
+    /// so quoting detection would silently see every token as unquoted (verified 2026-06-05).
+    /// </remarks>
     private bool[]? TryGetQuotedFlags(string[] args)
     {
         string? raw = GlobRawCommandLineProvider is not null
             ? GlobRawCommandLineProvider()
-            : Environment.CommandLine;
+            : NativeCommandLine.Get();
         if (string.IsNullOrEmpty(raw))
         {
             return null;

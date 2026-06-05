@@ -60,14 +60,18 @@ public class RawCommandLineOracleTests_Windows
     }
 
     [SkippableFact]
-    public void Tokenizer_Matches_CurrentProcess()
+    public void NativeCommandLine_Get_ReturnsTokenizableLine()
     {
-        Skip.IfNot(OperatingSystem.IsWindows(), "Raw command line semantics are Windows-only");
+        Skip.IfNot(OperatingSystem.IsWindows(), "GetCommandLineW is Windows-only");
         if (!OperatingSystem.IsWindows()) { return; } // deliberate redundancy for CA1416
 
-        // The test host's own command line is a free real-world vector.
-        var tokens = RawCommandLineTokenizer.Tokenize(Environment.CommandLine);
-        string[] runtimeArgv = Environment.GetCommandLineArgs();
-        Assert.Equal(runtimeArgv, tokens.Select(t => t.Text).ToArray());
+        // The native line (unlike Environment.CommandLine on .NET Core, which is argv
+        // re-joined with quotes destroyed) is what the shell actually passed. Sanity:
+        // non-null, tokenizes, and argv[0] resolves to a real file on disk.
+        string? raw = NativeCommandLine.Get();
+        Assert.NotNull(raw);
+        var tokens = RawCommandLineTokenizer.Tokenize(raw!);
+        Assert.NotEmpty(tokens);
+        Assert.True(File.Exists(tokens[0].Text), $"argv[0] not a file: {tokens[0].Text}");
     }
 }
