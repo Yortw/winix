@@ -115,6 +115,18 @@ Default (trash) mode emits `{"trashed":N,"failed":[…]}`:
 
 `--empty` emits `{"emptied":N,"failed":M}`. `emptied` is the count of items whose data was confirmed removed (**approximate** on Windows — the OS empty API is not per-item attributable); `failed` is the count that could not be removed (permission/busy) and, when non-zero, drives exit 1.
 
+## Wildcards on Windows
+
+cmd.exe and PowerShell don't expand `*`/`?` wildcards before starting programs, so
+trash expands them itself on Windows — `trash *.log` works the same as in bash.
+`*` and `?` work in any path segment. `[...]` is matched literally (brackets are legal
+Windows filename characters), and `**` is rejected with an error — use the tool's own
+recursive options instead. A pattern that matches nothing is passed through unchanged,
+so you get the normal "not found" error. In cmd, quoting a pattern (`"*.log"`)
+suppresses expansion; PowerShell removes quotes before trash sees them, so use `--%`
+there if you need a literal. On Linux/macOS your shell expands wildcards as usual and
+trash does nothing extra.
+
 ## Exit Codes
 
 | Code | Meaning |
@@ -135,7 +147,7 @@ Default (trash) mode emits `{"trashed":N,"failed":[…]}`:
 - **macOS `--list` deletion time is approximate.** On macOS, `deleted` reflects the entry's last-modified time, not the exact moment it was trashed — macOS does not expose a separate trash timestamp to v1.
 - **No `--restore` / put-back in v1.** Restore items through your file manager (Windows Recycle Bin, Files/Nautilus, Finder).
 - **`--empty` count is approximate.** It counts what was enumerated; the OS empty API may clear bins the listing could not enumerate.
-- **Windows glob expansion.** `cmd` and PowerShell do not expand `*.log` the way bash does. This is a suite-wide limitation; pass explicit paths or use a shell that globs.
+- **Windows glob expansion.** `trash *.log` works on Windows — `trash` expands wildcards itself. See [Wildcards on Windows](#wildcards-on-windows) below.
 - **Ctrl+C mid-batch is non-atomic.** Like `rm`, items already moved before the interrupt stay trashed.
 - **No partial-tree rollback.** A disk-full or failure mid-move surfaces as a per-path error. There is no rollback beyond the single-item `.trashinfo` cleanup on Linux.
 
