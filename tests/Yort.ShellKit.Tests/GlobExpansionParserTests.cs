@@ -145,4 +145,41 @@ public class GlobExpansionParserTests
         var r = NewParser("\"t.exe\" *.log *.txt").Parse(new[] { "*.log", "*.txt" });
         Assert.Equal(new[] { "c.log", "a.txt", "b.txt" }, r.Positionals);
     }
+
+    [Fact]
+    public void GenerateHelp_OptedIn_IncludesWildcardsSection()
+    {
+        var p = new CommandLineParser("tool", "1.0").StandardFlags().ExpandGlobPositionals();
+        string help = p.GenerateHelp();
+        Assert.Contains("Wildcards (Windows):", help, StringComparison.Ordinal);
+        Assert.Contains("'**' is not supported", help, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GenerateHelp_NotOptedIn_OmitsWildcardsSection()
+    {
+        var p = new CommandLineParser("tool", "1.0").StandardFlags();
+        Assert.DoesNotContain("Wildcards (Windows):", p.GenerateHelp(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GenerateDescribe_OptedIn_IncludesGlobExpansion()
+    {
+        var p = new CommandLineParser("tool", "1.0").StandardFlags().ExpandGlobPositionals(skipFirst: 1);
+        string json = p.GenerateDescribe();
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        var glob = doc.RootElement.GetProperty("glob_expansion");
+        Assert.True(glob.GetProperty("positionals").GetBoolean());
+        Assert.Equal(1, glob.GetProperty("skip_first").GetInt32());
+        Assert.True(glob.GetProperty("windows_only").GetBoolean());
+        Assert.Equal("literal passthrough", glob.GetProperty("no_match").GetString());
+    }
+
+    [Fact]
+    public void GenerateDescribe_NotOptedIn_OmitsGlobExpansion()
+    {
+        var p = new CommandLineParser("tool", "1.0").StandardFlags();
+        using var doc = System.Text.Json.JsonDocument.Parse(p.GenerateDescribe());
+        Assert.False(doc.RootElement.TryGetProperty("glob_expansion", out _));
+    }
 }

@@ -841,6 +841,16 @@ public sealed class CommandLineParser
             }
         }
 
+        if (_expandGlobPositionals && !_commandMode)
+        {
+            sb.AppendLine();
+            sb.AppendLine("Wildcards (Windows):");
+            sb.AppendLine($"  On Windows, * and ? in path arguments are expanded by {_toolName} itself");
+            sb.AppendLine("  (cmd and PowerShell don't expand them). [...] is matched literally and");
+            sb.AppendLine("  '**' is not supported. A pattern matching nothing is passed through");
+            sb.AppendLine("  unchanged. In cmd, quote the pattern to suppress expansion.");
+        }
+
         // Examples (same data the --describe JSON carries; rendered here so --help is self-contained)
         if (_examples.Count > 0)
         {
@@ -938,6 +948,26 @@ public sealed class CommandLineParser
                 {
                     writer.WriteString("value_on_unix", _platformValueUnix);
                 }
+                writer.WriteEndObject();
+            }
+
+            // glob_expansion
+            if (_expandGlobPositionals)
+            {
+                writer.WriteStartObject("glob_expansion");
+                writer.WriteBoolean("positionals", true);
+                if (_globSkipFirst > 0)
+                {
+                    writer.WriteNumber("skip_first", _globSkipFirst);
+                }
+                writer.WriteString("syntax", "* and ? in any path segment");
+                writer.WriteStartArray("not_patterns");
+                writer.WriteStringValue("[...] (matched literally; legal Windows filename chars)");
+                writer.WriteStringValue("** (rejected with usage error)");
+                writer.WriteEndArray();
+                writer.WriteString("no_match", "literal passthrough");
+                writer.WriteString("quoting", "quoted args not expanded (effective from cmd; PowerShell strips quotes)");
+                writer.WriteBoolean("windows_only", true);
                 writer.WriteEndObject();
             }
 
