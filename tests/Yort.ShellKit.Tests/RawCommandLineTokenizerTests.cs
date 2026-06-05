@@ -119,6 +119,13 @@ public class RawCommandLineTokenizerTests
     }
 
     [Fact]
+    public void Argv0Only_QuotedExe_SingleToken()
+    {
+        var t = Tok("\"C:\\tool.exe\"");
+        Assert.Equal(new[] { ("C:\\tool.exe", true) }, t);
+    }
+
+    [Fact]
     public void NonAsciiAndSurrogatePairTokens_RoundTrip()
     {
         // Review F5: non-BMP filenames (surrogate pairs) and accented chars must survive
