@@ -234,6 +234,7 @@ public static class Cli
         return new CommandLineParser("squeeze", version)
             .Description("Compress and decompress files using gzip, brotli, or zstd.")
             .StandardFlags()
+            .ExpandGlobPositionals()
             .Flag("--decompress", "-d", "Decompress (auto-detects format)")
             .Flag("--brotli", "-b", "Use brotli format")
             .Flag("--zstd", "-z", "Use zstd format")

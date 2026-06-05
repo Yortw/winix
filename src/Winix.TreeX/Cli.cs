@@ -442,6 +442,7 @@ public static class Cli
         return new CommandLineParser("treex", version)
             .Description("Enhanced directory tree with colour, filtering, size rollups, and clickable hyperlinks.")
             .StandardFlags()
+            .ExpandGlobPositionals()
             .Flag("--ndjson", "Streaming NDJSON output")
             .ListOption("--glob", "-g", "PATTERN", "Match filenames against glob")
             .ListOption("--regex", "-e", "PATTERN", "Match filenames against regex")

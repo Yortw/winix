@@ -70,6 +70,28 @@ Show help and exit.
 .BR \-v ", " \-\-version
 Show version and exit.
 
+.SH WILDCARDS
+On Windows, cmd.exe and PowerShell do not expand
+.B *
+and
+.B ?
+wildcards before starting programs, so
+.B trash
+expands them itself.
+.B trash\ *.log
+works the same as in bash.
+.B [...]
+is matched literally (brackets are legal Windows filename characters).
+.B **
+is rejected with a usage error \(em use Git Bash for recursive patterns.
+A pattern that matches nothing is passed through unchanged so the normal
+\(lqnot found\(rq error follows.
+In cmd, quoting a pattern (e.g.\&
+.IR \(dq*.log\(dq )
+suppresses expansion.
+On Linux and macOS the shell expands wildcards as usual and
+.B trash
+does nothing extra.
 .SH EXIT STATUS
 .TP
 .B 0
@@ -147,7 +169,11 @@ No \fB\-\-restore\fR / put-back in v1 \(em restore through your file manager.
 The \fB\-\-empty\fR count is approximate (it counts what was enumerated; the OS
 empty API may clear bins the listing could not enumerate).
 .IP \(bu 2
-On Windows, \fBcmd\fR and PowerShell do not expand globs such as \fB*.log\fR.
+On Windows,
+.B trash
+expands \fB*\fR/\fB?\fR wildcards itself \(em see the
+.B WILDCARDS
+section above.
 .IP \(bu 2
 Ctrl+C mid-batch is non-atomic \(em like \fBrm\fR, already-trashed items stay trashed.
 .IP \(bu 2

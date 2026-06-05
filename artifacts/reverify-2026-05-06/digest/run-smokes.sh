@@ -69,6 +69,49 @@ run S19-string-mode "--string mode" "$BIN --sha256 -s 'literal value'"
 run S20-stdin-binary "binary stdin (round-2 fix)" "head -c 1024 /dev/urandom | $BIN --sha256"
 run S21-verify-with-stdin "--verify with stdin happy path" "echo -n 'hello' | $BIN --sha256 --verify '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824'"
 
+# ─── W: Windows glob expansion (Windows-only; skipped on Linux/macOS) ───
+IS_WINDOWS=false
+case "$(uname -s)" in MINGW*|CYGWIN*|MSYS*) IS_WINDOWS=true ;; esac
+
+if $IS_WINDOWS; then
+  GLOB_DIR="$DATA/glob-fixture"
+  rm -rf "$GLOB_DIR"
+  mkdir -p "$GLOB_DIR"
+  echo -n "aaa" > "$GLOB_DIR/a.txt"
+  echo -n "bbb" > "$GLOB_DIR/b.txt"
+
+  # W01: glob *.txt expands — tool receives literal pattern and expands it → two hash lines, exit 0
+  # Subshell cd prevents MSYS-style absolute path (/d/...) from reaching the tool; the tool
+  # sees only the relative bare pattern *.txt and expands it against its cwd.
+  run W01-glob-expand "glob *.txt expands to two files (exit 0)" "( cd '$GLOB_DIR' && '$BIN' --sha256 '*.txt' )"
+
+  # W02: quoted pattern via cmd.exe suppresses tool-side expansion → not-found, exit 125
+  # Must go via cmd.exe: bash expands *; pwsh strips quotes. We write a temporary .cmd batch
+  # so the cmd //c invocation avoids inline \" quoting issues — those reach cmd literally and
+  # produce "is not recognized" errors.
+  echo "=== W02-glob-quoted: quoted *.txt via cmd.exe suppresses expansion ==="
+  GLOB_DIR_WIN="$(cygpath -w "$GLOB_DIR")"
+  BIN_WIN="$(cygpath -w "$BIN")"
+  W02CMD="$(mktemp --suffix=.cmd)"
+  printf '@echo off\r\ncd /d "%s"\r\n"%s" --sha256 "*.txt"\r\n' "$GLOB_DIR_WIN" "$BIN_WIN" > "$W02CMD"
+  W02CMD_WIN="$(cygpath -w "$W02CMD")"
+  cmd //c "$W02CMD_WIN" \
+    >"$OUT/W02-glob-quoted.stdout" 2>"$OUT/W02-glob-quoted.stderr"
+  echo $? >"$OUT/W02-glob-quoted.exitcode"
+  rm -f "$W02CMD"
+  echo "  exit=$(cat "$OUT/W02-glob-quoted.exitcode")  stdout=$(wc -c <"$OUT/W02-glob-quoted.stdout")B  stderr=$(wc -c <"$OUT/W02-glob-quoted.stderr")B"
+
+  # W03: ** → usage error, exit 125
+  # Subshell-relative: avoids MSYS-path passthrough; tool sees literal **/*.txt from cwd.
+  run W03-double-star "** rejected with usage error (exit 125)" "( cd '$GLOB_DIR' && '$BIN' --sha256 '**/*.txt' )"
+
+  # W04: no-match pattern → literal passthrough → not-found, exit 125
+  # Subshell-relative: avoids MSYS-path passthrough; tool sees literal *.nope from cwd.
+  run W04-no-match "*.nope no-match → not-found (exit 125)" "( cd '$GLOB_DIR' && '$BIN' --sha256 '*.nope' )"
+else
+  echo "=== W: Windows glob expansion — SKIPPED (not Windows) ==="
+fi
+
 echo
 echo "=== Smoke run complete. Outputs in: $OUT ==="
 ls "$OUT" | wc -l

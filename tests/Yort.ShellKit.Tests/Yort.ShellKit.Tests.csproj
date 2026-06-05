@@ -10,6 +10,10 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.*" />
     <PackageReference Include="xunit" Version="2.*" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.*" />
+    <!-- Xunit.SkippableFact replaces silent early-return in platform-gated tests with a
+         proper 'Skipped' status in test output. Without it, tests that early-return on
+         the wrong OS show as 'Passed' in CI dashboards — a false positive. -->
+    <PackageReference Include="Xunit.SkippableFact" Version="1.*" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Yort.ShellKit\Yort.ShellKit.csproj" />
@@ -24,5 +28,10 @@
       <Private>false</Private>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>
+    <!-- ArgvEcho is the argv-oracle for RawCommandLineTokenizer tests. Content+CopyToOutputDirectory
+         copies the exe into the test output dir so tests find it via AppContext.BaseDirectory.
+         ReferenceOutputAssembly=false prevents linking to this exe as a code reference. -->
+    <ProjectReference Include="..\tools\ArgvEcho\ArgvEcho.csproj" ReferenceOutputAssembly="false"
+                      OutputItemType="Content" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

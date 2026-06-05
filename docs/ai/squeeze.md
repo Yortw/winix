@@ -131,3 +131,13 @@ Each entry in `files`:
 ```bash
 squeeze --describe
 ```
+
+## Glob expansion on Windows
+
+squeeze expands `*`/`?` in path positionals itself on Windows (cmd/pwsh don't).
+Support matrix: `*` and `?` in any segment — yes; `[...]` — matched literally
+(legal filename chars); `**` — usage error (use Git Bash for recursive patterns); no
+match — literal passthrough (normal "not found" follows). Quoted args are not
+expanded when launched from cmd; PowerShell strips quotes before launch, so
+prefer explicit paths there if a literal is required. On Unix the shell expands;
+the tool adds nothing. `--describe` exposes this as `glob_expansion`.

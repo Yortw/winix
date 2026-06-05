@@ -77,4 +77,31 @@ run S21-force-overwrite "--force overwrite existing .gz" "$BIN \"$DATA/hello.txt
 run S22-keep-remove-warning "--keep --remove warning" "$BIN \"$DATA/hello.txt\" -k --remove -f"
 run S23-output-empty "--output '' rejected" "$BIN -o '' \"$DATA/hello.txt\""
 
+# ─── W: Windows glob expansion (Windows-only; skipped on Linux/macOS) ───
+IS_WINDOWS=false
+case "$(uname -s)" in MINGW*|CYGWIN*|MSYS*) IS_WINDOWS=true ;; esac
+
+if $IS_WINDOWS; then
+  GLOB_DIR="$DATA/glob-fixture"
+  rm -rf "$GLOB_DIR"
+  mkdir -p "$GLOB_DIR"
+  echo -n "aaa" > "$GLOB_DIR/a.txt"
+  echo -n "bbb" > "$GLOB_DIR/b.txt"
+
+  # W01: glob *.txt expands — tool compresses both files, exit 0
+  # Subshell cd prevents MSYS-style absolute path (/d/...) from reaching the tool; the tool
+  # sees only the relative bare pattern *.txt and expands it against its cwd.
+  run W01-glob-expand "glob *.txt expands to two files (exit 0)" "( cd '$GLOB_DIR' && '$BIN' -k -f '*.txt' )"
+
+  # W02: ** → usage error, exit 2 (squeeze uses 2 for usage errors)
+  # Subshell-relative: avoids MSYS-path passthrough; tool sees literal **/*.txt from cwd.
+  run W02-double-star "** rejected with usage error (exit 2)" "( cd '$GLOB_DIR' && '$BIN' '**/*.txt' )"
+
+  # W03: no-match pattern → literal passthrough → not-found, non-zero exit
+  # Subshell-relative: avoids MSYS-path passthrough; tool sees literal *.nope from cwd.
+  run W03-no-match "*.nope no-match → not-found error" "( cd '$GLOB_DIR' && '$BIN' '*.nope' )"
+else
+  echo "=== W: Windows glob expansion — SKIPPED (not Windows) ==="
+fi
+
 echo "=== Smoke run complete ==="

@@ -79,6 +79,10 @@ Decompression (**-d**) auto-detects the format from magic bytes — the file ext
 | brotli | 0-11  | 6       | Higher levels much slower       |
 | zstd   | 1-22  | 3       | Fast default, excellent at high |
 
+# WILDCARDS
+
+On Windows, cmd.exe and PowerShell do not expand **\*** and **?** wildcards before starting programs, so **squeeze** expands them itself. **squeeze \*.log** works the same as in bash. **[...]** is matched literally (brackets are legal Windows filename characters). **\*\*** is rejected with a usage error — use Git Bash for recursive patterns. A pattern that matches nothing is passed through unchanged so the normal "not found" error follows. In cmd, quoting a pattern (e.g. _"\*.log"_) suppresses expansion. On Linux and macOS the shell expands wildcards as usual and **squeeze** does nothing extra.
+
 # EXIT CODES
 
 **0**

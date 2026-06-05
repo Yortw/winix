@@ -120,6 +120,19 @@ treex --describe
 | JSON output | No | `--ndjson` / `--json` |
 | Sort order | `name` only by default (most builds) | `name`, `size`, `modified` |
 
+## Wildcards on Windows
+
+cmd.exe and PowerShell don't expand `*`/`?` wildcards before starting programs, so
+treex expands them itself on Windows — `treex src*` works the same as in bash.
+`*` and `?` work in any path segment. `[...]` is matched literally (brackets are legal
+Windows filename characters), and `**` is rejected with an error — use the tool's own
+recursive options instead. A pattern that matches nothing is passed through unchanged,
+so you get the normal "not found" error. In cmd, quoting a pattern (`"src*"`)
+suppresses expansion; PowerShell removes quotes before treex sees them, so use `--%`
+there if you need a literal. On Linux/macOS your shell expands wildcards as usual and
+treex does nothing extra. `--glob`/`--regex` option values are matched by treex itself
+and are never expanded — only path positionals are.
+
 ## Exit Codes
 
 | Code | Meaning |

@@ -57,6 +57,14 @@ public sealed class CommandLineParser
     private bool _standardFlagsRegistered;
     private bool _parsed;
 
+    private bool _expandGlobPositionals;
+    private int _globSkipFirst;
+
+    // Test seams for glob expansion (precedent: ResolveColorCore). Null → production behaviour.
+    internal Func<bool>? GlobWindowsGateOverride;
+    internal Func<string?>? GlobRawCommandLineProvider;
+    internal GlobArgExpander? GlobExpanderOverride;
+
     /// <summary>
     /// Creates a new parser for the specified tool.
     /// </summary>
@@ -182,6 +190,27 @@ public sealed class CommandLineParser
     }
 
     /// <summary>
+    /// Opts this tool into Windows glob expansion of positional arguments. On Windows
+    /// (cmd.exe and PowerShell do not expand wildcards), positionals containing
+    /// <c>*</c> or <c>?</c> are expanded in-process before they reach
+    /// <see cref="ParseResult.Positionals"/>; on other platforms this is a no-op (the
+    /// shell has already expanded). A pattern matching nothing passes through literally;
+    /// <c>[...]</c> is never treated as a pattern; <c>**</c> produces a usage error.
+    /// Arguments quoted on the raw command line are not expanded (effective from cmd.exe;
+    /// PowerShell strips quotes before the process starts). Only opt in when ALL
+    /// positionals (after <paramref name="skipFirst"/>) are file paths — never for
+    /// subcommand verbs or cron expressions.
+    /// </summary>
+    /// <param name="skipFirst">Number of leading positionals to exempt (e.g. 1 for a subcommand verb).</param>
+    public CommandLineParser ExpandGlobPositionals(int skipFirst = 0)
+    {
+        ThrowIfParsed();
+        _expandGlobPositionals = true;
+        _globSkipFirst = skipFirst;
+        return this;
+    }
+
+    /// <summary>
     /// Registers the standard Winix CLI flags: --help, -h, --version, --color, --no-color, --json.
     /// </summary>
     public CommandLineParser StandardFlags()
@@ -298,6 +327,7 @@ public sealed class CommandLineParser
         var listValues = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         var errors = new List<string>();
         var positionals = new List<string>();
+        var positionalArgvIndices = new List<int>();
         var command = new List<string>();
         bool isHandled = false;
         int handledExitCode = 0;
@@ -318,6 +348,7 @@ public sealed class CommandLineParser
                     else
                     {
                         positionals.Add(args[j]);
+                        positionalArgvIndices.Add(j);
                     }
                 }
                 break;
@@ -338,6 +369,7 @@ public sealed class CommandLineParser
                 else
                 {
                     positionals.Add(arg);
+                    positionalArgvIndices.Add(i);
                     continue;
                 }
             }
@@ -548,6 +580,13 @@ public sealed class CommandLineParser
             handledExitCode = 0;
         }
 
+        if (_expandGlobPositionals && !_commandMode && !isHandled
+            && positionals.Count > _globSkipFirst
+            && (GlobWindowsGateOverride?.Invoke() ?? OperatingSystem.IsWindows()))
+        {
+            ExpandGlobPositionalsInPlace(args, positionals, positionalArgvIndices, errors);
+        }
+
         return new ParseResult(
             toolName: _toolName,
             version: _version,
@@ -616,6 +655,94 @@ public sealed class CommandLineParser
                 _optionalValueLookup[ov.ShortName] = ov;
             }
         }
+    }
+
+    private void ExpandGlobPositionalsInPlace(string[] args, List<string> positionals,
+        List<int> argvIndices, List<string> errors)
+    {
+        bool[]? quoted = TryGetQuotedFlags(args);
+        GlobArgExpander expander = GlobExpanderOverride ?? new GlobArgExpander();
+        var result = new List<string>(positionals.Count);
+
+        for (int p = 0; p < positionals.Count; p++)
+        {
+            string value = positionals[p];
+            if (p < _globSkipFirst)
+            {
+                result.Add(value);
+                continue;
+            }
+
+            // quoted == null → raw line unavailable/misaligned → fail OPEN (expand). A quoted
+            // glob falling back to expansion is benign (a '*'-bearing literal can never name a
+            // real Windows file); silently disabling expansion would be an invisible outage.
+            if (quoted is not null && quoted[argvIndices[p]])
+            {
+                result.Add(value);
+                continue;
+            }
+
+            GlobExpansionResult expansion = expander.Expand(value);
+            switch (expansion.Kind)
+            {
+                case GlobExpansionKind.Expanded:
+                    result.AddRange(expansion.Matches);
+                    break;
+                case GlobExpansionKind.UnsupportedRecursive:
+                    errors.Add($"recursive glob '**' is not supported in argument expansion: {value} (use the tool's recursive options, or 'files' to find files recursively)");
+                    result.Add(value);
+                    break;
+                default: // NotAPattern, NoMatch → literal passthrough
+                    result.Add(value);
+                    break;
+            }
+        }
+
+        positionals.Clear();
+        positionals.AddRange(result);
+    }
+
+    /// <summary>
+    /// Maps each argv index to whether that token was quoted on the raw command line.
+    /// Returns null (caller fails open) when the raw line is unavailable or does not
+    /// align with args — e.g. <c>dotnet tool.dll args</c> hosting, or a tokenizer gap.
+    /// </summary>
+    /// <remarks>
+    /// Uses <see cref="NativeCommandLine.Get"/> (P/Invoke <c>GetCommandLineW</c>) rather than
+    /// <c>Environment.CommandLine</c>. On .NET Core, <c>Environment.CommandLine</c> is
+    /// <c>GetCommandLineArgs()</c> re-joined with spaces — quote information is destroyed,
+    /// so quoting detection would silently see every token as unquoted (verified 2026-06-05).
+    /// </remarks>
+    private bool[]? TryGetQuotedFlags(string[] args)
+    {
+        string? raw = GlobRawCommandLineProvider is not null
+            ? GlobRawCommandLineProvider()
+            : NativeCommandLine.Get();
+        if (string.IsNullOrEmpty(raw))
+        {
+            return null;
+        }
+
+        IReadOnlyList<CommandLineToken> tokens = RawCommandLineTokenizer.Tokenize(raw);
+        if (tokens.Count != args.Length + 1) // + argv[0]
+        {
+            return null;
+        }
+        for (int i = 0; i < args.Length; i++)
+        {
+            // Text alignment too, not just count — belt-and-braces against rule drift.
+            if (!string.Equals(tokens[i + 1].Text, args[i], StringComparison.Ordinal))
+            {
+                return null;
+            }
+        }
+
+        var quoted = new bool[args.Length];
+        for (int i = 0; i < args.Length; i++)
+        {
+            quoted[i] = tokens[i + 1].WasQuoted;
+        }
+        return quoted;
     }
 
     internal string GenerateHelp()
@@ -720,6 +847,16 @@ public sealed class CommandLineParser
             }
         }
 
+        if (_expandGlobPositionals && !_commandMode)
+        {
+            sb.AppendLine();
+            sb.AppendLine("Wildcards (Windows):");
+            sb.AppendLine($"  On Windows, * and ? in path arguments are expanded by {_toolName} itself");
+            sb.AppendLine("  (cmd and PowerShell don't expand them). [...] is matched literally and");
+            sb.AppendLine("  '**' is not supported. A pattern matching nothing is passed through");
+            sb.AppendLine("  unchanged. In cmd, quote the pattern to suppress expansion.");
+        }
+
         // Examples (same data the --describe JSON carries; rendered here so --help is self-contained)
         if (_examples.Count > 0)
         {
@@ -817,6 +954,28 @@ public sealed class CommandLineParser
                 {
                     writer.WriteString("value_on_unix", _platformValueUnix);
                 }
+                writer.WriteEndObject();
+            }
+
+            // glob_expansion — gate on !_commandMode to match the runtime hook and --help
+            // section, so a misconfigured CommandMode tool can't advertise a capability
+            // the runtime never applies (quality-review finding, Tasks 6-7).
+            if (_expandGlobPositionals && !_commandMode)
+            {
+                writer.WriteStartObject("glob_expansion");
+                writer.WriteBoolean("positionals", true);
+                if (_globSkipFirst > 0)
+                {
+                    writer.WriteNumber("skip_first", _globSkipFirst);
+                }
+                writer.WriteString("syntax", "* and ? in any path segment");
+                writer.WriteStartArray("not_patterns");
+                writer.WriteStringValue("[...] (matched literally; legal Windows filename chars)");
+                writer.WriteStringValue("** (rejected with usage error)");
+                writer.WriteEndArray();
+                writer.WriteString("no_match", "literal passthrough");
+                writer.WriteString("quoting", "quoted args not expanded (effective from cmd; PowerShell strips quotes)");
+                writer.WriteBoolean("windows_only", true);
                 writer.WriteEndObject();
             }
 

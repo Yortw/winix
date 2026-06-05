@@ -230,6 +230,7 @@ public static class Cli
         return new CommandLineParser("less", version)
             .Description("Display file contents one screen at a time with scrolling, search, and ANSI colour passthrough.")
             .StandardFlags()
+            .ExpandGlobPositionals()
             .Flag("-N", "Show line numbers")
             .Flag("-S", "Chop (truncate) long lines instead of wrapping")
             .Flag("-F", "Quit if content fits on one screen (default: on)")

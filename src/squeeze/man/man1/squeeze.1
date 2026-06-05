@@ -115,6 +115,21 @@ T}@T{
 Fast default, excellent at high
 T}
 .TE
+.SH WILDCARDS
+On Windows, cmd.exe and PowerShell do not expand \f[B]*\f[R] and
+\f[B]?\f[R] wildcards before starting programs, so \f[B]squeeze\f[R]
+expands them itself.
+\f[B]squeeze *.log\f[R] works the same as in bash.
+\f[B][\&...]\f[R] is matched literally (brackets are legal Windows
+filename characters).
+\f[B]**\f[R] is rejected with a usage error \(em use Git Bash for
+recursive patterns.
+A pattern that matches nothing is passed through unchanged so the normal
+\(lqnot found\(rq error follows.
+In cmd, quoting a pattern (e.g.\ \f[I]\(lq*.log\(rq\f[R]) suppresses
+expansion.
+On Linux and macOS the shell expands wildcards as usual and
+\f[B]squeeze\f[R] does nothing extra.
 .SH EXIT CODES
 .TP
 \f[B]0\f[R]

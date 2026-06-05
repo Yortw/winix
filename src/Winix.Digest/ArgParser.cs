@@ -370,6 +370,7 @@ public static class ArgParser
         return new CommandLineParser("digest", ResolveVersion())
             .Description(description)
             .StandardFlags()
+            .ExpandGlobPositionals()
             .Platform("cross-platform",
                 replaces: new[] { "sha256sum", "md5sum", "openssl dgst" },
                 valueOnWindows: "Native gap-fill — Windows has no first-class HMAC CLI; certutil and Get-FileHash don't cover HMAC; openssl requires a separate install.",
