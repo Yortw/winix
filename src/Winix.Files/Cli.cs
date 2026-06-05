@@ -402,6 +402,7 @@ public static class Cli
         return new CommandLineParser("files", version)
             .Description("Find files by name, size, date, type, and content.")
             .StandardFlags()
+            .ExpandGlobPositionals()
             .Positional("paths...")
             .ListOption("--glob", "-g", "PATTERN", "Match filenames against glob")
             .ListOption("--regex", "-e", "PATTERN", "Match filenames against regex")

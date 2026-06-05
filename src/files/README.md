@@ -136,6 +136,19 @@ files . --glob '*.log' --print0 | xargs -0 rm
 | JSON output | No | `--ndjson` / `--json` (both stdout, pipe-friendly) |
 | Windows | Not available | Yes |
 
+## Wildcards on Windows
+
+cmd.exe and PowerShell don't expand `*`/`?` wildcards before starting programs, so
+files expands them itself on Windows — `files src*` works the same as in bash.
+`*` and `?` work in any path segment. `[...]` is matched literally (brackets are legal
+Windows filename characters), and `**` is rejected with an error — use the tool's own
+recursive options instead. A pattern that matches nothing is passed through unchanged,
+so you get the normal "not found" error. In cmd, quoting a pattern (`"src*"`)
+suppresses expansion; PowerShell removes quotes before files sees them, so use `--%`
+there if you need a literal. On Linux/macOS your shell expands wildcards as usual and
+files does nothing extra. `--glob`/`--regex` option values are matched by files itself
+and are never expanded — only path positionals are.
+
 ## Exit Codes
 
 | Code | Meaning |
