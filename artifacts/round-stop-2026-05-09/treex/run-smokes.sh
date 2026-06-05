@@ -172,6 +172,29 @@ run C27a-dirs-only "-D shows only directories" "$BIN -D \"$FIX\""
 # ─── C28: --size rollup ───
 run C28a-size-rollup "--size includes rollups" "$BIN --size \"$FIX\""
 
+# ─── W: Windows glob expansion (Windows-only; skipped on Linux/macOS) ───
+IS_WINDOWS=false
+case "$(uname -s)" in MINGW*|CYGWIN*|MSYS*) IS_WINDOWS=true ;; esac
+
+if $IS_WINDOWS; then
+  GLOB_DIR="$DATA/glob-fixture"
+  rm -rf "$GLOB_DIR"
+  mkdir -p "$GLOB_DIR/one" "$GLOB_DIR/two"
+  echo "aaa" > "$GLOB_DIR/one/f.txt"
+  echo "bbb" > "$GLOB_DIR/two/g.txt"
+
+  # W01: glob * expands — treex receives two dir roots and trees each, exit 0
+  run W01-glob-expand "glob * expands to two dir roots (exit 0)" "$BIN '$GLOB_DIR/*'"
+
+  # W02: ** → usage error, exit 125
+  run W02-double-star "** rejected with usage error (exit 125)" "$BIN '$GLOB_DIR/**'"
+
+  # W03: no-match pattern → literal passthrough → not-found, exit 1
+  run W03-no-match "*.nope no-match → not-found (exit 1)" "$BIN '$GLOB_DIR/*.nope'"
+else
+  echo "=== W: Windows glob expansion — SKIPPED (not Windows) ==="
+fi
+
 echo
 echo "=== Smoke run complete. Outputs in: $OUT ==="
 ls "$OUT" | wc -l

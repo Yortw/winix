@@ -127,8 +127,7 @@ public class GlobArgExpanderTests
     public void EnumerationFailure_IsNoMatch()
     {
         var boom = new GlobArgExpander(_ => throw new UnauthorizedAccessException("nope"));
-        // The DEFAULT enumerator swallows; the seam contract is "throw = let it surface"?
-        // No: the expander itself must guard, so a custom seam may throw too.
+        // Expand() guards around the seam call itself, so both the default enumerator and custom test seams get the same swallow contract when they throw.
         // NOTE (review F2, explicit defer): this includes access-denied on the user-typed
         // literal prefix — it reads as "not found" downstream, same as bash. See ADR.
         Assert.Equal(GlobExpansionKind.NoMatch, boom.Expand("*.txt").Kind);

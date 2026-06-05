@@ -689,7 +689,7 @@ public sealed class CommandLineParser
                     result.AddRange(expansion.Matches);
                     break;
                 case GlobExpansionKind.UnsupportedRecursive:
-                    errors.Add($"recursive glob '**' is not supported in argument expansion: {value} (use the tool's recursive matching options instead)");
+                    errors.Add($"recursive glob '**' is not supported in argument expansion: {value} (use the tool's recursive options, or 'files' to find files recursively)");
                     result.Add(value);
                     break;
                 default: // NotAPattern, NoMatch → literal passthrough

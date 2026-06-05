@@ -176,6 +176,35 @@ smoke_stdin U05 "empty stdin pipe" /dev/null -- "$LESS_EXE"
 # Manual section noted in artifact
 echo "[M01-M08 SKIPPED] Interactive — require TTY harness; see SUITE-DESIGN.md M section." > "$RES/M_NOTE.txt"
 
+# ----- W: Windows glob expansion (Windows-only; skipped on Linux/macOS) -----
+
+IS_WINDOWS=false
+case "$(uname -s)" in MINGW*|CYGWIN*|MSYS*) IS_WINDOWS=true ;; esac
+
+if $IS_WINDOWS; then
+  WGLOB="$TMP/glob-fixture"
+  rm -rf "$WGLOB"
+  mkdir -p "$WGLOB"
+  echo "ccc" > "$WGLOB/c.log"
+  echo "aaa" > "$WGLOB/a.txt"
+  echo "bbb" > "$WGLOB/b.txt"
+
+  # W01: *.log expands to single file — less pages/dumps it, exit 0
+  # Double-quoted $WGLOB/*.log: bash doesn't glob-expand inside ""; tool receives the literal.
+  smoke W01 "*.log expands to single match (exit 0)" -- "$LESS_EXE" "$WGLOB/*.log"
+
+  # W02: *.txt expands to two files — less rejects multi-file positional, exit 2
+  smoke W02 "*.txt expands to two files → multi-file error (exit 2)" -- "$LESS_EXE" "$WGLOB/*.txt"
+
+  # W03: ** → usage error, exit 2 (less uses 2 for usage errors per POSIX convention)
+  smoke W03 "** rejected with usage error (exit 2)" -- "$LESS_EXE" "$WGLOB/**"
+
+  # W04: no-match pattern → not-found, exit 1
+  smoke W04 "*.nope no-match → not-found (exit 1)" -- "$LESS_EXE" "$WGLOB/*.nope"
+else
+  echo "[W01-W04 SKIPPED] Windows glob expansion — not Windows."
+fi
+
 echo
 echo "==== Done. Results in $RES/ ===="
 ls "$RES" | wc -l

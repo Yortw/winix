@@ -120,8 +120,8 @@ Default (trash) mode emits `{"trashed":N,"failed":[…]}`:
 cmd.exe and PowerShell don't expand `*`/`?` wildcards before starting programs, so
 trash expands them itself on Windows — `trash *.log` works the same as in bash.
 `*` and `?` work in any path segment. `[...]` is matched literally (brackets are legal
-Windows filename characters), and `**` is rejected with an error — use the tool's own
-recursive options instead. A pattern that matches nothing is passed through unchanged,
+Windows filename characters), and `**` is rejected with an error — use Git Bash for
+recursive patterns. A pattern that matches nothing is passed through unchanged,
 so you get the normal "not found" error. In cmd, quoting a pattern (`"*.log"`)
 suppresses expansion; PowerShell removes quotes before trash sees them, so use `--%`
 there if you need a literal. On Linux/macOS your shell expands wildcards as usual and

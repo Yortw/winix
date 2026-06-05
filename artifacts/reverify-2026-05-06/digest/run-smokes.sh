@@ -69,6 +69,41 @@ run S19-string-mode "--string mode" "$BIN --sha256 -s 'literal value'"
 run S20-stdin-binary "binary stdin (round-2 fix)" "head -c 1024 /dev/urandom | $BIN --sha256"
 run S21-verify-with-stdin "--verify with stdin happy path" "echo -n 'hello' | $BIN --sha256 --verify '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824'"
 
+# ─── W: Windows glob expansion (Windows-only; skipped on Linux/macOS) ───
+IS_WINDOWS=false
+case "$(uname -s)" in MINGW*|CYGWIN*|MSYS*) IS_WINDOWS=true ;; esac
+
+if $IS_WINDOWS; then
+  GLOB_DIR="$DATA/glob-fixture"
+  rm -rf "$GLOB_DIR"
+  mkdir -p "$GLOB_DIR"
+  echo -n "aaa" > "$GLOB_DIR/a.txt"
+  echo -n "bbb" > "$GLOB_DIR/b.txt"
+
+  # W01: glob *.txt expands — tool receives literal pattern and expands it → two hash lines, exit 0
+  # Single-quote the glob inside the eval string so bash passes it literally to the tool.
+  run W01-glob-expand "glob *.txt expands to two files (exit 0)" "$BIN --sha256 '$GLOB_DIR/*.txt'"
+
+  # W02: quoted pattern via cmd.exe suppresses tool-side expansion → not-found, exit 125
+  # Must go via cmd.exe: bash would expand; pwsh strips quotes. Inline to avoid eval-quoting
+  # complexity with cmd //c + dynamic paths. cygpath converts to Windows-style separators.
+  echo "=== W02-glob-quoted: quoted *.txt via cmd.exe suppresses expansion ==="
+  GLOB_DIR_WIN="$(cygpath -w "$GLOB_DIR")"
+  BIN_WIN="$(cygpath -w "$BIN")"
+  cmd //c "\"$BIN_WIN\" --sha256 \"$GLOB_DIR_WIN\\*.txt\"" \
+    >"$OUT/W02-glob-quoted.stdout" 2>"$OUT/W02-glob-quoted.stderr"
+  echo $? >"$OUT/W02-glob-quoted.exitcode"
+  echo "  exit=$(cat "$OUT/W02-glob-quoted.exitcode")  stdout=$(wc -c <"$OUT/W02-glob-quoted.stdout")B  stderr=$(wc -c <"$OUT/W02-glob-quoted.stderr")B"
+
+  # W03: ** → usage error, exit 125
+  run W03-double-star "** rejected with usage error (exit 125)" "$BIN --sha256 '$GLOB_DIR/**/*.txt'"
+
+  # W04: no-match pattern → literal passthrough → not-found, exit 125
+  run W04-no-match "*.nope no-match → not-found (exit 125)" "$BIN --sha256 '$GLOB_DIR/*.nope'"
+else
+  echo "=== W: Windows glob expansion — SKIPPED (not Windows) ==="
+fi
+
 echo
 echo "=== Smoke run complete. Outputs in: $OUT ==="
 ls "$OUT" | wc -l
