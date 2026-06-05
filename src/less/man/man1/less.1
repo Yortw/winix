@@ -107,6 +107,33 @@ Toggle line numbers.
 .TP
 \f[B]\-S\f[R]
 Toggle line chopping.
+
+.SH WILDCARDS
+On Windows, cmd.exe and PowerShell do not expand
+.B *
+and
+.B ?
+wildcards before starting programs, so
+.B less
+expands them itself.
+.B less\ *.log
+works the same as in bash.
+.B [...]
+is matched literally (brackets are legal Windows filename characters).
+.B **
+is rejected with a usage error \(em
+.B less
+has no recursive mode; use
+.B files
+to find files recursively.
+A pattern that matches nothing is passed through unchanged so the normal
+\(lqnot found\(rq error follows.
+In cmd, quoting a pattern (e.g.\&
+.IR \(dq*.log\(dq )
+suppresses expansion.
+On Linux and macOS the shell expands wildcards as usual and
+.B less
+does nothing extra.
 .SH EXIT CODES
 .TP
 \f[B]0\f[R]

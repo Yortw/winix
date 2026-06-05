@@ -113,6 +113,18 @@ The `LESS` environment variable controls default options. Three states are disti
 
 This matches the behaviour of traditional `less` implementations. (Pre-v0.3.0, "unset" and "empty" were conflated and both gave defaults; the empty-disables semantics is now correctly honoured.)
 
+## Wildcards on Windows
+
+cmd.exe and PowerShell don't expand `*`/`?` wildcards before starting programs, so
+less expands them itself on Windows — `less *.log` works the same as in bash.
+`*` and `?` work in any path segment. `[...]` is matched literally (brackets are legal
+Windows filename characters), and `**` is rejected with an error — `less` has no
+recursive mode; use `files` to find files recursively. A pattern that matches nothing
+is passed through unchanged, so you get the normal "not found" error. In cmd, quoting
+a pattern (`"*.log"`) suppresses expansion; PowerShell removes quotes before less sees
+them, so use `--%` there if you need a literal. On Linux/macOS your shell expands
+wildcards as usual and less does nothing extra.
+
 ## Exit Codes
 
 | Code | Meaning |

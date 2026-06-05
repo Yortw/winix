@@ -117,3 +117,13 @@ Three distinct states (v0.3.0 semantics — pre-fix conflated unset and empty):
 - **Set, empty (`LESS=`)**: disables all defaults. Every option must come from CLI flags.
 
 Recommended: leave `LESS` unset and use flags explicitly when you need different behaviour.
+
+## Glob expansion on Windows
+
+less expands `*`/`?` in path positionals itself on Windows (cmd/pwsh don't).
+Support matrix: `*` and `?` in any segment — yes; `[...]` — matched literally
+(legal filename chars); `**` — usage error (use `files` for recursive search); no
+match — literal passthrough (normal "not found" follows). Quoted args are not
+expanded when launched from cmd; PowerShell strips quotes before launch, so
+prefer explicit paths there if a literal is required. On Unix the shell expands;
+the tool adds nothing. `--describe` exposes this as `glob_expansion`.
