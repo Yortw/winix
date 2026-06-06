@@ -192,7 +192,7 @@ internal sealed class Program
             .JsonField("wall_seconds", "float", "(--json summary) Wall-clock duration of the wargs run in seconds — NOT the sum of per-job durations (under -P parallel jobs overlap, so wall_seconds is closer to max(per-job durations) plus dispatch overhead). (--ndjson per-job) Per-job wall-clock duration in seconds.")
             .JsonField("faults", "object[]|null", "(--json summary) Per-job fault diagnostics; present only when at least one job carries a FaultMessage. Each entry is {job: int, message: string}.")
             .JsonField("job", "int", "(--ndjson per-job) 1-based job index of this line")
-            .JsonField("child_exit_code", "int", "(--ndjson per-job) Child process exit code; -1 on spawn failure")
+            .JsonField("child_exit_code", "int", "(--ndjson per-job) Child process exit code. -1 only on a TRUE spawn failure (--no-shell-fallback, or the fallback shell itself failing to start) — under the default shell fallback a not-found command is retried via sh -c / cmd /c, so the shell's exit code (127 / 9009) appears here instead, with no fault_message.")
             .JsonField("input", "string|string[]", "(--ndjson per-job) Source item(s) — string when --batch=1, array when batched")
             .JsonField("fault_message", "string|null", "(--ndjson per-job) Spawn/task fault diagnostic; omitted on normal paths");
 

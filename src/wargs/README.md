@@ -133,7 +133,7 @@ dir /b *.log | wargs del {}
 | Code | Meaning |
 |------|---------|
 | 0 | All jobs succeeded |
-| 123 | One or more child processes failed (or could not be spawned). Per-job spawn failures surface in `fault_message` rather than as a separate exit code — wargs intentionally collapses spawn failures into 123 + per-job diagnostic. |
+| 123 | One or more child processes failed (or could not be spawned). Per-job spawn failures surface in `fault_message` rather than as a separate exit code — wargs intentionally collapses spawn failures into 123 + per-job diagnostic. With the default shell fallback, a not-found command reports the fallback shell's exit code (127 sh / 9009 cmd) rather than a spawn failure; -1/fault_message appear only with --no-shell-fallback or when the shell itself cannot start. |
 | 124 | Aborted due to `--fail-fast` |
 | 125 | Usage error (bad arguments) |
 | 126 | Internal/IO failure: stdin read failed, or unexpected exception escaped to safety net |

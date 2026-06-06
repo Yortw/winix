@@ -91,7 +91,7 @@ files . --ext log --older 7d | wargs squeeze --gzip --remove
 
 **`{}` is auto-detected — no `-I{}` required.** If the command template contains `{}`, each item replaces the placeholder. If not, items are appended as trailing arguments. This differs from `xargs` which requires `-I{}` to enable placeholder mode.
 
-**Shell fallback for builtins.** On Windows, commands like `echo`, `del`, `type` do not exist as standalone executables. `wargs` automatically retries via `cmd /c` if a command fails to launch. On Unix, it retries via `sh -c`. Use `--no-shell-fallback` to disable this and require standalone executables only.
+**Shell fallback for builtins.** On Windows, commands like `echo`, `del`, `type` do not exist as standalone executables. `wargs` automatically retries via `cmd /c` if a command fails to launch. On Unix, it retries via `sh -c`. Use `--no-shell-fallback` to disable this and require standalone executables only. Consequence for exit codes: a typo'd command under the default fallback yields the shell's 127/9009 as child_exit_code, not a spawn failure; -1 + fault_message require --no-shell-fallback.
 
 **NDJSON goes to stderr.** Both `--json` (summary) and `--ndjson` (per-job streaming) write to stderr to keep stdout clean for piped child output. Redirect `2>&1` when you need to capture them.
 
