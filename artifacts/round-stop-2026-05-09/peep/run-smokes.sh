@@ -36,5 +36,29 @@ run P01 "--once with --json" "$BIN" --once --json -- bash -c "echo a"
 run P02 "--interval invalid" "$BIN" --interval not-a-duration -- bash -c "echo a"
 run P03 "--exit-on-change one-shot" "$BIN" --once --exit-on-change -- bash -c "echo a"
 
+# ── Capability-surface additions (2026-06-06) ──
+# P04: --json-output implies a JSON error envelope on early-return paths even without --json
+# (R5 SFH I1 bridging). Probed on the AOT binary 2026-06-06:
+#   exit 125, stderr = {"tool":"peep",...,"exit_code":125,"exit_reason":"usage_error"}
+run P04 "--json-output bridging: no command -> JSON envelope" "$BIN" --json-output
+
+# P05: once-mode SIGINT cancellation (the OperationCanceledException arm; kill-on-cancel
+# must terminate the child promptly).
+# EXPECTED RESULT: exit file = 124 AND stderr envelope = {"...,"exit_code":130,"exit_reason":"cancelled"}.
+# The 124 is GNU timeout's OWN semantics — when it reaches the limit and sends the signal,
+# it reports 124 regardless of the child's subsequent exit code (debugged 2026-06-06:
+# peep exits 130 ~340ms after the INT; nothing lingers). The envelope is therefore the
+# load-bearing assertion: "cancelled" proves the OCE arm ran; a WEDGED cancel path shows
+# up as a missing/absent envelope and a ~5s wall time instead of ~2.3s.
+# Linux-only: MSYS cannot deliver SIGINT to a native Windows exe (translates to a hard
+# terminate, never reaching CancelKeyPress), so on Windows this path is covered by the
+# manual real-terminal Ctrl+C smoke instead.
+if [ "$(uname -s)" = "Linux" ]; then
+  run P05 "once-mode SIGINT cancel -> cancelled envelope (exit 124 = timeout's own code)" timeout -s INT 2 "$BIN" --once --json -- sleep 20
+else
+  echo "=== P05: SKIPPED (Windows: no SIGINT delivery to native exe from this harness) ==="
+  echo "skipped" > "$OUT/P05.exit"
+fi
+
 echo
 echo "==== peep done: $(ls $OUT | wc -l) result files ===="
