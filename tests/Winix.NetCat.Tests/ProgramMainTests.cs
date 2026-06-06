@@ -10,8 +10,9 @@ namespace Winix.NetCat.Tests;
 /// <summary>
 /// Integration tests that spawn the compiled nc binary (via <c>dotnet nc.dll</c>) and assert on
 /// its real stdout/stderr/exit code. Same pattern as retry and envvault — in-process library
-/// tests can't detect Program.cs regressions (hand-rolled introspection shims, dropped
-/// JsonField registrations, arg-parse error arms that never fire).
+/// tests can't detect entry-point regressions (hand-rolled introspection shims, dropped
+/// JsonField registrations, arg-parse error arms that never fire). Parsing now lives in
+/// Cli.RunAsync; Program.Main is a thin shell.
 /// </summary>
 public class ProgramMainTests
 {
@@ -105,8 +106,8 @@ public class ProgramMainTests
                 advertisedLongs.Add(lo.GetString()!);
             }
         }
-        // Every flag Program.cs registers must be advertised. A dropped .Flag line is invisible
-        // otherwise — same defect class that hit retry's round-6 review.
+        // Every flag the parser (Cli.RunAsync) registers must be advertised. A dropped .Flag line
+        // is invisible otherwise — same defect class that hit retry's round-6 review.
         foreach (string required in new[]
             {
                 "--listen", "--check", "--udp", "--tls", "--insecure",
