@@ -16,6 +16,7 @@
 - Preserve every moved comment VERBATIM (each encodes a past review finding); only file/location references inside comments may be updated.
 - `Winix.Peep` already references `Yort.ShellKit` and grants `InternalsVisibleTo` to both `peep` and `Winix.Peep.Tests` — no csproj changes.
 - Full braces; XML docs on public members (warnings-as-errors); Bash tool blocks `&&`/`;` (separate calls or one `bash -c '…'`); commit per task, no Co-Authored-By.
+- **No blocking-on-async anywhere** (adversarial-review F3): `.Result`/`.Wait()`/`.GetAwaiter().GetResult()` are forbidden in the seam, Main, and seam tests — `RunAsync` is awaited throughout (`Main` is `async Task<int>`; xUnit tests are `async Task`). This is what keeps the suite's first async seam deadlock-free under xUnit's null `SynchronizationContext`; do not add synchronous shims.
 - **Probed contracts (2026-06-06, pre-refactor Debug binary) — pinned, do not soften:** `peep --once -- ""` → exit 126, stderr `peep: permission denied: ` (typed `CommandNotExecutableException` arm — NOT the catch-all; differs from retry); `peep --once --json -- ""` → stderr envelope `{"tool":"peep","version":"…","exit_code":126,"exit_reason":"command_not_executable"}`, exit 126.
 
 ---
@@ -263,12 +264,14 @@ public class CliRunAsyncTests
         return all;
     }
 
-    /// <summary>Child that sleeps ~10s (cancellation tests — long child is load-bearing).</summary>
+    /// <summary>Child that sleeps ~30s (cancellation tests — long child is load-bearing;
+    /// 30s rather than 10s so the killed-vs-ran-to-completion gap is unambiguous even on a
+    /// saturated CI runner — adversarial-review F2).</summary>
     private static string[] SleepChild(params string[] flagsBeforeOnce)
     {
         string[] cmd = OperatingSystem.IsWindows()
-            ? new[] { "--once", "--", "cmd.exe", "/c", "ping -n 10 127.0.0.1 > NUL" }
-            : new[] { "--once", "--", "/bin/sh", "-c", "sleep 10" };
+            ? new[] { "--once", "--", "cmd.exe", "/c", "ping -n 30 127.0.0.1 > NUL" }
+            : new[] { "--once", "--", "/bin/sh", "-c", "sleep 30" };
         var all = new string[flagsBeforeOnce.Length + cmd.Length];
         flagsBeforeOnce.CopyTo(all, 0);
         cmd.CopyTo(all, flagsBeforeOnce.Length);
@@ -464,7 +467,10 @@ public class CliRunAsyncTests
         Assert.Equal(130, exit);
         using var doc = JsonDocument.Parse(stderr.ToString());
         Assert.Equal("cancelled", doc.RootElement.GetProperty("exit_reason").GetString());
-        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(8),
+        // Coarse LIVENESS bound, not a perf assertion (adversarial-review F2): it only needs
+        // to sit well under the child's 30s sleep so killed-vs-ran-to-completion is
+        // unambiguous, with generous headroom for a saturated CI runner.
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(15),
             $"cancel→kill took {sw.Elapsed} — child was not killed promptly");
     }
 }
@@ -589,12 +595,25 @@ gh workflow run ci.yml --repo Yortw/winix --ref feature/cli-seam-peep
 ### Task 6: Main-session verification gates (NOT for subagents)
 
 - [ ] WSL: `wsl bash -lc "dotnet test /mnt/d/projects/winix/tests/Winix.Peep.Tests --nologo -v quiet"` — cancellation tests under Linux kill semantics are the watch items.
+- [ ] **Live interactive Ctrl+C smoke (adversarial-review F1 — the one behaviour delta in this change):** run interactive `peep -- git status` in a real terminal on Windows AND under WSL, press Ctrl+C, confirm clean teardown — single quit, alternate buffer restored, no ObjectDisposedException, exit code as before. This observes the now-always-registered Main handler coexisting with the session's internal handler, which cannot be automated (static event + xunit).
 - [ ] Smoke fixture re-run on refreshed AOT binaries, Windows AND Linux (locate: `ls artifacts/*/peep/run-smokes.sh`; republish win-x64 from Windows, linux-x64 from inside WSL; retarget BIN/OUT via copies in tmp/, never edit the committed fixture).
 - [ ] 3-OS CI green on the feature branch.
 - [ ] Whole-feature fresh-eyes review (full branch diff).
 - [ ] Merge `--no-ff` into `release/v0.4.0`; push; post-merge CI watch; delete feature branch; memory update (backlog 3 → 2 remaining; flake-hardening recorded).
 
 ---
+
+## Adversarial-review integration record (pass 1, 2026-06-06)
+
+Fresh-subagent review (plan + design + ADR + inherited phase-1 docs): **0 blockers, 2 test gaps, 1 explicit defer**. Dispositions:
+
+| Finding | Disposition |
+|---|---|
+| F1 (defer) — interactive Ctrl+C double-handler delta unpinned | **Accepted.** Live interactive Ctrl+C smoke (Windows + WSL) added to Task 6 — the one behaviour delta gets a real observation, not inspection-only. |
+| F2 (test gap) — MidWaitCancel 8s wall-clock assert flake surface | **Accepted, option (b).** SleepChild lengthened to ~30s; threshold widened to 15s and documented as a coarse liveness bound, not a perf assertion. |
+| F3 (test gap) — async-seam deadlock-safety invariant unstated | **Accepted.** "No blocking-on-async" hard rule added (seam, Main, tests) with the null-SynchronizationContext rationale. |
+
+Convergence: 0 blockers; all integrations are a constant change, a checklist line, and a rule line — no structural plan change and no new substantive test logic. Second pass not warranted (the optional confirmation pass exists for integrations that add new material; these do not). Review complete within the two-pass bound.
 
 ## Self-review record (plan author, 2026-06-06)
 
