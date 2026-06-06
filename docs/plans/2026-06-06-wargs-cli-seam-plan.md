@@ -24,7 +24,35 @@
 
 ---
 
-### Task 0: Baseline capture (stream-separated) + test count
+### Task -1: Doc clarification — connect shell fallback to `child_exit_code` (found during planning)
+
+**Context:** The `--describe` field says `child_exit_code: … -1 on spawn failure` — TRUE, but disconnected from the shell-fallback docs: with the DEFAULT fallback, a not-found command is retried via the shell, which spawns fine and exits 127 (sh) / 9009 (cmd) — so users (and this plan's first draft) reasonably but wrongly expect `-1` for a typo'd command. Probed 2026-06-06. This task runs BEFORE Task 0 because it changes `--describe` output (baselines must capture the post-fix text).
+
+**Files:**
+- Modify: `src/wargs/Program.cs` (the `child_exit_code` JsonField — it moves to Cli.cs verbatim in Task 1 afterwards)
+- Modify: `src/wargs/README.md` (exit-code 123 row)
+- Modify: `docs/ai/wargs.md` (the shell-fallback paragraph)
+
+- [ ] **Step 1:** In `src/wargs/Program.cs`, change the `child_exit_code` JsonField description from:
+`"(--ndjson per-job) Child process exit code; -1 on spawn failure"`
+to:
+`"(--ndjson per-job) Child process exit code. -1 only on a TRUE spawn failure (with --no-shell-fallback, or when the fallback shell itself cannot start) — under the default shell fallback a not-found command is retried via sh -c / cmd /c, so the SHELL's exit code (127 / 9009) appears here instead, with no fault_message."`
+(Match the exact current text when editing — paraphrase above; the field text is one string in the `.JsonField("child_exit_code", …)` call.)
+
+- [ ] **Step 2:** In `src/wargs/README.md`, extend the 123 exit-code row's note with one sentence: `With the default shell fallback, a not-found command reports the fallback shell's exit code (127 sh / 9009 cmd) rather than a spawn failure; -1/fault_message appear only with --no-shell-fallback or when the shell itself cannot start.`
+
+- [ ] **Step 3:** In `docs/ai/wargs.md`, append to the shell-fallback paragraph: `Consequence for exit codes: a typo'd command under the default fallback yields the shell's 127/9009 as child_exit_code, not a spawn failure; -1 + fault_message require --no-shell-fallback.`
+
+- [ ] **Step 4:** Build wargs, run the existing test suite (must stay 167/7/174 — describe-text changes don't affect tests unless one pins this string; if one does, STOP and report). Commit:
+
+```bash
+git -C /d/projects/winix add src/wargs/Program.cs src/wargs/README.md docs/ai/wargs.md
+git -C /d/projects/winix commit -m "docs(wargs): connect shell-fallback semantics to child_exit_code — -1 requires a TRUE spawn failure; default fallback surfaces the shell's 127/9009 (probed)"
+```
+
+---
+
+### Task 0: Baseline capture (stream-separated) + test count — AFTER Task -1
 
 - [ ] **Step 1: Build + capture**
 
