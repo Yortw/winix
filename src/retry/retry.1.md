@@ -60,7 +60,7 @@ A transparent wrapper — the child's stdout, stderr, and exit code pass through
 # EXIT CODES
 
 **0**
-:   Child process exited 0, or the exit code matched **--until**.
+:   Child process exited 0. (A non-zero exit code that matches **--until** still passes through as that code — only the *reason* is "succeeded", not the exit code.)
 
 **1-124**
 :   Child process exit code (passed through on exhaustion or non-retryable result).
