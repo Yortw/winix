@@ -53,7 +53,7 @@
 
 **Rationale:** A fake spawner injects the very value under test — the structural-blindness class from the glob-expansion retro (`Environment.CommandLine` falsified through 302 green tests; `feedback_post_merge_ci_and_smokes_mandatory.md` §7). Launch-failure paths are already fully deterministic without any fake (no spawn succeeds).
 
-**Trade-offs accepted:** Happy-path seam tests spawn real processes (slower, platform-conditional helper command); cancellation mid-wait remains smoke-tier.
+**Trade-offs accepted:** Happy-path seam tests spawn real processes (slower, platform-conditional helper command). *(Amended after adversarial review pass 1: mid-wait cancellation is now seam-testable — the token parameter makes it drivable without real Ctrl+C — and the plan includes a `MidWaitCancel` test with a long sleep child. The residual smoke-only surface is real-signal delivery: Ctrl+C → `CancelKeyPress` → CTS, which lives in Main.)*
 
 **Options considered:** internal `RunProcessDelegate` override — rejected for the blindness reason; it also already exists at the `RetryRunner` layer where the existing 108 tests use it, so adding it at the Cli layer duplicates coverage while subtracting realism.
 

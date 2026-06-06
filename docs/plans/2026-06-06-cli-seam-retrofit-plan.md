@@ -33,17 +33,19 @@ dotnet build /d/projects/winix/src/retry/retry.csproj --nologo -v quiet
 ```
 Expected: Build succeeded, 0 warnings.
 
-- [ ] **Step 2: Capture help/describe baselines**
+- [ ] **Step 2: Capture help/describe baselines — stdout and stderr SEPARATELY**
+
+(Adversarial-review F1: a merged `2>&1` capture cannot detect stream-ROUTING drift — a line moving between stdout and stderr — which is the single most likely defect class in a refactor that rewires `Console.Out`/`Console.Error` to threaded writers. Capture each stream to its own file.)
 
 Run (Git Bash):
 ```bash
 mkdir -p /d/projects/winix/tmp/seam-baseline
-/d/projects/winix/src/schedule/bin/Debug/net10.0/schedule.exe --help > /d/projects/winix/tmp/seam-baseline/schedule-help.txt 2>&1
-/d/projects/winix/src/schedule/bin/Debug/net10.0/schedule.exe --describe > /d/projects/winix/tmp/seam-baseline/schedule-describe.txt 2>&1
-/d/projects/winix/src/retry/bin/Debug/net10.0/retry.exe --help > /d/projects/winix/tmp/seam-baseline/retry-help.txt 2>&1
-/d/projects/winix/src/retry/bin/Debug/net10.0/retry.exe --describe > /d/projects/winix/tmp/seam-baseline/retry-describe.txt 2>&1
+/d/projects/winix/src/schedule/bin/Debug/net10.0/schedule.exe --help > /d/projects/winix/tmp/seam-baseline/schedule-help.out 2> /d/projects/winix/tmp/seam-baseline/schedule-help.err
+/d/projects/winix/src/schedule/bin/Debug/net10.0/schedule.exe --describe > /d/projects/winix/tmp/seam-baseline/schedule-describe.out 2> /d/projects/winix/tmp/seam-baseline/schedule-describe.err
+/d/projects/winix/src/retry/bin/Debug/net10.0/retry.exe --help > /d/projects/winix/tmp/seam-baseline/retry-help.out 2> /d/projects/winix/tmp/seam-baseline/retry-help.err
+/d/projects/winix/src/retry/bin/Debug/net10.0/retry.exe --describe > /d/projects/winix/tmp/seam-baseline/retry-describe.out 2> /d/projects/winix/tmp/seam-baseline/retry-describe.err
 ```
-Expected: 4 non-empty files. These are diffed in Tasks 5 and 8 — accidental parser-chain drift during the moves shows up here.
+Expected: 8 files (the `.err` files may legitimately be empty — that emptiness is itself part of the baseline). These are diffed in Tasks 4 and 7 — both content drift AND routing drift show up here.
 
 - [ ] **Step 3: Record pre-refactor test counts**
 
@@ -105,6 +107,8 @@ git -C /d/projects/winix commit -m "docs(retry): fix man-page exit-0 claim — -
 - Rewrite: `src/schedule/Program.cs` (539 lines → ~25)
 
 This is a **move**, not a rewrite. `src/schedule/Program.cs` content relocates into `Cli.cs` with the mechanical transformations below. Read the whole of `src/schedule/Program.cs` first.
+
+**Do NOT add a top-level try/catch to schedule's `Cli.Run`** (adversarial-review F7) — schedule has no catch-all today; adding one is a behaviour change. (retry's catch-all moves because retry already has one. The asymmetry is deliberate — design §Out of scope.)
 
 - [ ] **Step 1: Create `src/Winix.Schedule/Cli.cs`**
 
@@ -425,6 +429,30 @@ public class CliRunTests
         Assert.Empty(fake.Calls);
     }
 
+    [Fact]
+    public void Add_EmptyCron_Returns125()
+    {
+        // Shell-expansion of an empty variable is a plausible real input (adversarial-review F5).
+        var r = RunCli(new FakeSchedulerBackend(), "add", "--cron", "", "--", "cmd");
+        Assert.Equal(ExitCode.UsageError, r.Exit);
+        Assert.Contains("invalid cron expression", r.Stderr, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Add_EmptyName_ReachesBackend_PinsCurrentBehaviour()
+    {
+        // PINS CURRENT (pre-refactor) behaviour, verified by code-read 2026-06-06: an empty
+        // --name passes RejectIfMultiline and reaches backend.Add(name: ""). In production
+        // schtasks then rejects /TN "" with its own (confusing) error → backend failure.
+        // The missing empty-name validation is a PRE-EXISTING wart, out of scope for this
+        // behaviour-neutral refactor — recorded here so the contract is explicit. If a future
+        // change adds validation, this test should be updated deliberately, not silently.
+        var fake = new FakeSchedulerBackend();
+        var r = RunCli(fake, "add", "--cron", "0 2 * * *", "--name", "", "--", "cmd");
+        Assert.Equal(0, r.Exit); // fake reports success; real backend would fail at the OS layer
+        Assert.StartsWith("add::", fake.Calls[0], StringComparison.Ordinal); // empty name reached the backend
+    }
+
     // --- list ---
 
     [Fact]
@@ -594,21 +622,23 @@ git -C /d/projects/winix commit -m "test(schedule): Cli.Run seam tests — strea
 
 ### Task 4: schedule — byte-stability verification
 
-- [ ] **Step 1: Rebuild and capture post-refactor help/describe**
+- [ ] **Step 1: Rebuild and capture post-refactor help/describe (streams separated)**
 
 ```bash
 dotnet build /d/projects/winix/src/schedule/schedule.csproj --nologo -v quiet
-/d/projects/winix/src/schedule/bin/Debug/net10.0/schedule.exe --help > /d/projects/winix/tmp/seam-baseline/schedule-help-after.txt 2>&1
-/d/projects/winix/src/schedule/bin/Debug/net10.0/schedule.exe --describe > /d/projects/winix/tmp/seam-baseline/schedule-describe-after.txt 2>&1
+/d/projects/winix/src/schedule/bin/Debug/net10.0/schedule.exe --help > /d/projects/winix/tmp/seam-baseline/schedule-help-after.out 2> /d/projects/winix/tmp/seam-baseline/schedule-help-after.err
+/d/projects/winix/src/schedule/bin/Debug/net10.0/schedule.exe --describe > /d/projects/winix/tmp/seam-baseline/schedule-describe-after.out 2> /d/projects/winix/tmp/seam-baseline/schedule-describe-after.err
 ```
 
-- [ ] **Step 2: Diff against Task 0 baselines**
+- [ ] **Step 2: Diff against Task 0 baselines — each stream independently**
 
 ```bash
-diff /d/projects/winix/tmp/seam-baseline/schedule-help.txt /d/projects/winix/tmp/seam-baseline/schedule-help-after.txt
-diff /d/projects/winix/tmp/seam-baseline/schedule-describe.txt /d/projects/winix/tmp/seam-baseline/schedule-describe-after.txt
+diff /d/projects/winix/tmp/seam-baseline/schedule-help.out /d/projects/winix/tmp/seam-baseline/schedule-help-after.out
+diff /d/projects/winix/tmp/seam-baseline/schedule-help.err /d/projects/winix/tmp/seam-baseline/schedule-help-after.err
+diff /d/projects/winix/tmp/seam-baseline/schedule-describe.out /d/projects/winix/tmp/seam-baseline/schedule-describe-after.out
+diff /d/projects/winix/tmp/seam-baseline/schedule-describe.err /d/projects/winix/tmp/seam-baseline/schedule-describe-after.err
 ```
-Expected: **zero diff on both.** Any diff = parser-chain drift during the move — STOP and fix before proceeding.
+Expected: **zero diff on all four.** A line that moves between the `.out` and `.err` files is a stream-ROUTING regression (adversarial-review F1) — STOP and fix before proceeding. Content drift = parser-chain drift — also STOP.
 
 - [ ] **Step 3: Quick manual smoke of the rebuilt binary**
 
@@ -958,22 +988,74 @@ public class CliRunTests
         Assert.DoesNotContain(Esc, r.Stdout, StringComparison.Ordinal);
     }
 
-    // --- Cancellation (pre-cancelled token; mid-wait cancel stays smoke-tier per ADR D4) ---
+    // --- Empty command token → top-level catch-all (adversarial-review F4 + F5) ---
 
     [Fact]
-    public void PreCancelledToken_DoesNotHang_ReportsCancelled()
+    public void EmptyCommandToken_HitsCatchAll_Returns126()
     {
-        // VERIFY AT IMPLEMENTATION: run once to observe RetryRunner's pre-cancelled contract
-        // (expected: exit_reason "cancelled"); assert the OBSERVED stable behaviour. If the
-        // behaviour looks wrong (hang, stack trace), STOP and report — do not adjust prod code.
+        // Probed against the pre-refactor binary 2026-06-06: `retry ""` →
+        //   stderr: "retry: unexpected error: InvalidOperationException: FileNameMissing"
+        //   exit:   126
+        // ProcessStartInfo.FileName="" throws InvalidOperationException, which is NOT a typed
+        // launch failure (CommandNotFound/NotExecutable), so it escapes RunWithRetry into the
+        // top-level catch-all. This is the only deterministic catch-all trigger reachable
+        // through the public seam — it pins both the exit code and the error-on-stderr contract
+        // after the catch-all's move into Cli.Run. (The bare "FileNameMissing" resource key is
+        // the accepted broad-catch minimum — type name present — so the assertion stays loose.)
+        var r = RunCli("");
+        Assert.Equal(ExitCode.NotExecutable, r.Exit);
+        Assert.Contains("unexpected error", r.Stderr, StringComparison.Ordinal);
+        Assert.Contains("InvalidOperationException", r.Stderr, StringComparison.Ordinal);
+        Assert.Equal(string.Empty, r.Stdout);
+    }
+
+    // --- Cancellation ---
+
+    /// <summary>Platform-conditional argv for a child that sleeps several seconds.</summary>
+    private static string[] SleepChild() =>
+        OperatingSystem.IsWindows()
+            ? new[] { "cmd.exe", "/c", "ping -n 10 127.0.0.1 > NUL" }
+            : new[] { "/bin/sh", "-c", "sleep 10" };
+
+    [Fact]
+    public void PreCancelledToken_KillsFirstAttempt_ReportsCancelled()
+    {
+        // Contract pinned by code-read 2026-06-06: RetryRunner "always runs at least once" —
+        // a pre-cancelled token still spawns attempt 1; the kill registration fires at
+        // Register time (token already signalled), the child is killed, and the outcome is
+        // labelled cancelled. A LONG child is load-bearing here: with a fast child (exit 0)
+        // the child can finish BEFORE the kill and the run exits 0 — a real race, not a
+        // hypothetical. The sleep child guarantees the kill wins.
         var stdout = new StringWriter();
         var stderr = new StringWriter();
         using var cts = new CancellationTokenSource();
         cts.Cancel();
-        int exit = Cli.Run(Concat(new[] { "--json" }, ExitWith(0)), stdout, stderr, cts.Token);
+        int exit = Cli.Run(Concat(new[] { "--json" }, SleepChild()), stdout, stderr, cts.Token);
         using var doc = JsonDocument.Parse(stderr.ToString());
         Assert.Equal("cancelled", doc.RootElement.GetProperty("exit_reason").GetString());
-        Assert.NotEqual(0, exit); // exact code asserted after observation
+        Assert.NotEqual(0, exit); // kill exit code is platform-dependent (-1 Windows, 137-class Unix) — assert nonzero only
+    }
+
+    [Fact]
+    public void MidWaitCancel_KillsChild_ReturnsPromptly()
+    {
+        // Adversarial-review F2: exercises the kill-registration → WaitForExitAsync-cancel →
+        // grace-window path that was previously untestable (needed real Ctrl+C; the seam's
+        // CancellationToken makes it drivable). The child sleeps ~10s; cancel fires at 300ms;
+        // a working kill path returns in well under the sleep duration. If this test takes
+        // ~10s, the cancel→kill chain is broken — that slowness IS the failure signal.
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        using var cts = new CancellationTokenSource();
+        cts.CancelAfter(300);
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        int exit = Cli.Run(Concat(new[] { "--json" }, SleepChild()), stdout, stderr, cts.Token);
+        sw.Stop();
+        using var doc = JsonDocument.Parse(stderr.ToString());
+        Assert.Equal("cancelled", doc.RootElement.GetProperty("exit_reason").GetString());
+        Assert.NotEqual(0, exit);
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(8),
+            $"cancel→kill took {sw.Elapsed} — child was not killed promptly");
     }
 }
 ```
@@ -981,7 +1063,7 @@ public class CliRunTests
 - [ ] **Step 2: Run the new tests**
 
 Run: `dotnet test /d/projects/winix/tests/Winix.Retry.Tests/Winix.Retry.Tests.csproj --nologo -v quiet --filter "FullyQualifiedName~CliRunTests"`
-Expected: all pass except possibly `PreCancelledToken…` — observe its actual behaviour, tighten the final assertion to the observed exit code with a comment recording the contract, re-run. Any other failure on a `// VERIFY` line: fix the assertion if the expectation was wrong; STOP and report if production behaviour looks defective.
+Expected: all pass. The cancellation contracts were pinned at planning time (code-read + probes 2026-06-06) — if a cancellation test fails, treat it as a real signal: STOP and report; do not soften the assertion. Any failure on a `// VERIFY` line: fix the assertion if the expectation was wrong; STOP and report if production behaviour looks defective.
 
 - [ ] **Step 3: Full retry suite**
 
@@ -999,16 +1081,18 @@ git -C /d/projects/winix commit -m "test(retry): Cli.Run seam tests — validati
 
 ### Task 7: retry — byte-stability verification
 
-- [ ] **Step 1: Rebuild + capture + diff**
+- [ ] **Step 1: Rebuild + capture + diff (streams separated — adversarial-review F1)**
 
 ```bash
 dotnet build /d/projects/winix/src/retry/retry.csproj --nologo -v quiet
-/d/projects/winix/src/retry/bin/Debug/net10.0/retry.exe --help > /d/projects/winix/tmp/seam-baseline/retry-help-after.txt 2>&1
-/d/projects/winix/src/retry/bin/Debug/net10.0/retry.exe --describe > /d/projects/winix/tmp/seam-baseline/retry-describe-after.txt 2>&1
-diff /d/projects/winix/tmp/seam-baseline/retry-help.txt /d/projects/winix/tmp/seam-baseline/retry-help-after.txt
-diff /d/projects/winix/tmp/seam-baseline/retry-describe.txt /d/projects/winix/tmp/seam-baseline/retry-describe-after.txt
+/d/projects/winix/src/retry/bin/Debug/net10.0/retry.exe --help > /d/projects/winix/tmp/seam-baseline/retry-help-after.out 2> /d/projects/winix/tmp/seam-baseline/retry-help-after.err
+/d/projects/winix/src/retry/bin/Debug/net10.0/retry.exe --describe > /d/projects/winix/tmp/seam-baseline/retry-describe-after.out 2> /d/projects/winix/tmp/seam-baseline/retry-describe-after.err
+diff /d/projects/winix/tmp/seam-baseline/retry-help.out /d/projects/winix/tmp/seam-baseline/retry-help-after.out
+diff /d/projects/winix/tmp/seam-baseline/retry-help.err /d/projects/winix/tmp/seam-baseline/retry-help-after.err
+diff /d/projects/winix/tmp/seam-baseline/retry-describe.out /d/projects/winix/tmp/seam-baseline/retry-describe-after.out
+diff /d/projects/winix/tmp/seam-baseline/retry-describe.err /d/projects/winix/tmp/seam-baseline/retry-describe-after.err
 ```
-Expected: zero diff on both. Any diff = STOP and fix.
+Expected: zero diff on all four. A line moving between `.out` and `.err` = stream-routing regression — STOP and fix.
 
 - [ ] **Step 2: Quick manual smoke**
 
@@ -1070,14 +1154,31 @@ Expected: workflow dispatched (feature branches don't auto-trigger CI). Verify r
 
 These run in the orchestrating session after Tasks 0–8 complete:
 
-- [ ] WSL run: `wsl bash -lc "dotnet test /mnt/d/projects/winix/tests/Winix.Schedule.Tests --nologo -v quiet"` and same for `Winix.Retry.Tests` — local Linux reproduction ahead of CI.
+- [ ] WSL run: `wsl bash -lc "dotnet test /mnt/d/projects/winix/tests/Winix.Schedule.Tests --nologo -v quiet"` and same for `Winix.Retry.Tests` — local Linux reproduction ahead of CI. The two cancellation tests (`PreCancelledToken…`, `MidWaitCancel…`) are the ones most worth watching on Linux — kill semantics differ (SIGKILL vs TerminateProcess).
 - [ ] Re-run existing smoke fixtures against REPUBLISHED binaries (stale-binary trap): `artifacts/round-stop-2026-05-09/schedule/run-smokes.sh` (if present — locate with `ls artifacts/*/schedule/run-smokes.sh artifacts/*/retry/run-smokes.sh`) after copying freshly published binaries into the fixture's expected location.
+- [ ] **Name the deferred-coverage owners (adversarial-review F6):** while running the fixtures, record in the wrap-up notes WHICH smoke case covers (a) retry child-stdout passthrough and (b) real-Ctrl+C cancellation, citing fixture file + case ID. If no case covers one of them, add a one-line known-gap note to the ADR's D4 trade-offs instead of leaving the deferral pointing at "smokes" generically. (Mid-wait token-cancel is now seam-tested — `MidWaitCancel_KillsChild_ReturnsPromptly` — so the residual smoke-only surface is real-signal delivery, i.e. Ctrl+C → CancelKeyPress → CTS, which lives in Main.)
 - [ ] Manual Windows smoke per the refactored-tools rule (both tools): help/version/describe, happy path, usage error, `--json` routing, `NO_COLOR`.
 - [ ] 3-OS CI green on the feature branch.
 - [ ] Review rounds (code-reviewer + spec-compliance per cluster already happen inside subagent-driven-development; whole-feature fresh-eyes review at the end).
 - [ ] Merge `--no-ff` into `release/v0.4.0`; update memory (`project_cli_seam_retrofit_backlog.md` 5 → 3 remaining, progress notes).
 
 ---
+
+## Adversarial-review integration record (pass 1, 2026-06-06)
+
+Fresh-subagent review (plan + design + ADR only): 1 blocker, 5 test gaps, 2 defers. Dispositions:
+
+| Finding | Disposition |
+|---|---|
+| F1 (blocker) — `2>&1` merged capture blind to stream-routing drift | **Accepted.** Tasks 0/4/7 now capture and diff stdout/stderr separately with an explicit routing-regression STOP. |
+| F2 (test gap) — kill-on-cancel path untested | **Accepted, upgraded.** The seam makes mid-wait cancel drivable for the first time (token instead of real Ctrl+C) — added `MidWaitCancel_KillsChild_ReturnsPromptly`. This partially closes the long-standing documented gap in ProgramMainTests' header. |
+| F3 (test gap) — PreCancelledToken asserted an assumed contract | **Accepted.** Contract pinned at planning time by code-read (RetryRunner "always runs at least once" → attempt 1 spawns, kill fires at Register) + race analysis (fast child can beat the kill → MUST use a long sleep child). Test rewritten with the pinned contract; executor instructed to treat failure as a real signal, not soften. |
+| F4 (test gap) — catch-all/UnwrapTypeInit path untested | **Accepted, resolved by probe.** `retry ""` → InvalidOperationException (FileNameMissing) escapes typed launch-failure handling into the catch-all → 126 + "unexpected error" on stderr (probed against the pre-refactor binary). Added `EmptyCommandToken_HitsCatchAll_Returns126` — a deterministic catch-all trigger through the public seam. |
+| F5 (test gap) — empty-string inputs | **Accepted with one correction.** `add --cron ""` → 125 added as suggested. `--name ""` does NOT 125 today — code-read shows it reaches the backend (pre-existing wart; schtasks rejects /TN "" at the OS layer). Behaviour-neutrality forbids "fixing" it here; added `Add_EmptyName_ReachesBackend_PinsCurrentBehaviour` pinning the current contract with the wart documented. Retry's empty-token case is covered by the F4 test. |
+| F6 (defer) — deferred coverage points at "smokes" generically | **Accepted.** Task 9 now requires naming the fixture+case for child passthrough and real-Ctrl+C, or recording a known-gap line in ADR D4. |
+| F7 (defer) — schedule no-catch-all asymmetry needs an executor-visible guardrail | **Accepted.** "Do NOT add a top-level try/catch" rule added to Task 2's preamble. |
+
+Convergence: all findings integrated without structural plan change → no second pass required (the review's two defers are documentation tasks, not contested findings).
 
 ## Self-review record (plan author, 2026-06-06)
 
