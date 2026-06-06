@@ -104,9 +104,9 @@ src/Winix.Less/            — class library (input, screen, search, follow, pag
 src/less/                  — console app entry point
 src/Winix.WhoHolds/        — class library (finders, formatting, argument parsing)
 src/whoholds/              — console app entry point
-src/Winix.Schedule/        — class library (cron parser, schtasks/crontab backends, formatting)
+src/Winix.Schedule/        — class library (cron parser, schtasks/crontab backends, formatting, Cli.Run seam)
 src/schedule/              — console app entry point
-src/Winix.Retry/           — class library (retry loop, backoff, formatting)
+src/Winix.Retry/           — class library (retry loop, backoff, formatting, Cli.Run seam)
 src/retry/                 — console app entry point
 src/Winix.When/            — class library (parsing, conversion, formatting)
 src/when/                  — console app entry point (InvariantGlobalization=false for ICU)

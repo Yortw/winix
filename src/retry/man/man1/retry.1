@@ -78,7 +78,10 @@ Emit machine\-readable JSON metadata (flags, examples, composability).
 .SH EXIT CODES
 .TP
 \f[B]0\f[R]
-Child process exited 0, or the exit code matched \f[B]\(enuntil\f[R].
+Child process exited 0.
+(A non\-zero exit code that matches \f[B]\(enuntil\f[R] still passes
+through as that code \(em only the \f[I]reason\f[R] is
+\(lqsucceeded\(rq, not the exit code.)
 .TP
 \f[B]1\-124\f[R]
 Child process exit code (passed through on exhaustion or non\-retryable

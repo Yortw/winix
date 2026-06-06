@@ -16,7 +16,8 @@ namespace Winix.Retry.Tests;
 ///
 /// **DEFERRED COVERAGE GAP — kill-on-cancel for the spawned child process.** The R6 fixes for
 /// I4 (grace-block exception handling) and I5 (killReg.Dispose ordering for second-Ctrl+C
-/// race) live inside the spawner closure at <c>Program.cs:262-350</c>. They have no test
+/// race) live inside the spawner closure in <c>Winix.Retry/Cli.cs</c> (the closure inside
+/// <c>RunWithRetry</c>). They have no test
 /// coverage — a regression that drops <c>process.Kill(entireProcessTree:true)</c> or
 /// re-orders the disposal would ship undetected. Two paths exist to close this gap:
 /// <list type="bullet">
@@ -33,6 +34,8 @@ namespace Winix.Retry.Tests;
 /// <c>feedback_test_infeasible_extract_to_library.md</c> directly addresses this pattern —
 /// the seam-extraction option is the suite-canonical answer for "test-infeasible inline
 /// closure". Tracked here so the next session can pick it up rather than re-discover it.
+/// The 2026-06-06 Cli.Run seam retrofit deliberately did NOT add a spawner fake (ADR D4 —
+/// seam-blindness); this gap remains open.
 /// </summary>
 public class ProgramMainTests
 {
