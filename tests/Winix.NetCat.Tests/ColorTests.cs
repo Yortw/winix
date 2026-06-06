@@ -11,13 +11,13 @@ namespace Winix.NetCat.Tests;
 /// Guards against a future regression where colour is silently unwired.
 /// </summary>
 /// <remarks>
-/// Seam note: nc has no Cli.Run library seam — Program.cs is an async entry point that
-/// references Console.OpenStandardInput/Output directly and uses live network I/O.
+/// Seam note: nc now has a byte-stream Cli.RunAsync library seam (Program.Main is a thin
+/// shell owning console setup + Ctrl+C; parsing/validation/dispatch live in Cli).
 /// Colour is wired at:
-///   Program.BuildOptions: bool useColor = result.ResolveColor(checkStdErr: true)
-///   DispatchCoreAsync (check mode): Console.Out.WriteLine(Formatting.FormatOpenPortLine(port, options.UseColor))
-///   DispatchCoreAsync (check mode): stderr.WriteLine(Formatting.FormatClosedPortLine(port, options.UseColor))
-///   DispatchCoreAsync (error paths): stderr.WriteLine(Formatting.FormatErrorLine(msg, options.UseColor))
+///   Cli.BuildOptions: bool useColor = result.ResolveColor(checkStdErr: true)
+///   Cli.RunCoreAsync (check mode): stdoutText.WriteLine(Formatting.FormatOpenPortLine(port, options.UseColor))
+///   Cli.RunCoreAsync (check mode): stderr.WriteLine(Formatting.FormatClosedPortLine(port, options.UseColor))
+///   Cli.RunCoreAsync (error paths): stderr.WriteLine(Formatting.FormatErrorLine(msg, options.UseColor))
 /// Output destination:
 ///   FormatOpenPortLine → stdout (check mode open port)
 ///   FormatClosedPortLine → stderr (check mode closed/verbose)

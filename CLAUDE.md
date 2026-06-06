@@ -107,6 +107,8 @@ src/Winix.WhoHolds/        — class library (finders, formatting, argument pars
 src/whoholds/              — console app entry point
 src/Winix.Schedule/        — class library (cron parser, schtasks/crontab backends, formatting, Cli.Run seam)
 src/schedule/              — console app entry point
+src/Winix.NetCat/          — class library (client/listener engines, port checker, formatting, byte-stream Cli.RunAsync seam)
+src/nc/                    — console app entry point
 src/Winix.Retry/           — class library (retry loop, backoff, formatting, Cli.Run seam)
 src/retry/                 — console app entry point
 src/Winix.When/            — class library (parsing, conversion, formatting)
@@ -154,6 +156,7 @@ tests/Winix.Man.Tests/     — xUnit tests
 tests/Winix.Less.Tests/    — xUnit tests
 tests/Winix.WhoHolds.Tests/ — xUnit tests
 tests/Winix.Schedule.Tests/ — xUnit tests
+tests/Winix.NetCat.Tests/  — xUnit tests
 tests/Winix.Retry.Tests/   — xUnit tests
 tests/Winix.When.Tests/    — xUnit tests
 tests/Winix.Clip.Tests/    — xUnit tests
