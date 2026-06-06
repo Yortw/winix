@@ -256,7 +256,7 @@ public static class Cli
                 // non-permission errors like ERROR_BAD_EXE_FORMAT (193). The 2-arg ctor uses
                 // the supplied message verbatim and preserves the underlying Win32Exception
                 // for diagnostics. Consumers needing the command name can parse it from the
-                // prefixed message (Program.cs only uses .Message for display).
+                // prefixed message (the launch-failure path in RunWithRetry only uses .Message for display).
                 throw new CommandNotExecutableException($"{cmd}: {ex.Message}", ex);
             }
 
@@ -288,7 +288,7 @@ public static class Cli
                         // Real kill failure (access-denied on elevated child, signal-delivery error on
                         // Linux that surfaces as Win32Exception). Surface the diagnostic so the user
                         // knows why retry appears to be lingering. SafeWriteLine for consistency with
-                        // the rest of Program.cs — the bare-catch previously used here would have
+                        // the rest of this class — the bare-catch previously used here would have
                         // also swallowed OOM/StackOverflow, which is overly broad.
                         SafeWriteLine(stderr, $"retry: warning: failed to kill child: {ex.Message}");
                     }
