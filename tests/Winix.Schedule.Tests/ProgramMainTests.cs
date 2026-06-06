@@ -269,7 +269,7 @@ public class ProgramMainTests
     public void AddWithNewlineInName_ExitCode125_DoesNotInjectExtraEntry()
     {
         // Use bash-style $'...' if invoked by a shell, but here we inject the literal newline
-        // through the argv array. Pin the usage-error gate at the Program.cs validation layer.
+        // through the argv array. Pin the usage-error gate at the Cli.Run validation layer.
         var r = RunSchedule("add", "--cron", "0 2 * * *", "--name", "foo\nbar", "--", "/bin/legit");
         Assert.Equal(125, r.ExitCode);
         Assert.Contains("--name must not contain newline", r.Stderr);
