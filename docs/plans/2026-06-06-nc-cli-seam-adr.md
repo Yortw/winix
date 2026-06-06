@@ -57,6 +57,16 @@
 
 **Rationale:** The W4 auditability property (phase 3) + the probe-before-pin rule that falsified wargs's documented `-1` — nc's envelope differs from its siblings, exactly the trap probing exists to catch.
 
+## N7. UDP seam-level byte-path test: grounded defer (adversarial-review pass-1 F-2)
+
+**Context:** The seam's stage-2 byte-path tests are TCP; UDP goes untested at seam level.
+
+**Decision:** No seam-level UDP test. Recorded here rather than silently absent.
+
+**Rationale:** Both protocols flow through the SAME single dispatch call sites in `RunCoreAsync` (`client.RunAsync(options, stdin, stdout, stderr, token)` / `listener.RunAsync(…)`) — protocol branching happens inside the engines, which carry their own UDP test coverage. The seam contributes only stream/token threading, byte-identical for both protocols. An in-process UDP echo test would couple to datagram reply timing (the engine "waits briefly" for replies) — flake bait purchasing near-zero additional wiring coverage.
+
+**Trade-offs accepted:** A future change that adds protocol-conditional logic AT the dispatch call sites would not be seam-test-caught for UDP; the single-call-site structure makes that an unlikely and review-visible change.
+
 ---
 
 ## Decisions Explicitly Deferred

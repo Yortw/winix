@@ -344,6 +344,16 @@ public class CliRunAsyncTests
         Assert.Contains(port.ToString(), r.Stderr, StringComparison.Ordinal);
     }
 
+    /// <summary>Parses the LAST non-empty stderr line as JSON (adversarial-review F-3:
+    /// only the cancel path's text-line-then-envelope ordering was probed; assuming
+    /// whole-buffer purity for other paths is an unprobed assumption — last-line parsing
+    /// is robust to both shapes and matches the stage-2 file's strategy).</summary>
+    private static JsonDocument ParseLastLine(string stderr)
+    {
+        string[] lines = stderr.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return JsonDocument.Parse(lines[lines.Length - 1]);
+    }
+
     [Fact]
     public async Task Check_Json_EnvelopeOnStderr_StdoutStaysEmpty()
     {
@@ -355,7 +365,7 @@ public class CliRunAsyncTests
             var r = await RunCliAsync(null, "-z", "--json", "127.0.0.1", port.ToString());
             Assert.Equal(0, r.Exit);
             Assert.Empty(r.Stdout);
-            using var doc = JsonDocument.Parse(r.Stderr);
+            using var doc = ParseLastLine(r.Stderr);
             Assert.Equal("check", doc.RootElement.GetProperty("mode").GetString());
             Assert.Equal(0, doc.RootElement.GetProperty("exit_code").GetInt32());
         }
@@ -403,7 +413,15 @@ git -C /d/projects/winix commit -m "test(nc): Cli.RunAsync stage-1 wiring tests 
 ### Task 3: Byte-stability verification (neutrality gate — no commit)
 
 - [ ] **Step 1:** rebuild; capture `-after` per-stream; 4 independent diffs vs Task 0 (same shape as prior phases). Zero diff on all four; `.out`↔`.err` migration = STOP.
-- [ ] **Step 2: Manual smoke**
+- [ ] **Step 2: Mechanical move-residue greps (adversarial-review F-4 — turns "behaviour-neutral move" from claim into checked fact)**
+
+```bash
+grep -n -E "Console\.Out|Console\.Error|DispatchAsync|OpenStandardInput|OpenStandardOutput" /d/projects/winix/src/nc/Program.cs
+grep -rn "class UsageException" /d/projects/winix/src/ | grep -v obj
+```
+Expected: first grep matches ONLY the single `Cli.RunAsync(args, Console.OpenStandardInput(), Console.OpenStandardOutput(), Console.Error, …)` call line (3 hits on that one line, nothing else — no stray writes, no DispatchAsync residue); second grep returns EXACTLY one hit (`src/Winix.NetCat/UsageException.cs`). Any other result = incomplete move — STOP.
+
+- [ ] **Step 3: Manual smoke**
 
 ```bash
 bash -c '/d/projects/winix/src/nc/bin/Debug/net10.0/nc.exe -z 127.0.0.1 65000; echo EXIT=$?'
@@ -494,34 +512,59 @@ public class CliRunAsyncUnlockedTests
 
     // --- Listen-mode byte path ---
 
+    /// <summary>Detects the listen-bind TOCTOU race (adversarial-review F-1): nc losing the
+    /// freed port to another process surfaces as the catch-all's 126 + "unexpected error".
+    /// Tests retry with a fresh port instead of failing — pinned UP FRONT, not as a
+    /// post-flake patch (the client-connect retry alone cannot cure a bind failure).</summary>
+    private static bool IsPortBindRace(int exit, string stderr)
+        => exit == 126 && stderr.Contains("unexpected error", StringComparison.Ordinal);
+
     [Fact]
     public async Task Listen_BytePath_ReceivesClientBytesOnStdout()
     {
-        // Seam listens on an OS-assigned... nc takes an explicit port; pick one via
-        // bind-and-release (TOCTOU acceptable in-test), then race-tolerantly retry once.
         byte[] payload = { 0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x0A };
-        int port = GetProbablyFreePort();
-
-        using var stdin = new MemoryStream(); // nothing to send
-        using var stdout = new MemoryStream();
-        var stderr = new StringWriter();
-        Task<int> ncTask = Cli.RunAsync(
-            new[] { "--json", "-l", port.ToString() }, stdin, stdout, stderr, CancellationToken.None);
-
-        // Connect after a short readiness wait (the listener binds synchronously early in
-        // RunAsync; poll-connect handles the startup race without a fixed sleep).
-        using (var client = new TcpClient())
+        for (int attempt = 0; ; attempt++)
         {
-            await ConnectWithRetryAsync(client, port, attempts: 50, delayMs: 100);
-            using NetworkStream ns = client.GetStream();
-            await ns.WriteAsync(payload);
-        } // dispose closes → nc sees EOF → exits
+            int port = GetProbablyFreePort();
+            using var stdin = new MemoryStream(); // nothing to send
+            using var stdout = new MemoryStream();
+            var stderr = new StringWriter();
+            Task<int> ncTask = Cli.RunAsync(
+                new[] { "--json", "-l", port.ToString() }, stdin, stdout, stderr, CancellationToken.None);
 
-        int exit = await ncTask;
-        Assert.Equal(0, exit);
-        Assert.Equal(payload, stdout.ToArray());
-        using var doc = ParseLastLine(stderr.ToString());
-        Assert.Equal("listen", doc.RootElement.GetProperty("mode").GetString());
+            // Connect after a short readiness wait (poll-connect handles the startup race
+            // without a fixed sleep). If nc lost the bind race it exits 126 immediately and
+            // the client connect can never succeed — detect that FIRST (the connect retry
+            // exhausting would otherwise throw before the race check is reached).
+            try
+            {
+                using var client = new TcpClient();
+                await ConnectWithRetryAsync(client, port, attempts: 50, delayMs: 100);
+                using NetworkStream ns = client.GetStream();
+                await ns.WriteAsync(payload);
+            } // dispose closes → nc sees EOF → exits
+            catch (SocketException) when (ncTask.IsCompleted && attempt < 2)
+            {
+                // ncTask.IsCompleted makes this await non-blocking — no .Result (the
+                // no-blocking-on-async rule is absolute; awaiting a completed task is the
+                // rule-compliant way to read its value in a catch).
+                int earlyExit = await ncTask;
+                if (IsPortBindRace(earlyExit, stderr.ToString()))
+                {
+                    continue; // nc lost the freed port to another process — retry with a fresh one
+                }
+                throw;
+            }
+
+            int exit = await ncTask;
+            if (IsPortBindRace(exit, stderr.ToString()) && attempt < 2) { continue; }
+
+            Assert.Equal(0, exit);
+            Assert.Equal(payload, stdout.ToArray());
+            using var doc = ParseLastLine(stderr.ToString());
+            Assert.Equal("listen", doc.RootElement.GetProperty("mode").GetString());
+            return;
+        }
     }
 
     private static int GetProbablyFreePort()
@@ -565,20 +608,27 @@ public class CliRunAsyncUnlockedTests
     public async Task Listen_MidAcceptCancel_130_Promptly()
     {
         // The deterministic hanging case (probed): listen-accept waits forever; cancel at
-        // 300ms must abort it. Liveness bound is coarse (not perf).
-        using var stdin = new MemoryStream();
-        using var stdout = new MemoryStream();
-        var stderr = new StringWriter();
-        using var cts = new CancellationTokenSource();
-        cts.CancelAfter(300);
-        var sw = System.Diagnostics.Stopwatch.StartNew();
-        int exit = await Cli.RunAsync(
-            new[] { "-l", GetProbablyFreePort().ToString() }, stdin, stdout, stderr, cts.Token);
-        sw.Stop();
-        Assert.Equal(130, exit);
-        Assert.Contains("nc: interrupted", stderr.ToString(), StringComparison.Ordinal);
-        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(15),
-            $"cancel took {sw.Elapsed} — accept was not aborted promptly");
+        // 300ms must abort it. Liveness bound is coarse (not perf). Same bind-race retry
+        // as Listen_BytePath (adversarial-review F-1).
+        for (int attempt = 0; ; attempt++)
+        {
+            using var stdin = new MemoryStream();
+            using var stdout = new MemoryStream();
+            var stderr = new StringWriter();
+            using var cts = new CancellationTokenSource();
+            cts.CancelAfter(300);
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            int exit = await Cli.RunAsync(
+                new[] { "-l", GetProbablyFreePort().ToString() }, stdin, stdout, stderr, cts.Token);
+            sw.Stop();
+            if (IsPortBindRace(exit, stderr.ToString()) && attempt < 2) { continue; }
+
+            Assert.Equal(130, exit);
+            Assert.Contains("nc: interrupted", stderr.ToString(), StringComparison.Ordinal);
+            Assert.True(sw.Elapsed < TimeSpan.FromSeconds(15),
+                $"cancel took {sw.Elapsed} — accept was not aborted promptly");
+            return;
+        }
     }
 }
 ```
@@ -640,6 +690,19 @@ fi
 - [ ] Merge `--no-ff` into `release/v0.4.0`; post-merge CI watch; delete branch; memory update — **backlog 1 → 0, seam class COMPLETE (27/27)**; note the `UnwrapTypeInit`-to-ShellKit quality follow-up in the backlog.
 
 ---
+
+## Adversarial-review integration record (pass 1, 2026-06-06)
+
+Fresh-subagent review: **0 blockers, 4 test gaps, 3 defers (all already recorded)**. Dispositions:
+
+| Finding | Disposition |
+|---|---|
+| F-1 (gap) — listen-bind TOCTOU shipped reactive, not resilient | **Accepted.** Retry-over-fresh-ports pinned up front in `Listen_BytePath` (incl. the connect-exhausts-first subtlety: bind-race detected via the completed ncTask in the catch, awaited not `.Result`-ed) and `Listen_MidAcceptCancel`. `PreCancelledToken` needs none (cancels before bind). |
+| F-2 (gap) — UDP byte-path uncovered at seam level | **Resolved as a GROUNDED defer (ADR N7 added).** Both protocols flow through the SAME single dispatch call sites (`client.RunAsync`/`listener.RunAsync` — protocol branching is inside the engines, which have their own UDP tests); the seam adds only stream/token threading, identical for both. An in-process UDP echo test is datagram-timing-coupled (the engine "waits briefly" for replies) — flake bait for near-zero added wiring coverage. Recorded, not silently absent. |
+| F-3 (gap) — stage-1 `Check_Json` whole-buffer parse assumes unprobed stderr purity | **Accepted.** `ParseLastLine` helper added to stage 1; both files now share the strategy. |
+| F-4 (gap) — no mechanical proof the move completed | **Accepted.** Task 3 Step 2: residue greps (Program.cs Console/DispatchAsync usage must be only the single call line; exactly one `class UsageException` in src/). |
+
+Convergence: 0 blockers; integrations are test-shape hardening + one grounded defer + two grep commands. No new unverified material — second pass not warranted. Defers (N5 timeout, UnwrapTypeInit lift, TLS-listen) confirmed properly bucketed by the reviewer.
 
 ## Self-review record (plan author, 2026-06-06)
 
