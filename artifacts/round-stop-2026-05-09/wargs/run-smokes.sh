@@ -41,5 +41,21 @@ run_stdin W02 "--parallel 2" "a b c d" "$BIN" --parallel 2 -- echo
 run_stdin W03 "exit code aggregation: one fails" "0 1" "$BIN" -- bash -c 'exit "$0"'
 run W04 "--describe shape sanity" "$BIN" --describe
 
+# ── Capability-surface addition (2026-06-06) ──
+# WX1: SIGINT mid-job — the envelope-on-cancel contract (rounds 4-8) end-to-end.
+# EXPECTED RESULT: exit file = 124 AND stderr envelope = {"...,"exit_code":130,"exit_reason":"cancelled"}.
+# 124 is GNU timeout's OWN code (it reports 124 whenever it had to send the signal; the
+# child's subsequent exit never passes through). Probed 2026-06-06 on the linux-x64 binary:
+# wargs exits 130 ~40ms after the INT, envelope exactly as above, nothing lingers.
+# timeout signals its process GROUP, so wargs's sleep child receives INT directly too.
+# Linux-only: MSYS cannot deliver SIGINT to native Windows exes; covered on Windows by
+# the existing Linux SkippableFact binary test + the seam cancellation tests.
+if [ "$(uname -s)" = "Linux" ]; then
+  run_stdin WX1 "SIGINT mid-job -> cancelled envelope (exit 124 = timeout's own code)" "30" timeout -s INT 2 "$BIN" --json -- sleep
+else
+  echo "=== WX1: SKIPPED (Windows: no SIGINT delivery to native exe from this harness) ==="
+  echo "skipped" > "$OUT/WX1.exit"
+fi
+
 echo
 echo "==== wargs done: $(ls $OUT | wc -l) result files ===="
