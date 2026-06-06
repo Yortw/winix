@@ -55,6 +55,10 @@
 
 **Trade-offs accepted:** Happy-path seam tests spawn real processes (slower, platform-conditional helper command). *(Amended after adversarial review pass 1: mid-wait cancellation is now seam-testable — the token parameter makes it drivable without real Ctrl+C — and the plan includes a `MidWaitCancel` test with a long sleep child. The residual smoke-only surface is real-signal delivery: Ctrl+C → `CancelKeyPress` → CTS, which lives in Main.)*
 
+**Deferred-coverage owners (F6 resolution, recorded at verification 2026-06-06):**
+- *Child-stdout passthrough:* verified live against the post-refactor win-x64 AOT binary (`retry bash -c "echo MARKER"` → MARKER on retry's stdout, exit 0); exit-code passthrough additionally covered by smoke fixture cases B07/R01/R02 (`artifacts/round-stop-2026-05-09/retry/run-smokes.sh`).
+- *Real Ctrl+C delivery (signal → `CancelKeyPress` → CTS):* **KNOWN GAP — no automated coverage.** Not newly introduced by this refactor (the path predates it and was never automated); requires console-signal gymnastics (`GenerateConsoleCtrlEvent`) on Windows. The token-driven equivalent is covered by the two seam cancellation tests; only the OS-signal hop itself is unverified.
+
 **Options considered:** internal `RunProcessDelegate` override — rejected for the blindness reason; it also already exists at the `RetryRunner` layer where the existing 108 tests use it, so adding it at the Cli layer duplicates coverage while subtracting realism.
 
 ## D5. Colour resolution stays inside the seam
