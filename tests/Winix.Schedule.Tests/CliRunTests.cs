@@ -155,6 +155,19 @@ public class CliRunTests
         Assert.Contains("service stopped", r.Stderr, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void List_Unavailable_Json_ErrorEnvelopeOnStdout()
+    {
+        // The pre-fix defect class in this tool was JSON routed to stderr (tier-1 smoke
+        // 2026-05-09); this pins the ERROR envelope's stdout routing, not just success.
+        var fake = new FakeSchedulerBackend { ListResult = ScheduleListResult.Unavailable("service stopped") };
+        var r = RunCli(fake, "list", "--json");
+        Assert.Equal(ExitCode.NotExecutable, r.Exit);
+        using var doc = JsonDocument.Parse(r.Stdout);
+        Assert.Equal("error", doc.RootElement.GetProperty("exit_reason").GetString());
+        Assert.Equal(string.Empty, r.Stderr);
+    }
+
     // --- remove / enable / disable / run (action subcommands share WriteActionResult) ---
 
     [Theory]
@@ -191,6 +204,17 @@ public class CliRunTests
         Assert.Equal(ExitCode.NotExecutable, r.Exit);
         using var doc = JsonDocument.Parse(r.Stdout);
         Assert.Equal("error", doc.RootElement.GetProperty("exit_reason").GetString());
+    }
+
+    [Fact]
+    public void ActionSubcommand_ExplicitFolder_ThreadsFolderToBackend()
+    {
+        // Review finding: the call log previously dropped folder, so a regression that
+        // passed the wrong folder to the backend was invisible. Pin explicit --folder threading.
+        var fake = new FakeSchedulerBackend();
+        var r = RunCli(fake, "remove", "mytask", "--folder", @"\Custom\");
+        Assert.Equal(0, r.Exit);
+        Assert.Equal(@"remove:mytask:\Custom\", fake.Calls[0]);
     }
 
     // --- history ---

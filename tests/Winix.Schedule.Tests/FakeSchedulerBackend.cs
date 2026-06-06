@@ -34,9 +34,9 @@ internal sealed class FakeSchedulerBackend : ISchedulerBackend
         return ListResult;
     }
 
-    public ScheduleResult Remove(string name, string folder) { Calls.Add($"remove:{name}"); return RemoveResult; }
-    public ScheduleResult Enable(string name, string folder) { Calls.Add($"enable:{name}"); return EnableResult; }
-    public ScheduleResult Disable(string name, string folder) { Calls.Add($"disable:{name}"); return DisableResult; }
-    public ScheduleResult Run(string name, string folder) { Calls.Add($"run:{name}"); return RunResult; }
-    public IReadOnlyList<TaskRunRecord> GetHistory(string name, string folder) { Calls.Add($"history:{name}"); return HistoryResult; }
+    public ScheduleResult Remove(string name, string folder) { Calls.Add($"remove:{name}:{folder}"); return RemoveResult; }
+    public ScheduleResult Enable(string name, string folder) { Calls.Add($"enable:{name}:{folder}"); return EnableResult; }
+    public ScheduleResult Disable(string name, string folder) { Calls.Add($"disable:{name}:{folder}"); return DisableResult; }
+    public ScheduleResult Run(string name, string folder) { Calls.Add($"run:{name}:{folder}"); return RunResult; }
+    public IReadOnlyList<TaskRunRecord> GetHistory(string name, string folder) { Calls.Add($"history:{name}:{folder}"); return HistoryResult; }
 }
