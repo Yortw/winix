@@ -1010,6 +1010,11 @@ public class CliRunTests
     }
 
     // --- Cancellation ---
+    // JSON-parse-of-stderr safety (adversarial-review pass-2 G1, closed by code-read): the
+    // progress callback is constructed ONLY when !jsonOutput (`if (!jsonOutput) { onAttempt = … }`
+    // in RunWithRetry), so under --json the final envelope is the SOLE stderr content — no
+    // progress line can precede it, and JsonDocument.Parse(stderr) is safe on every --json path
+    // including cancellation. If a test fails with JsonException here, that gating regressed.
 
     /// <summary>Platform-conditional argv for a child that sleeps several seconds.</summary>
     private static string[] SleepChild() =>
@@ -1178,7 +1183,9 @@ Fresh-subagent review (plan + design + ADR only): 1 blocker, 5 test gaps, 2 defe
 | F6 (defer) — deferred coverage points at "smokes" generically | **Accepted.** Task 9 now requires naming the fixture+case for child passthrough and real-Ctrl+C, or recording a known-gap line in ADR D4. |
 | F7 (defer) — schedule no-catch-all asymmetry needs an executor-visible guardrail | **Accepted.** "Do NOT add a top-level try/catch" rule added to Task 2's preamble. |
 
-Convergence: all findings integrated without structural plan change → no second pass required (the review's two defers are documentation tasks, not contested findings).
+Convergence: all findings integrated without structural plan change.
+
+**Pass 2 (fresh subagent, 2026-06-06): CONVERGED — 1 residual finding.** G1: the two new cancellation tests parse stderr as JSON on paths where attempt 1 actually runs — if a progress line preceded the envelope, `JsonDocument.Parse` would throw. **Closed by code-read, not assumption:** `RunWithRetry` constructs the progress callback only when `!jsonOutput`, so under `--json` the envelope is the sole stderr content. Confirmation note added at the cancellation-test block. Review complete; two-pass bound respected.
 
 ## Self-review record (plan author, 2026-06-06)
 
