@@ -121,7 +121,7 @@ public class ProgramMainTests
     [Fact]
     public void NoCommand_ExitsWithUsageError()
     {
-        // Program.cs — Command length 0 → WriteError → ExitCode.UsageError (125).
+        // Winix.Peep/Cli.cs RunAsync — Command length 0 → WriteError → ExitCode.UsageError (125).
         var result = RunPeep();
         Assert.Equal(125, result.ExitCode);
         Assert.Contains("no command specified", result.Stderr);
@@ -175,7 +175,7 @@ public class ProgramMainTests
     [Fact]
     public void InvalidRegexPattern_ExitsWithUsageError()
     {
-        // Program.cs:106-115 — RegexParseException from --exit-on-match is caught and
+        // Winix.Peep/Cli.cs RunAsync — RegexParseException from --exit-on-match is caught and
         // emitted as a usage error rather than crashing. Pin so a future refactor that
         // moves regex compilation outside the try/catch can't silently regress to an
         // unhandled-exception crash in once-mode or interactive setup.
@@ -194,14 +194,14 @@ public class ProgramMainTests
     [Fact]
     public void Once_SuccessfulCommand_PassesThroughZeroExitCode()
     {
-        // Program.cs:148+ — RunOnceAsync passes through child exit code on success.
+        // Winix.Peep/Cli.cs RunOnceAsync — passes through child exit code on success.
         // Also exercises the SFH I4 fix path: dotnet --version exits fast enough that
         // peep's StandardInput.Close() may race with the child's pipe teardown. A
         // regression that drops the IOException try/catch would surface here as a
         // flaky non-zero exit + "unexpected error" envelope.
         var result = RunPeep("--once", "--", "dotnet", "--version");
         Assert.Equal(0, result.ExitCode);
-        // Child output goes to stdout (Program.cs:175: Console.Write(peepResult.Output)).
+        // Child output goes to stdout (Winix.Peep/Cli.cs RunOnceAsync: stdout.Write(peepResult.Output)).
         Assert.Contains(".", result.Stdout);
     }
 
@@ -258,7 +258,7 @@ public class ProgramMainTests
     [Fact]
     public void Once_JsonWithCommandNotFound_EmitsTypedErrorEnvelope()
     {
-        // Program.cs:208-218 — CommandNotFoundException catch under --json emits the
+        // Winix.Peep/Cli.cs RunOnceAsync — CommandNotFoundException catch under --json emits the
         // "command_not_found" envelope with exit_code=127 (FormatJsonError). Pre-r1
         // there was no envelope on this path under --once --json: stderr was bare
         // "peep: command not found" plaintext, breaking JSON-only consumers.
@@ -316,7 +316,7 @@ public class ProgramMainTests
         // strip integration test is POSIX-only (uses printf); Windows-side CI had no
         // coverage that the JsonOutputIncludeOutput flag wires through to lastOutput. A
         // regression that swapped the conditional polarity (`!Has("--json-output")`
-        // instead of `Has("--json-output")` at Program.cs lastOutput line) would not
+        // instead of `Has("--json-output")` at Winix.Peep/Cli.cs lastOutput line) would not
         // have been caught on Windows. dotnet --version is portable and emits no ANSI,
         // so the assertion focuses purely on the wiring rather than the strip pipeline
         // (the strip pipeline has its own unit + POSIX-integration coverage).

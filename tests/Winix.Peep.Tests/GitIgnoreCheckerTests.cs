@@ -28,17 +28,28 @@ public class GitIgnoreCheckerTests
         GitIgnoreChecker.ClearCache();
     }
 
-    [Fact]
+    [SkippableFact]
     public void ClearCache_SubsequentQueryReEvaluates()
     {
         // After clearing, the same path should be re-evaluated (not served from cache).
         // We can't directly observe the cache, but we can verify the method still works
         // after clear without throwing.
+        GitIgnoreChecker.ResetForTests();
         string testPath = $"clear-cache-test-{Guid.NewGuid():N}.txt";
 
         bool firstResult = GitIgnoreChecker.IsIgnored(testPath);
         GitIgnoreChecker.ClearCache();
         bool secondResult = GitIgnoreChecker.IsIgnored(testPath);
+
+        // CI flake 2026-06-06 (windows-latest, 3s vs ~215ms): transient git-spawn slowness
+        // engaged the process-global _gitDisabled fallback BETWEEN the two calls, making
+        // them legitimately disagree (first evaluated via git; second returned the
+        // disabled-fallback false). When the fallback engaged mid-test the consistency
+        // assertion is INCONCLUSIVE, not failed — skip honestly. Healthy-git runs (the
+        // overwhelming majority) still assert equality, so a real cache-consistency
+        // regression is still caught.
+        Skip.If(GitIgnoreChecker.IsDisabledForTests,
+            "git transiently unavailable — _gitDisabled fallback engaged mid-test; consistency check inconclusive");
 
         // Both calls should return the same result for the same non-existent file
         Assert.Equal(firstResult, secondResult);
