@@ -91,7 +91,7 @@ src/Winix.Squeeze/         — class library (compression, format detection, for
 src/squeeze/               — console app entry point
 src/Winix.Peep/            — class library (command execution, scheduling, file watching, rendering, Cli.RunAsync seam)
 src/peep/                  — console app entry point
-src/Winix.Wargs/           — class library (input reading, command builder, job execution, formatting)
+src/Winix.Wargs/           — class library (input reading, command builder, job execution, formatting, Cli.RunAsync seam)
 src/wargs/                 — console app entry point
 src/Winix.FileWalk/        — shared library (directory walking, predicates, glob/regex matching)
 src/Winix.Codec/           — shared library (Crockford base32, secure RNG, hex, base64, constant-time compare)
