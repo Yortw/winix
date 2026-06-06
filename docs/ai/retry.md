@@ -13,6 +13,7 @@ Cross-platform. **No platform has a native retry command** — Windows, Linux, a
 - Retrying flaky test runs in CI: `retry dotnet test`
 - Adding resilience to network-dependent commands: `retry --backoff exp --jitter curl -f http://api/health`
 - Polling until a service is ready: `retry --until 0 --delay 5s docker ps`
+- Waiting for a port to accept connections (wait-for-it.sh replacement, with `nc`): `retry --until 0 --times 30 --delay 2s nc -z localhost 5432`
 - Retrying a build only on known-transient error codes: `retry --on 1,2 --times 3 make build`
 - Making a one-off command more robust without writing a shell loop
 
@@ -39,6 +40,12 @@ retry --times 5 --delay 1s --backoff exp --jitter curl -f http://api/health
 ```bash
 retry --until 0 --delay 5s docker ps
 ```
+
+**Wait until a service port accepts connections (wait-for-it.sh replacement):**
+```bash
+retry --until 0 --times 30 --delay 2s nc -z localhost 5432
+```
+Set `--times` explicitly in poll mode — the default 3 gives up after ~4 attempts. Total wait ≈ `--times` × `--delay`. On exhaustion the child's last exit code passes through, so scripts fail honestly.
 
 **Retry only on specific exit codes:**
 ```bash

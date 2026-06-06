@@ -49,6 +49,9 @@ Stop retrying when the exit code matches one of the given
 comma\-separated values (poll mode).
 Retries continue until the command exits with one of these codes or
 attempts are exhausted.
+The default \f[B]\(entimes\f[R] 3 still applies \(em set
+\f[B]\(entimes\f[R] explicitly to the desired wait budget when polling
+(total wait is roughly \f[B]\(entimes\f[R] × \f[B]\(endelay\f[R]).
 .TP
 \f[B]\(enstdout\f[R]
 Write the success summary to stdout instead of stderr.
@@ -83,8 +86,8 @@ result).
 .TP
 \f[B]125\f[R]
 Usage error \(em no command, bad retry arguments, or empty
-\f[B]\(enon\f[R]/\f[B]\(enuntil\f[R] list (e.g.
-\f[B]\(enon \[dq]\[dq]\f[R] or \f[B]\(enon ,,,\f[R]).
+\f[B]\(enon\f[R]/\f[B]\(enuntil\f[R] list (e.g.\ \f[B]\(enon
+\(dq\(dq\f[R] or \f[B]\(enon ,,,\f[R]).
 An empty list is rejected rather than silently disabling the filter.
 .TP
 \f[B]126\f[R]
@@ -112,12 +115,14 @@ retry \-\-times 5 \-\-delay 1s \-\-backoff exp \-\-jitter curl \-f http://api/he
 
 retry \-\-until 0 \-\-delay 5s docker ps
 
+retry \-\-until 0 \-\-times 30 \-\-delay 2s nc \-z localhost 5432
+
 retry \-\-on 1,2 \-\-times 3 make build
 
 timeit retry make test
 .EE
 .SH SEE ALSO
 \f[B]timeit\f[R](1), \f[B]peep\f[R](1), \f[B]wargs\f[R](1),
-\f[B]files\f[R](1), \f[B]squeeze\f[R](1)
+\f[B]files\f[R](1), \f[B]squeeze\f[R](1), \f[B]nc\f[R](1)
 .SH AUTHORS
 Troy Willmot.

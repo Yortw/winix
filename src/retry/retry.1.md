@@ -34,7 +34,7 @@ A transparent wrapper — the child's stdout, stderr, and exit code pass through
 :   Retry only when the exit code matches one of the given comma-separated values. Any other exit code is passed through immediately without retrying.
 
 **--until** *X*[**,**...]
-:   Stop retrying when the exit code matches one of the given comma-separated values (poll mode). Retries continue until the command exits with one of these codes or attempts are exhausted.
+:   Stop retrying when the exit code matches one of the given comma-separated values (poll mode). Retries continue until the command exits with one of these codes or attempts are exhausted. The default **--times** 3 still applies — set **--times** explicitly to the desired wait budget when polling (total wait is roughly **--times** × **--delay**).
 
 **--stdout**
 :   Write the success summary to stdout instead of stderr. Errors (usage, runtime failures) always go to stderr regardless of this flag — pipe consumers expect stdout to be clean on failure.
@@ -66,7 +66,7 @@ A transparent wrapper — the child's stdout, stderr, and exit code pass through
 :   Child process exit code (passed through on exhaustion or non-retryable result).
 
 **125**
-:   Usage error — no command, bad retry arguments, or empty **--on**/**--until** list (e.g. **--on ""** or **--on ,,,**). An empty list is rejected rather than silently disabling the filter.
+:   Usage error — no command, bad retry arguments, or empty **--on**/**--until** list (e.g. **--on \"\"** or **--on ,,,**). An empty list is rejected rather than silently disabling the filter.
 
 **126**
 :   Command found but not executable (permission denied, bad EXE format). Includes unexpected process-start failures.
@@ -89,10 +89,12 @@ A transparent wrapper — the child's stdout, stderr, and exit code pass through
 
     retry --until 0 --delay 5s docker ps
 
+    retry --until 0 --times 30 --delay 2s nc -z localhost 5432
+
     retry --on 1,2 --times 3 make build
 
     timeit retry make test
 
 # SEE ALSO
 
-**timeit**(1), **peep**(1), **wargs**(1), **files**(1), **squeeze**(1)
+**timeit**(1), **peep**(1), **wargs**(1), **files**(1), **squeeze**(1), **nc**(1)

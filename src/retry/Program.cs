@@ -45,6 +45,7 @@ internal sealed class Program
             .Example("retry --until 42 --times 10 poll-command", "Stop when exit code matches target")
             .ComposesWith("timeit", "timeit retry --times 3 dotnet build", "Time a build with retries")
             .ComposesWith("peep", "peep -- retry dotnet test", "Watch tests with auto-retry on file change")
+            .ComposesWith("nc", "retry --until 0 --times 30 --delay 2s nc -z localhost 5432", "Wait until a service port accepts connections (wait-for-it replacement)")
             .JsonField("tool", "string", "Tool name (\"retry\")")
             .JsonField("version", "string", "Tool version")
             .JsonField("exit_code", "int", "Tool exit code (retry's own return value — equal to child's on pass-through, or 125/126/127 on tool errors)")

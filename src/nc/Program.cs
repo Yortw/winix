@@ -50,6 +50,7 @@ internal sealed class Program
             .Example("nc -l 8080", "Listen for one TCP connection on :8080")
             .Example("nc target.com 80 < request.bin > response.bin", "File transfer via piping")
             .ComposesWith("xargs", "nc -z target 22,80,443 | xargs -I{} echo open: {}", "Process open-port list")
+            .ComposesWith("retry", "retry --until 0 --times 30 --delay 2s nc -z localhost 5432", "Wait until a service port accepts connections (wait-for-it replacement)")
             .JsonField("tool", "string", "Tool name (\"nc\")")
             .JsonField("version", "string", "Tool version")
             .JsonField("mode", "string", "connect | listen | check")

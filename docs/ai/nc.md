@@ -77,6 +77,11 @@ nc --describe
 
 ## Composing with Other Tools
 
+**nc + retry** — wait until a service port accepts connections (wait-for-it.sh replacement):
+```bash
+retry --until 0 --times 30 --delay 2s nc -z localhost 5432
+```
+
 **nc + xargs** — process open-port output:
 ```bash
 nc -z target.com 22,80,443 | xargs -I{} echo "open: {}"

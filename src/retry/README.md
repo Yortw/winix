@@ -52,6 +52,9 @@ retry --times 5 --delay 1s --backoff exp --jitter curl -f http://api/health
 # Poll until Docker is ready (retry until exit code 0)
 retry --until 0 --delay 5s docker ps
 
+# Wait until a service port accepts connections (wait-for-it.sh replacement)
+retry --until 0 --times 30 --delay 2s nc -z localhost 5432
+
 # Retry only on specific exit codes
 retry --on 1,2 --times 3 make build
 
@@ -116,6 +119,13 @@ Add `--jitter` to any strategy to randomise the delay within 50–100% of the co
 - `--on 1,2` — only retry if the exit code is 1 or 2; pass through any other exit code immediately
 - `--until 0` — keep retrying until the exit code matches (poll mode)
 - These flags accept comma-separated lists of integers
+
+In poll mode, remember the default is `--times 3` — polling gives up after 4 attempts (~6 seconds with defaults). Set `--times` explicitly to your wait budget: total wait ≈ `--times` × `--delay`. On exhaustion the child's last exit code passes through, so scripts fail honestly instead of proceeding. Combined with `nc -z` this replaces `wait-for-it.sh` cross-platform:
+
+```bash
+# Up to 60s for Postgres to start listening, then run migrations
+retry --until 0 --times 30 --delay 2s nc -z localhost 5432 && dotnet ef database update
+```
 
 ## Exit Codes
 
