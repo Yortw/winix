@@ -44,5 +44,23 @@ run R05 "bad --times value" "$BIN" --times not-a-number -- bash -c "exit 0"
 run R06 "bad --on value" "$BIN" --on bogus -- bash -c "exit 1"
 run R07 "--backoff exp small delay" "$BIN" --times 2 --backoff exp --delay 50ms -- bash -c "exit 1"
 
+# ── Capability-surface additions (2026-06-06) ──
+# R08: SIGINT cancellation mid-child — retry's most safety-critical path (Ctrl+C ->
+# kill child tree -> grace window -> pass-through exit).
+# EXPECTED RESULT: exit file = 124 AND stderr envelope contains "exit_reason":"cancelled".
+# The 124 is GNU timeout's OWN semantics (it reports 124 whenever it had to send the
+# signal, regardless of the child's subsequent code). Probed 2026-06-06: retry exits 130
+# ~50ms after the INT (timeout signals its process GROUP, so the sleep child also gets
+# INT directly -> child_exit_code 130), envelope says cancelled, nothing lingers. A wedged
+# cancel path shows up as a missing envelope and ~30s wall (outer run() timeout) instead
+# of ~2s. Linux-only: MSYS cannot deliver SIGINT to a native Windows exe; on Windows this
+# path is covered by manual real-terminal Ctrl+C smoke.
+if [ "$(uname -s)" = "Linux" ]; then
+  run R08 "SIGINT mid-child -> cancelled envelope (exit 124 = timeout's own code)" timeout -s INT 2 "$BIN" --json -- sleep 20
+else
+  echo "=== R08: SKIPPED (Windows: no SIGINT delivery to native exe from this harness) ==="
+  echo "skipped" > "$OUT/R08.exit"
+fi
+
 echo
 echo "==== retry done: $(ls $OUT | wc -l) result files ===="
