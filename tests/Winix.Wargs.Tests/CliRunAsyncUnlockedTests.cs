@@ -74,7 +74,7 @@ public class CliRunAsyncUnlockedTests
         // lines before it in mid-run scenarios; pre-cancelled typically yields just the
         // envelope — parse the last non-empty line to be robust to both).
         string[] lines = stderr.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        using var doc = JsonDocument.Parse(lines[^1]);
+        using var doc = JsonDocument.Parse(lines[lines.Length - 1]);
         Assert.Equal("cancelled", doc.RootElement.GetProperty("exit_reason").GetString());
         Assert.Equal(130, doc.RootElement.GetProperty("exit_code").GetInt32());
     }
@@ -113,7 +113,7 @@ public class CliRunAsyncUnlockedTests
         sw.Stop();
         Assert.Equal(130, exit);
         string[] lines = stderr.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        using var doc = JsonDocument.Parse(lines[^1]);
+        using var doc = JsonDocument.Parse(lines[lines.Length - 1]);
         Assert.Equal("cancelled", doc.RootElement.GetProperty("exit_reason").GetString());
         // Coarse LIVENESS bound (not perf): must sit well under the children's ~30s sleep.
         Assert.True(sw.Elapsed < TimeSpan.FromSeconds(15),

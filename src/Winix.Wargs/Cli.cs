@@ -77,7 +77,7 @@ public static class Cli
             // stdin read, an uncaught InvalidOperationException) escapes Main with the CLR's
             // unhandled-exception handler firing. Combined with <StackTraceSupport>false</...>
             // in wargs.csproj that produces a near-blank "Unhandled exception" message —
-            // unactionable. Mirrors the pattern in retry/Program.cs.
+            // unactionable. Mirrors the pattern in Winix.Retry/Cli.cs.
             //
             // Mode-discriminated: under structured-output modes emit ONLY the envelope so the
             // stream stays parseable as one JSON object per line. Mixing the plaintext
