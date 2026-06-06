@@ -509,7 +509,7 @@ public class ProgramMainTests
     {
         // Round-6 SFH I2 + Round-7 SFH C1/I1 pinned this contract: Ctrl+C during stdin
         // materialisation must produce exit 130 + a cancelled envelope, not exit 0 +
-        // no_input. Production code in wargs/Program.cs implements the chain:
+        // no_input. Production code in Winix.Wargs/Cli.cs (RunCoreAsync + Main) implements the chain:
         //   SIGINT → Console.CancelKeyPress → e.Cancel=true → cts.Cancel() →
         //     Console.In.Close() callback → blocked ReadLine returns null →
         //     InputReader observes cancellation → OCE propagates → Main's OCE catch
@@ -583,7 +583,7 @@ public class ProgramMainTests
     [Fact]
     public void LineBufferedWithKeepOrder_IsRejectedAsUsageError()
     {
-        // Program.cs:272 — output ordering is meaningless when children inherit stdio.
+        // Cli.cs RunCoreAsync — output ordering is meaningless when children inherit stdio.
         var result = RunWargs(stdin: "a", "--line-buffered", "--keep-order", "echo");
         Assert.Equal(125, result.ExitCode);
     }
@@ -591,7 +591,7 @@ public class ProgramMainTests
     [Fact]
     public void LineBufferedWithParallel_IsRejectedAsUsageError()
     {
-        // Program.cs:277 — parallel children writing direct stdio would interleave.
+        // Cli.cs RunCoreAsync — parallel children writing direct stdio would interleave.
         var result = RunWargs(stdin: "a", "--line-buffered", "-P", "2", "echo");
         Assert.Equal(125, result.ExitCode);
     }
@@ -599,7 +599,7 @@ public class ProgramMainTests
     [Fact]
     public void NdjsonWithLineBuffered_IsRejectedAsUsageError()
     {
-        // Program.cs:282 — child stdio inheritance would dump unstructured output to stderr,
+        // Cli.cs RunCoreAsync — child stdio inheritance would dump unstructured output to stderr,
         // breaking NDJSON line discipline.
         var result = RunWargs(stdin: "a", "--ndjson", "--line-buffered", "echo");
         Assert.Equal(125, result.ExitCode);
@@ -615,7 +615,7 @@ public class ProgramMainTests
     [InlineData("")]        // empty rejection
     public void MultiCharOrEmptyDelimiter_IsRejectedAsUsageError(string delimiter)
     {
-        // Program.cs:258 — InputReader assumes a single delimiter char; multi-char or empty
+        // Cli.cs RunCoreAsync — InputReader assumes a single delimiter char; multi-char or empty
         // would silently use the first char (or throw IndexOutOfRangeException for empty).
         var result = RunWargs(stdin: "a", "--delimiter", delimiter, "echo");
         Assert.Equal(125, result.ExitCode);
@@ -626,7 +626,7 @@ public class ProgramMainTests
     [Fact]
     public void FailedJob_HumanMode_EmitsPerJobFaultLineToStderr()
     {
-        // Program.cs faults loop emits "wargs: job N: <FaultMessage>" to stderr in human mode
+        // Cli.cs RunCoreAsync faults loop emits "wargs: job N: <FaultMessage>" to stderr in human mode
         // for every job carrying a FaultMessage. A regression that drops this loop converts
         // diagnosable failures into a bare "1/1 jobs failed" with no per-job context.
         //
@@ -644,13 +644,13 @@ public class ProgramMainTests
     }
 
     // SFH I3 / TA I4 (UnwrapTypeInit depth cap) is unit-tested in ExceptionUnwrapTests.cs
-    // — the helper was extracted from Program.cs in round 15 specifically to make the
+    // — the helper was extracted from the entry point in round 15 specifically to make the
     // depth-cap notice behaviour directly testable (CLAUDE.md: "Test-infeasible branches →
     // extract or seam, don't skip").
 
-    // --- Round-16 TA I1: actualFailFastTriggered classifier (Program.cs:520-544) ---
+    // --- Round-16 TA I1: actualFailFastTriggered classifier (Cli.cs RunCoreAsync) ---
     // Library-level tests pin SkipReason classification at the JobRunner layer; these
-    // subprocess pins lock the Program.cs predicate that maps SkipReason.FailFastAbort onto
+    // subprocess pins lock the Cli.cs predicate that maps SkipReason.FailFastAbort onto
     // the exit_reason="fail_fast_abort" / exit_code=124 contract. A regression flipping the
     // predicate (e.g. back to `Skipped > 0` from the round-12 fix) would silently misreport
     // exit_reason in mixed-skip-cause runs.
@@ -725,7 +725,7 @@ public class ProgramMainTests
     [Fact]
     public void DryRunWithEmptyStdin_EmitsDryRunEnvelopeWithZeroJobs()
     {
-        // Program.cs:390 short-circuits empty input only when !dryRun. Under --dry-run the
+        // Cli.cs RunCoreAsync short-circuits empty input only when !dryRun. Under --dry-run the
         // run reaches the dry-run block with invocations.Count=0 and emits a dry_run envelope
         // with total_jobs=0 — unintuitive but documented. A future refactor combining the
         // two checks could silently produce no_input under --dry-run --json instead, breaking
