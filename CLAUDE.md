@@ -88,7 +88,7 @@ src/Winix.TimeIt/          — class library (timing logic, formatting)
 src/timeit/                — console app entry point
 src/Winix.Squeeze/         — class library (compression, format detection, formatting)
 src/squeeze/               — console app entry point
-src/Winix.Peep/            — class library (command execution, scheduling, file watching, rendering)
+src/Winix.Peep/            — class library (command execution, scheduling, file watching, rendering, Cli.RunAsync seam)
 src/peep/                  — console app entry point
 src/Winix.Wargs/           — class library (input reading, command builder, job execution, formatting)
 src/wargs/                 — console app entry point
