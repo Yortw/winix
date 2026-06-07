@@ -164,7 +164,7 @@ public static class ArgParser
             .Section("Storing a key for reuse",
                 "An HMAC/signing key must be PERSISTED to stay verifiable. Generate then store, e.g.:\n" +
                 "  mksecret key --bytes 32 > signing.key\n" +
-                "  digest --hmac sha256 --key-file signing.key \"payload\"\n" +
+                "  digest --hmac sha256 --key-file signing.key -s \"payload\"\n" +
                 "Do NOT pipe a generated key straight into digest --key-stdin — the key vanishes and the MAC is unverifiable.");
 
     private static bool TryParseCharset(string s, out Charset cs)

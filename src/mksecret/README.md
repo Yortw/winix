@@ -188,16 +188,16 @@ An HMAC or signing key must be **persisted** to stay verifiable — the same key
 mksecret key --bytes 32 > signing.key
 
 # Sign a payload using the stored key
-digest --hmac sha256 --key-file signing.key "payload"
+digest --hmac sha256 --key-file signing.key -s "payload"
 
 # Verify later — same key, same payload
-digest --hmac sha256 --key-file signing.key "payload"
+digest --hmac sha256 --key-file signing.key -s "payload"
 ```
 
 **Do NOT do this:**
 
 ```bash
-mksecret key | digest --hmac sha256 --key-stdin "payload"
+mksecret key | digest --hmac sha256 --key-stdin -s "payload"
 ```
 
 The key is discarded as soon as the pipe closes. You get a valid-looking MAC but it can never be verified — you have neither the key nor a consistent way to reproduce it.
@@ -217,7 +217,7 @@ The key is discarded as soon as the pipe closes. You get a valid-looking MAC but
 ## Related Tools
 
 - [`clip`](../clip/README.md) — copy generated secrets to the clipboard: `mksecret | clip`
-- [`digest`](../digest/README.md) — compute HMAC using a stored key: `digest --hmac sha256 --key-file signing.key "payload"`
+- [`digest`](../digest/README.md) — compute HMAC using a stored key: `digest --hmac sha256 --key-file signing.key -s "payload"`
 - [`ids`](../ids/README.md) — generate identifiers (UUID, ULID, NanoID) rather than secrets
 
 ## See Also

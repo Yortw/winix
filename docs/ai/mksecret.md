@@ -98,7 +98,7 @@ mksecret key --bytes 32 | clip
 
 # Generate a key, save it, then use it with digest
 mksecret key --bytes 32 > signing.key
-digest --hmac sha256 --key-file signing.key "payload"
+digest --hmac sha256 --key-file signing.key -s "payload"
 
 # JSON output for scripted pipelines
 mksecret key --json | jq -r '.values[0]'
@@ -108,7 +108,7 @@ mksecret key --json | jq -r '.values[0]'
 
 ```bash
 # WRONG — the key is discarded as soon as the pipe closes
-mksecret key | digest --hmac sha256 --key-stdin "payload"
+mksecret key | digest --hmac sha256 --key-stdin -s "payload"
 ```
 
 This produces a valid-looking MAC, but the key is gone. You can never verify the MAC because you do not have the key. Always generate→store→use:
@@ -116,7 +116,7 @@ This produces a valid-looking MAC, but the key is gone. You can never verify the
 ```bash
 # CORRECT
 mksecret key --bytes 32 > signing.key
-digest --hmac sha256 --key-file signing.key "payload"
+digest --hmac sha256 --key-file signing.key -s "payload"
 ```
 
 The `--key-stdin` flag on `digest` is for supplying a *known* key from a secure source (e.g. a vault that writes to stdout), not for receiving a freshly generated one.
