@@ -257,6 +257,26 @@ public class CliTests
         Assert.DoesNotContain("\"exp\":\"123\"", payload); // string --claim did not win and did not leak
     }
 
+    [Fact]                                              // B4 (CR-M2): --header alg override → usage error 125
+    public void Jwt_header_alg_override_is_usage_error_125()
+    {
+        var (code, _, err) = Run(new[] { "jwt", "--alg", "HS256", "--key", "literal:k", "--header", "alg=HS512" });
+        Assert.Equal(125, code);
+        Assert.Contains("--alg", err, StringComparison.Ordinal);
+    }
+
+    [Fact]                                              // B4: distinct-cased Alg is accepted and lands as a header
+    public void Jwt_header_distinct_cased_alg_is_accepted_and_emits()
+    {
+        var (code, outp, _) = Run(new[] { "jwt", "--alg", "HS256", "--key", "literal:k",
+            "--header", "Alg=HS512", "--value-only" });
+        Assert.Equal(0, code);
+        string jwt = outp.Trim().Split(' ')[1];
+        string header = System.Text.Encoding.UTF8.GetString(B64UrlDecode(jwt.Split('.')[0]));
+        Assert.Contains("\"Alg\":\"HS512\"", header); // distinct param present
+        Assert.Contains("\"alg\":\"HS256\"", header); // the real alg untouched
+    }
+
     [Fact] // regression (round 2): jwt without --alg defaults to HS256 (the docs now rely on this)
     public void Jwt_without_alg_defaults_to_hs256()
     {

@@ -242,6 +242,18 @@ public static class ArgParser
                     return Fail(headerError);
                 }
 
+                // CR-M2: alg/typ are owned by --alg and the fixed JWT type; a --header override would make the
+                // JOSE header lie about the signature. Reject EXACT-CASE alg/typ only (RFC 7515 §4.1 — JOSE
+                // header parameter names are case-sensitive, so a distinct-cased "Alg" is a different,
+                // non-reserved param and stays accepted).
+                foreach (var (key, _) in headers)
+                {
+                    if (string.Equals(key, "alg", StringComparison.Ordinal) || string.Equals(key, "typ", StringComparison.Ordinal))
+                    {
+                        return Fail($"--header '{key}' is not allowed; the JOSE alg/typ are set by --alg, not --header");
+                    }
+                }
+
                 return Success(AuthScheme.Jwt, jwt: new JwtOptions(
                     Alg: alg,
                     KeyRef: parsed.GetString("--key"),

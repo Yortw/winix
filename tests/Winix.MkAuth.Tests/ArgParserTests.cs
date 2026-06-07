@@ -216,6 +216,41 @@ public class ArgParserTests
         Assert.Equal(("x5u", "https://example/jwks"), r.Jwt!.Headers.Single());
     }
 
+    // B4 (CR-M2): the JOSE header's alg/typ are owned by --alg; a --header override would make the header
+    // lie about the signature. Reject EXACT-CASE alg/typ (RFC 7515 §4.1 — JOSE header param names are
+    // case-sensitive) as a parse-time usage error. A distinct-cased name (e.g. Alg) is NOT reserved and
+    // is accepted as its own header param.
+    [Theory]
+    [InlineData("alg=HS512")]
+    [InlineData("typ=foo")]
+    public void Jwt_header_alg_or_typ_is_usage_error(string header)
+    {
+        var r = ArgParser.Parse(new[] { "jwt", "--alg", "HS256", "--key", "literal:k", "--header", header });
+        Assert.False(r.Ok);
+        Assert.False(string.IsNullOrWhiteSpace(r.Error));
+        // The message must name the restriction (alg/typ owned by --alg), not leak a framework type.
+        Assert.Contains("--alg", r.Error!, StringComparison.Ordinal);
+    }
+
+    [Fact] // case-sensitivity policy: Alg is a distinct, non-reserved JOSE param and is accepted.
+    public void Jwt_header_distinct_cased_alg_is_accepted()
+    {
+        var r = ArgParser.Parse(new[] { "jwt", "--alg", "HS256", "--key", "literal:k", "--header", "Alg=HS512" });
+        Assert.True(r.Ok);
+        Assert.Equal(("Alg", "HS512"), r.Jwt!.Headers.Single());
+    }
+
+    [Fact] // invariant: an ordinary JOSE header param (kid) and the colon form still work.
+    public void Jwt_header_kid_still_works()
+    {
+        var r = ArgParser.Parse(new[] { "jwt", "--alg", "HS256", "--key", "literal:k",
+            "--header", "kid=abc", "--header", "x5t: thumb" });
+        Assert.True(r.Ok);
+        Assert.Equal(2, r.Jwt!.Headers.Count);
+        Assert.Contains(("kid", "abc"), r.Jwt!.Headers);
+        Assert.Contains(("x5t", "thumb"), r.Jwt!.Headers);
+    }
+
     [Fact] // Global flags bind on every scheme.
     public void Global_output_flags_bind()
     {
