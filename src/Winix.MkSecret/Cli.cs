@@ -52,6 +52,11 @@ public static class Cli
                     stderr.WriteLine(Formatting.EntropyNote(Entropy.BitsFor(o)));
                 }
             }
+            // Flush inside the try so a deferred write error (disk full / device error surfacing only at
+            // flush on a buffered seam host) is caught here and mapped to NotExecutable. Console hosts
+            // auto-flush per write so errors already surface; without this, a buffered host would defer the
+            // failure past the catch to an uncatchable point at process exit. Verified on Linux /dev/full 2026-06-07.
+            stdout.Flush();
             return ExitCode.Success;
         }
         catch (Exception ex)

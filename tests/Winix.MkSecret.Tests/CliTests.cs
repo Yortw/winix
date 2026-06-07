@@ -88,6 +88,26 @@ public class CliTests
     }
 
     [Fact]
+    public void Flush_failure_after_successful_writes_surfaces_as_NotExecutable()
+    {
+        // Writes succeed but the final Flush throws (a buffered seam host can defer a disk-full/device
+        // error to flush time). Without an explicit flush inside Cli.Run's try, that error would escape
+        // the catch and surface at an uncatchable point at process exit. Contract: map it to
+        // NotExecutable with a readable, tool-prefixed error — and NO raw SR resource key (the IOException
+        // routes through SafeError.Describe; the test csproj sets UseSystemResourceKeys so a leak repros).
+        // Asserts ONLY the exit code and stderr — never stdout completeness: partial stdout on a non-zero
+        // exit is the accepted streaming contract (consumers must check the exit code; see C6).
+        var so = new FlushThrowingWriter();
+        var se = new StringWriter();
+        int code = Cli.Run(new[] { "password", "--length", "8", "--quiet" }, so, se, new SequenceRandom(new byte[64]));
+
+        Assert.Equal(ExitCode.NotExecutable, code);
+        Assert.StartsWith("mksecret: error:", se.ToString().TrimStart());
+        // SR keys for IOException land in the "IO_" family; SafeError must have mapped it to English.
+        Assert.DoesNotContain("IO_", se.ToString(), System.StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Help_lists_json_flag_exactly_once()
     {
         // Regression: CommonShell called StandardFlags() (which already registers --json) and then
@@ -168,6 +188,17 @@ internal sealed class ThrowingWriter : TextWriter
     public override void Write(char value) => throw new IOException("broken pipe");
     public override void Write(string? value) => throw new IOException("broken pipe");
     public override void WriteLine(string? value) => throw new IOException("broken pipe");
+}
+
+/// <summary>TextWriter whose writes succeed but whose Flush throws IOException — simulates a buffered
+/// host that defers a disk-full/device error to flush time. Exercises Cli.Run's explicit-flush path.</summary>
+internal sealed class FlushThrowingWriter : TextWriter
+{
+    public override System.Text.Encoding Encoding => System.Text.Encoding.UTF8;
+    public override void Write(char value) { }
+    public override void Write(string? value) { }
+    public override void WriteLine(string? value) { }
+    public override void Flush() => throw new IOException("device error on flush");
 }
 
 /// <summary>CSPRNG seam that throws a parameterless framework exception. Unlike <see cref="ThrowingRandom"/>
