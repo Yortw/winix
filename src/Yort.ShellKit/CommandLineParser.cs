@@ -54,6 +54,7 @@ public sealed class CommandLineParser
     private string? _platformValueWindows;
     private string? _platformValueUnix;
     private ToolMaturity? _maturity;
+    private string[]? _preferDefaultWhen;
 
     // Lookup tables built on first Parse(). Registering flags/options after Parse() is
     // unsupported — the lookups would be stale and the new registrations silently ignored.
@@ -331,6 +332,19 @@ public sealed class CommandLineParser
     public CommandLineParser Maturity(ToolMaturity maturity)
     {
         _maturity = maturity;
+        return this;
+    }
+
+    /// <summary>
+    /// Machine-readable "prefer the incumbent when…" hints emitted in --describe as
+    /// <c>prefer_default_when</c>. Entries must condense existing reviewed docs prose
+    /// (never new claims). Omit entirely when the tool has no real incumbent case —
+    /// absence means "no guidance".
+    /// </summary>
+    /// <param name="cases">One or more scenarios where the incumbent tool is the better choice.</param>
+    public CommandLineParser PreferDefaultWhen(params string[] cases)
+    {
+        _preferDefaultWhen = cases;
         return this;
     }
 
@@ -984,6 +998,17 @@ public sealed class CommandLineParser
                     writer.WriteString("value_on_unix", _platformValueUnix);
                 }
                 writer.WriteEndObject();
+            }
+
+            // prefer_default_when — omitted entirely when unset or empty (absence = no guidance)
+            if (_preferDefaultWhen is not null && _preferDefaultWhen.Length > 0)
+            {
+                writer.WriteStartArray("prefer_default_when");
+                foreach (string entry in _preferDefaultWhen)
+                {
+                    writer.WriteStringValue(entry);
+                }
+                writer.WriteEndArray();
             }
 
             // glob_expansion — gate on !_commandMode to match the runtime hook and --help

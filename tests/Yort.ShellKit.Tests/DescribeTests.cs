@@ -267,6 +267,43 @@ public class DescribeTests
         // contract harness (ADR D3), not here.
         Assert.DoesNotContain("\"maturity\"", json, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void GenerateDescribe_EmitsPreferDefaultWhenArray()
+    {
+        var parser = new CommandLineParser("demo", "1.0.0")
+            .Description("demo tool")
+            .PreferDefaultWhen("case one — use incumbent", "case two")
+            .StandardFlags();
+        string json = parser.GenerateDescribe();
+        // UnsafeRelaxedJsonEscaping emits the em-dash literally (U+2014), so we match
+        // the raw character in the expected string — no \u-escape in the output.
+        Assert.Contains("\"prefer_default_when\":[\"case one — use incumbent\",\"case two\"]",
+            json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GenerateDescribe_OmitsPreferDefaultWhenWhenUnset()
+    {
+        var parser = new CommandLineParser("demo", "1.0.0")
+            .Description("demo tool")
+            .StandardFlags();
+        string json = parser.GenerateDescribe();
+        Assert.DoesNotContain("\"prefer_default_when\"", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GenerateDescribe_OmitsPreferDefaultWhenWhenEmpty()
+    {
+        // The guard suppresses on BOTH unset and empty-array — "absence = no guidance"
+        // covers a deliberate empty call too, so lock that second branch.
+        var parser = new CommandLineParser("demo", "1.0.0")
+            .Description("demo tool")
+            .PreferDefaultWhen()
+            .StandardFlags();
+        string json = parser.GenerateDescribe();
+        Assert.DoesNotContain("\"prefer_default_when\"", json, StringComparison.Ordinal);
+    }
 }
 
 [Collection("ConsoleOutput")]
