@@ -31,6 +31,20 @@ public class PhraseGeneratorTests
     }
 
     [Fact]
+    public void Capitalize_only_uppercases_the_first_letter_of_a_hyphenated_word()
+    {
+        // Invariant: --capitalize touches ONLY word[0], never any later letter — including the letter
+        // immediately after an internal hyphen. The EFF list contains a few hyphenated words; "drop-down"
+        // is diceware index 2008. count=7776 -> 2 bytes big-endian: 0x07,0xD8 = 2008. A naive
+        // "capitalise each segment" or "ToTitleCase" implementation would wrongly yield "Drop-Down".
+        var rng = new SequenceRandom(0x07, 0xD8);
+        var gen = new PhraseGenerator(rng);
+        Assert.Equal("drop-down", EffWordList.Words[2008]); // anchor the index so a list reorder fails loudly
+        string result = gen.Generate(Opts(1, "-", cap: true));
+        Assert.Equal("Drop-down", result);
+    }
+
+    [Fact]
     public void Number_appends_a_single_digit()
     {
         // two words (4 bytes) then one byte for the digit: 7 -> '7'.

@@ -78,6 +78,8 @@ public class CliTests
         // IOException from the writer, and the contract maps that to NotExecutable — it is NOT swallowed
         // as success. A *closed downstream pipe* does not throw in production (the runtime absorbs it at
         // the Console.Out layer on both Windows and Linux), so a throwing writer is the real-error path.
+        // The disk-full -> IOException -> 126 contract was verified on real Linux (/dev/full, AOT binary)
+        // 2026-06-07: single, bulk (--count 1000), and --json cases all exit 126 with the error on stderr.
         var se = new StringWriter();
         int code = Cli.Run(new[] { "password", "--length", "8", "--quiet" },
             new ThrowingWriter(), se, new SequenceRandom(new byte[64]));
@@ -135,6 +137,26 @@ public class CliTests
         var (code, outText, _) = Run(new[] { "password", "--length", "2", "--count", "2", "--json" }, rng);
         Assert.Equal(0, code);
         Assert.Equal("{\"mode\":\"password\",\"bits\":11.9,\"values\":[\"AA\",\"AA\"]}", outText.Trim());
+    }
+
+    [Fact]
+    public void Streamed_json_output_equals_the_buffered_envelope_formatter()
+    {
+        // Dual-path drift guard: Cli streams the envelope (JsonOpen + per-value JsonValue + JsonClose),
+        // while Formatting.JsonEnvelope buffers it. Pin the two paths to EACH OTHER (not to a separate
+        // literal), so adding a field to one without mirroring it to the other fails here. length 2,
+        // count 2, all-zero RNG -> values ["AA","AA"]; the streamed path ends with WriteLine, so the
+        // streamed output is the buffered envelope plus a trailing newline.
+        var options = MkSecretOptions.Defaults with
+        { Mode = SecretMode.Password, Charset = Charset.Alphanumeric, Length = 2, Count = 2, Json = true };
+        double bits = Entropy.BitsFor(options);
+        string buffered = Formatting.JsonEnvelope(options, new[] { "AA", "AA" }, bits);
+
+        var rng = new SequenceRandom(new byte[64]);
+        var (code, outText, _) = Run(new[] { "password", "--length", "2", "--count", "2", "--json" }, rng);
+
+        Assert.Equal(0, code);
+        Assert.Equal(buffered + System.Environment.NewLine, outText);
     }
 }
 
