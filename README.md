@@ -21,19 +21,37 @@ On Windows, many of these tools simply don't exist natively — there's no built
 | [**timeit**](src/timeit/README.md) | Time a command — wall clock, CPU time, peak memory, exit code |
 | [**squeeze**](src/squeeze/README.md) | Compress and decompress files (gzip, brotli, zstd) |
 | [**peep**](src/peep/README.md) | Watch a command on interval + re-run on file changes |
-| [**wargs**](src/wargs/README.md) | Build and execute commands from stdin |
+| [**wargs**](src/wargs/README.md) | Build and execute commands from stdin (sane-default `xargs`) |
 | [**files**](src/files/README.md) | Find files by name, size, date, type, and content |
-| [**treex**](src/treex/README.md) | Enhanced directory tree with colour, filtering, size rollups |
-| [**man**](src/man/README.md) | Man page viewer with colour, hyperlinks, and pager |
 | [**less**](src/less/README.md) | Terminal pager with ANSI colour, search, and follow mode |
+| [**man**](src/man/README.md) | Man page viewer with colour, hyperlinks, and pager |
+| [**treex**](src/treex/README.md) | Enhanced directory tree with colour, filtering, size rollups |
+| [**when**](src/when/README.md) | Convert timestamps, apply time arithmetic, calculate durations |
 | [**whoholds**](src/whoholds/README.md) | Find which processes hold a file lock or bind a port |
 | [**schedule**](src/schedule/README.md) | Cross-platform task scheduling with cron expressions |
 | [**nc**](src/nc/README.md) | TCP/UDP send-receive, port checks, TLS clients |
+| [**retry**](src/retry/README.md) | Run a command with automatic retries, backoff, exit-code filtering |
+| [**clip**](src/clip/README.md) | Cross-platform clipboard bridge — copy, paste, clear |
+| [**ids**](src/ids/README.md) | Generate identifiers — UUID v4, UUID v7, ULID, NanoID |
+| [**mksecret**](src/mksecret/README.md) | Generate secrets — random passwords, diceware passphrases, keys |
+| [**digest**](src/digest/README.md) | Cryptographic hashing and HMAC — SHA-2/SHA-3/BLAKE2b |
+| [**envvault**](src/envvault/README.md) | Keychain-backed env-var manager; injects secrets into child processes |
+| [**notify**](src/notify/README.md) | Cross-platform desktop notifications + ntfy.sh push |
+| [**protect**](src/protect/README.md) | Encrypt-at-rest using OS-native key stores (DPAPI/Keychain/libsecret) |
+| [**unprotect**](src/unprotect/README.md) | Companion to `protect`; decrypts `.prot` files |
+| [**qr**](src/qr/README.md) | QR code generator with Wi-Fi, SMS, mailto, geo, tel helpers |
+| [**url**](src/url/README.md) | URL encode/decode/parse/build/join/query-edit |
+| [**trash**](src/trash/README.md) | Move files to the OS recycle bin / Trash (recoverable delete) |
+| [**hcat**](src/hcat/README.md) | Netcat for HTTP — instant HTTP server: serve, inspect, pipe |
+| [**demux**](src/demux/README.md) | Route each line of stdin to files or commands by regex |
+| [**mkauth**](src/mkauth/README.md) | Compute HTTP `Authorization` headers (OAuth 1.0a, JWT, Basic, Bearer) |
 | [**winix**](src/winix/README.md) | Suite installer — installs and updates all tools via native package managers |
 
 ## Why each tool, on each platform
 
 The biggest value is on **Windows**, where many of these tools simply don't exist. On Linux and macOS the tools still earn their keep by combining multiple utilities, improving defaults, or providing a consistent interface across platforms. Even where a native equivalent exists, there's value in a single set of tools that behaves identically everywhere — scripts, CI pipelines, and muscle memory transfer across platforms without adaptation.
+
+The table below highlights a representative selection; the [Tools](#tools) table above lists the full suite, and each tool's README has its own "what it replaces, on each OS" rationale.
 
 | Tool | Windows | Linux / macOS |
 |------|---------|---------------|
@@ -76,6 +94,8 @@ scoop install winix/winix     # all tools
 
 ### Winget (Windows, stable releases)
 
+Winget coverage is rolling out per tool, so not every package is published there yet. The tools available on winget today install by ID:
+
 ```bash
 winget install Winix.TimeIt
 winget install Winix.Squeeze
@@ -91,22 +111,18 @@ winget install Winix.NetCat
 winget install Winix.Winix
 ```
 
+More tools are being submitted to winget over time (submissions are human-moderated, so they land in batches). For tools not yet on winget, use **Scoop**, the **.NET tool**, or **[GitHub Releases](https://github.com/Yortw/winix/releases)** below — all of which cover the full suite.
+
 ### .NET Tool (cross-platform)
 
+Every tool publishes to NuGet as a .NET global tool under the ID `Winix.<Tool>`. Install any of them with `dotnet tool install -g`:
+
 ```bash
-dotnet tool install -g Winix.TimeIt
-dotnet tool install -g Winix.Squeeze
-dotnet tool install -g Winix.Peep
-dotnet tool install -g Winix.Wargs
-dotnet tool install -g Winix.Files
-dotnet tool install -g Winix.TreeX
-dotnet tool install -g Winix.Man
-dotnet tool install -g Winix.Less
-dotnet tool install -g Winix.WhoHolds
-dotnet tool install -g Winix.Schedule
-dotnet tool install -g Winix.NetCat
-dotnet tool install -g Winix.Winix
+dotnet tool install -g Winix.TimeIt     # individual tool (one of 28)
+dotnet tool install -g Winix.Winix      # then: winix install   (pulls the whole suite)
 ```
+
+The full set of package IDs: `Winix.TimeIt`, `Winix.Squeeze`, `Winix.Peep`, `Winix.Wargs`, `Winix.Files`, `Winix.Less`, `Winix.Man`, `Winix.TreeX`, `Winix.When`, `Winix.WhoHolds`, `Winix.Schedule`, `Winix.NetCat`, `Winix.Retry`, `Winix.Clip`, `Winix.Ids`, `Winix.MkSecret`, `Winix.Digest`, `Winix.EnvVault`, `Winix.Notify`, `Winix.Protect`, `Winix.Unprotect`, `Winix.Qr`, `Winix.Url`, `Winix.Trash`, `Winix.HCat`, `Winix.Demux`, `Winix.MkAuth`, `Winix.Winix`.
 
 ### Direct Download
 
