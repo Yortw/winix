@@ -70,7 +70,7 @@ mksecret --count 3 --json
 |---|---|---|---|
 | `--length N` | `-l N` | `20` | Password length in characters (max 4096). |
 | `--charset NAME` | `-c NAME` | `alphanumeric` | Character set. See table below. |
-| `--count N` | `-n N` | `1` | Number of passwords to generate. |
+| `--count N` | `-n N` | `1` | Number of passwords to generate (max 100000). |
 | `--json` | | off | Emit a JSON envelope to stdout. |
 | `--quiet` | | off | Suppress the stderr entropy note. |
 
@@ -114,7 +114,7 @@ mksecret phrase --json
 | `--sep STR` | `-s STR` | `-` | Separator between words. |
 | `--capitalize` | | off | Capitalise the first letter of each word. |
 | `--number` | | off | Append a random digit to the passphrase. |
-| `--count N` | `-n N` | `1` | Number of passphrases to generate. |
+| `--count N` | `-n N` | `1` | Number of passphrases to generate (max 100000). |
 | `--json` | | off | Emit a JSON envelope to stdout. |
 | `--quiet` | | off | Suppress the stderr entropy note. |
 
@@ -148,7 +148,7 @@ mksecret key --json
 |---|---|---|---|
 | `--bytes N` | `-b N` | `32` | Number of random bytes (max 65536). |
 | `--encoding NAME` | `-e NAME` | `base64url` | Encoding: `base64url` (unpadded), `base64`, `hex`, `base32`. |
-| `--count N` | `-n N` | `1` | Number of keys to generate. |
+| `--count N` | `-n N` | `1` | Number of keys to generate (max 100000). |
 | `--json` | | off | Emit a JSON envelope to stdout. |
 | `--quiet` | | off | Suppress the stderr entropy note. |
 
@@ -207,7 +207,7 @@ The key is discarded as soon as the pipe closes. You get a valid-looking MAC but
 | Code | Meaning |
 |---|---|
 | 0 | Success. A closed downstream pipe (e.g. `mksecret --count 100000 \| head -1`) also exits 0 — it is not an error. |
-| 125 | Usage error — unknown subcommand, invalid flag, bad `--charset`/`--encoding` value, non-positive or oversized count/length/bytes/words, unexpected positional. Stderr carries the message. |
+| 125 | Usage error — unknown flag, bad `--charset`/`--encoding` value, non-positive or oversized count/length/bytes/words, unexpected positional (including an unrecognised subcommand). Stderr carries the message. |
 | 126 | Runtime error — OS CSPRNG failure or output write failure (disk full, device error). Stderr carries the message. |
 
 ## Colour
