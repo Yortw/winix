@@ -37,6 +37,16 @@ public class ArgParserTests
         Assert.Equal("env:P", r.Basic!.PasswordRef);
     }
 
+    [Fact] // B5 (DOCS-C1): a basic --user containing ':' is a parse-time usage error (docs say "usage error").
+    public void Basic_user_with_colon_is_usage_error()
+    {
+        var r = ArgParser.Parse(new[] { "basic", "--user", "bad:user", "--password", "literal:p" });
+        Assert.False(r.Ok);
+        Assert.False(string.IsNullOrWhiteSpace(r.Error));
+        Assert.Contains("colon", r.Error!, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ArgumentException", r.Error!, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Bearer_requires_token()
     {

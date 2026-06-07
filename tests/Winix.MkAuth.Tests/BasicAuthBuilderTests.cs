@@ -12,9 +12,10 @@ public class BasicAuthBuilderTests
         Assert.Equal("Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==", r.HeaderValue);
     }
 
-    [Fact]
-    public void Username_with_colon_is_rejected()
+    [Fact] // B5: library-level backstop now throws MkAuthException (single-arg), not the banned two-arg
+    public void Username_with_colon_is_rejected()    // ArgumentException(msg, paramName) form (SR-key leak class).
     {
-        Assert.Throws<ArgumentException>(() => BasicAuthBuilder.Build("a:b", "pw"));
+        var ex = Assert.Throws<MkAuthException>(() => BasicAuthBuilder.Build("a:b", "pw"));
+        Assert.Contains("colon", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 }

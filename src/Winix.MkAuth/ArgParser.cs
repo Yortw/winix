@@ -151,8 +151,16 @@ public static class ArgParser
                 {
                     return Fail("basic requires --password");
                 }
+                // DOCS-C1: a colon is the RFC 7617 user:password delimiter — a username containing one is
+                // unrepresentable. Reject it at parse time (docs already describe this as a usage error) so
+                // it surfaces as exit 125 rather than the library backstop's exit 126.
+                string basicUser = parsed.GetString("--user");
+                if (basicUser.Contains(':'))
+                {
+                    return Fail("basic --user cannot contain a colon (':' is the username/password delimiter in RFC 7617)");
+                }
                 return Success(AuthScheme.Basic, basic: new BasicOptions(
-                    User: parsed.GetString("--user"),
+                    User: basicUser,
                     PasswordRef: parsed.GetString("--password")));
             }
 

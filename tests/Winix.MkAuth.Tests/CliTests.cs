@@ -287,6 +287,17 @@ public class CliTests
         Assert.Contains("\"alg\":\"HS256\"", header);
     }
 
+    [Fact]                                              // B5 (DOCS-C1): basic --user with ':' → usage error 125, English, no leaked type
+    public void Basic_user_with_colon_is_usage_error_125()
+    {
+        var (code, outp, err) = Run(new[] { "basic", "--user", "bad:user", "--password", "literal:p" });
+        Assert.Equal(125, code);
+        Assert.True(string.IsNullOrWhiteSpace(outp));
+        Assert.Contains("colon", err, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ArgumentException", err, StringComparison.Ordinal);
+        AssertNoSrResourceKey(err);
+    }
+
     [Fact] // regression: -v is not a valid flag (guards against re-introducing the phantom short alias)
     public void Dash_v_is_usage_error()
     {
