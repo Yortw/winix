@@ -165,11 +165,18 @@ public class HmacFactoryTests
     [Fact]
     public void Blake2b_KeyOver64Bytes_Throws()
     {
+        // SFH-1: oversized BLAKE2b key now throws a single-arg ArgumentException (was the 3-arg
+        // ArgumentOutOfRangeException, whose .Message appended an "Arg_ParamName_Name, key" SR-key
+        // tail on the SAME line under UseSystemResourceKeys). The exact-type assertion guards that the
+        // throw stays the single-arg form — Assert.Throws is exact, so a regression back to AOORE
+        // (which derives from ArgumentException) would fail here, not pass silently.
         byte[] key = new byte[65];
         Array.Fill(key, (byte)0xAB);
-        var ex = Assert.Throws<ArgumentOutOfRangeException>(
+        var ex = Assert.Throws<ArgumentException>(
             () => HmacFactory.Create(HashAlgorithm.Blake2b, key));
         Assert.Contains("64 bytes", ex.Message, StringComparison.Ordinal);
+        // The single-arg form carries no paramName, so .Message is exactly our text — no SR-key tail.
+        Assert.DoesNotContain("Arg_ParamName", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]

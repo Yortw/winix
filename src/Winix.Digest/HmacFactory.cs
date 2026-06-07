@@ -19,14 +19,20 @@ public static class HmacFactory
     /// <param name="key">
     /// The HMAC key. A defensive copy is taken; the caller's array is not retained.
     /// For BLAKE2b, RFC 7693 §2.9 caps keyed-mode keys at 64 bytes — longer keys
-    /// are rejected with <see cref="ArgumentOutOfRangeException"/>. SHA-family HMACs
+    /// are rejected with <see cref="ArgumentException"/>. SHA-family HMACs
     /// accept any key length (per RFC 2104, oversized keys are hashed to block size first).
     /// </param>
     /// <returns>An <see cref="IHasher"/> that computes HMAC over bytes or a stream.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="key"/> is <see langword="null"/>.</exception>
-    /// <exception cref="ArgumentOutOfRangeException">
+    /// <exception cref="ArgumentException">
     /// Thrown when <paramref name="algorithm"/> is <see cref="HashAlgorithm.Blake2b"/> and
-    /// <paramref name="key"/> exceeds 64 bytes; also for unrecognised <paramref name="algorithm"/> values.
+    /// <paramref name="key"/> exceeds 64 bytes. The single-arg form is deliberate so the message
+    /// prints verbatim without a leaked <c>Arg_ParamName_Name</c> resource-key tail under
+    /// <c>UseSystemResourceKeys</c> (SFH-1).
+    /// </exception>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// Thrown for unrecognised <paramref name="algorithm"/> values (unreachable in practice — the
+    /// CLI validates the algorithm set before calling).
     /// </exception>
     /// <exception cref="PlatformNotSupportedException">
     /// Thrown for <see cref="HashAlgorithm.Sha3_256"/> or <see cref="HashAlgorithm.Sha3_512"/> on
@@ -91,9 +97,12 @@ public static class HmacFactory
         {
             if (key.Length > 64)
             {
-                throw new ArgumentOutOfRangeException(
-                    nameof(key),
-                    key.Length,
+                // SFH-1: single-arg ArgumentException, NOT the 3-arg ArgumentOutOfRangeException form.
+                // Under UseSystemResourceKeys the 3-arg form appends " Arg_ParamName_Name, key\n
+                // ArgumentOutOfRange_ActualValue, N" to .Message — the SR-key paramName tail rides on
+                // the SAME line as our text, so a newline-trim at the caller can't strip it. The
+                // single-arg form's .Message is exactly our string, printable verbatim with no trim.
+                throw new ArgumentException(
                     "BLAKE2b keyed mode accepts at most 64 bytes per RFC 7693 §2.9. " +
                     "For longer keys, use --hmac sha256 (or another SHA-family algorithm) which auto-hashes oversized keys.");
             }

@@ -94,9 +94,14 @@ public static class Cli
             Console.Error.WriteLine(Formatting.RuntimeError(invocationName, $"could not find file '{path}'"));
             return RuntimeErrorExit;
         }
-        catch (DirectoryNotFoundException ex)
+        catch (DirectoryNotFoundException)
         {
-            Console.Error.WriteLine(Formatting.RuntimeError(invocationName, ex.Message));
+            // CR-3: DirectoryNotFoundException.Message is the bare SR key "IO_PathNotFound_Path" under
+            // UseSystemResourceKeys (it carries no FileName property to recover the path from). Mirror
+            // the FileNotFoundException sibling above: emit our own friendly text naming the path the
+            // user gave (the output's parent dir is the only directory this path opens).
+            string path = opts.OutputPath ?? opts.InputPath ?? "(unknown)";
+            Console.Error.WriteLine(Formatting.RuntimeError(invocationName, $"no such directory for '{path}'"));
             return RuntimeErrorExit;
         }
         catch (UnauthorizedAccessException)

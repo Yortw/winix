@@ -89,11 +89,18 @@ public static class Cli
             }
             catch (ArgumentOutOfRangeException ex)
             {
-                // e.g. BLAKE2b key over 64 bytes — surface the library's helpful message,
-                // trimmed to first line to avoid a noisy multi-line dump.
-                int nl = ex.Message.IndexOf('\n');
-                string msg = nl >= 0 ? ex.Message.Substring(0, nl) : ex.Message;
-                stderr.WriteLine($"digest: {msg}");
+                // Unrecognised algorithm (unreachable — ArgParser validates the set). The 3-arg AOORE
+                // .Message would carry SR-key tails under UseSystemResourceKeys, so route through
+                // SafeError rather than echo it. Must precede the ArgumentException arm (AOORE derives
+                // from ArgumentException). The BLAKE2b oversized-key case is now a plain ArgumentException.
+                stderr.WriteLine($"digest: {SafeError.Describe(ex)}");
+                return ExitCode.UsageError;
+            }
+            catch (ArgumentException ex)
+            {
+                // SFH-1: BLAKE2b key over 64 bytes. HmacFactory now throws a single-arg ArgumentException
+                // whose .Message is exactly our RFC text — no paramName tail, no newline trim needed.
+                stderr.WriteLine($"digest: {ex.Message}");
                 return ExitCode.UsageError;
             }
 

@@ -137,6 +137,23 @@ public class CliTests
     }
 
     [Fact]
+    public void HmacBlake2b_KeyOver64Bytes_FriendlyMessageNoResourceKey()
+    {
+        // SFH-1: an oversized BLAKE2b key must surface the RFC text cleanly. Under
+        // UseSystemResourceKeys (mirrored on this test csproj) the previous 3-arg AOORE + newline-trim
+        // still leaked the "Arg_ParamName_Name, key" tail (it rides the same line as the message).
+        // Now HmacFactory throws a single-arg ArgumentException printed verbatim — no tail, no trim.
+        string oversizedKey = new string('k', 65);   // 65 ASCII chars = 65 UTF-8 bytes, over the 64 cap
+        var r = RunCli(new[] { "--hmac", "blake2b", "--key", oversizedKey, "-s", "abc" });
+
+        Assert.Equal(ExitCode.UsageError, r.exit);
+        Assert.Contains("BLAKE2b keyed mode accepts at most 64 bytes", r.stderr, StringComparison.Ordinal);
+        Assert.Contains("--hmac sha256", r.stderr, StringComparison.Ordinal);   // the actionable suggestion
+        Assert.DoesNotContain("Arg_ParamName", r.stderr, StringComparison.Ordinal);          // no leaked SR key
+        Assert.DoesNotContain("ArgumentOutOfRange", r.stderr, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Md5_EmitsLegacyWarning()
     {
         // I10 — verify the AlgorithmWarning helper is wired to stderr in Cli.Run.

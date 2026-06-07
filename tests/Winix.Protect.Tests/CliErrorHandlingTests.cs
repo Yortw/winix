@@ -65,6 +65,38 @@ public class CliErrorHandlingTests
         finally { try { File.Delete(path); } catch { } }
     }
 
+    [Fact]
+    public void Protect_OutputParentDirMissing_StderrIsReadableNoResourceKey()
+    {
+        // CR-3: writing to an -o path under a non-existent directory throws DirectoryNotFoundException
+        // at FileStream CreateNew. Its .Message is the bare SR key "IO_PathNotFound_Path" under
+        // UseSystemResourceKeys (mirrored on this test csproj). Cli must emit our own friendly text
+        // naming the path, never the leaked key.
+        string dir = Path.Combine(Path.GetTempPath(), $"winix-nodir-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            string input = Path.Combine(dir, "secret.txt");
+            File.WriteAllText(input, "round-trip me");
+            string missingOut = Path.Combine(dir, "does", "not", "exist", "out.prot");
+
+            StringWriter capturedErr = new();
+            TextWriter originalErr = Console.Error;
+            Console.SetError(capturedErr);
+            try
+            {
+                int exit = Winix.Protect.Cli.Run([input, "-o", missingOut], "protect");
+                Assert.Equal(126, exit);
+                string err = capturedErr.ToString();
+                Assert.Contains("no such directory", err, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("IO_PathNotFound", err, StringComparison.Ordinal);
+                Assert.DoesNotContain("DirectoryNotFoundException", err, StringComparison.Ordinal);
+            }
+            finally { Console.SetError(originalErr); }
+        }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { } }
+    }
+
     [SkippableFact]
     public void Unprotect_TamperedCiphertext_StderrSaysAuthenticationFailed()
     {
