@@ -6,12 +6,19 @@
     <OutputType>Exe</OutputType>
     <PublishAot>true</PublishAot>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <IsPackable>true</IsPackable>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>hcat</ToolCommandName>
     <PackageId>Winix.HCat</PackageId>
     <Description>HTTP toolkit — netcat for HTTP: inspect/record requests, pipe paths to a CLI, or serve files. One binary, no daemon.</Description>
     <PackageTags>cli;command-line;cross-platform;windows;macos;linux;aot;dotnet-tool;winix;http;server;webhook;netcat;httpbin</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Winix.HCat\Winix.HCat.csproj" />
     <Content Include="man\man1\hcat.1" CopyToPublishDirectory="PreserveNewest" Link="share\man\man1\hcat.1" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
   </ItemGroup>
 </Project>
