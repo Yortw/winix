@@ -19,11 +19,16 @@ public sealed class ThrowingSecretStore : ISecretStore
     /// <summary>The message used when the default exception factory is in effect. Kept for backward compatibility with tests that read <c>Message</c>.</summary>
     public string Message { get; }
 
-    /// <summary>Default: every op throws an <see cref="InvalidOperationException"/> with the given message.</summary>
+    /// <summary>
+    /// Default: every op throws a <see cref="SecretStoreException"/> with the given message — the type
+    /// real backends (libsecret/Keychain) now raise for an OS-keychain failure, so the verbatim-surfacing
+    /// contract is exercised faithfully. Tests needing a specific framework type (Win32Exception,
+    /// TypeInitializationException) use the <see cref="ThrowingSecretStore(Exception)"/> ctor instead.
+    /// </summary>
     public ThrowingSecretStore(string message = "simulated backend failure")
     {
         Message = message;
-        _exceptionFactory = () => new InvalidOperationException(message);
+        _exceptionFactory = () => new SecretStoreException(message);
     }
 
     /// <summary>Every op throws the supplied exception. Used when a specific .NET type matters (e.g. TypeInitializationException, Win32Exception).</summary>

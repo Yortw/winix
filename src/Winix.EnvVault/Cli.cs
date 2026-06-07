@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Text;
 using Winix.SecretStore;
@@ -80,12 +81,23 @@ public static class Cli
             SafeWriteLine(stderr, Formatting.ErrorLine(ex.Message, o.UseColor));
             return 130;
         }
+        catch (SecretStoreException ex)
+        {
+            // Backend failure (locked Keychain, libsecret daemon down, secret-tool missing) raised
+            // from the get/unset/list/exec/multi-key store paths. ex.Message is our project-authored
+            // English — safe to print verbatim. MUST precede the broad catch, which would otherwise
+            // route a SecretStoreException through UnwrapTypeInit(ex).Message — fine here (our text),
+            // but framework exceptions hitting the broad catch leak a bare SR key, hence the split below.
+            SafeWriteLine(stderr, Formatting.ErrorLine(ex.Message, o.UseColor));
+            return ExitCode.NotExecutable;
+        }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
             // TypeInitializationException wraps the actually-useful error (e.g. "Unable to load
             // libsecret-1.so.0") in a "The type initializer for X threw an exception" message
             // with no actionable content. Unwrap it so the user sees the real cause.
-            SafeWriteLine(stderr, Formatting.ErrorLine(UnwrapTypeInit(ex).Message, o.UseColor));
+            Exception surface = UnwrapTypeInit(ex);
+            SafeWriteLine(stderr, Formatting.ErrorLine(DescribeSurface(surface), o.UseColor));
             return ExitCode.NotExecutable;
         }
     }
@@ -118,6 +130,34 @@ public static class Cli
             current = tie.InnerException;
         }
         return current;
+    }
+
+    /// <summary>
+    /// Picks readable error text for an exception that reached a broad catch. The SAFE classes —
+    /// <see cref="SecretStoreException"/> (project-authored English), <see cref="Win32Exception"/>
+    /// (native-OS DPAPI/Credential-Manager text), <see cref="PlatformNotSupportedException"/>
+    /// (project-authored English from <c>SecretStoreFactory</c>), and a <c>FileNotFoundException</c>
+    /// carrying a non-key load-failure message (the unwrapped <c>libsecret-1.so.0</c> cause) — print
+    /// their <see cref="Exception.Message"/> verbatim. Everything else routes through
+    /// <see cref="SafeError.Describe"/>, because under <c>UseSystemResourceKeys</c> a framework
+    /// <see cref="Exception.Message"/> is a bare CoreLib resource key. Shared with <c>Program.cs</c>'s
+    /// store-creation and final-safety-net catches so all envvault error surfaces agree.
+    /// </summary>
+    internal static string DescribeSurface(Exception surface)
+    {
+        if (surface is SecretStoreException or Win32Exception or PlatformNotSupportedException)
+        {
+            return surface.Message;
+        }
+        // The libsecret native-load failure surfaces as a FileNotFoundException whose .Message names
+        // the missing .so — that text is the actionable cause and is not an SR key, so keep it.
+        // A framework FNFE for a genuinely-missing file always sets FileName (and its .Message is the
+        // "IO_FileNotFound_FileName, {path}" SR key), so gate on FileName == null to tell them apart.
+        if (surface is FileNotFoundException fnf && fnf.FileName is null && !string.IsNullOrEmpty(fnf.Message))
+        {
+            return fnf.Message;
+        }
+        return SafeError.Describe(surface);
     }
 
     private static int RunSet(EnvVaultOptions o, ISecretStore store, IConsolePrompt prompt, TextWriter stderr)
@@ -156,8 +196,11 @@ public static class Cli
                 // argv-leak warning as evidence that the write succeeded. Without this, the
                 // outer catch's generic "envvault: {msg}" reads like an unrelated secondary
                 // error after a successful store.
+                // CR-1: DescribeSurface (not bare SafeError.Describe) so a SecretStoreException
+                // backend message ("secret-tool store failed (exit 1): collection locked") and
+                // native Win32/DPAPI text surface verbatim instead of degrading to a type name.
                 SafeWriteLine(stderr, Formatting.ErrorLine(
-                    $"failed to store {o.Namespaces[0]}.{o.Keys[0]}: {SafeError.Describe(ex)}", o.UseColor));
+                    $"failed to store {o.Namespaces[0]}.{o.Keys[0]}: {DescribeSurface(UnwrapTypeInit(ex))}", o.UseColor));
                 return ExitCode.NotExecutable;
             }
             return 0;

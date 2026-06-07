@@ -27,6 +27,42 @@ public class CliTests
     }
 
     [Fact]
+    public void Vault_SecretStoreException_SurfacesMessageVerbatim()
+    {
+        // A6: a vault: ref whose backend raises SecretStoreException must surface that project-authored
+        // English verbatim. Under UseSystemResourceKeys a regression routing it through SafeError.Describe
+        // would print "SecretStoreException" instead of the actionable backend text.
+        var deps = new MkAuthDeps
+        {
+            SecretStore = new ThrowingSecretStore(
+                new Winix.SecretStore.SecretStoreException("secret-tool store failed (exit 1): collection locked")),
+        };
+        var (code, outp, err) = Run(new[] { "bearer", "--token", "vault:ns/key" }, deps: deps);
+
+        Assert.Equal(Yort.ShellKit.ExitCode.NotExecutable, code);
+        Assert.Contains("secret-tool store failed (exit 1): collection locked", err);
+        Assert.DoesNotContain("SecretStoreException", err);   // verbatim message, not the type name
+        Assert.Empty(outp);
+    }
+
+    [Fact]
+    public void Vault_FrameworkException_RoutesThroughSafeErrorNoResourceKey()
+    {
+        // A6 INVARIANT: a genuine framework exception from the same vault seam must NOT print verbatim —
+        // its .Message is a bare SR key under UseSystemResourceKeys. Routes through SafeError.Describe.
+        var deps = new MkAuthDeps
+        {
+            SecretStore = new ThrowingSecretStore(
+                new System.IO.FileNotFoundException("blocked", fileName: "/secret/store.db")),
+        };
+        var (code, _, err) = Run(new[] { "bearer", "--token", "vault:ns/key" }, deps: deps);
+
+        Assert.Equal(Yort.ShellKit.ExitCode.NotExecutable, code);
+        Assert.Contains("no such file", err);                  // SafeError-mapped English
+        Assert.DoesNotContain("IO_FileNotFound", err);         // no leaked SR key
+    }
+
+    [Fact]
     public void Json_output_shape()
     {
         var (_, outp, _) = Run(new[] { "bearer", "--token", "literal:t", "--json" });

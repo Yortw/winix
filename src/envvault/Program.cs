@@ -37,7 +37,11 @@ internal sealed class Program
             string label = surface is PlatformNotSupportedException
                 ? "platform not supported"
                 : "key store unavailable";
-            SafeWriteLine(Console.Error, Formatting.ErrorLine($"{label}: {surface.Message}", useColor));
+            // DescribeSurface (not surface.Message): a framework exception leaking from store creation
+            // (e.g. a non-load IOException) would otherwise print a bare SR resource key here. The
+            // SAFE classes — SecretStoreException, Win32Exception, PlatformNotSupportedException, and
+            // the unwrapped libsecret-load FileNotFoundException — still surface verbatim (ADR row 1).
+            SafeWriteLine(Console.Error, Formatting.ErrorLine($"{label}: {Cli.DescribeSurface(surface)}", useColor));
             return ExitCode.NotExecutable;
         }
 
@@ -55,7 +59,9 @@ internal sealed class Program
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
-            SafeWriteLine(Console.Error, Formatting.ErrorLine(Cli.UnwrapTypeInit(ex).Message, useColor));
+            // Final safety net: same SAFE-class routing as Cli's broad catch so a leaked framework
+            // exception here doesn't print a bare SR key (ADR row 1).
+            SafeWriteLine(Console.Error, Formatting.ErrorLine(Cli.DescribeSurface(Cli.UnwrapTypeInit(ex)), useColor));
             return ExitCode.NotExecutable;
         }
     }

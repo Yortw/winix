@@ -185,8 +185,17 @@ public static class Cli
         catch (MkAuthException ex)
         {
             // Project-authored, human-readable English (e.g. "Environment variable 'X' is not set.",
-            // "Algorithm RS256 needs a PEM private key…"). Safe to surface verbatim — this is the ONLY
-            // exception type whose Message we print directly.
+            // "Algorithm RS256 needs a PEM private key…"). Safe to surface verbatim.
+            SafeWriteLine(stderr, $"mkauth: error: {ex.Message}");
+            return ExitCode.NotExecutable;
+        }
+        catch (SecretStoreException ex)
+        {
+            // A vault: ref hit a backend failure. SecretStoreException.Message is project-authored
+            // English ("secret-tool store failed…"), safe to surface verbatim — the same treatment as
+            // MkAuthException. MUST precede the broad catch, which would route it through
+            // SafeError.Describe and degrade it to the type name (F1: the backend type changed from
+            // InvalidOperationException to SecretStoreException).
             SafeWriteLine(stderr, $"mkauth: error: {ex.Message}");
             return ExitCode.NotExecutable;
         }

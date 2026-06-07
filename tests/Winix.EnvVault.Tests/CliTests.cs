@@ -360,6 +360,47 @@ public class CliTests
     }
 
     [Fact]
+    public void Set_SecretStoreException_SurfacesMessageVerbatim()
+    {
+        // A7: the exact backend message (libsecret store failure with a locked collection) must reach
+        // the user unaltered through the --set store-write path. Runs under UseSystemResourceKeys, so
+        // a regression that routed this through bare SafeError.Describe would print "SecretStoreException".
+        ThrowingSecretStore store = new(
+            new SecretStoreException("secret-tool store failed (exit 1): collection locked"));
+        FakeConsolePrompt prompt = new(isInteractive: true, ttyValues: new[] { "v" });
+        FakeProcessLauncher launcher = new();
+
+        var (code, stdout, stderr) = Run(new[] { "--set", "x", "K" }, store, launcher, prompt);
+
+        Assert.Equal(Yort.ShellKit.ExitCode.NotExecutable, code);
+        Assert.Contains("secret-tool store failed (exit 1): collection locked", stderr);
+        Assert.DoesNotContain("SecretStoreException", stderr);  // verbatim message, not the type name
+        Assert.Empty(stdout);
+        AssertNoStackTrace(stderr);
+    }
+
+    [Fact]
+    public void Set_FrameworkExceptionFromSeam_RoutesThroughSafeErrorNoResourceKey()
+    {
+        // A7 INVARIANT (the negative that constrains the change): a genuine framework exception from the
+        // same store seam must NOT be printed verbatim — its .Message is a bare SR resource key under
+        // UseSystemResourceKeys. FileName is set, so DescribeSurface treats it as a real missing-file
+        // error and routes through SafeError ("no such file"), never leaking the IO_FileNotFound_FileName key.
+        ThrowingSecretStore store = new(
+            new System.IO.FileNotFoundException("blocked", fileName: "/secret/store.db"));
+        FakeConsolePrompt prompt = new(isInteractive: true, ttyValues: new[] { "v" });
+        FakeProcessLauncher launcher = new();
+
+        var (code, _, stderr) = Run(new[] { "--set", "x", "K" }, store, launcher, prompt);
+
+        Assert.Equal(Yort.ShellKit.ExitCode.NotExecutable, code);
+        Assert.Contains("no such file", stderr);                       // SafeError-mapped English
+        Assert.DoesNotContain("IO_FileNotFound", stderr);              // no leaked SR key
+        Assert.DoesNotContain("FileNotFoundException", stderr);        // no raw type name either
+        AssertNoStackTrace(stderr);
+    }
+
+    [Fact]
     public void Exec_CommandNotFound_ReturnsNotFoundExitCode()
     {
         NullSecretStore store = new();
@@ -483,12 +524,12 @@ public class CliTests
         Assert.Equal(Yort.ShellKit.ExitCode.NotExecutable, code);
         Assert.Contains("failed to store", stderr);
         Assert.Contains("aws.TOKEN", stderr);   // specific key named
-        // Resource-key-leak sweep: the store exception's .Message is now routed through
-        // SafeError (under UseSystemResourceKeys a framework backend exception's .Message
-        // would be a bare CoreLib key). SafeError maps an unrecognised type to its type
-        // name rather than the raw message, so the diagnostic carries the exception type
-        // (InvalidOperationException) instead of the literal "backend rejected" text.
-        Assert.Contains("InvalidOperationException", stderr);  // safe type-name description, not a leaked key
+        // CR-1 restored: the backend now raises SecretStoreException (project-authored English),
+        // which DescribeSurface prints VERBATIM. The earlier resource-key sweep had degraded this to
+        // the type name ("InvalidOperationException") via bare SafeError.Describe — that masked the
+        // actionable backend text the store-write path is meant to surface.
+        Assert.Contains("backend rejected", stderr);
+        Assert.DoesNotContain("SecretStoreException", stderr);  // verbatim message, not a type name
         AssertNoStackTrace(stderr);
     }
 

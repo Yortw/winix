@@ -2,6 +2,7 @@
 using System;
 using System.IO;
 using System.Security.Cryptography;
+using Winix.SecretStore;
 using Yort.ShellKit;
 
 namespace Winix.Protect;
@@ -129,6 +130,17 @@ public static class Cli
         }
         catch (IOException ex)
         {
+            Console.Error.WriteLine(Formatting.RuntimeError(invocationName, ex.Message));
+            return RuntimeErrorExit;
+        }
+        catch (SecretStoreException ex)
+        {
+            // The shared keychain backend (libsecret/Keychain) raises SecretStoreException with
+            // project-authored English ("secret-tool store failed (exit 1): collection locked").
+            // Before SecretStoreException existed these were InvalidOperationException and surfaced
+            // verbatim via the arm above; the type change would otherwise drop them into the broad
+            // catch and degrade them to "SecretStoreException" via SafeError. Print verbatim, and
+            // place this BEFORE the broad catch (F1: the old typed arm no longer matches the new type).
             Console.Error.WriteLine(Formatting.RuntimeError(invocationName, ex.Message));
             return RuntimeErrorExit;
         }
