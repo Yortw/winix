@@ -21,6 +21,13 @@ namespace Yort.ShellKit;
 /// </summary>
 public sealed class CommandLineParser
 {
+    /// <summary>
+    /// Version of the --describe envelope STRUCTURE. Bump ONLY on renames, removals,
+    /// or type changes of envelope fields — never for additive fields. docs/STABILITY.md
+    /// documents the rule for consumers.
+    /// </summary>
+    public const int DescribeSchemaVersion = 1;
+
     private readonly string _toolName;
     private readonly string _version;
     private string? _description;
@@ -922,6 +929,11 @@ public sealed class CommandLineParser
         using (writer)
         {
             writer.WriteStartObject();
+
+            // Versions the STRUCTURE of this envelope only (field names/nesting/types).
+            // Additive fields do NOT bump it; renames/removals/type changes DO.
+            // See docs/STABILITY.md. Bump rule must be honoured by any future editor.
+            writer.WriteNumber("schema_version", DescribeSchemaVersion);
 
             // tool, version, description
             writer.WriteString("tool", _toolName);

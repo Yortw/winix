@@ -219,6 +219,18 @@ public class DescribeTests
         Assert.Contains("\\\"quotes\\\"", json);
         Assert.Contains("\\\\backslashes", json);
     }
+
+    [Fact]
+    public void GenerateDescribe_EmitsSchemaVersionAsFirstField()
+    {
+        var parser = new CommandLineParser("demo", "1.0.0")
+            .Description("demo tool")
+            .StandardFlags();
+        string json = parser.GenerateDescribe();
+        // schema_version must be the FIRST field so consumers can branch before
+        // parsing the rest; value 1 is the initial envelope version.
+        Assert.StartsWith("{\"schema_version\":1,", json, StringComparison.Ordinal);
+    }
 }
 
 [Collection("ConsoleOutput")]
