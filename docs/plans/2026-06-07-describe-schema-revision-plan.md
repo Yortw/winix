@@ -281,25 +281,39 @@ if (_preferDefaultWhen is not null && _preferDefaultWhen.Length > 0)
 
 - [ ] **Step 1: csproj** — copy the shape of `tests/Winix.MkSecret.Tests/Winix.MkSecret.Tests.csproj` (xUnit + net10.0 + `UseSystemResourceKeys` + `InvariantGlobalization`), with `<ProjectReference>` entries for ALL 28 class libraries (`src/Winix.*/Winix.*.csproj` + `src/Yort.ShellKit/Yort.ShellKit.csproj`). VERIFY at implementation: envvault/protect library project names from the layout table in CLAUDE.md.
 
-- [ ] **Step 2: ConsoleCapture helper.** Describe output goes through `Console.WriteLine` inside `Parse` (CommandLineParser.cs:577), NOT the seam's writer params — capture must wrap `Console.Out`:
+- [ ] **Step 2: ConsoleCapture helper + parallelism kill-switch.** Describe output goes through `Console.WriteLine` inside `Parse` (CommandLineParser.cs:577), NOT the seam's writer params — capture must wrap `Console.Out`. (Adversarial F1) `Console.SetOut` is PROCESS-GLOBAL and xUnit parallelises test CLASSES by default — correctness REQUIRES assembly-level parallelism disabled. Create `tests/Winix.Contract.Tests/AssemblyInfo.cs`:
+
+```csharp
+using Xunit;
+
+// ConsoleCapture swaps the process-global Console.Out around every seam invocation;
+// any parallel test writing to the console during a capture window corrupts snapshots.
+// (Adversarial review F1 — this attribute is load-bearing, not style.)
+[assembly: CollectionBehavior(DisableTestParallelization = true)]
+```
+
+The capture helper is ASYNC (adversarial F2/F3 — the registry is async so capture must span the await; no sync-over-async anywhere in this project):
 
 ```csharp
 #nullable enable
 using System;
 using System.IO;
+using System.Threading.Tasks;
 
 namespace Winix.Contract.Tests;
 
 /// <summary>
-/// Captures Console.Out around a seam invocation. ShellKit auto-writes --help/--version/
-/// --describe via Console.WriteLine during Parse (CommandLineParser.cs:577), NOT through
-/// the Cli seam's stdout writer — so contract capture must intercept the console itself.
-/// Console state is process-global: all snapshot cases run inside ONE test class (xUnit
-/// serialises within a class), so no cross-test race.
+/// Captures Console.Out/Error around a seam invocation. ShellKit auto-writes
+/// --help/--version/--describe via Console.WriteLine during Parse
+/// (CommandLineParser.cs:577), NOT through the Cli seam's stdout writer — so contract
+/// capture must intercept the console itself. Async so the capture window spans the
+/// whole awaited call (a continuation may run on a pool thread); safe ONLY because
+/// AssemblyInfo.cs disables test parallelism (process-global console state).
 /// </summary>
 internal static class ConsoleCapture
 {
-    public static (string Stdout, string Stderr, int ExitCode) Run(Func<int> invoke)
+    public static async Task<(string Stdout, string Stderr, int ExitCode)> RunAsync(
+        Func<Task<int>> invoke)
     {
         TextWriter origOut = Console.Out;
         TextWriter origErr = Console.Error;
@@ -309,7 +323,7 @@ internal static class ConsoleCapture
         Console.SetError(errW);
         try
         {
-            int exit = invoke();
+            int exit = await invoke();
             return (outW.ToString(), errW.ToString(), exit);
         }
         finally
@@ -321,44 +335,48 @@ internal static class ConsoleCapture
 }
 ```
 
-- [ ] **Step 3: Registry.** One entry per describe surface; each adapter takes `string[] args`, returns the exit code, and is invoked under `ConsoleCapture`. Seam shapes vary — wrap each exactly the way that tool's own seam tests do (read them when unsure). Representative entries (write ALL 28 + subcommand surfaces; the async seams block on the task — acceptable in tests via `.GetAwaiter().GetResult()` ONLY if that is what the tool's own tests do — VERIFY per tool and copy their pattern):
+- [ ] **Step 3: Registry.** One entry per describe surface; each adapter takes `string[] args` and returns `Task<int>`, invoked under `ConsoleCapture.RunAsync`. (Adversarial F3) The registry type is ASYNC — `Func<string[], Task<int>>` — so async seams are awaited natively and sync seams wrap in `Task.FromResult`; there is NO sync-over-async anywhere (the `.GetAwaiter().GetResult()` idea is REJECTED: a seam awaiting without ConfigureAwait(false) under xUnit's sync context would deadlock, and the tools' own tests use real await, so "copy their pattern" only works if the harness awaits too). Representative entries (write ALL 28 + subcommand surfaces):
 
 ```csharp
 #nullable enable
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Winix.Contract.Tests;
 
 /// <summary>
-/// Every --describe surface in the suite: key → adapter invoking the library seam.
+/// Every --describe surface in the suite: key → async adapter invoking the library seam.
 /// Keys: "tool" or "tool/subcommand". A new tool MUST be registered here and its
-/// snapshot committed (CLAUDE.md new-tool checklist).
+/// snapshot committed (CLAUDE.md new-tool checklist). Sync seams wrap in
+/// Task.FromResult; async seams are awaited natively (never blocked).
 /// </summary>
 internal static class DescribeSurfaces
 {
-    public static readonly IReadOnlyDictionary<string, Func<string[], int>> All =
-        new Dictionary<string, Func<string[], int>>(StringComparer.Ordinal)
+    public static readonly IReadOnlyDictionary<string, Func<string[], Task<int>>> All =
+        new Dictionary<string, Func<string[], Task<int>>>(StringComparer.Ordinal)
         {
             // sync Run(args, stdout, stderr) family — writers unused for --describe
             // (ShellKit writes to Console.Out) but required by the signature:
-            ["timeit"] = args => Winix.TimeIt.Cli.Run(args, TextWriter.Null, TextWriter.Null),
+            ["timeit"] = args => Task.FromResult(
+                Winix.TimeIt.Cli.Run(args, TextWriter.Null, TextWriter.Null)),
             // protect/unprotect share one parser via invocationName:
-            ["protect"] = args => Winix.Protect.Cli.Run(args, "protect"),
-            ["unprotect"] = args => Winix.Protect.Cli.Run(args, "unprotect"),
-            // …(all remaining tools; copy each signature from that tool's own seam tests —
-            //   schedule has an optional backend param: pass null/omit; retry takes a
-            //   CancellationToken: pass CancellationToken.None; peep/winix are async;
-            //   wargs takes a TextReader stdin: pass TextReader.Null; nc is the
-            //   byte-stream seam: pass Stream.Null/MemoryStream per its tests)…
-            // subcommand surfaces (final list from the Task 8 probe):
-            ["qr/wifi"] = args => /* qr seam */ 0, // VERIFY signature at implementation
+            ["protect"] = args => Task.FromResult(Winix.Protect.Cli.Run(args, "protect")),
+            ["unprotect"] = args => Task.FromResult(Winix.Protect.Cli.Run(args, "unprotect")),
+            // async seam example (peep) — awaited natively:
+            ["peep"] = args => Winix.Peep.Cli.RunAsync(
+                args, TextWriter.Null, TextWriter.Null, CancellationToken.None),
+            // …(all remaining tools; copy each signature from that tool's existing seam
+            //   tests — schedule's optional backend param: omit; retry: CancellationToken.None;
+            //   wargs: TextReader.Null stdin; nc byte-stream: Stream.Null per its tests)…
+            // subcommand surfaces (final list + expected counts from the Task 8 probe).
         };
 }
 ```
 
-(The `// …` above is a deliberate plan-level elision of 25 mechanical one-liners whose EXACT signatures the implementer copies from each tool's existing seam tests — listing guessed signatures here would bake in wrong assumptions, the documented plan-test-code failure mode. The rule is explicit: copy from the tool's own tests, never guess.)
+(The `// …` above is a deliberate plan-level elision of ~24 mechanical one-liners whose EXACT signatures the implementer copies from each tool's existing seam tests — listing guessed signatures here would bake in wrong assumptions, the documented plan-test-code failure mode. The rule is explicit: copy from the tool's own tests, never guess; the ONLY adaptation is `Task.FromResult` for sync seams.)
 
 - [ ] **Step 4:** Build the project; placeholder test asserting `DescribeSurfaces.All.Count > 0`; commit scaffold — `test(contract): contract-lock harness scaffold (project + capture + registry)`
 
@@ -366,7 +384,8 @@ internal static class DescribeSurfaces
 
 ### Task 8: Probe — subcommand surfaces + platform variance (BEFORE pinning anything)
 
-- [ ] **Step 1:** For each multi-subcommand tool (schedule, url, qr, mkauth, mksecret, winix, trash — VERIFY the full list via each tool's dispatch on `positional[0]`), run `dotnet run --project src/{tool} -- {sub} --describe` for one subcommand: does it emit a DISTINCT envelope (subcommand-specific tool name/options) with exit 0? Register every surface that does. Record any tool whose subcommand describe is identical to top-level (register top-level only; note it).
+- [ ] **Step 1:** For each multi-subcommand tool (schedule, url, qr, mkauth, mksecret, winix, trash — VERIFY the full list via each tool's dispatch on `positional[0]`), run `dotnet run --project src/{tool} -- {sub} --describe` for EVERY subcommand: does it emit a DISTINCT envelope (subcommand-specific tool name/options) with exit 0? Register every surface that does. (Adversarial F6) Record, per tool, the EXPECTED subcommand-surface count in a table in the task report AND in a constant the registry guard asserts (so a silently-collapsed or forgotten subcommand registration is a test failure, not an invisible undercount). Any tool whose subcommand describe is identical to top-level: register top-level only and record that as the documented expectation.
+- [ ] **Step 1b:** (Adversarial F2) For each ASYNC-seam tool (peep, winix, wargs, nc — and any other RunAsync), confirm by reading the seam that the `Parse` call (which performs the describe `Console.WriteLine`) executes synchronously on the calling thread BEFORE the first `await`. Record per tool. The async ConsoleCapture makes this non-fatal either way (capture spans the await), but a tool that awaits before Parse would also defer its describe write to a pool thread — confirm none does, or note which.
 - [ ] **Step 2:** Platform-variance probe: with the registry complete and fields wired (Tasks 4+6), dump every surface's normalised describe JSON on Windows AND inside WSL (`wsl bash -lc "bash /mnt/d/projects/winix/tmp/dump-describes.sh"` — script file, never inline compound wsl commands; mkdir -p tmp first). Diff the two sets. Expected: identical (the `.Platform()` block emits both OS values unconditionally). ANY difference = a recorded per-tool decision (normalise that field or split the snapshot) — report it, don't improvise.
 - [ ] **Step 3:** Record probe results in the task report (surface count, variance findings).
 
@@ -399,14 +418,14 @@ public class ContractSnapshotTests
 
     [Theory]
     [MemberData(nameof(Surfaces))]
-    public void Describe_matches_committed_snapshot(string key)
+    public async Task Describe_matches_committed_snapshot(string key)
     {
         string[] parts = key.Split('/');
         string[] args = parts.Length == 2
             ? new[] { parts[1], "--describe" }
             : new[] { "--describe" };
 
-        var (stdout, stderr, exit) = ConsoleCapture.Run(() => DescribeSurfaces.All[key](args));
+        var (stdout, stderr, exit) = await ConsoleCapture.RunAsync(() => DescribeSurfaces.All[key](args));
 
         Assert.Equal(0, exit);
         Assert.Equal("", stderr);
@@ -424,6 +443,15 @@ public class ContractSnapshotTests
 
         if (Environment.GetEnvironmentVariable("WINIX_UPDATE_SNAPSHOTS") == "1")
         {
+            // (Adversarial F4) Update mode writes BOTH the source-tree snapshot (the
+            // committed truth, [CallerFilePath]-anchored) AND the bin copy (so a re-run
+            // without rebuild compares fresh, not stale). Guard the source path: on a
+            // machine where it doesn't exist (CI, relocated checkout) fail with a clear
+            // dev-only message rather than writing to a phantom path.
+            string sourceDir = SourceSnapshotDir();
+            Assert.True(Directory.Exists(sourceDir),
+                $"source snapshot dir not found ({sourceDir}) — update mode is a dev-checkout-only operation, not for CI");
+            File.WriteAllText(Path.Combine(sourceDir, Path.GetFileName(snapshotPath)), actual);
             File.WriteAllText(snapshotPath, actual);
             Assert.Fail($"snapshot regenerated for {key} — update mode always fails so CI can never silently self-update; commit the diff");
         }
@@ -448,21 +476,32 @@ public class ContractSnapshotTests
         // The version field is the dev/release build number — the ONLY masked field.
         // Anything else that varies is a contract finding, not noise.
         node["version"] = "<normalised>";
-        return node.ToJsonString(new JsonSerializerOptions { WriteIndented = true,
+        string indented = node.ToJsonString(new JsonSerializerOptions { WriteIndented = true,
             Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
+        // (Adversarial F5) WriteIndented emits OS-specific newlines (CRLF on Windows,
+        // LF on Linux) — byte-equality across OSes REQUIRES LF normalisation here, and
+        // LF-pinned snapshot files (.gitattributes). Without this the Windows/WSL parity
+        // probe fails on line endings alone, masking real findings.
+        return indented.Replace("\r\n", "\n");
     }
 
     private static string SnapshotDir =>
         Path.Combine(AppContext.BaseDirectory, "snapshots");
+
+    private static string SourceSnapshotDir(
+        [System.Runtime.CompilerServices.CallerFilePath] string thisFile = "")
+        => Path.Combine(Path.GetDirectoryName(thisFile)!, "snapshots");
 }
 ```
 
-(VERIFY at implementation: snapshots must be copied to output — add `<Content Include="snapshots\**" CopyToOutputDirectory="PreserveNewest" />` to the csproj; the UnsafeRelaxedJsonEscaping choice must round-trip the suite's non-ASCII describe text (em-dashes) — probe one tool with non-ASCII description and adjust if escaping differs from expectations. Update mode writes to the SOURCE tree path, not bin — compute the source path via a `[CallerFilePath]`-anchored helper, the standard snapshot-test pattern; implement that instead of AppContext.BaseDirectory for the write path, read from output dir.)
+(VERIFY at implementation: snapshots must be copied to output — add `<Content Include="snapshots\**" CopyToOutputDirectory="PreserveNewest" />` to the csproj; the UnsafeRelaxedJsonEscaping choice must round-trip the suite's non-ASCII describe text (em-dashes) — probe one tool with non-ASCII description and adjust if escaping differs from expectations.)
+
+- [ ] **Step 1b: `.gitattributes` (Adversarial F5):** add to the REPO-ROOT `.gitattributes` (create if absent): `tests/Winix.Contract.Tests/snapshots/*.json text eol=lf` — so autocrlf checkouts can't rewrite the snapshots' line endings out from under `File.ReadAllText`. Commit it WITH the first snapshots. Verify: after committing, `git ls-files --eol tests/Winix.Contract.Tests/snapshots/` shows `w/lf` working-tree endings on Windows.
 
 - [ ] **Step 2:** Generate all snapshots (`WINIX_UPDATE_SNAPSHOTS=1 dotnet test tests/Winix.Contract.Tests` — expect all-fail with "regenerated"); inspect a sample (timeit, mkauth, qr/wifi) by eye: fields present, ordering sane, nothing leaking.
 - [ ] **Step 3:** Re-run WITHOUT the env var — ALL GREEN.
 - [ ] **Step 4:** Run the harness inside WSL too (Task 8's variance evidence) — green there as well.
-- [ ] **Step 5:** Registry-completeness guard — add:
+- [ ] **Step 5:** Registry-completeness + tier-table guards (adversarial F6 — the count alone can't catch a mis-tiered tool, a forgotten subcommand, or a filename collision):
 
 ```csharp
 [Fact]
@@ -472,6 +511,57 @@ public void Every_tool_in_the_suite_is_registered()
     // register it and commit its snapshot (new-tool checklist).
     int topLevel = DescribeSurfaces.All.Keys.Count(k => !k.Contains('/'));
     Assert.Equal(28, topLevel);
+}
+
+[Fact]
+public void Subcommand_surface_counts_match_the_probe()
+{
+    // Per-tool expected subcommand-surface counts recorded by the Task 8 probe —
+    // a silently-collapsed or forgotten subcommand registration fails here,
+    // not invisibly. (Fill the literals from the probe results.)
+    var expected = new Dictionary<string, int>(StringComparer.Ordinal)
+    {
+        // e.g. ["qr"] = 5, ["url"] = 6, … — FILL FROM TASK 8 PROBE
+    };
+    foreach (var kv in expected)
+    {
+        int actual = DescribeSurfaces.All.Keys.Count(
+            k => k.StartsWith(kv.Key + "/", StringComparison.Ordinal));
+        Assert.True(kv.Value == actual,
+            $"{kv.Key}: expected {kv.Value} subcommand surfaces, registry has {actual}");
+    }
+}
+
+[Fact]
+public async Task Tier_assignments_match_the_design_table()
+{
+    // Locks the 23-core/5-fresh table from the design — a tool shipping the WRONG
+    // tier (or losing .Maturity in a refactor) fails here even though the per-surface
+    // maturity gate only checks core-or-fresh. Reads each top-level surface's actual
+    // describe output. (Test the requirement, not the mechanism.)
+    var fresh = new HashSet<string>(StringComparer.Ordinal)
+        { "mksecret", "trash", "hcat", "mkauth", "demux" };
+    foreach (string key in DescribeSurfaces.All.Keys.Where(k => !k.Contains('/')))
+    {
+        var (stdout, _, _) = await ConsoleCapture.RunAsync(
+            () => DescribeSurfaces.All[key](new[] { "--describe" }));
+        string? maturity = JsonNode.Parse(stdout)!["maturity"]?.GetValue<string>();
+        string expected = fresh.Contains(key) ? "fresh" : "core";
+        Assert.True(expected == maturity, $"{key}: expected maturity '{expected}', got '{maturity}'");
+    }
+}
+
+[Fact]
+public void No_two_registry_keys_collide_on_snapshot_filename()
+{
+    // '/'→'_' mapping could collide (e.g. keys "a/b" and "a_b"). Fail loudly.
+    var names = DescribeSurfaces.All.Keys
+        .Select(k => k.Replace('/', '_'))
+        .GroupBy(n => n, StringComparer.Ordinal)
+        .Where(g => g.Count() > 1)
+        .Select(g => g.Key)
+        .ToList();
+    Assert.True(names.Count == 0, "snapshot filename collision: " + string.Join(", ", names));
 }
 ```
 
