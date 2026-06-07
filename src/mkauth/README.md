@@ -56,15 +56,17 @@ Every secret-bearing flag takes a **secret reference** — a string with a schem
 
 | Reference | Source | Notes |
 |-----------|--------|-------|
-| `env:NAME` | Environment variable `NAME` | Value read at runtime, not from argv. |
-| `file:PATH` | File contents | Trailing `\r\n`/`\n` run trimmed; all other bytes preserved verbatim. |
-| `vault:NS/KEY` | OS keychain via Winix.SecretStore | DPAPI (Windows) / Keychain (macOS) / libsecret (Linux). Splits on the **first** `/`; `NS` cannot contain `/`, `KEY` may. |
-| `-` or `stdin` | Standard input | Safe; at most **one** secret per invocation may use stdin. |
-| `literal:VALUE` | The literal value | **Emits a `ps`/history-exposure warning to stderr.** Explicit escape hatch only. |
+| `env:NAME` | Environment variable `NAME` | Value read at runtime, not from argv. Surrounding whitespace trimmed. |
+| `file:PATH` | File contents | Surrounding whitespace trimmed (see below). |
+| `vault:NS/KEY` | OS keychain via Winix.SecretStore | DPAPI (Windows) / Keychain (macOS) / libsecret (Linux). Splits on the **first** `/`; `NS` cannot contain `/`, `KEY` may. Surrounding whitespace trimmed. |
+| `-` or `stdin` | Standard input | Safe; at most **one** secret per invocation may use stdin. Surrounding whitespace trimmed. |
+| `literal:VALUE` | The literal value | **Emits a `ps`/history-exposure warning to stderr.** Used **verbatim** (no trimming); an empty or whitespace-only `literal:` is allowed. Explicit escape hatch only. |
+
+**Whitespace trimming:** every reference-resolved source (`env:`, `file:`, `vault:`, `stdin`) has **all surrounding whitespace stripped** (leading and trailing, including trailing newlines), so the same key signs the same way regardless of how it is delivered. Only `literal:` is used verbatim.
+
+**Empty secrets:** a secret resolved from `env:`/`file:`/`vault:`/`stdin` that is empty (or whitespace-only, which trims to empty) is an **error** (exit 126) naming the source — signing with an empty key produces a silently-wrong header. To send an empty secret deliberately (e.g. an RFC 7617 empty password), use an explicit empty `literal:`.
 
 **F6 note:** `vault:NS/KEY` splits on the *first* `/`. A namespace cannot contain `/`; a key may contain `/` characters after the first slash.
-
-**F7 note:** `file:` and `stdin` secrets have a **single trailing `\r\n`/`\n` run trimmed**. All other bytes — including trailing spaces — are preserved verbatim. This matches the convention from `digest --key-file`.
 
 ### basic — Basic authentication
 
@@ -205,7 +207,7 @@ curl -H "$(mkauth jwt --alg RS256 --key file:private.pem \
 
 | Flag | Required | Default | Description |
 |------|----------|---------|-------------|
-| `--alg ALG` | no | `HS256` | Signing algorithm: `HS256/384/512`, `RS256/384/512`, `ES256/384/512`. |
+| `--alg ALG` | no | `HS256` | Signing algorithm: `HS256/384/512`, `RS256/384/512`, `ES256/384/512`. ES algs require a matching curve (see below). |
 | `--key REF` | yes | — | HS: shared secret. RS/ES: PEM private key (use `file:` or `vault:`). |
 | `--claim k=v` | no | — | String claim (repeatable). |
 | `--claim-num k=v` | no | — | Numeric claim — `v` is parsed as a number (for NumericDate fields). |
@@ -219,7 +221,15 @@ curl -H "$(mkauth jwt --alg RS256 --key file:private.pem \
 | `--iat` | no | off | Set `iat` to now. |
 | `--nbf DURATION` | no | — | `nbf` = now + DURATION. |
 | `--kid S` | no | — | `kid` JOSE header parameter. |
-| `--header k=v` | no | — | Additional JOSE header parameters (repeatable; accepts `name=value` or `name: value`). |
+| `--header k=v` | no | — | Additional JOSE header parameters (repeatable; accepts `name=value` or `name: value`). `alg` and `typ` are reserved (set by `--alg`) and rejected as a usage error; distinct-cased names like `Alg` are allowed. |
+
+**ES curve requirement:** an `ES*` algorithm fixes the EC curve (RFC 7518 §3.4). The supplied PEM key must use the matching curve, or signing fails with a usage/runtime error:
+
+| Algorithm | Required curve |
+|-----------|----------------|
+| `ES256` | P-256 |
+| `ES384` | P-384 |
+| `ES512` | P-521 |
 
 ### azure-storage — Azure Storage SharedKey
 
@@ -258,7 +268,7 @@ curl -H "x-ms-date: $DATE" \
 | `--method VERB` | yes | — | HTTP method. |
 | `--url URL` | yes | — | Request URL → canonicalized resource (`/account/path` + sorted query). |
 | `--x-ms-date S` | no | auto (RFC1123 GMT) | The `x-ms-date` header value. Must match the value sent with the request. |
-| `--x-ms-version V` | no | pinned default | `x-ms-version` header value. |
+| `--x-ms-version V` | no | pinned default | `x-ms-version` header value. Signing assumes version **2015-02-21 or later**, where `Content-Length` is signed blank (not `0`) when zero. Earlier versions are not supported. |
 | `--header NAME:VAL` | no | — | Additional headers (repeatable). Accepts HTTP-style `name: value` or `name=value`. Used for fixed StringToSign headers (Content-Type, Content-Length, …) and `x-ms-*` CanonicalizedHeaders. (`x-ms-date`/`x-ms-version` have dedicated flags — prefer those.) |
 
 ### Common flags (all subcommands)
@@ -336,7 +346,7 @@ mkauth oauth1 --method GET --url https://api.example.com/me \
 |------|---------|
 | 0 | Success. The computed header was written to stdout. |
 | 125 | Usage error — unknown subcommand, missing required flag, invalid flag value, conflicting flags (e.g. two stdin references), or unexpected positional. Stderr carries the message. |
-| 126 | Runtime error — keychain access failure, key file not found, signing error, or output write failure. Stderr carries the message. |
+| 126 | Runtime error — keychain access failure, key file not found, an empty/whitespace-only resolved secret, signing error, or output write failure. Stderr carries the message. |
 
 ## Colour
 

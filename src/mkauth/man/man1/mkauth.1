@@ -1,4 +1,4 @@
-.TH MKAUTH 1 "2026-06-03" "Winix" "User Commands"
+.TH MKAUTH 1 "2026-06-07" "Winix" "User Commands"
 .SH NAME
 mkauth \- compute HTTP Authorization headers for curl and scripts
 
@@ -88,6 +88,9 @@ PLAINTEXT sends the signing key as the signature; a warning is emitted to stderr
 Mints a JSON Web Token (RFC 7519) and wraps it as \fBAuthorization: Bearer <jwt>\fR.
 Supports HS256/384/512, RS256/384/512, and ES256/384/512.
 ES signatures use IEEE\-P1363 \fBr\(cbs\fR form per JOSE (RFC 7518).
+An ES algorithm fixes the EC curve (RFC 7518 \(sc3.4): \fBES256\fR=P\-256, \fBES384\fR=P\-384, \fBES512\fR=P\-521;
+the supplied PEM key must use the matching curve or signing fails.
+The JOSE \fBalg\fR and \fBtyp\fR header parameters are set by \fB\-\-alg\fR and cannot be overridden via \fB\-\-header\fR.
 
 .SS azure\-storage
 Computes the \fBAuthorization: SharedKey account:signature\fR header for Azure Storage
@@ -110,7 +113,7 @@ at runtime.
 .BI file: PATH
 Contents of file at
 .IR PATH .
-A single trailing \fB\er\en\fR or \fB\en\fR run is trimmed; all other bytes are preserved verbatim.
+Surrounding whitespace is trimmed (see below).
 
 .TP
 .BI vault: NS/KEY
@@ -127,9 +130,26 @@ At most one secret per invocation may use stdin.
 
 .TP
 .BI literal: VALUE
-The literal value.
+The literal value, used
+.B verbatim
+(no trimming); an empty or whitespace\-only \fBliteral:\fR is allowed.
 .B Emits a ps/shell\-history exposure warning to stderr.
 Use as an explicit escape hatch only.
+
+.PP
+.B Whitespace trimming:
+every reference\-resolved source (\fBenv:\fR, \fBfile:\fR, \fBvault:\fR, \fBstdin\fR) has
+.B all surrounding whitespace stripped
+(leading and trailing, including trailing newlines), so the same key signs the same way
+regardless of delivery. Only \fBliteral:\fR is used verbatim.
+
+.PP
+.B Empty secrets:
+a secret resolved from \fBenv:\fR/\fBfile:\fR/\fBvault:\fR/\fBstdin\fR that is empty
+(or whitespace\-only, which trims to empty) is an
+.B error
+(exit 126) naming the source \(em signing with an empty key produces a silently\-wrong header.
+To send an empty secret deliberately, use an explicit empty \fBliteral:\fR.
 
 .SH OPTIONS
 
@@ -217,6 +237,7 @@ Use for \fBapplication/x\-www\-form\-urlencoded\fR body params.
 .TP
 .BI \-\-alg " ALG"
 Signing algorithm (default: \fBHS256\fR): \fBHS256\fR, \fBHS384\fR, \fBHS512\fR, \fBRS256\fR, \fBRS384\fR, \fBRS512\fR, \fBES256\fR, \fBES384\fR, \fBES512\fR.
+ES algorithms require a matching curve (ES256=P\-256, ES384=P\-384, ES512=P\-521).
 .TP
 .BI \-\-key " REF"
 Secret reference for the signing key (required).
@@ -260,6 +281,7 @@ Set \fBiat\fR to now.
 .TP
 .BI \-\-header " k=v"
 Additional JOSE header parameter (repeatable). Accepts \fBname=value\fR or \fBname: value\fR.
+\fBalg\fR and \fBtyp\fR are reserved (set by \fB\-\-alg\fR) and rejected as a usage error; distinct\-cased names like \fBAlg\fR are allowed.
 
 .SS azure\-storage flags
 .TP
@@ -280,6 +302,7 @@ The \fBx\-ms\-date\fR header value (RFC1123 GMT). Defaults to now. Must match th
 .TP
 .BI \-\-x\-ms\-version " V"
 \fBx\-ms\-version\fR header value. Defaults to a pinned stable version.
+Signing assumes version \fB2015\-02\-21\fR or later, where \fBContent\-Length\fR is signed blank (not \fB0\fR) when zero; earlier versions are not supported.
 .TP
 .BI \-\-header " k:v"
 Additional header (repeatable). Accepts \fBname: value\fR or \fBname=value\fR. Used for StringToSign fixed headers (Content\-Type, Content\-Length, …) and \fBx\-ms\-*\fR CanonicalizedHeaders. (\fBx\-ms\-date\fR/\fBx\-ms\-version\fR have dedicated flags \(em prefer those.)
@@ -296,7 +319,7 @@ Usage error \(em unknown subcommand, missing required flag, invalid flag value, 
 Stderr carries the message.
 .TP
 .B 126
-Runtime error \(em keychain access failure, key file not found, signing error, or output write failure.
+Runtime error \(em keychain access failure, key file not found, an empty/whitespace\-only resolved secret, signing error, or output write failure.
 Stderr carries the message.
 
 .SH EXAMPLES

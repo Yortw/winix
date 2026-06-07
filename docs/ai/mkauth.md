@@ -63,6 +63,8 @@ mkauth azure-storage --account mystorageacct --key env:STORAGE_KEY \
                      --x-ms-version 2023-11-03
 ```
 
+**JWT notes:** an `ES*` algorithm requires a matching EC curve — `ES256`=P-256, `ES384`=P-384, `ES512`=P-521 — or signing fails. The JOSE `alg`/`typ` header parameters are owned by `--alg`; passing `--header alg=…` or `--header typ=…` is a usage error (distinct-cased names like `Alg` are allowed). Azure SharedKey signing assumes `x-ms-version` 2015-02-21 or later (Content-Length signed blank when zero).
+
 ## JSON Output
 
 Pass `--json` for machine-parseable output:
@@ -84,13 +86,15 @@ Every secret-bearing flag accepts a secret reference — never a bare value on a
 
 | Reference | Source | Notes |
 |-----------|--------|-------|
-| `env:NAME` | Environment variable | Safe — not in argv/history |
-| `file:PATH` | File contents | Trailing `\r\n`/`\n` run trimmed; all other bytes preserved |
-| `vault:NS/KEY` | OS keychain | DPAPI / Keychain / libsecret; splits on first `/` |
-| `-` or `stdin` | Standard input | At most one per invocation |
-| `literal:VALUE` | Literal value | **Emits a ps/history warning to stderr** |
+| `env:NAME` | Environment variable | Safe — not in argv/history; surrounding whitespace trimmed |
+| `file:PATH` | File contents | Surrounding whitespace trimmed |
+| `vault:NS/KEY` | OS keychain | DPAPI / Keychain / libsecret; splits on first `/`; surrounding whitespace trimmed |
+| `-` or `stdin` | Standard input | At most one per invocation; surrounding whitespace trimmed |
+| `literal:VALUE` | Literal value | **Emits a ps/history warning to stderr**; used verbatim (empty/whitespace allowed) |
 
 `vault:NS/KEY` splits on the **first** `/`. A namespace cannot contain `/`; a key may.
+
+**Whitespace + empty:** every reference-resolved source (`env:`/`file:`/`vault:`/`stdin`) has all surrounding whitespace stripped, so the same key signs identically regardless of delivery. A resolved value that is empty or whitespace-only is an **error** (exit 126) naming the source. Only `literal:` is verbatim and may be empty (use an empty `literal:` to send an empty secret deliberately).
 
 ## Output Flags
 
@@ -156,8 +160,8 @@ mkauth bearer --token env:TOKEN --json | jq -r '.header_value'
 | Code | Meaning |
 |------|---------|
 | 0 | Success. The computed header was written to stdout. |
-| 125 | Usage error — unknown subcommand, missing required flag, invalid flag value, conflicting stdin references, or unexpected positional. Stderr carries the message. |
-| 126 | Runtime error — keychain access failure, key file not found, signing error, or output write failure. Stderr carries the message. |
+| 125 | Usage error — unknown subcommand, missing required flag, invalid flag value (e.g. a colon in basic `--user`, or `alg`/`typ` as a jwt `--header`), conflicting stdin references, or unexpected positional. Stderr carries the message. |
+| 126 | Runtime error — keychain access failure, key file not found, an empty/whitespace-only resolved secret, an ES alg/curve mismatch, signing error, or output write failure. Stderr carries the message. |
 
 ## Metadata
 
