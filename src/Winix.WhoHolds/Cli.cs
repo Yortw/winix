@@ -204,6 +204,7 @@ public static class Cli
     {
         return new CommandLineParser("whoholds", version)
             .Description("Find which processes are holding a file lock or binding a network port.")
+            .Maturity(ToolMaturity.Core)
             .Flag("--pid-only", "Force one-PID-per-line output (auto when piped)")
             .Flag("--full-path", "-l", "Show full executable path instead of process name")
             .StandardFlags()

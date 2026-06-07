@@ -229,6 +229,7 @@ public static class Cli
     {
         return new CommandLineParser("less", version)
             .Description("Display file contents one screen at a time with scrolling, search, and ANSI colour passthrough.")
+            .Maturity(ToolMaturity.Core)
             .StandardFlags()
             .ExpandGlobPositionals()
             .Flag("-N", "Show line numbers")

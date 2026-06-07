@@ -60,6 +60,7 @@ public static class Cli
 
         var parser = new CommandLineParser("man", version)
             .Description("Display manual pages. Renders groff man pages to the terminal with colour and hyperlinks.")
+            .Maturity(ToolMaturity.Core)
             .StandardFlags()
             .Flag("--no-pager", "Disable pager; write directly to stdout")
             .IntOption("--width", null, "N", "Render width in columns",

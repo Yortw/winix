@@ -441,6 +441,7 @@ public static class Cli
     {
         return new CommandLineParser("treex", version)
             .Description("Enhanced directory tree with colour, filtering, size rollups, and clickable hyperlinks.")
+            .Maturity(ToolMaturity.Core)
             .StandardFlags()
             .ExpandGlobPositionals()
             .Flag("--ndjson", "Streaming NDJSON output")

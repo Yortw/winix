@@ -125,6 +125,7 @@ public static class ArgParser
     {
         return new CommandLineParser("notify", ResolveVersion())
             .Description("Cross-platform desktop notifications + ntfy.sh push notifications.")
+            .Maturity(ToolMaturity.Core)
             .StandardFlags()
             .Platform("cross-platform",
                 replaces: new[] { "notify-send", "osascript", "BurntToast" },

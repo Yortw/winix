@@ -46,6 +46,7 @@ public static class Cli
 
         var parser = new CommandLineParser("peep", version)
             .Description("Run a command repeatedly and display output on a refreshing screen.")
+            .Maturity(ToolMaturity.Core)
             .StandardFlags()
             .DoubleOption("--interval", "-n", "N", "Seconds between runs (default: 2)",
                 validate: v => v > 0 ? null : "must be positive")

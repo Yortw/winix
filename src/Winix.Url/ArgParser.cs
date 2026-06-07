@@ -278,6 +278,7 @@ public static class ArgParser
     {
         return new CommandLineParser("url", ResolveVersion())
             .Description("Cross-platform URL encode/decode/parse/build/join/query-edit.")
+            .Maturity(ToolMaturity.Core)
             .StandardFlags()
             .Platform("cross-platform",
                 replaces: new[] { "python -c 'import urllib.parse'" },

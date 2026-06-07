@@ -153,6 +153,7 @@ public static class ArgParser
         string version = ResolveVersion();
         return new CommandLineParser("trash", version)
             .Description("Move files and directories to the recycle bin / Trash. Also lists and empties the trash.")
+            .Maturity(ToolMaturity.Fresh)
             .StandardFlags()
             .ExpandGlobPositionals()
             // --json is already registered by StandardFlags() above; do NOT re-add it.

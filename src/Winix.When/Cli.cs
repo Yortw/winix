@@ -361,6 +361,7 @@ public static class Cli
     {
         return new CommandLineParser("when", version)
             .Description("Convert timestamps between formats, apply time arithmetic, and calculate durations.")
+            .Maturity(ToolMaturity.Core)
             .StandardFlags()
             .Option("--tz", null, "ZONE", "Display in this timezone (IANA or Windows ID)")
             .Flag("--utc", null, "Output only UTC ISO 8601 string (conversion mode)")

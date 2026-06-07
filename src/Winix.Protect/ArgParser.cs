@@ -113,6 +113,7 @@ public static class ArgParser
 
         CommandLineParser p = new CommandLineParser(toolName, ResolveVersion())
             .Description(description)
+            .Maturity(ToolMaturity.Core)
             .StandardFlags()
             .Platform("cross-platform",
                 replaces: new[] { "dpapi.ps1", "security add-generic-password + openssl", "secret-tool + openssl", "gpg --symmetric (for single-user at-rest)" },

@@ -150,6 +150,7 @@ public static class Cli
     {
         return new CommandLineParser("timeit", version)
             .Description("Time a command and show wall clock, CPU time, peak memory, and exit code.")
+            .Maturity(ToolMaturity.Core)
             .StandardFlags()
             .Flag("--oneline", "-1", "Single-line output format")
             .Flag("--stdout", "Write summary to stdout instead of stderr")

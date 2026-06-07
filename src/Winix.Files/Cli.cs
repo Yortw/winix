@@ -401,6 +401,7 @@ public static class Cli
     {
         return new CommandLineParser("files", version)
             .Description("Find files by name, size, date, type, and content.")
+            .Maturity(ToolMaturity.Core)
             .StandardFlags()
             .ExpandGlobPositionals()
             .Positional("paths...")

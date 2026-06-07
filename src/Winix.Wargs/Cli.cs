@@ -127,6 +127,7 @@ public static class Cli
 
         var parser = new CommandLineParser("wargs", version)
             .Description("Read items from stdin and execute a command for each one.")
+            .Maturity(ToolMaturity.Core)
             .StandardFlags()
             .Flag("--ndjson", "Streaming NDJSON per job to stderr")
             .IntOption("--parallel", "-P", "N", "Max concurrent jobs (default 1, 0 = unlimited)",

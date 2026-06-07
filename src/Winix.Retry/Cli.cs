@@ -43,6 +43,7 @@ public static class Cli
 
         var parser = new CommandLineParser("retry", version)
             .Description("Run a command with automatic retries on failure.")
+            .Maturity(ToolMaturity.Core)
             .StandardFlags()
             .Option("--times", "-n", "N", "Max retry attempts, not counting initial run (default: 3)")
             .Option("--delay", "-d", "DURATION", "Delay before retries, e.g. 500ms, 2s, 1m (default: 1s)")

@@ -282,6 +282,7 @@ public static class ArgParser
     {
         return new CommandLineParser("hcat", ResolveVersion())
             .Description("Instant HTTP server: serve a folder, catch incoming requests, or pipe a command over HTTP.")
+            .Maturity(ToolMaturity.Fresh)
             .StandardFlags()
             // --json is already registered by StandardFlags(); do NOT re-add it. Read via parsed.Has("--json").
             .Platform("cross-platform",

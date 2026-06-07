@@ -233,6 +233,7 @@ public static class Cli
     {
         return new CommandLineParser("squeeze", version)
             .Description("Compress and decompress files using gzip, brotli, or zstd.")
+            .Maturity(ToolMaturity.Core)
             .StandardFlags()
             .ExpandGlobPositionals()
             .Flag("--decompress", "-d", "Decompress (auto-detects format)")

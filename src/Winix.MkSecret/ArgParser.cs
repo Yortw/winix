@@ -114,6 +114,7 @@ public static class ArgParser
     private static CommandLineParser CommonShell(string toolName, string version, string description)
         => new CommandLineParser(toolName, version)
             .Description(description)
+            .Maturity(ToolMaturity.Fresh)
             .StandardFlags()
             .Platform("cross-platform",
                 replaces: new[] { "pwgen", "openssl rand", "diceware/xkcdpass", "PowerShell Get-SecureRandom" },

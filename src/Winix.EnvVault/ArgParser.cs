@@ -301,6 +301,7 @@ public static class ArgParser
     {
         CommandLineParser p = new CommandLineParser("envvault", ResolveVersion())
             .Description("Cross-platform keychain-backed env-var manager. Envchain-compatible plus a Windows backend.")
+            .Maturity(ToolMaturity.Core)
             .StandardFlags()
             .Platform("cross-platform",
                 replaces: new[] { "envchain" },

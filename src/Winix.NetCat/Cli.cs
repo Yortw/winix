@@ -46,6 +46,7 @@ public static class Cli
 
         var parser = new CommandLineParser("nc", version)
             .Description("Cross-platform netcat — TCP/UDP send/receive, port checks, TLS clients.")
+            .Maturity(ToolMaturity.Core)
             .Flag("--listen", "-l", "Listen for one inbound connection / datagram")
             .Flag("--check", "-z", "Check whether port(s) are open and exit")
             .Flag("--udp", "-u", "Use UDP (default is TCP)")

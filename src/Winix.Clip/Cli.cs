@@ -146,6 +146,7 @@ public static class Cli
     {
         return new CommandLineParser("clip", version)
             .Description("Cross-platform clipboard bridge — copy from stdin, paste to stdout, clear.")
+            .Maturity(ToolMaturity.Core)
             .StandardFlags()
             .Flag("--copy", "-c", "Force copy mode (read stdin to clipboard), overriding autodetect")
             .Flag("--paste", "-p", "Force paste mode (read clipboard to stdout), overriding autodetect")

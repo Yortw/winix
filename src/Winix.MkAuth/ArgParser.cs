@@ -385,6 +385,7 @@ public static class ArgParser
     {
         return new CommandLineParser("mkauth", ResolveVersion())
             .Description("Compute HTTP Authorization headers (Basic, Bearer, OAuth 1.0a, JWT, Azure Storage SharedKey).")
+            .Maturity(ToolMaturity.Fresh)
             .StandardFlags()
             .Section("Subcommands",
                 "basic           Build an RFC 7617 Basic header (--user, --password)\n" +

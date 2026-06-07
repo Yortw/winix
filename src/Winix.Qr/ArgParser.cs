@@ -237,6 +237,7 @@ public static class ArgParser
     {
         return new CommandLineParser("qr", version)
             .Description("Cross-platform QR code generator with helpers for Wi-Fi, SMS, mailto, geo, and tel. Default mode encodes a text payload from a positional argument or stdin.")
+            .Maturity(ToolMaturity.Core)
             .StandardFlags()
             .Platform("cross-platform",
                 replaces: new[] { "qrencode", "python qrcode", "online QR generators" },
@@ -347,6 +348,7 @@ public static class ArgParser
     {
         return new CommandLineParser(toolName, version)
             .Description(description)
+            .Maturity(ToolMaturity.Core)
             .StandardFlags()
             .Platform("cross-platform",
                 replaces: new[] { "qrencode (lacks structured helpers)", "python qrcode", "manual URI-scheme encoding" },

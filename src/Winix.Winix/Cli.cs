@@ -67,6 +67,7 @@ public static class Cli
 
         var parser = new CommandLineParser("winix", version)
             .Description("Install, update, and manage the Winix CLI tool suite.")
+            .Maturity(ToolMaturity.Core)
             .StandardFlags()
             .Option("--via", null, "PM", "Package manager to use: winget, scoop, brew, dotnet")
             .Flag("--dry-run", "Show commands that would be run without executing them")

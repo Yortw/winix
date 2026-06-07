@@ -369,6 +369,7 @@ public static class ArgParser
             : "Cross-platform cryptographic hashing and HMAC — SHA-2/BLAKE2b (SHA-3 unavailable on this platform), safe HMAC key handling.";
         return new CommandLineParser("digest", ResolveVersion())
             .Description(description)
+            .Maturity(ToolMaturity.Core)
             .StandardFlags()
             .ExpandGlobPositionals()
             .Platform("cross-platform",
