@@ -108,6 +108,7 @@ winget install Winix.Less
 winget install Winix.WhoHolds
 winget install Winix.Schedule
 winget install Winix.NetCat
+winget install Winix.When
 winget install Winix.Winix
 ```
 
