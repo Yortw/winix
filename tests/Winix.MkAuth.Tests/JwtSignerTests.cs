@@ -218,6 +218,30 @@ public class JwtSignerTests
         Assert.True(ec.VerifyData(signingInput, sig, hash, DSASignatureFormat.IeeeP1363FixedFieldConcatenation));
     }
 
+    // B3 (CR-M1): the ES alg must match the key's curve (ES256=P-256, ES384=P-384, ES512=P-521).
+    // A mismatch (e.g. ES256 fed a P-521 key) previously signed with the wrong-size raw output, producing
+    // a token no verifier expecting ES256 would accept; it must now be a friendly MkAuthException.
+    [Fact]
+    public void Es256_with_p521_key_is_rejected_with_friendly_message()
+    {
+        using var ec = ECDsa.Create(ECCurve.NamedCurves.nistP521);
+        var req = new JwtRequest { Algorithm = "ES256", KeyPem = ec.ExportECPrivateKeyPem(), Claims = new() { ["sub"] = "x" } };
+        var ex = Assert.Throws<MkAuthException>(() => JwtSigner.Sign(req));
+        Assert.Contains("ES256", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("P-256", ex.Message, StringComparison.Ordinal); // names the required curve
+        Assert.DoesNotContain("ArgumentException", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Es512_with_p256_key_is_rejected()
+    {
+        using var ec = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var req = new JwtRequest { Algorithm = "ES512", KeyPem = ec.ExportECPrivateKeyPem(), Claims = new() { ["sub"] = "x" } };
+        var ex = Assert.Throws<MkAuthException>(() => JwtSigner.Sign(req));
+        Assert.Contains("ES512", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("P-521", ex.Message, StringComparison.Ordinal);
+    }
+
     private static byte[] HmacWith<T>(byte[] key, byte[] data) where T : HMAC, new()
     {
         using var h = new T { Key = key };

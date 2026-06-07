@@ -55,7 +55,8 @@ public static class JwtSigner
     /// <returns>The token and a <c>Bearer</c> header.</returns>
     /// <exception cref="MkAuthException">
     /// Thrown when the key kind does not match the algorithm family (HS* needs <see cref="JwtRequest.Key"/>,
-    /// RS*/ES* needs <see cref="JwtRequest.KeyPem"/>), or when the algorithm is unsupported.
+    /// RS*/ES* needs <see cref="JwtRequest.KeyPem"/>), when an ES* algorithm's curve does not match the key
+    /// (ES256=P-256, ES384=P-384, ES512=P-521), or when the algorithm is unsupported.
     /// </exception>
     public static JwtResult Sign(JwtRequest req)
     {
@@ -113,6 +114,25 @@ public static class JwtSigner
     {
         using var ec = ECDsa.Create();
         ImportPem(ec, pem, algorithm);
+
+        // CR-M1: the JOSE ES alg fixes the curve (RFC 7518 §3.4): ES256=P-256, ES384=P-384, ES512=P-521.
+        // Signing with a mismatched curve yields a wrong-size r||s no ES256/384/512 verifier would accept —
+        // reject it up front with a curve-named message rather than emitting a silently-broken token.
+        // (ECDsa.KeySize reports the field size in bits: 256/384/521.)
+        int expectedKeySize = algorithm switch
+        {
+            "ES256" => 256,
+            "ES384" => 384,
+            "ES512" => 521,
+            _ => throw new MkAuthException($"Unsupported EC JWT algorithm '{algorithm}'."),
+        };
+        if (ec.KeySize != expectedKeySize)
+        {
+            string requiredCurve = expectedKeySize == 521 ? "P-521" : $"P-{expectedKeySize}";
+            string suppliedCurve = ec.KeySize == 521 ? "P-521" : $"P-{ec.KeySize}";
+            throw new MkAuthException($"{algorithm} requires a {requiredCurve} key; the supplied key is {suppliedCurve}.");
+        }
+
         // JOSE requires the raw fixed-length r||s concatenation (P1363), not the default DER sequence.
         return ec.SignData(data, hash, DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
     }
