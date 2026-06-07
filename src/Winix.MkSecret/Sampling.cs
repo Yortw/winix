@@ -11,8 +11,8 @@ public static class Sampling
     /// <summary>Returns a uniformly-random index in <c>[0, count)</c>. <paramref name="count"/> must be ≥ 1.</summary>
     public static int UniformIndex(ISecureRandom random, int count)
     {
-        if (count < 1) throw new ArgumentOutOfRangeException(nameof(count));
-        if (count == 1) return 0;
+        if (count < 1) { throw new ArgumentOutOfRangeException(nameof(count)); }
+        if (count == 1) { return 0; }
 
         int mask = NextPowerOfTwo(count) - 1;
         int bytesNeeded = mask < 0x100 ? 1 : (mask < 0x10000 ? 2 : 4);
