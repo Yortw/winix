@@ -175,7 +175,7 @@ public sealed class MacOsKeychainStore : ISecretStore
         (int exit, string _, string stderr) = RunSecurity(args, allowError: true);
         if (exit == 0) { return true; }
         if (exit == 45) { return false; } // "The specified item already exists in the keychain."
-        throw new InvalidOperationException(
+        throw new SecretStoreException(
             $"security add-generic-password failed (exit {exit}): {stderr.Trim()}");
     }
 
@@ -201,7 +201,7 @@ public sealed class MacOsKeychainStore : ISecretStore
         }
         if (exit != 0)
         {
-            throw new InvalidOperationException($"security find-generic-password failed (exit {exit}).");
+            throw new SecretStoreException($"security find-generic-password failed (exit {exit}).");
         }
 
         string hex = stdout.Trim();
@@ -345,14 +345,14 @@ public sealed class MacOsKeychainStore : ISecretStore
             psi.ArgumentList.Add(a);
         }
 
-        using Process process = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start `security`.");
+        using Process process = Process.Start(psi) ?? throw new SecretStoreException("Failed to start `security`.");
         string stdout = process.StandardOutput.ReadToEnd();
         string stderr = process.StandardError.ReadToEnd();
         process.WaitForExit();
 
         if (!allowError && process.ExitCode != 0)
         {
-            throw new InvalidOperationException($"security failed (exit {process.ExitCode}): {stderr.Trim()}");
+            throw new SecretStoreException($"security failed (exit {process.ExitCode}): {stderr.Trim()}");
         }
         return (process.ExitCode, stdout, stderr);
     }

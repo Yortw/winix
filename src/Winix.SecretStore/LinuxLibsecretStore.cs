@@ -31,7 +31,7 @@ public sealed class LinuxLibsecretStore : ISecretStore
 
         if (exit != 0)
         {
-            throw new InvalidOperationException($"secret-tool store failed (exit {exit}): {stderr.Trim()}");
+            throw new SecretStoreException($"secret-tool store failed (exit {exit}): {stderr.Trim()}");
         }
     }
 
@@ -160,11 +160,13 @@ public sealed class LinuxLibsecretStore : ISecretStore
             using Process p = Process.Start(psi) ?? throw new FileNotFoundException();
             p.WaitForExit();
         }
-        catch
+        catch (Exception ex)
         {
-            throw new InvalidOperationException(
+            // Preserve the probe failure as the inner cause (F2) — its own .Message would be a bare
+            // SR key under UseSystemResourceKeys, but our outer text is the actionable instruction.
+            throw new SecretStoreException(
                 "secret-tool is not installed. Install with: 'sudo apt install libsecret-tools' (Debian/Ubuntu), "
-                + "'sudo dnf install libsecret' (Fedora), 'sudo pacman -S libsecret' (Arch), or equivalent.");
+                + "'sudo dnf install libsecret' (Fedora), 'sudo pacman -S libsecret' (Arch), or equivalent.", ex);
         }
     }
 
@@ -207,7 +209,7 @@ public sealed class LinuxLibsecretStore : ISecretStore
             psi.ArgumentList.Add(a);
         }
 
-        using Process process = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start secret-tool.");
+        using Process process = Process.Start(psi) ?? throw new SecretStoreException("Failed to start secret-tool.");
         if (stdin is not null)
         {
             process.StandardInput.Write(stdin);
