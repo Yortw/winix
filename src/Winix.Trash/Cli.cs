@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.ComponentModel;
 using System.IO;
 using Yort.ShellKit;
 
@@ -62,12 +63,21 @@ public static class Cli
         }
         catch (Exception ex)
         {
-            // Backend threw a catastrophic OS failure (IOException, Win32Exception, etc.).
+            // Backend threw a catastrophic OS failure (TrashException, Win32Exception, IOException, etc.).
             // There is NO narrow IOException-success swallow here — that would mask real errors.
             // A closed downstream pipe does NOT throw on .NET (the runtime absorbs it silently at
             // the Console.Out layer on both Windows and Linux), so a pipe-close always stays exit 0
             // without needing a special catch arm. Mirrors src/Winix.MkSecret/Cli.cs.
-            stderr.WriteLine($"trash: error: {SafeError.Describe(ex)}");
+            //
+            // SAFE classes print .Message verbatim: TrashException (project-authored errno/HRESULT
+            // diagnostics), Win32Exception (native-OS text), and PlatformNotSupportedException (factory
+            // English). Everything else routes through SafeError.Describe, because under
+            // UseSystemResourceKeys a framework .Message is a bare CoreLib resource key (CR-2: the
+            // SHEmptyRecycleBin HRESULT was previously flattened to "InvalidOperationException").
+            string detail = ex is TrashException or Win32Exception or PlatformNotSupportedException
+                ? ex.Message
+                : SafeError.Describe(ex);
+            stderr.WriteLine($"trash: error: {detail}");
             return ExitCode.NotExecutable;
         }
     }

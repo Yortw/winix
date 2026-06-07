@@ -253,18 +253,21 @@ public class CliTests
     // ── Error handling ───────────────────────────────────────────────────────
 
     [Fact]
-    public void Backend_throws_generic_exception_returns_126_with_error_prefix_and_nothing_on_stdout()
+    public void Backend_throws_TrashException_surfaces_message_verbatim_nothing_on_stdout()
     {
+        // CR-2 / B4: a backend failure with a project-authored diagnostic (errno/HRESULT, e.g.
+        // "SHEmptyRecycleBin failed (0x80070005)") must reach the user unaltered. The sweep had
+        // degraded this assertion to the type name ("InvalidOperationException") via bare
+        // SafeError.Describe, which dropped the actionable HRESULT. Now the backend raises
+        // TrashException and Cli prints its .Message verbatim under UseSystemResourceKeys.
         var backend = new FakeTrashBackend(
-            trashException: new InvalidOperationException("OS API failed"));
+            trashException: new TrashException("SHEmptyRecycleBin failed (0x80070005)"));
         var (code, outText, errText) = Run(new[] { "/fake/file.txt" }, backend);
 
         Assert.Equal(ExitCode.NotExecutable, code);
         Assert.Contains("trash: error:", errText);
-        // The catch-all routes through SafeError, which never echoes arbitrary ex.Message (that could
-        // leak a resource key under UseSystemResourceKeys). For an unmapped exception it surfaces the
-        // type name as readable context. Intent preserved: a backend throw is reported on stderr.
-        Assert.Contains("InvalidOperationException", errText);
+        Assert.Contains("SHEmptyRecycleBin failed (0x80070005)", errText);
+        Assert.DoesNotContain("TrashException", errText, StringComparison.Ordinal);  // verbatim, not the type name
         Assert.Equal(string.Empty, outText);
     }
 

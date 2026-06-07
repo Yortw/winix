@@ -218,7 +218,7 @@ internal sealed partial class WindowsRecycleBinBackend : ITrashBackend
         // is the only diagnostic.
         if (hr != 0 && unchecked((uint)hr) != 0x8000FFFF)
         {
-            throw new InvalidOperationException($"SHEmptyRecycleBin failed (0x{hr:X8}).");
+            throw new TrashException($"SHEmptyRecycleBin failed (0x{hr:X8}).");
         }
 
         return new EmptyResult(count);
