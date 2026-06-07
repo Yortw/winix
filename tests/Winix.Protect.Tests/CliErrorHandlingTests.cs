@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.IO;
+using Winix.SecretStore;
 using Xunit;
 using Winix.Protect;
 
@@ -63,6 +64,69 @@ public class CliErrorHandlingTests
             Assert.Equal(126, exit);
         }
         finally { try { File.Delete(path); } catch { } }
+    }
+
+    [Fact]
+    public void Protect_BackendRaisesSecretStoreException_SurfacesVerbatimNotTypeName()
+    {
+        // The SecretStoreException catch arm (Cli.Run) was previously verified by inspection only —
+        // the real keychain backends raise it on environmental failures (locked collection, missing
+        // secret-tool) that can't be triggered on demand. BackendFactory.CreateOverride is the
+        // deterministic seam. The backend message is project-authored English and must surface
+        // VERBATIM, never degraded to the type name by the broad catch's SafeError routing.
+        string dir = Path.Combine(Path.GetTempPath(), $"winix-ssex-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        BackendFactory.CreateOverride = _ =>
+            throw new SecretStoreException("secret-tool store failed (exit 1): collection locked");
+        StringWriter capturedErr = new();
+        TextWriter originalErr = Console.Error;
+        Console.SetError(capturedErr);
+        try
+        {
+            string input = Path.Combine(dir, "secret.txt");
+            File.WriteAllText(input, "data");
+            int exit = Winix.Protect.Cli.Run([input], "protect");
+            Assert.Equal(126, exit);
+            string err = capturedErr.ToString();
+            Assert.Contains("secret-tool store failed (exit 1): collection locked", err, StringComparison.Ordinal);
+            Assert.DoesNotContain("SecretStoreException", err, StringComparison.Ordinal);
+        }
+        finally
+        {
+            BackendFactory.CreateOverride = null;
+            Console.SetError(originalErr);
+            try { Directory.Delete(dir, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void Protect_BackendRaisesUnmappedFrameworkException_RoutesThroughSafeErrorNoResourceKey()
+    {
+        // Invariant negative for the seam: an exception type no typed arm matches must fall to the
+        // broad catch and route through SafeError (type-name text, no raw framework .Message which
+        // is an SR key under UseSystemResourceKeys — mirrored on this test csproj).
+        string dir = Path.Combine(Path.GetTempPath(), $"winix-ssex-neg-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        BackendFactory.CreateOverride = _ => throw new NotSupportedException();
+        StringWriter capturedErr = new();
+        TextWriter originalErr = Console.Error;
+        Console.SetError(capturedErr);
+        try
+        {
+            string input = Path.Combine(dir, "secret.txt");
+            File.WriteAllText(input, "data");
+            int exit = Winix.Protect.Cli.Run([input], "protect");
+            Assert.Equal(126, exit);
+            string err = capturedErr.ToString();
+            Assert.Contains("unexpected error", err, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("NotSupported_", err, StringComparison.Ordinal);
+        }
+        finally
+        {
+            BackendFactory.CreateOverride = null;
+            Console.SetError(originalErr);
+            try { Directory.Delete(dir, recursive: true); } catch { }
+        }
     }
 
     [Fact]

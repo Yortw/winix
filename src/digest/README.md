@@ -173,7 +173,7 @@ When reading a key from `--key-file` or `--key-stdin`, `digest` strips a single 
 
 ### BLAKE2b key ceiling
 
-BLAKE2b keyed mode caps keys at 64 bytes per RFC 7693 §2.9. Longer keys are rejected at flag-parse time. For longer keys, use `--hmac sha256` (or another SHA-family algorithm) which auto-hashes oversized keys.
+BLAKE2b keyed mode caps keys at 64 bytes per RFC 7693 §2.9. Longer keys are rejected before any hashing starts (exit 125). For longer keys, use `--hmac sha256` (or another SHA-family algorithm) which auto-hashes oversized keys.
 
 ### Empty keys are rejected
 

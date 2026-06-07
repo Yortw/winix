@@ -6,8 +6,21 @@ namespace Winix.Protect;
 
 public static class BackendFactory
 {
+    /// <summary>
+    /// Test seam: when set, <see cref="Create"/> returns this instead of a real platform backend.
+    /// Exists so Cli.Run's SecretStoreException catch arm is deterministically testable — the real
+    /// keychain backends only raise it on environmental failures (locked collection, missing
+    /// secret-tool) that can't be triggered on demand. Mirrors trash's backendOverride precedent.
+    /// Tests must reset to null in a finally block (static state).
+    /// </summary>
+    internal static Func<Scope, IProtectBackend>? CreateOverride;
+
     public static IProtectBackend Create(Scope scope)
     {
+        if (CreateOverride is not null)
+        {
+            return CreateOverride(scope);
+        }
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
 #pragma warning disable CA1416
