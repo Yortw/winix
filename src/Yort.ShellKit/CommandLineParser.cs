@@ -53,6 +53,7 @@ public sealed class CommandLineParser
     private string[]? _platformReplaces;
     private string? _platformValueWindows;
     private string? _platformValueUnix;
+    private ToolMaturity? _maturity;
 
     // Lookup tables built on first Parse(). Registering flags/options after Parse() is
     // unsupported — the lookups would be stale and the new registrations silently ignored.
@@ -318,6 +319,18 @@ public sealed class CommandLineParser
         _platformReplaces = replaces;
         _platformValueWindows = valueOnWindows;
         _platformValueUnix = valueOnUnix;
+        return this;
+    }
+
+    /// <summary>
+    /// Advertises the tool's maturity tier in --describe. Omit to leave the field absent;
+    /// ShellKit stays unopinionated — the "every Winix tool must declare maturity" rule is
+    /// enforced by the contract harness, not here. See <see cref="ToolMaturity"/>.
+    /// </summary>
+    /// <param name="maturity">The tier to advertise.</param>
+    public CommandLineParser Maturity(ToolMaturity maturity)
+    {
+        _maturity = maturity;
         return this;
     }
 
@@ -935,9 +948,13 @@ public sealed class CommandLineParser
             // See docs/STABILITY.md. Bump rule must be honoured by any future editor.
             writer.WriteNumber("schema_version", DescribeSchemaVersion);
 
-            // tool, version, description
+            // tool, version, maturity (optional), description
             writer.WriteString("tool", _toolName);
             writer.WriteString("version", _version);
+            if (_maturity is not null)
+            {
+                writer.WriteString("maturity", _maturity == ToolMaturity.Core ? "core" : "fresh");
+            }
             if (_description is not null)
             {
                 writer.WriteString("description", _description);

@@ -231,6 +231,42 @@ public class DescribeTests
         // parsing the rest; value 1 is the initial envelope version.
         Assert.StartsWith("{\"schema_version\":1,", json, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void GenerateDescribe_EmitsMaturityWhenConfigured()
+    {
+        var parser = new CommandLineParser("demo", "1.0.0")
+            .Description("demo tool")
+            .Maturity(ToolMaturity.Fresh)
+            .StandardFlags();
+        string json = parser.GenerateDescribe();
+        Assert.Contains("\"maturity\":\"fresh\"", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GenerateDescribe_EmitsCoreMaturity()
+    {
+        // Locks the Core->"core" branch too — without this only the Fresh mapping is
+        // tested, so an inverted ternary would still pass.
+        var parser = new CommandLineParser("demo", "1.0.0")
+            .Description("demo tool")
+            .Maturity(ToolMaturity.Core)
+            .StandardFlags();
+        string json = parser.GenerateDescribe();
+        Assert.Contains("\"maturity\":\"core\"", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GenerateDescribe_OmitsMaturityWhenUnset()
+    {
+        var parser = new CommandLineParser("demo", "1.0.0")
+            .Description("demo tool")
+            .StandardFlags();
+        string json = parser.GenerateDescribe();
+        // ShellKit stays unopinionated outside Winix; the WINIX gate lives in the
+        // contract harness (ADR D3), not here.
+        Assert.DoesNotContain("\"maturity\"", json, StringComparison.Ordinal);
+    }
 }
 
 [Collection("ConsoleOutput")]
