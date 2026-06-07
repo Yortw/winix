@@ -80,4 +80,33 @@ public class ArgParserTests
         var r = ArgParser.Parse(args);
         Assert.False(r.Success);
     }
+
+    [Theory]
+    [InlineData("\n")]       // separator IS a newline
+    [InlineData("\r")]       // separator IS a carriage return
+    [InlineData("a\nb")]     // newline in the MIDDLE — distinguishes Contains('\n') from == "\n"
+    public void Separator_containing_a_newline_is_a_usage_error(string sep)
+    {
+        // A newline in --sep would split one passphrase across multiple output lines, silently
+        // corrupting line-per-secret consumers. Reject at parse time. The mid-string case is the
+        // discriminator: a naive equality check (sep == "\n") would let "a\nb" through.
+        var r = ArgParser.Parse(new[] { "phrase", "--sep", sep });
+        Assert.False(r.Success);
+        Assert.NotNull(r.Error);
+        // Pin the error CONTENT so the user is told which flag to fix.
+        Assert.Contains("--sep", r.Error!, System.StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("-")]        // the default
+    [InlineData(" ")]
+    [InlineData("::")]
+    [InlineData("")]         // empty separator is legitimate (concatenated words)
+    public void Separator_without_newlines_parses(string sep)
+    {
+        // Invariant: the newline guard must not reject ordinary separators.
+        var r = ArgParser.Parse(new[] { "phrase", "--sep", sep });
+        Assert.True(r.Success);
+        Assert.Equal(sep, r.Options!.Separator);
+    }
 }

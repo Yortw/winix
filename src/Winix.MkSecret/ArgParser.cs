@@ -71,7 +71,17 @@ public static class ArgParser
                 break;
             case SecretMode.Phrase:
                 if (parsed.Has("--words")) { o = o with { Words = parsed.GetInt("--words") }; }
-                if (parsed.Has("--sep")) { o = o with { Separator = parsed.GetString("--sep") }; }
+                if (parsed.Has("--sep"))
+                {
+                    string sep = parsed.GetString("--sep");
+                    // A newline anywhere in the separator would split one passphrase across output lines,
+                    // silently corrupting line-per-secret consumers. Reject CONTAINS, not equals.
+                    if (sep.Contains('\n') || sep.Contains('\r'))
+                    {
+                        return Fail("--sep must not contain newline characters", useColor);
+                    }
+                    o = o with { Separator = sep };
+                }
                 o = o with { Capitalize = parsed.Has("--capitalize"), Number = parsed.Has("--number") };
                 break;
             case SecretMode.Key:
@@ -144,7 +154,7 @@ public static class ArgParser
                 "Generate a diceware passphrase from the EFF long wordlist (7776 words, ~12.9 bits/word).")
             .IntOption("--words", "-w", "N", "Number of words. Default 6 (~77 bits, max 1024).",
                 v => v > 0 && v <= 1024 ? null : "must be between 1 and 1024")
-            .Option("--sep", "-s", "STR", "Separator between words. Default '-'.")
+            .Option("--sep", "-s", "STR", "Separator between words. Default '-'. Must not contain newlines.")
             .Flag("--capitalize", "Capitalise the first letter of each word.")
             .Flag("--number", "Append a random digit to the passphrase.")
             .Example("mksecret phrase", "Six-word passphrase, hyphen-separated")
