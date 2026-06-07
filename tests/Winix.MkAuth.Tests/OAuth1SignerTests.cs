@@ -94,6 +94,58 @@ public class OAuth1SignerTests
     }
 
     [Fact]
+    public void HmacSha256_signature_matches_independent_python_oracle()
+    {
+        // A2 (TA-C2): HMAC-SHA256 over the existing pinned Sample() request. The expected signature is a
+        // LITERAL computed at authoring time by an independent Python oracle (hmac/hashlib.sha256 over the
+        // same base string + signing key) — NOT recomputed by the signer or any shared helper. A hash-family
+        // swap (e.g. HMAC-SHA256 silently signing with SHA-1) fails this.
+        var req = new OAuth1Request
+        {
+            Method = "GET",
+            Url = "https://api.example.com/1/statuses.json?count=5&page=2",
+            ConsumerKey = "ck",
+            ConsumerSecret = "cs",
+            Token = "tk",
+            TokenSecret = "ts",
+            SignatureMethod = OAuth1SignatureMethod.HmacSha256,
+            Timestamp = 1318622958,
+            Nonce = "kYjzVBB8Y0ZFabxSWbWovY3uYSQ2pTgmZeNu2VS4cg",
+        };
+
+        var r = OAuth1Signer.Sign(req);
+
+        Assert.Equal("E/kuc4nfcnNsdmivShnHWbkUCT7vqlsn5ismCot3J48=", r.Signature);
+        Assert.Contains("oauth_signature_method=\"HMAC-SHA256\"", r.Header.HeaderValue);
+    }
+
+    [Fact]
+    public void Plaintext_signature_is_percent_encoded_secret_pair()
+    {
+        // A3 (TA-I1): PLAINTEXT signature is the signing key verbatim — pct-encode(consumerSecret) & '&' &
+        // pct-encode(tokenSecret). The expected value is a LITERAL in source (NOT built by calling
+        // PercentEncoder on the same inputs), so a regression in either the join order or the encoding fails.
+        // consumerSecret "c s+" -> "c%20s%2B"; tokenSecret "t&s" -> "t%26s".
+        var req = new OAuth1Request
+        {
+            Method = "GET",
+            Url = "https://api.example.com/1/statuses.json",
+            ConsumerKey = "ck",
+            ConsumerSecret = "c s+",
+            Token = "tk",
+            TokenSecret = "t&s",
+            SignatureMethod = OAuth1SignatureMethod.Plaintext,
+            Timestamp = 1318622958,
+            Nonce = "abc",
+        };
+
+        var r = OAuth1Signer.Sign(req);
+
+        Assert.Equal("c%20s%2B&t%26s", r.Signature);
+        Assert.Contains("oauth_signature_method=\"PLAINTEXT\"", r.Header.HeaderValue);
+    }
+
+    [Fact]
     public void Matches_independent_python_oracle_with_query_and_body_params()
     {
         // Second wire-correctness anchor, computed by an independent implementation (Python

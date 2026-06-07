@@ -80,6 +80,16 @@ public class CliTests
         Assert.Contains("newline", err, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]                                              // A4 (TA-I2): the CRLF guard applies in --json mode too
+    public void Newline_in_computed_header_is_refused_in_json_mode()
+    {
+        var (code, outp, err) = Run(new[] { "bearer", "--token", "literal:tok\r\nX-Evil: 1", "--json" });
+        Assert.NotEqual(0, code);
+        Assert.True(string.IsNullOrEmpty(outp), "nothing must be emitted to stdout (no partial JSON envelope)");
+        Assert.DoesNotContain("X-Evil", outp);
+        Assert.Contains("newline", err, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]                                              // F3: stdin can't be both key and claims body
     public void Jwt_key_stdin_plus_claims_stdin_is_usage_error()
     {

@@ -145,6 +145,85 @@ public class JwtSignerTests
         Assert.Contains("valid PEM private key", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    // A1 (TA-C1): the six previously-untested algs (HS384/512, RS384/512, ES384/512). Each signs a
+    // token and the signature is verified with the framework primitive bound to the MATCHING hash,
+    // HARD-CODED per case — so a hash-family swap in JwtSigner (e.g. HS384 silently signing with
+    // SHA-512) fails this test. Base64url decode here is the test's own hand-rolled helper, NEVER the
+    // production Base64Url class (protocol-fake rule).
+    [Theory]
+    [InlineData("HS384")]
+    [InlineData("HS512")]
+    public void Hs_untested_algs_sign_and_verify_with_matching_hash(string alg)
+    {
+        byte[] key = Encoding.UTF8.GetBytes("supersecretkey");
+        var req = new JwtRequest { Algorithm = alg, Key = key, Claims = new() { ["sub"] = "x" } };
+        string[] parts = JwtSigner.Sign(req).Token.Split('.');
+        Assert.Equal(3, parts.Length);
+
+        byte[] signingInput = Encoding.ASCII.GetBytes(parts[0] + "." + parts[1]);
+        byte[] expected = alg switch
+        {
+            "HS384" => HmacWith<HMACSHA384>(key, signingInput),
+            "HS512" => HmacWith<HMACSHA512>(key, signingInput),
+            _ => throw new InvalidOperationException(alg),
+        };
+        string expectedSig = Convert.ToBase64String(expected).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+        Assert.Equal(expectedSig, parts[2]);
+    }
+
+    [Theory]
+    [InlineData("RS384")]
+    [InlineData("RS512")]
+    public void Rs_untested_algs_sign_and_verify_with_matching_hash(string alg)
+    {
+        using var rsa = RSA.Create(2048);
+        var req = new JwtRequest { Algorithm = alg, KeyPem = rsa.ExportRSAPrivateKeyPem(), Claims = new() { ["sub"] = "x" } };
+        string[] parts = JwtSigner.Sign(req).Token.Split('.');
+        byte[] sig = Base64UrlDecode(parts[2]);
+        byte[] signingInput = Encoding.ASCII.GetBytes(parts[0] + "." + parts[1]);
+
+        HashAlgorithmName hash = alg switch
+        {
+            "RS384" => HashAlgorithmName.SHA384,
+            "RS512" => HashAlgorithmName.SHA512,
+            _ => throw new InvalidOperationException(alg),
+        };
+        Assert.True(rsa.VerifyData(signingInput, sig, hash, RSASignaturePadding.Pkcs1));
+    }
+
+    [Theory]
+    [InlineData("ES384", "nistP384", 96)]   // P-384 r||s is fixed 96 bytes (the JOSE requirement)
+    [InlineData("ES512", "nistP521", 132)]  // P-521 r||s is fixed 132 bytes
+    public void Es_untested_algs_sign_in_ieee_p1363_and_verify_with_matching_hash(string alg, string curveName, int rawSigLen)
+    {
+        ECCurve curve = curveName switch
+        {
+            "nistP384" => ECCurve.NamedCurves.nistP384,
+            "nistP521" => ECCurve.NamedCurves.nistP521,
+            _ => throw new InvalidOperationException(curveName),
+        };
+        using var ec = ECDsa.Create(curve);
+        var req = new JwtRequest { Algorithm = alg, KeyPem = ec.ExportECPrivateKeyPem(), Claims = new() { ["sub"] = "x" } };
+        string[] parts = JwtSigner.Sign(req).Token.Split('.');
+        byte[] sig = Base64UrlDecode(parts[2]);
+        Assert.Equal(rawSigLen, sig.Length); // raw P1363 concatenation, not DER
+
+        byte[] signingInput = Encoding.ASCII.GetBytes(parts[0] + "." + parts[1]);
+        HashAlgorithmName hash = alg switch
+        {
+            "ES384" => HashAlgorithmName.SHA384,
+            "ES512" => HashAlgorithmName.SHA512,
+            _ => throw new InvalidOperationException(alg),
+        };
+        Assert.True(ec.VerifyData(signingInput, sig, hash, DSASignatureFormat.IeeeP1363FixedFieldConcatenation));
+    }
+
+    private static byte[] HmacWith<T>(byte[] key, byte[] data) where T : HMAC, new()
+    {
+        using var h = new T { Key = key };
+        return h.ComputeHash(data);
+    }
+
     private static byte[] Base64UrlDecode(string s)
     {
         string b = s.Replace('-', '+').Replace('_', '/');
