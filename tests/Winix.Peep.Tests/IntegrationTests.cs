@@ -7,9 +7,10 @@ namespace Winix.Peep.Tests;
 /// <summary>
 /// End-to-end integration tests that exercise multiple library components together.
 /// These tests use real processes and the filesystem, so they are slower than unit tests
-/// but catch wiring issues that unit tests miss.
+/// but catch wiring issues that unit tests miss. Mutates the process-wide CWD, so it shares
+/// the PeepProcessGlobals collection with the GitIgnoreChecker tests (CWD-flip flake, 2026-06-07).
 /// </summary>
-[Collection("FileWatcherIntegration")]
+[Collection("PeepProcessGlobals")]
 public class IntegrationTests : IDisposable
 {
     private readonly string _tempDir;

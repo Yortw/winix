@@ -23,9 +23,11 @@ public class FileWatcherExtractRootTests
 
 /// <summary>
 /// Integration tests for FileWatcher. These tests change the process-wide current directory
-/// so they must not run in parallel with each other.
+/// so they must not run in parallel with each other — NOR with the GitIgnoreChecker tests,
+/// whose `git check-ignore` spawns inherit the CWD (merged collection 2026-06-07; a parallel
+/// CWD flip made check-ignore exit 128 mid-test on CI).
 /// </summary>
-[Collection("FileWatcherIntegration")]
+[Collection("PeepProcessGlobals")]
 public class FileWatcherIntegrationTests
 {
     [Fact]

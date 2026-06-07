@@ -8,7 +8,13 @@ namespace Winix.Peep.Tests;
 // attribute xUnit runs GitIgnoreCheckerTests and GitIgnoreCheckerDisableTests
 // in parallel; the Disable tests' transient mutation of _gitDisabled corrupts
 // the cache-clear test's reads, producing an order-dependent flake.
-[Collection("GitIgnoreCheckerStatic")]
+// CI flake #2 (2026-06-07, macos, 58ms/no-fallback): the checker ALSO depends on
+// process CWD — `git check-ignore` inherits it, and a parallel FileWatcherTests/
+// IntegrationTests SetCurrentDirectory(tempDir) between two IsIgnored calls makes
+// git exit 128 (not a repo) → false, with no fallback engaged, so the Skip can't
+// fire. CWD mutators and CWD readers must share ONE collection — hence the merged
+// "PeepProcessGlobals" name across all four classes.
+[Collection("PeepProcessGlobals")]
 public class GitIgnoreCheckerTests
 {
     [Fact]
