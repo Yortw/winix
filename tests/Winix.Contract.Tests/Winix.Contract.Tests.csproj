@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsTestProject>true</IsTestProject>
+    <IsPackable>false</IsPackable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.*" />
+    <PackageReference Include="xunit" Version="2.*" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.*" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Yort.ShellKit\Yort.ShellKit.csproj" />
+    <ProjectReference Include="..\..\src\Winix.TimeIt\Winix.TimeIt.csproj" />
+    <ProjectReference Include="..\..\src\Winix.Squeeze\Winix.Squeeze.csproj" />
+    <ProjectReference Include="..\..\src\Winix.Peep\Winix.Peep.csproj" />
+    <ProjectReference Include="..\..\src\Winix.Wargs\Winix.Wargs.csproj" />
+    <ProjectReference Include="..\..\src\Winix.Files\Winix.Files.csproj" />
+    <ProjectReference Include="..\..\src\Winix.TreeX\Winix.TreeX.csproj" />
+    <ProjectReference Include="..\..\src\Winix.Man\Winix.Man.csproj" />
+    <ProjectReference Include="..\..\src\Winix.Less\Winix.Less.csproj" />
+    <ProjectReference Include="..\..\src\Winix.WhoHolds\Winix.WhoHolds.csproj" />
+    <ProjectReference Include="..\..\src\Winix.Schedule\Winix.Schedule.csproj" />
+    <ProjectReference Include="..\..\src\Winix.NetCat\Winix.NetCat.csproj" />
+    <ProjectReference Include="..\..\src\Winix.Winix\Winix.Winix.csproj" />
+    <ProjectReference Include="..\..\src\Winix.Retry\Winix.Retry.csproj" />
+    <ProjectReference Include="..\..\src\Winix.When\Winix.When.csproj" />
+    <ProjectReference Include="..\..\src\Winix.Clip\Winix.Clip.csproj" />
+    <ProjectReference Include="..\..\src\Winix.Ids\Winix.Ids.csproj" />
+    <ProjectReference Include="..\..\src\Winix.Digest\Winix.Digest.csproj" />
+    <ProjectReference Include="..\..\src\Winix.Notify\Winix.Notify.csproj" />
+    <ProjectReference Include="..\..\src\Winix.Url\Winix.Url.csproj" />
+    <ProjectReference Include="..\..\src\Winix.Qr\Winix.Qr.csproj" />
+    <ProjectReference Include="..\..\src\Winix.Protect\Winix.Protect.csproj" />
+    <ProjectReference Include="..\..\src\Winix.EnvVault\Winix.EnvVault.csproj" />
+    <ProjectReference Include="..\..\src\Winix.MkSecret\Winix.MkSecret.csproj" />
+    <ProjectReference Include="..\..\src\Winix.MkAuth\Winix.MkAuth.csproj" />
+    <ProjectReference Include="..\..\src\Winix.Trash\Winix.Trash.csproj" />
+    <ProjectReference Include="..\..\src\Winix.HCat\Winix.HCat.csproj" />
+    <ProjectReference Include="..\..\src\Winix.Demux\Winix.Demux.csproj" />
+    <ProjectReference Include="..\..\src\Winix.SecretStore\Winix.SecretStore.csproj" />
+  </ItemGroup>
+</Project>
