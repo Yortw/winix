@@ -21,9 +21,23 @@ public class CliOverwriteTests
             File.WriteAllText(input, "plaintext");
             File.WriteAllBytes(output, [0xDE, 0xAD, 0xBE, 0xEF]);
 
-            int exit = Winix.Protect.Cli.Run([input], "protect");
+            // Capture stderr to pin the FILTERED IOException arm's bespoke message — the negative
+            // invariant guarding CR-1: routing the broad arm through SafeError must NOT widen it to
+            // swallow this destination-exists case (which must still surface its own usage error).
+            StringWriter capturedErr = new();
+            TextWriter originalErr = Console.Error;
+            Console.SetError(capturedErr);
+            int exit;
+            try
+            {
+                exit = Winix.Protect.Cli.Run([input], "protect");
+            }
+            finally { Console.SetError(originalErr); }
 
             Assert.Equal(125, exit); // UsageError
+            string err = capturedErr.ToString();
+            Assert.Contains("destination already exists", err, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("I/O error accessing", err, StringComparison.Ordinal);
             byte[] dest = File.ReadAllBytes(output);
             Assert.Equal(new byte[] { 0xDE, 0xAD, 0xBE, 0xEF }, dest);
         }

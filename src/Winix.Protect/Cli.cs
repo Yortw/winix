@@ -135,7 +135,14 @@ public static class Cli
         }
         catch (IOException ex)
         {
-            Console.Error.WriteLine(Formatting.RuntimeError(invocationName, ex.Message));
+            // A sharing-violation IOException's .Message is the bare SR key "IO_SharingViolation_File"
+            // under UseSystemResourceKeys (reproduced 2026-06-07); SafeError.Describe falls back to the
+            // type name "IOException" for it (no specific mapping), which loses the file the user needs.
+            // Mirror the FileNotFound arm: name the input path (the file most likely locked/contended)
+            // so the diagnostic is actionable, while staying SR-key-free via SafeError for the nature.
+            string path = opts.InputPath ?? "(stdin)";
+            Console.Error.WriteLine(Formatting.RuntimeError(invocationName,
+                $"I/O error accessing '{path}' ({SafeError.Describe(ex)})"));
             return RuntimeErrorExit;
         }
         catch (SecretStoreException ex)

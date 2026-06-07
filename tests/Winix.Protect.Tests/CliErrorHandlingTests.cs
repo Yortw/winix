@@ -162,6 +162,52 @@ public class CliErrorHandlingTests
     }
 
     [SkippableFact]
+    public void Protect_SourceFileLocked_StderrIsReadableNoResourceKey()
+    {
+        // CR-1: a sharing-violation IOException (source file held open exclusively elsewhere) is caught
+        // by Cli.Run's broad IOException arm. Its .Message is the bare SR key "IO_SharingViolation_File"
+        // under UseSystemResourceKeys (mirrored on this test csproj). Cli must route it through
+        // SafeError, never the leaked key. Windows-only: POSIX advisory locking does not block the
+        // FileShare.Read open the same way, so the sharing-violation path is Windows-specific.
+        Skip.IfNot(OperatingSystem.IsWindows(), "FileShare.None contention is Windows sharing-violation semantics.");
+        if (!OperatingSystem.IsWindows())
+        {
+            return; // Keep CA1416 happy after the Skip.IfNot above.
+        }
+
+        string dir = Path.Combine(Path.GetTempPath(), $"winix-locked-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        // Adversarial F2: hold the lock across Cli.Run via an explicit finally-disposed handle, NOT an
+        // early-closing using block that would release before Run opens the source.
+        FileStream? lockHandle = null;
+        StringWriter capturedErr = new();
+        TextWriter originalErr = Console.Error;
+        Console.SetError(capturedErr);
+        try
+        {
+            string input = Path.Combine(dir, "secret.txt");
+            File.WriteAllText(input, "data");
+            // Cli.Run opens the SOURCE (FileShare.Read) before any destination open; holding the source
+            // with FileShare.None makes that open throw a sharing violation, hitting the broad arm.
+            lockHandle = new FileStream(input, FileMode.Open, FileAccess.Read, FileShare.None);
+
+            int exit = Winix.Protect.Cli.Run([input], "protect");
+
+            Assert.Equal(126, exit);
+            string err = capturedErr.ToString();
+            Assert.DoesNotContain("IO_", err, StringComparison.Ordinal);
+            Assert.Contains("I/O error accessing", err, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("secret.txt", err, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Console.SetError(originalErr);
+            lockHandle?.Dispose();
+            try { Directory.Delete(dir, recursive: true); } catch { }
+        }
+    }
+
+    [SkippableFact]
     public void Unprotect_TamperedCiphertext_StderrSaysAuthenticationFailed()
     {
         // Closes adversarial F6: AuthenticationTagMismatchException (file tampered) gets a different
