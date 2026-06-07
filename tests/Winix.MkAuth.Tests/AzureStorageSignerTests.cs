@@ -1,4 +1,7 @@
+using System;
 using System.Collections.Generic;
+using System.Security.Cryptography;
+using System.Text;
 using Winix.MkAuth;
 using Xunit;
 
@@ -66,5 +69,44 @@ public class AzureStorageSignerTests
         var r = AzureStorageSigner.Sign(req);
 
         Assert.Equal("SharedKey devstoreaccount1:aHc/i2W3CebKOxBReu3IrDLop8UQhYZpzCpLJRLz+xw=", r.Header.HeaderValue);
+    }
+
+    // Round-2 TA finding: the duplicate-query-key branch (values ordinal-sorted, comma-joined) was
+    // documented but had no asserting test, and it CANNOT be SDK-captured — Azure.Storage.Blobs'
+    // URI handling rejects duplicate query keys. Oracle here is a hand-written StringToSign literal
+    // (composed from Microsoft's documented layout, NOT by calling the signer) HMAC'd with the
+    // framework primitive; the ordering asserts make the sort+join the requirement under test.
+    [Fact]
+    public void Duplicate_query_keys_are_value_sorted_and_comma_joined()
+    {
+        var req = new AzureStorageRequest
+        {
+            Account = "devstoreaccount1",
+            KeyBase64 = "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==",
+            Method = "GET",
+            // sv supplied b-then-a: the canonicalized resource must emit "sv:a,b" (values re-sorted).
+            Url = "https://devstoreaccount1.blob.core.windows.net/mycontainer/myblob.txt?sv=b&sv=a",
+            XmsDate = "Fri, 26 Jun 2026 00:00:00 GMT",
+            XmsVersion = "2021-08-06",
+            Headers = new Dictionary<string, string>(),
+        };
+
+        var r = AzureStorageSigner.Sign(req);
+
+        // The requirement: duplicate values sorted then comma-joined, never input order.
+        Assert.Contains("\nsv:a,b", r.StringToSign, StringComparison.Ordinal);
+        Assert.DoesNotContain("sv:b,a", r.StringToSign, StringComparison.Ordinal);
+
+        // Full-signature pin from a hand-built StringToSign (12 fixed slots, GET with no content or
+        // conditional headers, x-ms-date in the canonicalized block so the Date slot is empty).
+        string handBuilt =
+            "GET\n\n\n\n\n\n\n\n\n\n\n\n" +
+            "x-ms-date:Fri, 26 Jun 2026 00:00:00 GMT\n" +
+            "x-ms-version:2021-08-06\n" +
+            "/devstoreaccount1/mycontainer/myblob.txt\nsv:a,b";
+        using var hmac = new HMACSHA256(Convert.FromBase64String(req.KeyBase64));
+        string expectedSig = Convert.ToBase64String(hmac.ComputeHash(Encoding.UTF8.GetBytes(handBuilt)));
+
+        Assert.Equal("SharedKey devstoreaccount1:" + expectedSig, r.Header.HeaderValue);
     }
 }

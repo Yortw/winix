@@ -223,7 +223,7 @@ curl -H "$(mkauth jwt --alg RS256 --key file:private.pem \
 | `--kid S` | no | — | `kid` JOSE header parameter. |
 | `--header k=v` | no | — | Additional JOSE header parameters (repeatable; accepts `name=value` or `name: value`). `alg` and `typ` are reserved (set by `--alg`) and rejected as a usage error; distinct-cased names like `Alg` are allowed. |
 
-**ES curve requirement:** an `ES*` algorithm fixes the EC curve (RFC 7518 §3.4). The supplied PEM key must use the matching curve, or signing fails with a usage/runtime error:
+**ES curve requirement:** an `ES*` algorithm fixes the EC curve (RFC 7518 §3.4). The supplied PEM key must use the matching curve, or signing fails with a runtime error (exit 126):
 
 | Algorithm | Required curve |
 |-----------|----------------|
