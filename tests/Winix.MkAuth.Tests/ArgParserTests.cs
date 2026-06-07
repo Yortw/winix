@@ -286,4 +286,43 @@ public class ArgParserTests
         Assert.True(r.IsHandled);
         Assert.False(r.Ok);
     }
+
+    // B6 (DOCS-I1): top-level --help and --describe must enumerate the five subcommands. ShellKit prints
+    // help/describe to Console.Out during Parse, so capture it.
+    private static string CaptureConsoleOut(Action action)
+    {
+        System.IO.TextWriter original = Console.Out;
+        var sw = new System.IO.StringWriter();
+        try
+        {
+            Console.SetOut(sw);
+            action();
+        }
+        finally
+        {
+            Console.SetOut(original);
+        }
+        return sw.ToString();
+    }
+
+    [Fact]
+    public void Help_lists_all_five_subcommands()
+    {
+        string help = CaptureConsoleOut(() => ArgParser.Parse(new[] { "--help" }));
+        Assert.Contains("Subcommands", help, StringComparison.Ordinal);
+        foreach (string name in new[] { "basic", "bearer", "oauth1", "jwt", "azure-storage" })
+        {
+            Assert.Contains(name, help, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void Describe_lists_all_five_subcommands()
+    {
+        string describe = CaptureConsoleOut(() => ArgParser.Parse(new[] { "--describe" }));
+        foreach (string name in new[] { "basic", "bearer", "oauth1", "jwt", "azure-storage" })
+        {
+            Assert.Contains(name, describe, StringComparison.Ordinal);
+        }
+    }
 }

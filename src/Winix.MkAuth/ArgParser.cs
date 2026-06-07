@@ -386,6 +386,13 @@ public static class ArgParser
         return new CommandLineParser("mkauth", ResolveVersion())
             .Description("Compute HTTP Authorization headers (Basic, Bearer, OAuth 1.0a, JWT, Azure Storage SharedKey).")
             .StandardFlags()
+            .Section("Subcommands",
+                "basic           Build an RFC 7617 Basic header (--user, --password)\n" +
+                "bearer          Build a Bearer header from a token (--token)\n" +
+                "oauth1          Sign an OAuth 1.0a request (--method, --url, --consumer-key, --consumer-secret, ...)\n" +
+                "jwt             Mint a signed JWT (--alg, --key, claims/header flags)\n" +
+                "azure-storage   Sign an Azure Storage SharedKey request (--account, --key, --method, --url)\n\n" +
+                "Flag descriptions below are annotated with the subcommand(s) they apply to.")
             .Platform("cross-platform",
                 replaces: new[] { "ad-hoc openssl/base64 signing scripts" },
                 valueOnWindows: "No openssl/base64 toolchain assumptions — one self-contained binary computes the signature.",
