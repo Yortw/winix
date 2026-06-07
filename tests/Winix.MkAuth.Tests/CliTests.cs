@@ -98,6 +98,48 @@ public class CliTests
         Assert.Contains("stdin", err, StringComparison.OrdinalIgnoreCase);
     }
 
+    // B1 integration backstops: the empty-secret rejection wires through Cli to exit 126, and the
+    // documented invariants (empty literal still emits; 2-legged oauth1 with no token-secret still signs)
+    // survive.
+
+    [Fact]                                              // B1: env set-but-empty → exit 126 naming the source
+    public void Bearer_empty_env_secret_exits_126_naming_source()
+    {
+        Environment.SetEnvironmentVariable("MKAUTH_CLI_EMPTY", "");
+        var (code, outp, err) = Run(new[] { "bearer", "--token", "env:MKAUTH_CLI_EMPTY" });
+        Assert.Equal(126, code); // ExitCode.NotExecutable
+        Assert.True(string.IsNullOrWhiteSpace(outp), "no header should be emitted");
+        Assert.Contains("env:MKAUTH_CLI_EMPTY", err, StringComparison.Ordinal);
+        Assert.Contains("empty", err, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]                                              // B1: stdin newline-only → exit 126 (distinct from a value)
+    public void Bearer_stdin_newline_only_exits_126()
+    {
+        var (code, outp, err) = Run(new[] { "bearer", "--token", "stdin" }, stdin: "\n");
+        Assert.Equal(126, code);
+        Assert.True(string.IsNullOrWhiteSpace(outp));
+        Assert.Contains("stdin", err, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]                                              // B1 invariant: an explicit empty literal: still emits a header
+    public void Bearer_empty_literal_still_emits_header()
+    {
+        var (code, outp, _) = Run(new[] { "bearer", "--token", "literal:", "--value-only" });
+        Assert.Equal(0, code);
+        Assert.Equal("Bearer", outp.Trim()); // "Bearer " with an empty token
+    }
+
+    [Fact]                                              // B1 invariant: 2-legged oauth1 (no --token-secret) still signs
+    public void Oauth1_two_legged_without_token_secret_still_signs()
+    {
+        var deps = new MkAuthDeps { Clock = new FixedClock(DateTimeOffset.FromUnixTimeSeconds(1)), Nonce = new FixedNonce("N") };
+        var (code, outp, _) = Run(new[] { "oauth1", "--method", "GET", "--url", "https://x/y",
+            "--consumer-key", "k", "--consumer-secret", "literal:s" }, deps: deps);
+        Assert.Equal(0, code);
+        Assert.StartsWith("Authorization:", outp.Trim());
+    }
+
     [Fact]                                              // F8: PLAINTEXT over non-HTTPS warns but still emits
     public void Oauth1_plaintext_over_http_warns()
     {

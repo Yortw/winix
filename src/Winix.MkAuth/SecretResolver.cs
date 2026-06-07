@@ -37,20 +37,35 @@ public sealed class SecretResolver
     /// </exception>
     public string Resolve(SecretRef reference, Action<string> warn)
     {
+        // literal: is the verbatim escape hatch — emitted exactly as given (empty/whitespace allowed,
+        // covering the RFC 7617 empty-password class), and never trimmed. It returns early so the uniform
+        // trim + empty-rejection below applies only to the reference-resolved sources.
+        if (reference.Kind == SecretRefKind.Literal)
+        {
+            warn("a literal secret is visible in argv / shell history; prefer env:, file:, vault:, or stdin.");
+            return reference.Value;
+        }
+
+        // Resolve to the raw value plus a human label naming the source, so an empty result can be reported
+        // against the exact reference the user supplied.
+        string raw;
+        string source;
         switch (reference.Kind)
         {
             case SecretRefKind.Env:
-                return Environment.GetEnvironmentVariable(reference.Value)
+                raw = Environment.GetEnvironmentVariable(reference.Value)
                     ?? throw new MkAuthException($"Environment variable '{reference.Value}' is not set.");
+                source = $"env:{reference.Value}";
+                break;
 
             case SecretRefKind.File:
                 // TrimEnd to strip the trailing newline that editors commonly append. Wrap the read so a
                 // missing/unreadable file surfaces a named, actionable MkAuthException — FileNotFoundException
                 // and DirectoryNotFoundException both derive from IOException, which Cli's broken-pipe handler
-                // would otherwise have mistaken for a closed output pipe (silent exit 0, no output).
+                // would otherwise have mistaken for a closed output pipe (silent exit 0).
                 try
                 {
-                    return File.ReadAllText(reference.Value).TrimEnd('\r', '\n');
+                    raw = File.ReadAllText(reference.Value).TrimEnd('\r', '\n');
                 }
                 catch (UnauthorizedAccessException ex)
                 {
@@ -60,6 +75,8 @@ public sealed class SecretResolver
                 {
                     throw new MkAuthException($"Cannot read secret file '{reference.Value}': {SafeError.Describe(ex)}", ex);
                 }
+                source = $"file:{reference.Value}";
+                break;
 
             case SecretRefKind.Vault:
                 int slash = reference.Value.IndexOf('/');
@@ -70,13 +87,15 @@ public sealed class SecretResolver
                 string ns = reference.Value.Substring(0, slash);
                 string key = reference.Value.Substring(slash + 1);
                 // ISecretStore.Get returns byte[]? — null means the key does not exist.
-                byte[]? raw = _store.Get(ns, key);
-                if (raw == null)
+                byte[]? bytes = _store.Get(ns, key);
+                if (bytes == null)
                 {
                     throw new MkAuthException($"No vault entry '{ns}/{key}'.");
                 }
                 // Vault values are stored as UTF-8 bytes (convention established by EnvVault/Protect).
-                return Encoding.UTF8.GetString(raw);
+                raw = Encoding.UTF8.GetString(bytes);
+                source = $"vault:{reference.Value}";
+                break;
 
             case SecretRefKind.Stdin:
                 if (_stdinConsumed)
@@ -84,14 +103,24 @@ public sealed class SecretResolver
                     throw new MkAuthException("stdin can supply only one secret per invocation.");
                 }
                 _stdinConsumed = true;
-                return _stdin.ReadToEnd().TrimEnd('\r', '\n');
-
-            case SecretRefKind.Literal:
-                warn("a literal secret is visible in argv / shell history; prefer env:, file:, vault:, or stdin.");
-                return reference.Value;
+                raw = _stdin.ReadToEnd().TrimEnd('\r', '\n');
+                source = "stdin";
+                break;
 
             default:
                 throw new InvalidOperationException($"Unhandled secret-ref kind {reference.Kind}.");
         }
+
+        // SFH-1: a reference-resolved secret that is empty or whitespace-only would sign a silently-wrong
+        // header (e.g. an HMAC over an empty key). Reject it, naming the source so the user can fix it. The
+        // verbatim escape hatch is literal:, which returned above. There is deliberately no separate
+        // "stdin not redirected" detection — an interactive non-redirected stdin reads to EOF as empty here,
+        // which this same check rejects (it never silently signs).
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            throw new MkAuthException($"resolved secret from {source} is empty. Provide a non-empty value (or use literal: to send an empty secret deliberately).");
+        }
+
+        return raw;
     }
 }
