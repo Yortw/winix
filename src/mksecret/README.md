@@ -111,7 +111,7 @@ mksecret phrase --json
 | Flag | Short | Default | Description |
 |---|---|---|---|
 | `--words N` | `-w N` | `6` | Number of words (max 1024). |
-| `--sep STR` | `-s STR` | `-` | Separator between words. |
+| `--sep STR` | `-s STR` | `-` | Separator between words. Must not contain newlines. |
 | `--capitalize` | | off | Capitalise the first letter of each word. |
 | `--number` | | off | Append a random digit to the passphrase. |
 | `--count N` | `-n N` | `1` | Number of passphrases to generate (max 100000). |
@@ -209,6 +209,8 @@ The key is discarded as soon as the pipe closes. You get a valid-looking MAC but
 | 0 | Success. A closed downstream pipe (e.g. `mksecret --count 100000 \| head -1`) also exits 0 — it is not an error. |
 | 125 | Usage error — unknown flag, bad `--charset`/`--encoding` value, non-positive or oversized count/length/bytes/words, unexpected positional (including an unrecognised subcommand). Stderr carries the message. |
 | 126 | Runtime error — OS CSPRNG failure or output write failure (disk full, device error). Stderr carries the message. |
+
+On a non-zero exit, stdout may contain partial output (secrets are streamed, not buffered) and must be discarded — always check the exit code before consuming stdout.
 
 ## Colour
 
