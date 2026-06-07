@@ -370,6 +370,10 @@ public static class ArgParser
         return new CommandLineParser("digest", ResolveVersion())
             .Description(description)
             .Maturity(ToolMaturity.Core)
+            .PreferDefaultWhen(
+                "verifying a sha256sum checkfile — use sha256sum -c",
+                "password hashing — use argon2, bcrypt, or scrypt",
+                "file encryption/decryption — use age or gpg")
             .StandardFlags()
             .ExpandGlobPositionals()
             .Platform("cross-platform",

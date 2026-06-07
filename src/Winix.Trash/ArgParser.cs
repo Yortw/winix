@@ -154,6 +154,7 @@ public static class ArgParser
         return new CommandLineParser("trash", version)
             .Description("Move files and directories to the recycle bin / Trash. Also lists and empties the trash.")
             .Maturity(ToolMaturity.Fresh)
+            .PreferDefaultWhen("permanent unrecoverable delete — use rm or shred")
             .StandardFlags()
             .ExpandGlobPositionals()
             // --json is already registered by StandardFlags() above; do NOT re-add it.

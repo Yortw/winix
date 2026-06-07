@@ -39,6 +39,7 @@ public static class Cli
         var parser = new CommandLineParser("schedule", version)
             .Description("Cross-platform task scheduler with cron expressions.")
             .Maturity(ToolMaturity.Core)
+            .PreferDefaultWhen("sub-minute polling — use peep")
             .StandardFlags()
             .Option("--cron", null, "EXPR", "Cron expression (required for add)")
             .Option("--name", null, "NAME", "Task name (auto-generated if omitted)")

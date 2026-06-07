@@ -116,6 +116,10 @@ public static class ArgParser
         return new CommandLineParser("demux", version)
             .Description("Route each line of stdin to files or commands by regex; unmatched lines pass through to stdout.")
             .Maturity(ToolMaturity.Fresh)
+            .PreferDefaultWhen(
+                "single-sink filtering by pattern — use grep, Select-String, or files --content",
+                "transforming lines (substitutions, field extraction) — use awk or sed",
+                "copying one stream to N identical sinks — use tee")
             .StandardFlags()
             // IntOption so ShellKit validates the value as an integer at parse time; non-integer
             // input surfaces via HasErrors rather than throwing from GetInt.

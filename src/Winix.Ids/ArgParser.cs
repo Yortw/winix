@@ -189,6 +189,7 @@ public static class ArgParser
         return new CommandLineParser("ids", ResolveVersion())
             .Description("Cross-platform identifier generator — UUID v4, UUID v7, ULID, NanoID.")
             .Maturity(ToolMaturity.Core)
+            .PreferDefaultWhen("UUID v1 — use uuidgen")
             .StandardFlags()
             .Platform("cross-platform",
                 replaces: new[] { "uuidgen" },

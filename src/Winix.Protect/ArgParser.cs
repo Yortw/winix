@@ -114,6 +114,10 @@ public static class ArgParser
         CommandLineParser p = new CommandLineParser(toolName, ResolveVersion())
             .Description(description)
             .Maturity(ToolMaturity.Core)
+            .PreferDefaultWhen(
+                "portable encryption (cross-machine/user) — use age or gpg",
+                "encrypting structured data with external KMS — use sops",
+                "whole-disk or filesystem encryption — use FileVault, BitLocker, or LUKS")
             .StandardFlags()
             .Platform("cross-platform",
                 replaces: new[] { "dpapi.ps1", "security add-generic-password + openssl", "secret-tool + openssl", "gpg --symmetric (for single-user at-rest)" },

@@ -115,6 +115,9 @@ public static class ArgParser
         => new CommandLineParser(toolName, version)
             .Description(description)
             .Maturity(ToolMaturity.Fresh)
+            .PreferDefaultWhen(
+                "hashing or signing data — use digest",
+                "unique identifiers (UUID/ULID/NanoID) — use ids")
             .StandardFlags()
             .Platform("cross-platform",
                 replaces: new[] { "pwgen", "openssl rand", "diceware/xkcdpass", "PowerShell Get-SecureRandom" },
