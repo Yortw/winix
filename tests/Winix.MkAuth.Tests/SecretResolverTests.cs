@@ -175,4 +175,93 @@ public class SecretResolverTests
         Assert.Contains("not set", ex.Message, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("empty", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
+
+    // ---- B2 (SFH-2): ALL reference-resolved sources are .Trim()'d (all surrounding whitespace, not just
+    // trailing newlines) so the SAME key signs the SAME way regardless of delivery mechanism. literal: is
+    // verbatim. The oracle is literal:KEY (the verbatim bare key) — each resolved source must equal it.
+
+    private const string BareKey = "s3cret-KEY";
+
+    private static string ResolveValue(SecretResolver sut, string reference)
+        => sut.Resolve(SecretRef.Parse(reference), _ => { });
+
+    [Theory]
+    [InlineData("s3cret-KEY   ")]    // trailing spaces
+    [InlineData("   s3cret-KEY")]    // leading spaces
+    [InlineData("s3cret-KEY\t")]     // trailing tab
+    [InlineData("\n s3cret-KEY \n")] // surrounding newlines + spaces
+    public void File_surrounding_whitespace_signs_identically_to_literal(string fileContents)
+    {
+        string path = Path.Combine(Path.GetTempPath(), "mkauth-trim-" + Guid.NewGuid().ToString("N") + ".txt");
+        File.WriteAllText(path, fileContents);
+        try
+        {
+            var sut = new SecretResolver(new InMemorySecretStore(), stdin: new StringReader(""));
+            string fromFile = ResolveValue(sut, "file:" + path);
+            string fromLiteral = ResolveValue(new SecretResolver(new InMemorySecretStore(), new StringReader("")), "literal:" + BareKey);
+            Assert.Equal(fromLiteral, fromFile);
+            Assert.Equal(BareKey, fromFile);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Env_trailing_newline_signs_identically_to_literal()
+    {
+        Environment.SetEnvironmentVariable("MKAUTH_TRIM_ENV", BareKey + "\n");
+        var sut = new SecretResolver(new InMemorySecretStore(), stdin: new StringReader(""));
+        Assert.Equal(BareKey, ResolveValue(sut, "env:MKAUTH_TRIM_ENV"));
+    }
+
+    [Fact]
+    public void Stdin_trailing_newline_signs_identically_to_literal()
+    {
+        var sut = new SecretResolver(new InMemorySecretStore(), stdin: new StringReader(BareKey + "\n"));
+        Assert.Equal(BareKey, ResolveValue(sut, "stdin"));
+    }
+
+    [Fact]
+    public void Vault_surrounding_whitespace_is_trimmed()
+    {
+        var store = new InMemorySecretStore();
+        store.Put("api", "padded", "  " + BareKey + "  ");
+        var sut = new SecretResolver(store, stdin: new StringReader(""));
+        Assert.Equal(BareKey, ResolveValue(sut, "vault:api/padded"));
+    }
+
+    [Fact] // File.ReadAllText strips a leading UTF-8 BOM; BOM+key must still equal literal:key.
+    public void File_with_leading_bom_signs_identically_to_literal()
+    {
+        string path = Path.Combine(Path.GetTempPath(), "mkauth-bom-" + Guid.NewGuid().ToString("N") + ".txt");
+        File.WriteAllText(path, BareKey, new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+        try
+        {
+            var sut = new SecretResolver(new InMemorySecretStore(), stdin: new StringReader(""));
+            Assert.Equal(BareKey, ResolveValue(sut, "file:" + path));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact] // B1↔B2 interplay: a whitespace-only file is empty after trim and hits B1's rejection.
+    public void Whitespace_only_file_trims_to_empty_and_is_rejected()
+    {
+        string path = Path.Combine(Path.GetTempPath(), "mkauth-wsonly-" + Guid.NewGuid().ToString("N") + ".txt");
+        File.WriteAllText(path, " \t \n ");
+        try
+        {
+            var sut = new SecretResolver(new InMemorySecretStore(), stdin: new StringReader(""));
+            var ex = Assert.Throws<MkAuthException>((Action)(() => sut.Resolve(SecretRef.Parse("file:" + path), _ => { })));
+            Assert.Contains("empty", ex.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }
