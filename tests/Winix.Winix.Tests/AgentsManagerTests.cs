@@ -425,4 +425,133 @@ public sealed class AgentsManagerTests
         Assert.Contains("\"action\":\"init\"", json, StringComparison.Ordinal);
         Assert.Contains("\"files\"", json, StringComparison.Ordinal);
     }
+
+    // ── RunStatus ─────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void RunStatus_CurrentBlock_ReturnsSuccess()
+    {
+        var fs = new InMemoryFs();
+        fs.Dirs.Add("/proj");
+        fs.Files[Path.Combine("/proj", "AGENTS.md")] = AgentsManager.MergeBlock(string.Empty, "0.4.0");
+        var (stdout, stderr) = (new StringWriter(), new StringWriter());
+
+        int exit = AgentsManager.RunStatus(Opts("status", "/proj"), fs, stdout, stderr);
+
+        Assert.Equal(WinixExitCode.Success, exit);
+        Assert.Contains("current", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RunStatus_Absent_ReturnsToolFailure()
+    {
+        var fs = new InMemoryFs();
+        fs.Dirs.Add("/proj");
+        var (stdout, stderr) = (new StringWriter(), new StringWriter());
+
+        int exit = AgentsManager.RunStatus(Opts("status", "/proj"), fs, stdout, stderr);
+
+        Assert.Equal(WinixExitCode.ToolFailure, exit);
+        Assert.Contains("absent", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RunStatus_StaleVersion_ReturnsToolFailure()
+    {
+        var fs = new InMemoryFs();
+        fs.Dirs.Add("/proj");
+        fs.Files[Path.Combine("/proj", "AGENTS.md")] = AgentsManager.MergeBlock(string.Empty, "0.3.0");
+        var (stdout, stderr) = (new StringWriter(), new StringWriter());
+
+        int exit = AgentsManager.RunStatus(Opts("status", "/proj"), fs, stdout, stderr);
+
+        Assert.Equal(WinixExitCode.ToolFailure, exit);
+        Assert.Contains("stale", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RunStatus_AgentsCurrentButExistingClaudeMissingBlock_IsDrift()
+    {
+        // Multi-file worst-case: AGENTS.md current, but an existing CLAUDE.md has no block.
+        var fs = new InMemoryFs();
+        fs.Dirs.Add("/proj");
+        fs.Files[Path.Combine("/proj", "AGENTS.md")] = AgentsManager.MergeBlock(string.Empty, "0.4.0");
+        fs.Files[Path.Combine("/proj", "CLAUDE.md")] = "# just my rules\n";
+        var (stdout, stderr) = (new StringWriter(), new StringWriter());
+
+        int exit = AgentsManager.RunStatus(Opts("status", "/proj"), fs, stdout, stderr);
+
+        Assert.Equal(WinixExitCode.ToolFailure, exit);
+    }
+
+    [Fact]
+    public void RunStatus_Json_GoesToStdout()
+    {
+        var fs = new InMemoryFs();
+        fs.Dirs.Add("/proj");
+        fs.Files[Path.Combine("/proj", "AGENTS.md")] = AgentsManager.MergeBlock(string.Empty, "0.4.0");
+        var (stdout, stderr) = (new StringWriter(), new StringWriter());
+
+        int exit = AgentsManager.RunStatus(Opts("status", "/proj", json: true), fs, stdout, stderr);
+
+        Assert.Equal(WinixExitCode.Success, exit);
+        string json = stdout.ToString();
+        Assert.Contains("\"current\":true", json, StringComparison.Ordinal);
+        Assert.Contains("\"files\"", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RunStatus_BothStale_ReturnsToolFailure()
+    {
+        // F7: worst-case aggregation across two files, both stale.
+        var fs = new InMemoryFs();
+        fs.Dirs.Add("/proj");
+        fs.Files[Path.Combine("/proj", "AGENTS.md")] = AgentsManager.MergeBlock(string.Empty, "0.3.0");
+        fs.Files[Path.Combine("/proj", "CLAUDE.md")] = AgentsManager.MergeBlock(string.Empty, "0.3.0");
+        var (stdout, stderr) = (new StringWriter(), new StringWriter());
+
+        int exit = AgentsManager.RunStatus(Opts("status", "/proj"), fs, stdout, stderr);
+
+        Assert.Equal(WinixExitCode.ToolFailure, exit);
+    }
+
+    [Fact]
+    public void RunStatus_AgentsAbsentClaudeCurrent_ReturnsToolFailure()
+    {
+        // F7: AGENTS.md (always applicable) absent, existing CLAUDE.md current → worst case wins.
+        var fs = new InMemoryFs();
+        fs.Dirs.Add("/proj");
+        fs.Files[Path.Combine("/proj", "CLAUDE.md")] = AgentsManager.MergeBlock(string.Empty, "0.4.0");
+        var (stdout, stderr) = (new StringWriter(), new StringWriter());
+
+        int exit = AgentsManager.RunStatus(Opts("status", "/proj"), fs, stdout, stderr);
+
+        Assert.Equal(WinixExitCode.ToolFailure, exit);
+    }
+
+    [Fact]
+    public void RunStatus_ForceClaudeAbsent_ReturnsToolFailure()
+    {
+        // F7: --claude makes CLAUDE.md applicable even when absent → drift.
+        var fs = new InMemoryFs();
+        fs.Dirs.Add("/proj");
+        fs.Files[Path.Combine("/proj", "AGENTS.md")] = AgentsManager.MergeBlock(string.Empty, "0.4.0");
+        var (stdout, stderr) = (new StringWriter(), new StringWriter());
+
+        int exit = AgentsManager.RunStatus(Opts("status", "/proj", forceClaude: true), fs, stdout, stderr);
+
+        Assert.Equal(WinixExitCode.ToolFailure, exit);
+    }
+
+    [Fact]
+    public void RunStatus_ReadFails_ReturnsInternalError()
+    {
+        // F8: an unreadable existing target must not leak a stack trace.
+        var (stdout, stderr) = (new StringWriter(), new StringWriter());
+
+        int exit = AgentsManager.RunStatus(Opts("status", "/proj"), new ReadFailFs(), stdout, stderr);
+
+        Assert.Equal(WinixExitCode.InternalError, exit);
+        Assert.DoesNotContain("   at ", stderr.ToString(), StringComparison.Ordinal);
+    }
 }

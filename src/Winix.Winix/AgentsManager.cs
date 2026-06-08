@@ -285,6 +285,95 @@ public static class AgentsManager
         }
     }
 
+    /// <summary>
+    /// Reports the managed-block state of every applicable target (the same set
+    /// <see cref="ResolveInitTargets"/> returns). Returns <see cref="WinixExitCode.Success"/>
+    /// only when every applicable file carries a block at the current version; otherwise
+    /// <see cref="WinixExitCode.ToolFailure"/> (the worst case across the set).
+    /// </summary>
+    internal static int RunStatus(AgentsOptions opts, IAgentsFileSystem fs, TextWriter stdout, TextWriter stderr)
+    {
+        if (!fs.DirectoryExists(opts.BaseDir))
+        {
+            stderr.WriteLine($"winix: path '{opts.BaseDir}' is not a directory");
+            return WinixExitCode.UsageError;
+        }
+
+        var results = new List<(string Path, string State, string? Version)>();
+        bool allCurrent = true;
+
+        try
+        {
+            foreach (string target in ResolveInitTargets(opts, fs))
+            {
+                string? blockVer = fs.FileExists(target) ? FindBlockVersion(fs.ReadAllText(target)) : null;
+                string state;
+                if (blockVer == null)
+                {
+                    state = "absent";
+                    allCurrent = false;
+                }
+                else if (string.Equals(blockVer, opts.Version, StringComparison.Ordinal))
+                {
+                    state = "current";
+                }
+                else
+                {
+                    state = "stale";
+                    allCurrent = false;
+                }
+                results.Add((target, state, blockVer));
+            }
+        }
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+        {
+            // F8: an existing-but-unreadable target (permission denied) must not leak a stack
+            // trace out of status — map to a clean InternalError like init/remove.
+            stderr.WriteLine($"winix: failed to read agents pointer ({ex.GetType().Name})");
+            return WinixExitCode.InternalError;
+        }
+
+        if (opts.Json)
+        {
+            stdout.WriteLine(FormatStatusJson(results, allCurrent));
+        }
+        else
+        {
+            foreach ((string path, string state, string? version) in results)
+            {
+                string suffix = version != null ? $" (v{version})" : string.Empty;
+                stderr.WriteLine($"winix: {path}: {state}{suffix}");
+            }
+        }
+
+        return allCurrent ? WinixExitCode.Success : WinixExitCode.ToolFailure;
+    }
+
+    /// <summary>Builds the <c>--json</c> status envelope with <see cref="Utf8JsonWriter"/> (AOT-safe).</summary>
+    private static string FormatStatusJson(
+        List<(string Path, string State, string? Version)> results, bool allCurrent)
+    {
+        using var buffer = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            writer.WriteStartObject();
+            writer.WriteBoolean("current", allCurrent);
+            writer.WriteStartArray("files");
+            foreach ((string path, string state, string? version) in results)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("path", path);
+                writer.WriteString("state", state);
+                if (version != null) { writer.WriteString("version", version); }
+                else { writer.WriteNull("version"); }
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+            writer.WriteEndObject();
+        }
+        return Encoding.UTF8.GetString(buffer.ToArray());
+    }
+
     /// <summary>Builds the <c>--json</c> envelope for <c>init</c>/<c>remove</c> (AOT-safe).</summary>
     private static string FormatActionJson(string action, bool dryRun, List<string> files)
     {
