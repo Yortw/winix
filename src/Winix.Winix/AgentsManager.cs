@@ -143,4 +143,45 @@ public static class AgentsManager
     {
         return eol == "\n" ? text : text.Replace("\n", eol);
     }
+
+    /// <summary>
+    /// Returns <paramref name="content"/> with the managed block removed. The blank-line
+    /// separator introduced on append is collapsed so the surrounding text rejoins cleanly.
+    /// Content with no complete block (absent, or a start marker with no end) is returned
+    /// unchanged — removing a half-block could delete user text.
+    /// </summary>
+    internal static string RemoveBlock(string content)
+    {
+        string eol = DetectEol(content);
+        string current = content;
+
+        // F6: strip EVERY complete block (a duplicate is an anomaly from a bad merge; leaving
+        // one behind would let `status` keep reporting a block after `remove`). A start marker
+        // with no matching end is left untouched — removing a half-block could eat user text.
+        while (true)
+        {
+            int start = current.IndexOf(StartMarkerPrefix, StringComparison.Ordinal);
+            if (start < 0) { return current; }
+
+            int end = current.IndexOf(EndMarker, start, StringComparison.Ordinal);
+            if (end < 0) { return current; }
+
+            int endFull = end + EndMarker.Length;
+            string before = current.Substring(0, start).TrimEnd('\r', '\n');
+            string after = current.Substring(endFull).TrimStart('\r', '\n');
+
+            if (before.Length == 0)
+            {
+                current = after;
+            }
+            else if (after.Length == 0)
+            {
+                current = before + eol;
+            }
+            else
+            {
+                current = before + eol + eol + after;
+            }
+        }
+    }
 }

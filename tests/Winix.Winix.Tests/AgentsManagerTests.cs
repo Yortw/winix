@@ -177,4 +177,48 @@ public sealed class AgentsManagerTests
         }
         return count;
     }
+
+    // ── RemoveBlock ───────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void RemoveBlock_OnlyBlock_ReturnsEmpty()
+    {
+        string file = AgentsManager.MergeBlock(string.Empty, "0.4.0");
+        Assert.Equal(string.Empty, AgentsManager.RemoveBlock(file));
+    }
+
+    [Fact]
+    public void RemoveBlock_BlockAmongContent_LeavesOtherContent()
+    {
+        string file = AgentsManager.MergeBlock("# Project\n", "0.4.0");
+        string stripped = AgentsManager.RemoveBlock(file);
+        Assert.Contains("# Project", stripped, StringComparison.Ordinal);
+        Assert.DoesNotContain(AgentsManager.StartMarkerPrefix, stripped, StringComparison.Ordinal);
+        Assert.DoesNotContain(AgentsManager.EndMarker, stripped, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RemoveBlock_NoBlock_ReturnsUnchanged()
+    {
+        string file = "# Project\n\nNo winix here.\n";
+        Assert.Equal(file, AgentsManager.RemoveBlock(file));
+    }
+
+    [Fact]
+    public void RemoveBlock_StartWithoutEnd_ReturnsUnchanged()
+    {
+        // Malformed: do not touch — removing a half-block could eat user text.
+        string file = "<!-- winix:start v=0.4.0 -->\nhalf a block, no end\n";
+        Assert.Equal(file, AgentsManager.RemoveBlock(file));
+    }
+
+    [Fact]
+    public void RemoveBlock_TwoBlocks_RemovesAll()
+    {
+        // F6: remove strips EVERY managed block so `status` can't keep reporting a leftover.
+        string two = AgentsManager.RenderBlock("0.4.0") + "\n\n# mid\n\n" + AgentsManager.RenderBlock("0.4.0") + "\n";
+        string stripped = AgentsManager.RemoveBlock(two);
+        Assert.DoesNotContain(AgentsManager.StartMarkerPrefix, stripped, StringComparison.Ordinal);
+        Assert.Contains("# mid", stripped, StringComparison.Ordinal);
+    }
 }
