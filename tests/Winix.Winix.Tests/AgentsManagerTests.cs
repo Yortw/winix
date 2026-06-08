@@ -60,4 +60,46 @@ public sealed class AgentsManagerTests
         Assert.Contains("https://github.com/Yortw/winix/blob/main/AGENTS.md", block, StringComparison.Ordinal);
         Assert.DoesNotContain("/blob/v0.4.0-dev/", block, StringComparison.Ordinal);
     }
+
+    // ── FindBlockVersion ──────────────────────────────────────────────────────────
+
+    [Fact]
+    public void FindBlockVersion_PresentBlock_ReturnsVersion()
+    {
+        string file = "# Project\n\n" + AgentsManager.RenderBlock("0.4.0") + "\n";
+        Assert.Equal("0.4.0", AgentsManager.FindBlockVersion(file));
+    }
+
+    [Fact]
+    public void FindBlockVersion_PreReleaseMarker_ReturnsExactVersion()
+    {
+        string file = AgentsManager.RenderBlock("0.4.0-dev");
+        Assert.Equal("0.4.0-dev", AgentsManager.FindBlockVersion(file));
+    }
+
+    [Fact]
+    public void FindBlockVersion_NoBlock_ReturnsNull()
+    {
+        Assert.Null(AgentsManager.FindBlockVersion("# Just a project\n\nNothing here.\n"));
+    }
+
+    [Fact]
+    public void FindBlockVersion_StartWithoutEnd_ReturnsNull()
+    {
+        // A hand-edit that deleted the end marker must read as "no valid block",
+        // so init appends a fresh one rather than corrupting the file.
+        string file = "<!-- winix:start v=0.4.0 — managed... -->\n## Winix\nsome text, no end marker\n";
+        Assert.Null(AgentsManager.FindBlockVersion(file));
+    }
+
+    [Theory]
+    // F5: a mangled marker must never yield a garbage non-null version that status would
+    // render as `stale (v-->)` and act on. Terminate the token at whitespace or `--`.
+    [InlineData("<!-- winix:start v=--> -->\nbody\n<!-- winix:end -->", null)]
+    [InlineData("<!-- winix:start v=0.4.0--> -->\nbody\n<!-- winix:end -->", "0.4.0")]
+    [InlineData("<!-- winix:start v= -->\nbody\n<!-- winix:end -->", null)]
+    public void FindBlockVersion_MalformedVersionToken_NoGarbage(string file, string? expected)
+    {
+        Assert.Equal(expected, AgentsManager.FindBlockVersion(file));
+    }
 }

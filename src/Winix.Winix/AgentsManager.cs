@@ -65,4 +65,35 @@ public static class AgentsManager
         };
         return string.Join("\n", lines);
     }
+
+    /// <summary>
+    /// Extracts the version recorded in a block's opening marker (<c>v=...</c>), or
+    /// <see langword="null"/> when the content has no syntactically-complete block. A start
+    /// marker with no matching end marker is treated as "no valid block" so callers append a
+    /// fresh block rather than splicing into a half-deleted one.
+    /// </summary>
+    internal static string? FindBlockVersion(string content)
+    {
+        int start = content.IndexOf(StartMarkerPrefix, StringComparison.Ordinal);
+        if (start < 0) { return null; }
+
+        int end = content.IndexOf(EndMarker, start, StringComparison.Ordinal);
+        if (end < 0) { return null; }
+
+        int vIdx = content.IndexOf("v=", start, StringComparison.Ordinal);
+        if (vIdx < 0 || vIdx > end) { return null; }
+
+        vIdx += 2;
+        int e = vIdx;
+        // F5: terminate at whitespace OR at the start of "-->" so a mangled marker like
+        // `v=-->` yields null (not the garbage token "-->"). A single "-" is kept — real
+        // pre-release versions contain one (e.g. "0.4.0-dev").
+        while (e < content.Length
+            && !char.IsWhiteSpace(content[e])
+            && !(content[e] == '-' && e + 1 < content.Length && content[e + 1] == '-'))
+        {
+            e++;
+        }
+        return e > vIdx ? content.Substring(vIdx, e - vIdx) : null;
+    }
 }
