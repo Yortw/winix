@@ -1877,7 +1877,7 @@ Run: `git ls-files '*.1.md'`
 Document `winix agents`:
 - the three verbs and the managed-block contract;
 - the `status || init` bootstrap idiom;
-- the version-pinned URL behaviour (`v{version}` for stable, `main` for dev);
+- the version-pinned URL behaviour: the URL pins to `v{version}/AGENTS.md` (the tag matching the installed binary); **pre-release versions (the version string contains `-`) fall back to `main`**. (Phrase it as "pre-release → main", NOT "dev → main" — see the note in Step 8.)
 - `--json` is honoured on **all three** verbs (init/remove emit `{"action","dryRun","files"}`; status emits `{"current","files":[{"path","state","version"}]}`);
 - **the marker limitation (F6):** the first `<!-- winix:start … -->` … `<!-- winix:end -->` pair is the managed block; do not place that literal marker pair in your own prose, or `init`/`remove` will treat it as the block. A start marker with no end is ignored (init appends a fresh block).
 
@@ -1899,7 +1899,7 @@ dotnet run --project src/winix -- agents remove --path /tmp/winix-doc-check
 dotnet run --project src/winix -- agents status --path /tmp/winix-doc-check   # expect exit 1
 dotnet run --project src/winix -- agents --help
 ```
-Confirm the generated block's URL line matches the documented version-pinning rule for the dev build (`/blob/main/AGENTS.md`, because the dev version contains `-`).
+Confirm the generated block's URL line matches the version-pinning rule for whatever version the dev build reports. **NOTE (corrected):** this repo's dev `<Version>` is `0.1.0` (`Directory.Build.props`, no `-`), so a local dev build emits `/blob/v0.1.0/AGENTS.md` — which may 404 because `AGENTS.md` postdates the `v0.1.0` tag. That is a dev-build-only artifact and is expected. Shipped stable binaries report their real version (e.g. `0.4.0`), whose tag has `AGENTS.md`; only pre-release versions (string contains `-`) fall back to `/blob/main/`. **Report the actual URL observed — do NOT assert `/blob/main/` for the dev build.** (The release-time HTTP-200 guard in Task 15 only checks stable releases, which are correct.)
 
 - [ ] **Step 9: Commit**
 
