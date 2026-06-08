@@ -106,11 +106,13 @@ public static class AgentsManager
 
         vIdx += 2;
         int e = vIdx;
-        // F5: terminate at whitespace OR at the start of "-->" so a mangled marker like
-        // `v=-->` yields null (not the garbage token "-->"). A single "-" is kept — real
-        // pre-release versions contain one (e.g. "0.4.0-dev").
-        while (e < content.Length
+        // F5/I1: terminate at whitespace, at the start of "-->", at '<' (the first char of any
+        // marker — never valid in a version), and never scan past `end`. This keeps real
+        // pre-release versions intact ("0.4.0-dev" — single '-') while a mangled marker like
+        // `v=-->` or `v=0.4.0<!-- winix:end` yields a clean token or null, never garbage.
+        while (e < end
             && !char.IsWhiteSpace(content[e])
+            && content[e] != '<'
             && !(content[e] == '-' && e + 1 < content.Length && content[e + 1] == '-'))
         {
             e++;
@@ -226,7 +228,7 @@ public static class AgentsManager
             // content (init is explicitly designed to run against files that already exist).
             string? dir = Path.GetDirectoryName(path);
             string tempDir = string.IsNullOrEmpty(dir) ? "." : dir;
-            string temp = Path.Combine(tempDir, "." + Path.GetFileName(path) + ".winix-tmp");
+            string temp = Path.Combine(tempDir, "." + Path.GetFileName(path) + ".winix-" + Path.GetRandomFileName());
             File.WriteAllText(temp, content);
             try
             {

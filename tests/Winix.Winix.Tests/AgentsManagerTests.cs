@@ -98,6 +98,9 @@ public sealed class AgentsManagerTests
     [InlineData("<!-- winix:start v=--> -->\nbody\n<!-- winix:end -->", null)]
     [InlineData("<!-- winix:start v=0.4.0--> -->\nbody\n<!-- winix:end -->", "0.4.0")]
     [InlineData("<!-- winix:start v= -->\nbody\n<!-- winix:end -->", null)]
+    // I1: a missing end-marker `-->` causes the scan to walk into the next `<!--` — the `<`
+    // stop plus the `end` bound must clamp the token to the clean prefix, never return garbage.
+    [InlineData("<!-- winix:start v=0.4.0<!-- winix:end -->\nbody\n<!-- winix:end -->", "0.4.0")]
     public void FindBlockVersion_MalformedVersionToken_NoGarbage(string file, string? expected)
     {
         Assert.Equal(expected, AgentsManager.FindBlockVersion(file));
@@ -238,8 +241,9 @@ public sealed class AgentsManagerTests
             fs.WriteAllText(path, "hello");
             Assert.True(fs.FileExists(path));
             Assert.Equal("hello", fs.ReadAllText(path));
-            // F1: the atomic temp+move must not leave a sidecar behind on success.
-            Assert.False(File.Exists(Path.Combine(dir, ".AGENTS.md.winix-tmp")));
+            // F1/M2: the atomic temp+move must not leave any sidecar behind on success,
+            // regardless of the random suffix used by this call.
+            Assert.Empty(Directory.GetFiles(dir, ".AGENTS.md.winix-*"));
             // Overwrite is a complete replace.
             fs.WriteAllText(path, "world");
             Assert.Equal("world", fs.ReadAllText(path));
