@@ -43,9 +43,12 @@ public sealed class AgentsManagerTests
         // The honest-framing restraint must be present — this is the behaviour-changing core.
         Assert.Contains("not by", block, StringComparison.Ordinal);
         Assert.Contains("use the default", block, StringComparison.Ordinal);
-        // F4: the exit-code convention line must be true for EVERY tool — no specific runtime
-        // code (winix itself returns 127, not the suite-generic 126). Pin the exact wording.
-        Assert.Contains("non-zero on failure (per-tool codes in `--describe`)", block, StringComparison.Ordinal);
+        // F4: the exit-code convention line must be true for EVERY tool — no specific failure
+        // code (less/squeeze use exit 2; winix uses 127). Lock the universal wording only.
+        // The assertion spans two source lines joined by \n + indent, so check each fragment.
+        Assert.Contains("exit 0 = success, non-zero on", block, StringComparison.Ordinal);
+        Assert.Contains("usage/runtime codes vary by tool", block, StringComparison.Ordinal);
+        Assert.DoesNotContain("125", block, StringComparison.Ordinal);
         Assert.DoesNotContain("126", block, StringComparison.Ordinal);
         // Block body uses LF only (EOL normalisation happens at merge time).
         Assert.DoesNotContain("\r", block, StringComparison.Ordinal);

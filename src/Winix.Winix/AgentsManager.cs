@@ -79,9 +79,9 @@ public static class AgentsManager
             "  (structured JSON — authoritative for this machine).",
             "- **Full guidance (when to prefer each tool, what it replaces):**",
             $"  https://github.com/Yortw/winix/blob/{urlRef}/AGENTS.md",
-            "- Conventions: every tool has `--describe` + `--json`; exit 0 = success, 125 = usage",
-            "  error, non-zero on failure (per-tool codes in `--describe`); summaries go to stderr so",
-            "  stdout stays pipe-clean; `NO_COLOR` respected.",
+            "- Conventions: every tool has `--describe` + `--json`; exit 0 = success, non-zero on",
+            "  failure (usage/runtime codes vary by tool — see `--describe`); summaries go to stderr",
+            "  so stdout stays pipe-clean; `NO_COLOR` respected.",
             "<!-- winix:end -->",
         };
         return string.Join("\n", lines);

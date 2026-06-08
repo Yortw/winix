@@ -71,17 +71,17 @@ default. If you can't say why it beats the platform default (`find`, `time`, `tr
   (structured JSON — authoritative for this machine).
 - **Full guidance (when to prefer each tool, what it replaces):**
   https://github.com/Yortw/winix/blob/v{version}/AGENTS.md
-- Conventions: every tool has `--describe` + `--json`; exit 0 = success, 125 = usage
-  error, non-zero on failure (per-tool codes in `--describe`); summaries go to stderr so
-  stdout stays pipe-clean; `NO_COLOR` respected.
+- Conventions: every tool has `--describe` + `--json`; exit 0 = success, non-zero on
+  failure (usage/runtime codes vary by tool — see `--describe`); summaries go to stderr
+  so stdout stays pipe-clean; `NO_COLOR` respected.
 <!-- winix:end -->
 ```
 
-> **Exit-code wording (adversarial-review F4):** the block states the convention that holds
-> for *every* tool, so it must not enumerate a specific runtime code. `winix` itself uses a
-> richer scheme (126 = no package manager, 127 = internal error — see `WinixExitCode`); the
-> generic "non-zero on failure, per-tool codes in `--describe`" line is true for winix and
-> every other tool. Pin this exact line with a `RenderBlock` test.
+> **Exit-code wording (adversarial-review F4, revised):** the block states only what is
+> universally true. `winix` uses 127 for internal errors; `less` and `squeeze` use exit 2
+> for usage errors (POSIX-replacement divergence). Enumerating `125` was therefore false for
+> those two tools. The new wording ("non-zero on failure, usage/runtime codes vary by tool —
+> see `--describe`") is correct for every tool. Pin this exact line with a `RenderBlock` test.
 
 Design notes:
 

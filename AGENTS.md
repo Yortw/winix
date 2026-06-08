@@ -41,7 +41,7 @@ If you can't articulate *why* a Winix tool is better than the default for the sp
 
 - `--describe` returns structured JSON on every tool.
 - `--json` produces machine-parseable output on every tool that produces output.
-- Exit codes: `0` = success, `125` = usage error, `126` = runtime error, tool-specific codes documented per tool.
+- Exit codes: `0` = success; non-zero on failure. `125` (usage) / `126` (runtime) are the common convention, but some POSIX-replacement tools (e.g. `less`, `squeeze`) use `2` for usage errors — each tool's exact codes are in its `--describe`.
 - Native Windows path handling (no Cygwin-style backslash mangling).
 - `NO_COLOR` env var is respected.
 - Summary output goes to stderr by default to keep stdout pipe-clean.
