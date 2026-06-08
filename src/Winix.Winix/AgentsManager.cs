@@ -9,6 +9,27 @@ using System.Text.Json;
 namespace Winix.Winix;
 
 /// <summary>
+/// File-I/O seam for <see cref="AgentsManager"/>. Production uses a thin wrapper over
+/// <see cref="System.IO.File"/>; tests inject in-memory or fault-injecting fakes so the
+/// orchestration paths (target resolution, dry-run, drift, write-failure) are exercisable
+/// without touching disk.
+/// </summary>
+public interface IAgentsFileSystem
+{
+    /// <summary>Returns whether a file exists at <paramref name="path"/>.</summary>
+    bool FileExists(string path);
+
+    /// <summary>Returns whether a directory exists at <paramref name="path"/>.</summary>
+    bool DirectoryExists(string path);
+
+    /// <summary>Reads the entire file at <paramref name="path"/> as text.</summary>
+    string ReadAllText(string path);
+
+    /// <summary>Writes <paramref name="content"/> to <paramref name="path"/>, overwriting.</summary>
+    void WriteAllText(string path, string content);
+}
+
+/// <summary>
 /// Reads, writes, and reports on the marker-delimited Winix discoverability block that
 /// <c>winix agents</c> manages inside a project's <c>AGENTS.md</c> / <c>CLAUDE.md</c>.
 /// </summary>
@@ -181,6 +202,40 @@ public static class AgentsManager
             else
             {
                 current = before + eol + eol + after;
+            }
+        }
+    }
+
+    /// <summary>Returns the production file system (a thin wrapper over <see cref="System.IO.File"/>).</summary>
+    public static IAgentsFileSystem CreateDefaultFileSystem()
+    {
+        return new DefaultAgentsFileSystem();
+    }
+
+    private sealed class DefaultAgentsFileSystem : IAgentsFileSystem
+    {
+        public bool FileExists(string path) => File.Exists(path);
+        public bool DirectoryExists(string path) => Directory.Exists(path);
+        public string ReadAllText(string path) => File.ReadAllText(path);
+
+        public void WriteAllText(string path, string content)
+        {
+            // F1: atomic per-file replace. Write a sibling temp on the same volume, then move
+            // it over the target. A crash / Ctrl+C mid-write leaves the user's existing file
+            // intact — a plain File.WriteAllText truncates in place and would lose their
+            // content (init is explicitly designed to run against files that already exist).
+            string? dir = Path.GetDirectoryName(path);
+            string tempDir = string.IsNullOrEmpty(dir) ? "." : dir;
+            string temp = Path.Combine(tempDir, "." + Path.GetFileName(path) + ".winix-tmp");
+            File.WriteAllText(temp, content);
+            try
+            {
+                File.Move(temp, path, overwrite: true);
+            }
+            catch
+            {
+                try { File.Delete(temp); } catch { /* best-effort cleanup of the sidecar */ }
+                throw;
             }
         }
     }

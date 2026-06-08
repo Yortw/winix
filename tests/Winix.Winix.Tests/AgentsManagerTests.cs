@@ -221,4 +221,32 @@ public sealed class AgentsManagerTests
         Assert.DoesNotContain(AgentsManager.StartMarkerPrefix, stripped, StringComparison.Ordinal);
         Assert.Contains("# mid", stripped, StringComparison.Ordinal);
     }
+
+    // ── IAgentsFileSystem default impl ────────────────────────────────────────────
+
+    [Fact]
+    public void DefaultAgentsFileSystem_RoundTripsTempFile()
+    {
+        var fs = AgentsManager.CreateDefaultFileSystem();
+        string dir = Path.Combine(Path.GetTempPath(), "winix-agents-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            string path = Path.Combine(dir, "AGENTS.md");
+            Assert.False(fs.FileExists(path));
+            Assert.True(fs.DirectoryExists(dir));
+            fs.WriteAllText(path, "hello");
+            Assert.True(fs.FileExists(path));
+            Assert.Equal("hello", fs.ReadAllText(path));
+            // F1: the atomic temp+move must not leave a sidecar behind on success.
+            Assert.False(File.Exists(Path.Combine(dir, ".AGENTS.md.winix-tmp")));
+            // Overwrite is a complete replace.
+            fs.WriteAllText(path, "world");
+            Assert.Equal("world", fs.ReadAllText(path));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
 }
