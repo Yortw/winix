@@ -1,5 +1,7 @@
 # hcat — AI Agent Guide
 
+**Maturity: fresh** — newer tool, not yet through a stable release; interface may still move. See [../STABILITY.md](../STABILITY.md).
+
 ## What This Tool Does
 
 `hcat` is "netcat for HTTP" — an instant HTTP server in a single cross-platform native binary, no runtime and no daemon. Where `nc` gives you a raw TCP socket, `hcat` gives you an HTTP one. It has four modes: serve a folder with an auto directory listing, inspect/record incoming requests (httpbin-style), pipe a command over HTTP (CGI-style), and a bare-invocation local-preview server. It overlaps with `python -m http.server`, `miniserve`, and `webhook.site` but is one binary with no Python/Node runtime, LAN-share QR codes, and CI stop conditions built in.

@@ -34,7 +34,7 @@ If you can't articulate *why* a Winix tool is better than the default for the sp
 
 - [`llms.txt`](llms.txt) — one-line description of every tool with what it replaces. Start here.
 - [`docs/ai/`](docs/ai/) — per-tool agent guides with "When to use this / When NOT to use this" sections, JSON output shapes, and composability examples.
-- `<tool> --describe` — at runtime, returns structured JSON metadata: flags, types, examples, exit codes, JSON output schema. Same contract on every tool. **This is the canonical machine-readable source.** If `--describe` and a doc disagree, `--describe` is correct.
+- `<tool> --describe` — at runtime, returns structured JSON metadata: flags, types, examples, exit codes, JSON output schema. Same contract on every tool. **This is the canonical machine-readable source.** If `--describe` and a doc disagree, `--describe` is correct. The `maturity` field in `--describe` output indicates `"core"` (stable) or `"fresh"` (newer, not yet through a stable release — interface may still move); see [docs/STABILITY.md](docs/STABILITY.md).
 - `<tool> --help` — human-readable help; use when interactive.
 
 ### Conventions you can rely on

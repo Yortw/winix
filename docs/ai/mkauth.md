@@ -1,5 +1,7 @@
 # mkauth — AI Agent Guide
 
+**Maturity: fresh** — newer tool, not yet through a stable release; interface may still move. See [../STABILITY.md](../STABILITY.md).
+
 ## What This Tool Does
 
 `mkauth` computes HTTP `Authorization` headers and prints them to stdout — one header per invocation. It is a **pure, stateless calculator**: no network I/O, no token storage, no caching. Subcommands: `basic`, `bearer`, `oauth1`, `jwt`, `azure-storage`.

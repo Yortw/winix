@@ -1,5 +1,7 @@
 # trash — AI Agent Guide
 
+**Maturity: fresh** — newer tool, not yet through a stable release; interface may still move. See [../STABILITY.md](../STABILITY.md).
+
 ## What This Tool Does
 
 `trash` moves files and directories to the operating system's recycle bin / Trash instead of deleting them permanently, as a single cross-platform native binary with no runtime dependency. It uses the Windows Recycle Bin, the FreeDesktop Trash on Linux, and the macOS Trash. Trashed items remain recoverable through the OS file manager's normal "Put Back" / "Restore" action.

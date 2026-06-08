@@ -47,6 +47,8 @@ On Windows, many of these tools simply don't exist natively — there's no built
 | [**mkauth**](src/mkauth/README.md) | Compute HTTP `Authorization` headers (OAuth 1.0a, JWT, Basic, Bearer) |
 | [**winix**](src/winix/README.md) | Suite installer — installs and updates all tools via native package managers |
 
+Tools marked **fresh** (mksecret, trash, hcat, mkauth, demux) are newer additions that have not yet shipped in a stable release — their interfaces may still change. All other tools are **core** (stable). See [docs/STABILITY.md](docs/STABILITY.md) for the full policy.
+
 ## Why each tool, on each platform
 
 The biggest value is on **Windows**, where many of these tools simply don't exist. On Linux and macOS the tools still earn their keep by combining multiple utilities, improving defaults, or providing a consistent interface across platforms. Even where a native equivalent exists, there's value in a single set of tools that behaves identically everywhere — scripts, CI pipelines, and muscle memory transfer across platforms without adaptation.

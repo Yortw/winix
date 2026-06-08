@@ -1,5 +1,7 @@
 # mksecret — AI Agent Guide
 
+**Maturity: fresh** — newer tool, not yet through a stable release; interface may still move. See [../STABILITY.md](../STABILITY.md).
+
 ## What This Tool Does
 
 `mksecret` generates cryptographic secrets in three modes — random-character passwords, EFF diceware passphrases, and encoded high-entropy keys — as a single cross-platform native binary with no runtime dependency. All modes use the OS CSPRNG; there is no insecure fallback.

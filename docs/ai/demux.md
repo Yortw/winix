@@ -1,5 +1,7 @@
 # demux — AI Agent Guide
 
+**Maturity: fresh** — newer tool, not yet through a stable release; interface may still move. See [../STABILITY.md](../STABILITY.md).
+
 ## What This Tool Does
 
 `demux` is a streaming `stdin → stdout` pipe filter that routes each input line to one of N sinks (files or commands) by regex match, and passes everything unmatched through its own stdout. It is the **partition verb** for pipes: where `tee` copies one stream to many, `demux` routes — each record goes to one chosen sink. Tagline: *split one stream into many by pattern.*
