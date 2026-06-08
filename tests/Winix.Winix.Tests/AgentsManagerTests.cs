@@ -554,4 +554,70 @@ public sealed class AgentsManagerTests
         Assert.Equal(WinixExitCode.InternalError, exit);
         Assert.DoesNotContain("   at ", stderr.ToString(), StringComparison.Ordinal);
     }
+
+    // ── RunRemove ─────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void RunRemove_StripsBlockFromExistingFiles()
+    {
+        var fs = new InMemoryFs();
+        fs.Dirs.Add("/proj");
+        string agentsPath = Path.Combine("/proj", "AGENTS.md");
+        fs.Files[agentsPath] = AgentsManager.MergeBlock("# Project\n", "0.4.0");
+        var (stdout, stderr) = (new StringWriter(), new StringWriter());
+
+        int exit = AgentsManager.RunRemove(Opts("remove", "/proj"), fs, stdout, stderr);
+
+        Assert.Equal(WinixExitCode.Success, exit);
+        Assert.DoesNotContain(AgentsManager.StartMarkerPrefix, fs.Files[agentsPath], StringComparison.Ordinal);
+        Assert.Contains("# Project", fs.Files[agentsPath], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RunRemove_NoBlock_LeavesFileUntouchedAndSucceeds()
+    {
+        var fs = new InMemoryFs();
+        fs.Dirs.Add("/proj");
+        string agentsPath = Path.Combine("/proj", "AGENTS.md");
+        fs.Files[agentsPath] = "# Project\nno block\n";
+        var (stdout, stderr) = (new StringWriter(), new StringWriter());
+
+        int exit = AgentsManager.RunRemove(Opts("remove", "/proj"), fs, stdout, stderr);
+
+        Assert.Equal(WinixExitCode.Success, exit);
+        Assert.Equal("# Project\nno block\n", fs.Files[agentsPath]);
+    }
+
+    [Fact]
+    public void RunRemove_DryRun_WritesNothing()
+    {
+        var fs = new InMemoryFs();
+        fs.Dirs.Add("/proj");
+        string agentsPath = Path.Combine("/proj", "AGENTS.md");
+        string original = AgentsManager.MergeBlock("# Project\n", "0.4.0");
+        fs.Files[agentsPath] = original;
+        var (stdout, stderr) = (new StringWriter(), new StringWriter());
+
+        int exit = AgentsManager.RunRemove(Opts("remove", "/proj", dryRun: true), fs, stdout, stderr);
+
+        Assert.Equal(WinixExitCode.Success, exit);
+        Assert.Equal(original, fs.Files[agentsPath]);
+        Assert.Contains("would update", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RunRemove_Json_GoesToStdout()
+    {
+        // F10: --json must produce a real envelope for remove too.
+        var fs = new InMemoryFs();
+        fs.Dirs.Add("/proj");
+        string agentsPath = Path.Combine("/proj", "AGENTS.md");
+        fs.Files[agentsPath] = AgentsManager.MergeBlock("# Project\n", "0.4.0");
+        var (stdout, stderr) = (new StringWriter(), new StringWriter());
+
+        int exit = AgentsManager.RunRemove(Opts("remove", "/proj", json: true), fs, stdout, stderr);
+
+        Assert.Equal(WinixExitCode.Success, exit);
+        Assert.Contains("\"action\":\"remove\"", stdout.ToString(), StringComparison.Ordinal);
+    }
 }

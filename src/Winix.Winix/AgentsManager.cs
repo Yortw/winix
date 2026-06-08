@@ -374,6 +374,62 @@ public static class AgentsManager
         return Encoding.UTF8.GetString(buffer.ToArray());
     }
 
+    /// <summary>
+    /// Strips the managed block from <c>AGENTS.md</c> and <c>CLAUDE.md</c> wherever each
+    /// exists and actually contains a block. Files are never deleted (an emptied file is left
+    /// empty). Returns <see cref="WinixExitCode.Success"/>, or
+    /// <see cref="WinixExitCode.InternalError"/> on an I/O failure.
+    /// </summary>
+    internal static int RunRemove(AgentsOptions opts, IAgentsFileSystem fs, TextWriter stdout, TextWriter stderr)
+    {
+        if (!fs.DirectoryExists(opts.BaseDir))
+        {
+            stderr.WriteLine($"winix: path '{opts.BaseDir}' is not a directory");
+            return WinixExitCode.UsageError;
+        }
+
+        string[] candidates =
+        {
+            Path.Combine(opts.BaseDir, "AGENTS.md"),
+            Path.Combine(opts.BaseDir, "CLAUDE.md"),
+        };
+
+        var changed = new List<string>();
+        string current = string.Empty;
+        try
+        {
+            foreach (string target in candidates)
+            {
+                current = target;
+                if (!fs.FileExists(target)) { continue; }
+                string existing = fs.ReadAllText(target);
+                if (FindBlockVersion(existing) == null) { continue; }
+
+                if (!opts.DryRun)
+                {
+                    fs.WriteAllText(target, RemoveBlock(existing));
+                }
+                changed.Add(target);
+                if (!opts.Json)
+                {
+                    stderr.WriteLine(opts.DryRun ? $"winix: would update {target}" : $"winix: removed block from {target}");
+                }
+            }
+
+            if (opts.Json)
+            {
+                stdout.WriteLine(FormatActionJson("remove", opts.DryRun, changed));
+            }
+            return WinixExitCode.Success;
+        }
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+        {
+            // F3: name the file that failed for a diagnosable partial update.
+            stderr.WriteLine($"winix: failed to update agents pointer to {current} ({ex.GetType().Name})");
+            return WinixExitCode.InternalError;
+        }
+    }
+
     /// <summary>Builds the <c>--json</c> envelope for <c>init</c>/<c>remove</c> (AOT-safe).</summary>
     private static string FormatActionJson(string action, bool dryRun, List<string> files)
     {
