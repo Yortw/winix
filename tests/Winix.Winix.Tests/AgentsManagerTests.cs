@@ -297,6 +297,15 @@ public sealed class AgentsManagerTests
         public void WriteAllText(string path, string content) => throw new UnauthorizedAccessException("denied");
     }
 
+    // For RunRemove write-failure: AGENTS.md exists and contains a block, but the write throws.
+    private sealed class RemoveWriteFailFs : IAgentsFileSystem
+    {
+        public bool FileExists(string path) => path.EndsWith("AGENTS.md", StringComparison.Ordinal);
+        public bool DirectoryExists(string path) => true;
+        public string ReadAllText(string path) => AgentsManager.RenderBlock("0.4.0");
+        public void WriteAllText(string path, string content) => throw new IOException("disk full");
+    }
+
     // ── ResolveInitTargets (option B) ─────────────────────────────────────────────
 
     private static AgentsManager.AgentsOptions Opts(string verb, string baseDir, bool forceClaude = false,
@@ -424,6 +433,7 @@ public sealed class AgentsManagerTests
         string json = stdout.ToString();
         Assert.Contains("\"action\":\"init\"", json, StringComparison.Ordinal);
         Assert.Contains("\"files\"", json, StringComparison.Ordinal);
+        Assert.Empty(stderr.ToString());
     }
 
     // ── RunStatus ─────────────────────────────────────────────────────────────────
@@ -498,6 +508,7 @@ public sealed class AgentsManagerTests
         string json = stdout.ToString();
         Assert.Contains("\"current\":true", json, StringComparison.Ordinal);
         Assert.Contains("\"files\"", json, StringComparison.Ordinal);
+        Assert.Empty(stderr.ToString());
     }
 
     [Fact]
@@ -619,6 +630,31 @@ public sealed class AgentsManagerTests
 
         Assert.Equal(WinixExitCode.Success, exit);
         Assert.Contains("\"action\":\"remove\"", stdout.ToString(), StringComparison.Ordinal);
+        Assert.Empty(stderr.ToString());
+    }
+
+    [Fact]
+    public void RunRemove_BadPath_ReturnsUsageError()
+    {
+        var fs = new InMemoryFs(); // no dirs registered → DirectoryExists false
+        var (stdout, stderr) = (new StringWriter(), new StringWriter());
+
+        int exit = AgentsManager.RunRemove(Opts("remove", "/nope"), fs, stdout, stderr);
+
+        Assert.Equal(WinixExitCode.UsageError, exit);
+        Assert.Contains("not a directory", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RunRemove_WriteFails_ReturnsInternalErrorWithCleanMessage()
+    {
+        var (stdout, stderr) = (new StringWriter(), new StringWriter());
+
+        int exit = AgentsManager.RunRemove(Opts("remove", "/proj"), new RemoveWriteFailFs(), stdout, stderr);
+
+        Assert.Equal(WinixExitCode.InternalError, exit);
+        Assert.Contains("AGENTS.md", stderr.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("   at ", stderr.ToString(), StringComparison.Ordinal);
     }
 
     // ── Run dispatch ──────────────────────────────────────────────────────────────
@@ -630,7 +666,9 @@ public sealed class AgentsManagerTests
         fs.Dirs.Add("/proj");
         var (stdout, stderr) = (new StringWriter(), new StringWriter());
 
-        int exit = AgentsManager.Run(Opts(null!, "/proj") with { Verb = null }, stdout, stderr, fs);
+        var opts = new AgentsManager.AgentsOptions(
+            Verb: null, BaseDir: "/proj", ForceClaude: false, DryRun: false, Json: false, Version: "0.4.0");
+        int exit = AgentsManager.Run(opts, stdout, stderr, fs);
 
         Assert.Equal(WinixExitCode.UsageError, exit);
         Assert.Contains("init", stderr.ToString(), StringComparison.Ordinal);
@@ -662,5 +700,32 @@ public sealed class AgentsManagerTests
 
         Assert.Equal(WinixExitCode.Success, exit);
         Assert.True(fs.FileExists(Path.Combine("/proj", "AGENTS.md")));
+    }
+
+    [Fact]
+    public void Run_RemoveVerb_DispatchesToRunRemove()
+    {
+        var fs = new InMemoryFs();
+        fs.Dirs.Add("/proj");
+        // A file with a block so remove has something to strip and reports success.
+        fs.Files[Path.Combine("/proj", "AGENTS.md")] = AgentsManager.MergeBlock(string.Empty, "0.4.0");
+        var (stdout, stderr) = (new StringWriter(), new StringWriter());
+
+        int exit = AgentsManager.Run(Opts("remove", "/proj"), stdout, stderr, fs);
+
+        Assert.Equal(WinixExitCode.Success, exit);
+        Assert.DoesNotContain(AgentsManager.StartMarkerPrefix, fs.Files[Path.Combine("/proj", "AGENTS.md")], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Run_StatusVerb_DispatchesToRunStatus()
+    {
+        var fs = new InMemoryFs();
+        fs.Dirs.Add("/proj"); // AGENTS.md absent → status drift → ToolFailure
+        var (stdout, stderr) = (new StringWriter(), new StringWriter());
+
+        int exit = AgentsManager.Run(Opts("status", "/proj"), stdout, stderr, fs);
+
+        Assert.Equal(WinixExitCode.ToolFailure, exit);
     }
 }

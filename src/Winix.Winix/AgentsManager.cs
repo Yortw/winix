@@ -301,11 +301,13 @@ public static class AgentsManager
 
         var results = new List<(string Path, string State, string? Version)>();
         bool allCurrent = true;
+        string current = string.Empty;
 
         try
         {
             foreach (string target in ResolveInitTargets(opts, fs))
             {
+                current = target;
                 string? blockVer = fs.FileExists(target) ? FindBlockVersion(fs.ReadAllText(target)) : null;
                 string state;
                 if (blockVer == null)
@@ -329,7 +331,8 @@ public static class AgentsManager
         {
             // F8: an existing-but-unreadable target (permission denied) must not leak a stack
             // trace out of status — map to a clean InternalError like init/remove.
-            stderr.WriteLine($"winix: failed to read agents pointer ({ex.GetType().Name})");
+            // Name the file so a partial read across two targets is diagnosable.
+            stderr.WriteLine($"winix: failed to read agents pointer from {current} ({ex.GetType().Name})");
             return WinixExitCode.InternalError;
         }
 
