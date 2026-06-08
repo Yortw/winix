@@ -96,4 +96,51 @@ public static class AgentsManager
         }
         return e > vIdx ? content.Substring(vIdx, e - vIdx) : null;
     }
+
+    /// <summary>
+    /// Returns <paramref name="content"/> with the managed block inserted or refreshed: an
+    /// existing complete block is replaced in place (surrounding text untouched); otherwise a
+    /// fresh block is appended after exactly one blank line. The result's line endings match
+    /// the file's existing convention (CRLF if the file already uses it, LF otherwise), so the
+    /// operation is byte-stable on re-run at the same version.
+    /// </summary>
+    internal static string MergeBlock(string content, string version)
+    {
+        string eol = DetectEol(content);
+        string block = NormalizeEol(RenderBlock(version), eol);
+
+        int start = content.IndexOf(StartMarkerPrefix, StringComparison.Ordinal);
+        if (start >= 0)
+        {
+            int end = content.IndexOf(EndMarker, start, StringComparison.Ordinal);
+            if (end >= 0)
+            {
+                int endFull = end + EndMarker.Length;
+                string before = content.Substring(0, start);
+                string after = content.Substring(endFull);
+                return before + block + after;
+            }
+            // Start marker with no end: fall through and append a fresh, well-formed block.
+        }
+
+        if (content.Length == 0)
+        {
+            return block + eol;
+        }
+
+        string trimmed = content.TrimEnd('\r', '\n');
+        return trimmed + eol + eol + block + eol;
+    }
+
+    /// <summary>Returns <c>"\r\n"</c> if the content already uses Windows line endings, else <c>"\n"</c>.</summary>
+    private static string DetectEol(string content)
+    {
+        return content.Contains("\r\n") ? "\r\n" : "\n";
+    }
+
+    /// <summary>Rewrites every LF in <paramref name="text"/> (which uses LF only) to <paramref name="eol"/>.</summary>
+    private static string NormalizeEol(string text, string eol)
+    {
+        return eol == "\n" ? text : text.Replace("\n", eol);
+    }
 }

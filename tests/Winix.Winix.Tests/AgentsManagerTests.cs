@@ -102,4 +102,79 @@ public sealed class AgentsManagerTests
     {
         Assert.Equal(expected, AgentsManager.FindBlockVersion(file));
     }
+
+    // ── MergeBlock ────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void MergeBlock_EmptyFile_WritesBlockPlusTrailingNewline()
+    {
+        string merged = AgentsManager.MergeBlock(string.Empty, "0.4.0");
+        Assert.Equal(AgentsManager.RenderBlock("0.4.0") + "\n", merged);
+    }
+
+    [Fact]
+    public void MergeBlock_ExistingContent_AppendsWithBlankLineSeparator()
+    {
+        string merged = AgentsManager.MergeBlock("# Project\n", "0.4.0");
+        Assert.StartsWith("# Project\n\n<!-- winix:start", merged, StringComparison.Ordinal);
+        Assert.EndsWith("<!-- winix:end -->\n", merged, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MergeBlock_ExistingBlock_ReplacesInPlacePreservingSurroundingText()
+    {
+        string before = "# Project\n\n" + AgentsManager.RenderBlock("0.3.0") + "\n\n## Other section\n";
+        string merged = AgentsManager.MergeBlock(before, "0.4.0");
+
+        Assert.Contains("blob/v0.4.0/AGENTS.md", merged, StringComparison.Ordinal);
+        Assert.DoesNotContain("blob/v0.3.0/AGENTS.md", merged, StringComparison.Ordinal);
+        Assert.StartsWith("# Project\n", merged, StringComparison.Ordinal);
+        Assert.Contains("## Other section", merged, StringComparison.Ordinal);
+        // Exactly one block.
+        int count = CountOccurrences(merged, AgentsManager.StartMarkerPrefix);
+        Assert.Equal(1, count);
+    }
+
+    [Fact]
+    public void MergeBlock_ReRunSameVersion_IsByteStable()
+    {
+        // Negative invariant: re-running init at the same version must not change the file.
+        string once = AgentsManager.MergeBlock("# Project\n", "0.4.0");
+        string twice = AgentsManager.MergeBlock(once, "0.4.0");
+        Assert.Equal(once, twice);
+    }
+
+    [Fact]
+    public void MergeBlock_CrlfFile_PreservesCrlfEol()
+    {
+        string crlf = "# Project\r\n";
+        string merged = AgentsManager.MergeBlock(crlf, "0.4.0");
+        Assert.Contains("\r\n", merged, StringComparison.Ordinal);
+        // No bare LF block lines smuggled into a CRLF file.
+        Assert.DoesNotContain("respected.\n<!-- winix:end", merged, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MergeBlock_LiteralMarkerPairInProse_FirstPairWins()
+    {
+        // F6 (documented limitation): the FIRST start..end pair is the managed block. A user
+        // who has the literal marker pair in their own content has that span refreshed.
+        // Pinned so the behaviour is intentional, not accidental.
+        string prose = "Example:\n<!-- winix:start v=9.9.9 -->\nfake\n<!-- winix:end -->\n";
+        string merged = AgentsManager.MergeBlock(prose, "0.4.0");
+        Assert.Equal(1, CountOccurrences(merged, AgentsManager.StartMarkerPrefix));
+        Assert.Contains("blob/v0.4.0/AGENTS.md", merged, StringComparison.Ordinal);
+    }
+
+    private static int CountOccurrences(string haystack, string needle)
+    {
+        int count = 0;
+        int i = 0;
+        while ((i = haystack.IndexOf(needle, i, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            i += needle.Length;
+        }
+        return count;
+    }
 }
