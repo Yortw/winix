@@ -145,7 +145,7 @@ The block is delimited by HTML comments invisible in rendered Markdown:
 - The opening marker embeds the version of the binary that wrote the block (the `v=` token).
 - The block body embeds a version-pinned URL (`https://github.com/Yortw/winix/blob/v{version}/AGENTS.md`). Pre-release versions (version string contains `-`) fall back to `/blob/main/AGENTS.md`.
 - `winix agents init` is idempotent and byte-stable: re-running at the same version produces no change to the file.
-- Any edits you make between the markers are overwritten on the next `init` or `init --dry-run`. Keep project-specific guidance outside the markers.
+- Any edits you make between the markers are overwritten on the next `init` (preview the result with `init --dry-run`, which writes nothing). Keep project-specific guidance outside the markers.
 - `winix agents status` reports `stale` when the block's `v=` version differs from the running binary, and `absent` when no valid block is found. Exit 1 in both cases.
 
 ### Usage Pattern

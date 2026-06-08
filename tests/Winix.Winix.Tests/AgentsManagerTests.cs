@@ -161,6 +161,24 @@ public sealed class AgentsManagerTests
     }
 
     [Fact]
+    public void MergeBlock_CrlfFileWithExistingBlock_ReMergeIsByteStable()
+    {
+        string once = AgentsManager.MergeBlock("# Project\r\n", "0.4.0");
+        string twice = AgentsManager.MergeBlock(once, "0.4.0");
+        Assert.Equal(once, twice);
+    }
+
+    [Fact]
+    public void MergeBlock_BlockAtPositionZero_ReplacesCleanlyNoLeadingBlank()
+    {
+        string file = AgentsManager.RenderBlock("0.3.0") + "\n";
+        string merged = AgentsManager.MergeBlock(file, "0.4.0");
+        Assert.StartsWith("<!-- winix:start", merged, StringComparison.Ordinal);
+        Assert.Contains("blob/v0.4.0/AGENTS.md", merged, StringComparison.Ordinal);
+        Assert.Equal(1, CountOccurrences(merged, AgentsManager.StartMarkerPrefix));
+    }
+
+    [Fact]
     public void MergeBlock_LiteralMarkerPairInProse_FirstPairWins()
     {
         // F6 (documented limitation): the FIRST start..end pair is the managed block. A user
@@ -300,6 +318,19 @@ public sealed class AgentsManagerTests
         public void WriteAllText(string path, string content) => throw new UnauthorizedAccessException("denied");
     }
 
+    // Reads AGENTS.md fine but throws on CLAUDE.md — exercises the second-file read diagnostic.
+    private sealed class ReadFailSecondFs : IAgentsFileSystem
+    {
+        public bool FileExists(string path) => true;
+        public bool DirectoryExists(string path) => true;
+        public string ReadAllText(string path)
+        {
+            if (path.EndsWith("CLAUDE.md", StringComparison.Ordinal)) { throw new UnauthorizedAccessException("denied"); }
+            return AgentsManager.MergeBlock(string.Empty, "0.4.0");
+        }
+        public void WriteAllText(string path, string content) { }
+    }
+
     // For RunRemove write-failure: AGENTS.md exists and contains a block, but the write throws.
     private sealed class RemoveWriteFailFs : IAgentsFileSystem
     {
@@ -390,6 +421,20 @@ public sealed class AgentsManagerTests
 
         Assert.Equal(WinixExitCode.UsageError, exit);
         Assert.Contains("not a directory", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RunInit_ForceClaude_NoExistingFiles_WritesBothFiles()
+    {
+        var fs = new InMemoryFs();
+        fs.Dirs.Add("/proj");
+        var (stdout, stderr) = (new StringWriter(), new StringWriter());
+
+        int exit = AgentsManager.RunInit(Opts("init", "/proj", forceClaude: true), fs, stdout, stderr);
+
+        Assert.Equal(WinixExitCode.Success, exit);
+        Assert.Contains("blob/v0.4.0/AGENTS.md", fs.Files[Path.Combine("/proj", "AGENTS.md")], StringComparison.Ordinal);
+        Assert.Contains("blob/v0.4.0/AGENTS.md", fs.Files[Path.Combine("/proj", "CLAUDE.md")], StringComparison.Ordinal);
     }
 
     [Fact]
@@ -567,6 +612,15 @@ public sealed class AgentsManagerTests
 
         Assert.Equal(WinixExitCode.InternalError, exit);
         Assert.DoesNotContain("   at ", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RunStatus_SecondFileReadFails_NamesClaudeMd()
+    {
+        var (stdout, stderr) = (new StringWriter(), new StringWriter());
+        int exit = AgentsManager.RunStatus(Opts("status", "/proj"), new ReadFailSecondFs(), stdout, stderr);
+        Assert.Equal(WinixExitCode.InternalError, exit);
+        Assert.Contains("CLAUDE.md", stderr.ToString(), StringComparison.Ordinal);
     }
 
     // ── RunRemove ─────────────────────────────────────────────────────────────────

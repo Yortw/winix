@@ -401,6 +401,79 @@ public sealed class CliTests
     }
 
     [Fact]
+    public async Task RunAsync_AgentsInitDryRun_WritesNothing()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "winix-agents-cli-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var (stdout, stderr) = Sinks();
+            int exit = await Cli.RunAsync(
+                new[] { "agents", "init", "--path", dir, "--dry-run" },
+                stdout, stderr,
+                adapters: new Dictionary<string, IPackageManagerAdapter>(),
+                platform: PlatformId.Linux,
+                manifestLoader: ThrowingLoader("unused"));
+
+            Assert.Equal(WinixExitCode.Success, exit);
+            Assert.False(File.Exists(Path.Combine(dir, "AGENTS.md")));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task RunAsync_AgentsInitJson_GoesToStdout()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "winix-agents-cli-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var (stdout, stderr) = Sinks();
+            int exit = await Cli.RunAsync(
+                new[] { "agents", "init", "--path", dir, "--json" },
+                stdout, stderr,
+                adapters: new Dictionary<string, IPackageManagerAdapter>(),
+                platform: PlatformId.Linux,
+                manifestLoader: ThrowingLoader("unused"));
+
+            Assert.Equal(WinixExitCode.Success, exit);
+            Assert.Contains("\"action\":\"init\"", stdout.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task RunAsync_AgentsInitClaude_CreatesBothFiles()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "winix-agents-cli-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var (stdout, stderr) = Sinks();
+            int exit = await Cli.RunAsync(
+                new[] { "agents", "init", "--path", dir, "--claude" },
+                stdout, stderr,
+                adapters: new Dictionary<string, IPackageManagerAdapter>(),
+                platform: PlatformId.Linux,
+                manifestLoader: ThrowingLoader("unused"));
+
+            Assert.Equal(WinixExitCode.Success, exit);
+            Assert.True(File.Exists(Path.Combine(dir, "AGENTS.md")));
+            Assert.True(File.Exists(Path.Combine(dir, "CLAUDE.md")));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task RunAsync_AgentsStatusCurrent_ReturnsSuccess()
     {
         // F7: pin the 0-path end-to-end through the real dispatch — init then status at the
