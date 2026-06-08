@@ -235,6 +235,76 @@ public static class AgentsManager
         return targets;
     }
 
+    /// <summary>
+    /// Writes or refreshes the managed block in every applicable target. Returns
+    /// <see cref="WinixExitCode.Success"/> on success, <see cref="WinixExitCode.UsageError"/>
+    /// when the base directory does not exist, or <see cref="WinixExitCode.InternalError"/> on
+    /// an I/O failure (reported as a clean one-line message — never a framework stack trace).
+    /// </summary>
+    internal static int RunInit(AgentsOptions opts, IAgentsFileSystem fs, TextWriter stdout, TextWriter stderr)
+    {
+        if (!fs.DirectoryExists(opts.BaseDir))
+        {
+            stderr.WriteLine($"winix: path '{opts.BaseDir}' is not a directory");
+            return WinixExitCode.UsageError;
+        }
+
+        var changed = new List<string>();
+        string current = string.Empty;
+        try
+        {
+            foreach (string target in ResolveInitTargets(opts, fs))
+            {
+                current = target;
+                string existing = fs.FileExists(target) ? fs.ReadAllText(target) : string.Empty;
+                string merged = MergeBlock(existing, opts.Version);
+                if (!opts.DryRun)
+                {
+                    fs.WriteAllText(target, merged);
+                }
+                changed.Add(target);
+                if (!opts.Json)
+                {
+                    stderr.WriteLine(opts.DryRun ? $"winix: would write {target}" : $"winix: wrote {target}");
+                }
+            }
+
+            if (opts.Json)
+            {
+                stdout.WriteLine(FormatActionJson("init", opts.DryRun, changed));
+            }
+            return WinixExitCode.Success;
+        }
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+        {
+            // F3: name the file that failed so a partial multi-file write is diagnosable.
+            // Don't pipe ex.Message under InvariantGlobalization — framework messages return
+            // SR resource keys, not English. The type discriminator is the safe minimum.
+            stderr.WriteLine($"winix: failed to write agents pointer to {current} ({ex.GetType().Name})");
+            return WinixExitCode.InternalError;
+        }
+    }
+
+    /// <summary>Builds the <c>--json</c> envelope for <c>init</c>/<c>remove</c> (AOT-safe).</summary>
+    private static string FormatActionJson(string action, bool dryRun, List<string> files)
+    {
+        using var buffer = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("action", action);
+            writer.WriteBoolean("dryRun", dryRun);
+            writer.WriteStartArray("files");
+            foreach (string f in files)
+            {
+                writer.WriteStringValue(f);
+            }
+            writer.WriteEndArray();
+            writer.WriteEndObject();
+        }
+        return Encoding.UTF8.GetString(buffer.ToArray());
+    }
+
     /// <summary>Returns the production file system (a thin wrapper over <see cref="System.IO.File"/>).</summary>
     public static IAgentsFileSystem CreateDefaultFileSystem()
     {

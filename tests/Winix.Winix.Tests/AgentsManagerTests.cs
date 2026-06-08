@@ -335,4 +335,94 @@ public sealed class AgentsManagerTests
         Assert.Equal(2, targets.Count);
         Assert.Contains(targets, t => t.EndsWith("CLAUDE.md", StringComparison.Ordinal));
     }
+
+    // ── RunInit ───────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void RunInit_NoExistingFiles_WritesAgentsMdAndReturnsSuccess()
+    {
+        var fs = new InMemoryFs();
+        fs.Dirs.Add("/proj");
+        var (stdout, stderr) = (new StringWriter(), new StringWriter());
+
+        int exit = AgentsManager.RunInit(Opts("init", "/proj"), fs, stdout, stderr);
+
+        Assert.Equal(WinixExitCode.Success, exit);
+        string agents = fs.Files[Path.Combine("/proj", "AGENTS.md")];
+        Assert.Contains("blob/v0.4.0/AGENTS.md", agents, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RunInit_DryRun_WritesNothing()
+    {
+        var fs = new InMemoryFs();
+        fs.Dirs.Add("/proj");
+        var (stdout, stderr) = (new StringWriter(), new StringWriter());
+
+        int exit = AgentsManager.RunInit(Opts("init", "/proj", dryRun: true), fs, stdout, stderr);
+
+        Assert.Equal(WinixExitCode.Success, exit);
+        Assert.Empty(fs.Files);
+        Assert.Contains("would write", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RunInit_BadPath_ReturnsUsageError()
+    {
+        // F2: covers both "path does not exist" and "path is a regular file" — both surface as
+        // DirectoryExists == false. (An InMemoryFs with no dir registered models either.)
+        var fs = new InMemoryFs(); // no dirs registered → DirectoryExists false
+        var (stdout, stderr) = (new StringWriter(), new StringWriter());
+
+        int exit = AgentsManager.RunInit(Opts("init", "/nope"), fs, stdout, stderr);
+
+        Assert.Equal(WinixExitCode.UsageError, exit);
+        Assert.Contains("not a directory", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RunInit_WriteFails_ReturnsInternalErrorWithCleanMessage()
+    {
+        // F2: this is also the "target path is itself a directory" outcome — the write throws
+        // and maps to InternalError with a clean message (no stack trace).
+        var (stdout, stderr) = (new StringWriter(), new StringWriter());
+
+        int exit = AgentsManager.RunInit(Opts("init", "/proj"), new ThrowingFs(), stdout, stderr);
+
+        Assert.Equal(WinixExitCode.InternalError, exit);
+        // No raw framework message / stack trace leaked.
+        Assert.DoesNotContain("Exception:", stderr.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("   at ", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RunInit_SecondTargetWriteFails_NamesFailedFile()
+    {
+        // F3: AGENTS.md writes, CLAUDE.md throws → partial commit; the message must name the
+        // file that failed so the user can tell which of the two is updated.
+        var (stdout, stderr) = (new StringWriter(), new StringWriter());
+
+        int exit = AgentsManager.RunInit(
+            Opts("init", "/proj", forceClaude: true), new PartialFailFs(), stdout, stderr);
+
+        Assert.Equal(WinixExitCode.InternalError, exit);
+        Assert.Contains("CLAUDE.md", stderr.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("   at ", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RunInit_Json_GoesToStdout()
+    {
+        // F10: --json must produce a real envelope, not be silently ignored.
+        var fs = new InMemoryFs();
+        fs.Dirs.Add("/proj");
+        var (stdout, stderr) = (new StringWriter(), new StringWriter());
+
+        int exit = AgentsManager.RunInit(Opts("init", "/proj", json: true), fs, stdout, stderr);
+
+        Assert.Equal(WinixExitCode.Success, exit);
+        string json = stdout.ToString();
+        Assert.Contains("\"action\":\"init\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"files\"", json, StringComparison.Ordinal);
+    }
 }
