@@ -71,6 +71,8 @@ public static class Cli
             .StandardFlags()
             .Option("--via", null, "PM", "Package manager to use: winget, scoop, brew, dotnet")
             .Flag("--dry-run", "Show commands that would be run without executing them")
+            .Flag("--claude", "agents: include CLAUDE.md even when it does not already exist")
+            .Option("--path", null, "DIR", "agents: project directory to operate on (default: current directory)")
             .Positional("command [tool...]")
             .Platform("cross-platform",
                 new[] { "winget", "scoop", "brew" },
@@ -87,6 +89,9 @@ public static class Cli
             .Example("winix list", "List all tools and their install status")
             .Example("winix status", "Show a summary of installed tools")
             .Example("winix install --dry-run", "Preview what would be installed")
+            .Example("winix agents init", "Write the Winix discoverability pointer into AGENTS.md (and CLAUDE.md if present)")
+            .Example("winix agents status", "Report whether the pointer block is present and current (exit 1 if not)")
+            .Example("winix agents remove", "Remove the Winix discoverability pointer block")
             .ExitCodes(
                 (WinixExitCode.Success, "Success"),
                 (WinixExitCode.ToolFailure, "One or more tools failed"),
@@ -100,18 +105,39 @@ public static class Cli
 
         if (result.Positionals.Length == 0)
         {
-            return result.WriteError("missing command (expected install, update, uninstall, list, or status)", stderr);
+            return result.WriteError("missing command (expected install, update, uninstall, list, status, or agents)", stderr);
         }
 
         string command = result.Positionals[0];
         string[] toolNames = result.Positionals.Skip(1).ToArray();
 
         if (command != "install" && command != "update" && command != "uninstall"
-            && command != "list" && command != "status")
+            && command != "list" && command != "status" && command != "agents")
         {
             return result.WriteError(
-                $"unknown command '{command}' (expected install, update, uninstall, list, or status)",
+                $"unknown command '{command}' (expected install, update, uninstall, list, status, or agents)",
                 stderr);
+        }
+
+        if (command == "agents")
+        {
+            // agents never needs the tool manifest (the block delegates "what's installed" to
+            // the runtime `winix list` pointer), so dispatch before --via validation and the
+            // manifest fetch — neither applies, and a manifest fetch failure must not block it.
+            string? verb = result.Positionals.Length > 1 ? result.Positionals[1] : null;
+            string baseDir = result.Has("--path")
+                ? result.GetString("--path")!
+                : Directory.GetCurrentDirectory();
+
+            var agentsOptions = new AgentsManager.AgentsOptions(
+                Verb: verb,
+                BaseDir: baseDir,
+                ForceClaude: result.Has("--claude"),
+                DryRun: result.Has("--dry-run"),
+                Json: result.Has("--json"),
+                Version: version);
+
+            return AgentsManager.Run(agentsOptions, stdout, stderr);
         }
 
         string? viaOverride = result.Has("--via") ? result.GetString("--via") : null;

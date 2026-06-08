@@ -333,4 +333,102 @@ public sealed class CliTests
         public Task<ProcessResult> Update(string packageId) => Task.FromResult(new ProcessResult(0, "", ""));
         public Task<ProcessResult> Uninstall(string packageId) => Task.FromResult(new ProcessResult(0, "", ""));
     }
+
+    // ── agents subcommand wiring ──────────────────────────────────────────────────
+
+    [Fact]
+    public async Task RunAsync_AgentsInit_WritesAgentsMdToPath()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "winix-agents-cli-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var (stdout, stderr) = Sinks();
+            int exit = await Cli.RunAsync(
+                new[] { "agents", "init", "--path", dir },
+                stdout, stderr,
+                adapters: new Dictionary<string, IPackageManagerAdapter>(),
+                platform: PlatformId.Linux,
+                // A throwing loader proves agents never touches the manifest.
+                manifestLoader: ThrowingLoader("manifest must not be loaded for agents"));
+
+            Assert.Equal(WinixExitCode.Success, exit);
+            Assert.True(File.Exists(Path.Combine(dir, "AGENTS.md")));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task RunAsync_AgentsStatusAbsent_ReturnsToolFailure()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "winix-agents-cli-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var (stdout, stderr) = Sinks();
+            int exit = await Cli.RunAsync(
+                new[] { "agents", "status", "--path", dir },
+                stdout, stderr,
+                adapters: new Dictionary<string, IPackageManagerAdapter>(),
+                platform: PlatformId.Linux,
+                manifestLoader: ThrowingLoader("unused"));
+
+            Assert.Equal(WinixExitCode.ToolFailure, exit);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task RunAsync_AgentsNoVerb_ReturnsUsageError()
+    {
+        var (stdout, stderr) = Sinks();
+        int exit = await Cli.RunAsync(
+            new[] { "agents" },
+            stdout, stderr,
+            adapters: new Dictionary<string, IPackageManagerAdapter>(),
+            platform: PlatformId.Linux,
+            manifestLoader: ThrowingLoader("unused"));
+
+        Assert.Equal(WinixExitCode.UsageError, exit);
+        Assert.Contains("missing agents verb", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RunAsync_AgentsStatusCurrent_ReturnsSuccess()
+    {
+        // F7: pin the 0-path end-to-end through the real dispatch — init then status at the
+        // same binary version must report current (exit 0).
+        string dir = Path.Combine(Path.GetTempPath(), "winix-agents-cli-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var (stdout1, stderr1) = Sinks();
+            await Cli.RunAsync(
+                new[] { "agents", "init", "--path", dir },
+                stdout1, stderr1,
+                adapters: new Dictionary<string, IPackageManagerAdapter>(),
+                platform: PlatformId.Linux,
+                manifestLoader: ThrowingLoader("unused"));
+
+            var (stdout2, stderr2) = Sinks();
+            int exit = await Cli.RunAsync(
+                new[] { "agents", "status", "--path", dir },
+                stdout2, stderr2,
+                adapters: new Dictionary<string, IPackageManagerAdapter>(),
+                platform: PlatformId.Linux,
+                manifestLoader: ThrowingLoader("unused"));
+
+            Assert.Equal(WinixExitCode.Success, exit);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
 }
