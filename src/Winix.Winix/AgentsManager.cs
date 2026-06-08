@@ -208,6 +208,33 @@ public static class AgentsManager
         }
     }
 
+    /// <summary>
+    /// Parsed inputs for an <c>agents</c> run. <paramref name="Verb"/> is the subcommand
+    /// (<c>init</c>/<c>remove</c>/<c>status</c>), or <see langword="null"/> when none was given.
+    /// </summary>
+    public sealed record AgentsOptions(
+        string? Verb,
+        string BaseDir,
+        bool ForceClaude,
+        bool DryRun,
+        bool Json,
+        string Version);
+
+    /// <summary>
+    /// Resolves the files <c>init</c> would write (and that <c>status</c> evaluates): always
+    /// <c>AGENTS.md</c>, plus <c>CLAUDE.md</c> when it already exists or <c>--claude</c> forces it.
+    /// </summary>
+    internal static List<string> ResolveInitTargets(AgentsOptions opts, IAgentsFileSystem fs)
+    {
+        var targets = new List<string> { Path.Combine(opts.BaseDir, "AGENTS.md") };
+        string claude = Path.Combine(opts.BaseDir, "CLAUDE.md");
+        if (opts.ForceClaude || fs.FileExists(claude))
+        {
+            targets.Add(claude);
+        }
+        return targets;
+    }
+
     /// <summary>Returns the production file system (a thin wrapper over <see cref="System.IO.File"/>).</summary>
     public static IAgentsFileSystem CreateDefaultFileSystem()
     {

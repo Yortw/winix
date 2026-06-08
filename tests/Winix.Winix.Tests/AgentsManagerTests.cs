@@ -225,7 +225,7 @@ public sealed class AgentsManagerTests
         Assert.Contains("# mid", stripped, StringComparison.Ordinal);
     }
 
-    // ── IAgentsFileSystem default impl ────────────────────────────────────────────
+    // ── IAgentsFileSystem default impl + fakes ────────────────────────────────────
 
     [Fact]
     public void DefaultAgentsFileSystem_RoundTripsTempFile()
@@ -252,5 +252,87 @@ public sealed class AgentsManagerTests
         {
             Directory.Delete(dir, recursive: true);
         }
+    }
+
+    // In-memory fake shared by later orchestration tests.
+    private sealed class InMemoryFs : IAgentsFileSystem
+    {
+        public Dictionary<string, string> Files { get; } = new(StringComparer.Ordinal);
+        public HashSet<string> Dirs { get; } = new(StringComparer.Ordinal);
+        public bool FileExists(string path) => Files.ContainsKey(path);
+        public bool DirectoryExists(string path) => Dirs.Contains(path);
+        public string ReadAllText(string path) => Files[path];
+        public void WriteAllText(string path, string content) => Files[path] = content;
+    }
+
+    private sealed class ThrowingFs : IAgentsFileSystem
+    {
+        public bool FileExists(string path) => false;
+        public bool DirectoryExists(string path) => true;
+        public string ReadAllText(string path) => string.Empty;
+        public void WriteAllText(string path, string content) => throw new IOException("disk full");
+    }
+
+    // Succeeds on every target except CLAUDE.md — models a multi-file partial write failure.
+    private sealed class PartialFailFs : IAgentsFileSystem
+    {
+        public bool FileExists(string path) => false;
+        public bool DirectoryExists(string path) => true;
+        public string ReadAllText(string path) => string.Empty;
+        public void WriteAllText(string path, string content)
+        {
+            if (path.EndsWith("CLAUDE.md", StringComparison.Ordinal))
+            {
+                throw new IOException("nope");
+            }
+        }
+    }
+
+    // File exists but the read throws — models a permission-denied read for the F8 status path.
+    private sealed class ReadFailFs : IAgentsFileSystem
+    {
+        public bool FileExists(string path) => true;
+        public bool DirectoryExists(string path) => true;
+        public string ReadAllText(string path) => throw new UnauthorizedAccessException("denied");
+        public void WriteAllText(string path, string content) => throw new UnauthorizedAccessException("denied");
+    }
+
+    // ── ResolveInitTargets (option B) ─────────────────────────────────────────────
+
+    private static AgentsManager.AgentsOptions Opts(string verb, string baseDir, bool forceClaude = false,
+        bool dryRun = false, bool json = false, string version = "0.4.0")
+    {
+        return new AgentsManager.AgentsOptions(verb, baseDir, forceClaude, dryRun, json, version);
+    }
+
+    [Fact]
+    public void ResolveInitTargets_NoClaudeFile_AgentsMdOnly()
+    {
+        var fs = new InMemoryFs();
+        fs.Dirs.Add("/proj");
+        var targets = AgentsManager.ResolveInitTargets(Opts("init", "/proj"), fs);
+        Assert.Single(targets);
+        Assert.EndsWith("AGENTS.md", targets[0], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ResolveInitTargets_ExistingClaudeFile_BothTargets()
+    {
+        var fs = new InMemoryFs();
+        fs.Dirs.Add("/proj");
+        fs.Files[Path.Combine("/proj", "CLAUDE.md")] = "# existing\n";
+        var targets = AgentsManager.ResolveInitTargets(Opts("init", "/proj"), fs);
+        Assert.Equal(2, targets.Count);
+        Assert.Contains(targets, t => t.EndsWith("CLAUDE.md", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ResolveInitTargets_ForceClaude_AddsClaudeEvenWhenAbsent()
+    {
+        var fs = new InMemoryFs();
+        fs.Dirs.Add("/proj");
+        var targets = AgentsManager.ResolveInitTargets(Opts("init", "/proj", forceClaude: true), fs);
+        Assert.Equal(2, targets.Count);
+        Assert.Contains(targets, t => t.EndsWith("CLAUDE.md", StringComparison.Ordinal));
     }
 }
