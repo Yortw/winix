@@ -31,11 +31,39 @@ human\-readable table.
 Show install status and version of each tool.
 With \f[B]\(enjson\f[R], emits a JSON summary envelope on stdout instead
 of the one\-line text summary.
+.TP
+\f[B]agents\f[R] \f[I]verb\f[R]
+Manage the marker\-delimited Winix discoverability pointer in a
+project\(cqs \f[B]AGENTS.md\f[R] (and \f[B]CLAUDE.md\f[R] when
+applicable).
+\f[I]verb\f[R] is one of \f[B]init\f[R], \f[B]status\f[R], or
+\f[B]remove\f[R].
+\f[B]init\f[R] \(em write or refresh the managed block.
+\f[B]AGENTS.md\f[R] is always a target; \f[B]CLAUDE.md\f[R] is added
+when it already exists or \f[B]\(enclaude\f[R] is given.
+The block embeds a version\-pinned URL; re\-running at the same version
+is byte\-stable.
+Supports \f[B]\(enpath\f[R], \f[B]\(enclaude\f[R],
+\f[B]\(endry\-run\f[R], \f[B]\(enjson\f[R].
+\f[B]status\f[R] \(em report whether the block is present and current.
+Exits 0 if current, 1 if absent or stale in any applicable file.
+Supports \f[B]\(enpath\f[R], \f[B]\(enclaude\f[R], \f[B]\(enjson\f[R].
+\f[B]remove\f[R] \(em strip the managed block from all applicable files.
+Supports \f[B]\(enpath\f[R], \f[B]\(enclaude\f[R],
+\f[B]\(endry\-run\f[R], \f[B]\(enjson\f[R].
 .SH OPTIONS
 .TP
 \f[B]\(envia\f[R] \f[I]PM\f[R]
 Force a specific package manager: \f[B]scoop\f[R], \f[B]winget\f[R],
 \f[B]dotnet\f[R], \f[B]brew\f[R].
+.TP
+\f[B]\(enpath\f[R] \f[I]DIR\f[R]
+For \f[B]agents\f[R]: project directory to operate on (default: current
+directory).
+.TP
+\f[B]\(enclaude\f[R]
+For \f[B]agents\f[R]: include \f[B]CLAUDE.md\f[R] as a target even when
+it does not already exist.
 .TP
 \f[B]\(endry\-run\f[R]
 Print what would be done without executing any changes.
@@ -76,7 +104,11 @@ Usage error (bad arguments or unrecognised command).
 Cannot execute \(em no supported package manager found.
 .TP
 \f[B]127\f[R]
-Internal error.
+Internal error (also: \f[B]agents\f[R] I/O failure).
+.PP
+For the \f[B]agents\f[R] subcommand, exit 1 means the discoverability
+block is absent or stale (use \f[B]winix agents init\f[R] to fix); 125
+means bad arguments or the path is not a directory.
 .SH ENVIRONMENT
 .TP
 \f[B]NO_COLOR\f[R]
@@ -99,6 +131,12 @@ winix status
 winix install \-\-via scoop
 
 winix install \-\-dry\-run
+
+winix agents init
+
+winix agents status
+
+winix agents init \-\-path /path/to/project \-\-claude \-\-dry\-run
 .EE
 .SH SEE ALSO
 \f[B]timeit\f[R](1), \f[B]squeeze\f[R](1), \f[B]peep\f[R](1),

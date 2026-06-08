@@ -88,6 +88,58 @@ winix status --no-color
 
 **`winix list` / `status` work offline.** Every released `winix` binary bundles the suite manifest at `<install-dir>/share/winix/winix-manifest.json`, so the catalogue-lookup commands (`list` and `status`) succeed without network access. A per-user cache layer (`%LOCALAPPDATA%\winix\` on Windows; `$XDG_CACHE_HOME/winix/` or `~/.cache/winix/` elsewhere) layers on top when an explicit refresh has happened since the binary's release. There is no automatic network refresh on `LoadAsync`; agents should not assume the manifest is up-to-the-minute. Note: `winix uninstall` mutates installed state — it consults the bundled manifest to resolve tool names, but it is not a read-only / query-safe command and should not be invoked speculatively.
 
+## `agents` — Project-Level Discoverability Pointer
+
+`winix agents <verb>` writes, checks, or removes a marker-delimited Winix discoverability block in a project's `AGENTS.md` (always) and `CLAUDE.md` (when it already exists, or when `--claude` is given). This makes Winix tools automatically discoverable to any AI agent loading that project, without requiring a manual prose entry.
+
+### Verbs
+
+- **`init`** — write or refresh the block. Idempotent: re-running at the same version leaves the file byte-identical.
+- **`status`** — report whether the block is present and current. Exit 0 = current; exit 1 = absent or stale in any applicable file.
+- **`remove`** — strip the managed block from all applicable files.
+
+All three verbs accept `--path DIR` (default: current directory), `--claude`, and `--json`. `init` and `remove` also accept `--dry-run`.
+
+### Bootstrap pattern (CI / onboarding script)
+
+```bash
+# Write the block if absent or stale; no-op if already current
+winix agents status --path . || winix agents init --path .
+```
+
+### JSON output
+
+- `init` and `remove` emit `{"action":"init"|"remove","dryRun":bool,"files":["path1",…]}` to stdout when `--json` is given.
+- `status` emits `{"current":bool,"files":[{"path":"…","state":"current"|"stale"|"absent","version":"…"|null}]}` to stdout.
+
+### Managed block contract
+
+The block is delimited by HTML comments (invisible in rendered Markdown):
+
+```
+<!-- winix:start v=X.Y.Z — managed by `winix agents init`; edits between markers are overwritten -->
+...pointer body...
+<!-- winix:end -->
+```
+
+Key properties:
+
+- The opening marker records the binary version (`v=X.Y.Z`). `winix agents status` compares this to the running binary's version to detect drift.
+- The body embeds a version-pinned URL: `https://github.com/Yortw/winix/blob/v{version}/AGENTS.md`. Pre-release versions (the version string contains `-`) fall back to `/blob/main/AGENTS.md`.
+- Re-running `init` at the same version is byte-stable (no spurious diff).
+- Any text between the markers is overwritten on the next `init` run. Keep project-specific guidance outside the markers.
+
+**Limitation (F6):** the first `<!-- winix:start … -->` … `<!-- winix:end -->` pair in the file is treated as the managed block. Do not place that literal marker pair in your own prose (e.g. as a documentation example), or `init`/`remove` will operate on it. A start marker with no matching end marker is ignored; `init` will append a fresh block after it.
+
+### Exit codes (agents subcommand)
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success / block is current |
+| 1 | Block absent or stale in at least one applicable file (`status` only) |
+| 125 | Usage error (bad arguments or `--path` is not a directory) |
+| 127 | I/O failure (cannot read or write a target file) |
+
 ## Getting Structured Data
 
 **--describe** — machine-readable flag reference and metadata:

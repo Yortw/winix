@@ -1,6 +1,6 @@
 # Design Notes: Hardening Winix for Agent Adoption & Consumer Confidence
 
-> **Status as of 2026-06-08:** Recs 1–3 (the `--describe` schema revision — `schema_version`, maturity tiers `core`/`fresh`, `prefer_default_when` hints, contract-lock test suite `tests/Winix.Contract.Tests/`, `docs/STABILITY.md`) were **IMPLEMENTED** on `release/v0.4.0`. See [2026-06-07-describe-schema-revision-design.md](2026-06-07-describe-schema-revision-design.md), [-adr.md](2026-06-07-describe-schema-revision-adr.md), and [-plan.md](2026-06-07-describe-schema-revision-plan.md) (all in this `docs/plans/` directory). **Rec 4 (`winix init`)** is the next piece of work — not yet started.
+> **Status as of 2026-06-08:** Recs 1–3 (the `--describe` schema revision — `schema_version`, maturity tiers `core`/`fresh`, `prefer_default_when` hints, contract-lock test suite `tests/Winix.Contract.Tests/`, `docs/STABILITY.md`) were **IMPLEMENTED** on `release/v0.4.0`. See [2026-06-07-describe-schema-revision-design.md](2026-06-07-describe-schema-revision-design.md), [-adr.md](2026-06-07-describe-schema-revision-adr.md), and [-plan.md](2026-06-07-describe-schema-revision-plan.md) (all in this `docs/plans/` directory). **Rec 4 (`winix agents init`)** is also **IMPLEMENTED** on `release/v0.4.0` — see [2026-06-08-winix-agents-design.md](2026-06-08-winix-agents-design.md) and its companion ADR and plan.
 
 **Date:** 2026-06-06
 **Status:** Recommendations (for triage — no decisions taken yet)
@@ -89,19 +89,21 @@ This is recorded only as context — the recommendations below are about confide
 
 ---
 
-## Recommendation 4 — Ship `winix init` (project-level discoverability)
+## Recommendation 4 — Ship `winix agents init` (project-level discoverability)
 
-**Concern (from review / underlying everything):** An agent working in an unrelated project has **no automatic way to know Winix is installed or preferred.** `AGENTS.md` names this exact gap and says the intended fix — a `winix init` subcommand that writes a pointer into the project's `CLAUDE.md`/`AGENTS.md` — is "on the roadmap but not yet shipped."
+**Concern (from review / underlying everything):** An agent working in an unrelated project has **no automatic way to know Winix is installed or preferred.** `AGENTS.md` names this exact gap and says the intended fix — a `winix agents init` subcommand that writes a pointer into the project's `CLAUDE.md`/`AGENTS.md` — is "on the roadmap but not yet shipped."
 
-**Status check:** Confirmed unshipped. The [AI Discoverability ADR](2026-03-31-ai-discoverability-adr.md) covers `--describe`, `llms.txt`, and `docs/ai/`, but its deferred list only mentions suite-level `winix --list --describe` — the **project-pointer `init` is not yet designed**.
+**Status: IMPLEMENTED** on `release/v0.4.0`. See [2026-06-08-winix-agents-design.md](2026-06-08-winix-agents-design.md) for the design, its companion ADR, and the implementation plan. The subcommand is `winix agents init|status|remove`.
 
-**Recommended actions:**
-- [ ] Design and ship `winix init`: writes/updates a short, clearly-delimited Winix pointer block into the current project's `CLAUDE.md` and/or `AGENTS.md` (idempotent; re-runnable; removable).
-- [ ] Have the pointer block reference `llms.txt` and the `--describe` convention so any agent loading that project picks up the suite automatically.
+**What was built:**
+- [x] `winix agents init`: writes/updates a short, marker-delimited Winix pointer block into the current project's `AGENTS.md` (always) and `CLAUDE.md` (if it already exists, or with `--claude`). Idempotent; byte-stable on re-run at the same version. Supports `--dry-run`, `--json`, `--path`.
+- [x] `winix agents status`: reports whether the block is present and current (exit 0 = current; exit 1 = absent or stale in any applicable file). Supports `--json`.
+- [x] `winix agents remove`: strips the managed block from all applicable files. Supports `--dry-run`, `--json`.
+- [x] The pointer block embeds a version-pinned URL (`/blob/v{version}/AGENTS.md`); pre-release versions (containing `-`) fall back to `/blob/main/`.
 
-**Why this is the highest-leverage item overall:** Without it, the entire suite is invisible to agents in other repos, and every project needs a *manual* "use Winix here" step. (This review had to set up exactly such a manual pointer + usage log by hand — `winix init` is the productised version of that workaround.) Every other recommendation improves a contract that this one is required to even *surface*.
+**Why this is the highest-leverage item overall:** Without it, the entire suite is invisible to agents in other repos, and every project needs a *manual* "use Winix here" step. Every other recommendation improves a contract that this one is required to even *surface*.
 
-**Priority:** High (arguably highest).
+**Priority:** High (arguably highest) — now shipped.
 
 ---
 

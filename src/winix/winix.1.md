@@ -31,10 +31,25 @@ Cross-platform installer for the Winix CLI tool suite. Installs, updates, and un
 **status**
 :   Show install status and version of each tool. With **--json**, emits a JSON summary envelope on stdout instead of the one-line text summary.
 
+**agents** *verb*
+:   Manage the marker-delimited Winix discoverability pointer in a project's **AGENTS.md** (and **CLAUDE.md** when applicable). *verb* is one of **init**, **status**, or **remove**.
+
+:   **init** — write or refresh the managed block. **AGENTS.md** is always a target; **CLAUDE.md** is added when it already exists or **--claude** is given. The block embeds a version-pinned URL; re-running at the same version is byte-stable. Supports **--path**, **--claude**, **--dry-run**, **--json**.
+
+:   **status** — report whether the block is present and current. Exits 0 if current, 1 if absent or stale in any applicable file. Supports **--path**, **--claude**, **--json**.
+
+:   **remove** — strip the managed block from all applicable files. Supports **--path**, **--claude**, **--dry-run**, **--json**.
+
 # OPTIONS
 
 **--via** *PM*
 :   Force a specific package manager: **scoop**, **winget**, **dotnet**, **brew**.
+
+**--path** *DIR*
+:   For **agents**: project directory to operate on (default: current directory).
+
+**--claude**
+:   For **agents**: include **CLAUDE.md** as a target even when it does not already exist.
 
 **--dry-run**
 :   Print what would be done without executing any changes.
@@ -72,7 +87,10 @@ Cross-platform installer for the Winix CLI tool suite. Installs, updates, and un
 :   Cannot execute — no supported package manager found.
 
 **127**
-:   Internal error.
+:   Internal error (also: **agents** I/O failure).
+
+For the **agents** subcommand, exit 1 means the discoverability block is absent or stale (use
+**winix agents init** to fix); 125 means bad arguments or the path is not a directory.
 
 # ENVIRONMENT
 
@@ -96,6 +114,12 @@ Cross-platform installer for the Winix CLI tool suite. Installs, updates, and un
     winix install --via scoop
 
     winix install --dry-run
+
+    winix agents init
+
+    winix agents status
+
+    winix agents init --path /path/to/project --claude --dry-run
 
 # SEE ALSO
 

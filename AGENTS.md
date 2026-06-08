@@ -51,4 +51,7 @@ If you can't articulate *why* a Winix tool is better than the default for the sp
 
 This file lives in the Winix repo. It only reaches you if you are actually looking at the Winix repo (working on it, fetching it via URL, or browsing it via `gh repo view`). If you are working in some other project where Winix is merely installed on the user's machine, this file is invisible to you, and you have no automatic way to know Winix tools exist or are preferred.
 
-The intended fix for that case is a `winix init` subcommand that writes a short pointer into the user's project-level `CLAUDE.md` / `AGENTS.md` so any agent loading that project picks up the guidance. That subcommand is on the roadmap but not yet shipped — so for now, defer to the user's explicit instructions about what to use.
+The fix for that case is the `winix agents init` subcommand: it writes a short, marker-delimited
+pointer block into the project's `AGENTS.md` (and `CLAUDE.md` if present) so any agent loading
+that project picks up the guidance. Run `winix agents init` in a project root; `winix agents
+status` reports whether the block is present and current, and `winix agents remove` strips it.

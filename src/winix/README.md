@@ -44,6 +44,7 @@ Manages all Winix tools via your platform's native package manager. On Windows, 
 | `uninstall` | Uninstall all Winix tools (or a subset) |
 | `list` | List all available Winix tools |
 | `status` | Show install status and version of each tool |
+| `agents` | Write, check, or remove the Winix discoverability pointer in a project |
 
 ### Examples
 
@@ -75,6 +76,15 @@ winix install --via scoop
 # Preview what would happen without making changes
 winix install --dry-run
 
+# Write the Winix discoverability pointer into AGENTS.md (and CLAUDE.md if present)
+winix agents init
+
+# Check whether the pointer block is present and current (exit 1 if absent or stale)
+winix agents status
+
+# Remove the Winix discoverability pointer block
+winix agents remove
+
 # AI agent metadata
 winix --describe
 ```
@@ -91,6 +101,68 @@ winix --describe
 | `--no-color` | Disable colored output |
 | `--version` | Show version |
 | `-h`, `--help` | Show help |
+
+## `agents` — Project Discoverability Pointer
+
+`winix agents <verb>` writes, checks, or removes a marker-delimited Winix discoverability block in a project's `AGENTS.md` (and `CLAUDE.md` if applicable). This lets any AI agent loading the project automatically discover that Winix tools are available and how to use them — without requiring the project maintainer to write this guidance by hand.
+
+### Verbs
+
+| Verb | Description |
+|------|-------------|
+| `init` | Write or refresh the managed block in `AGENTS.md` (and `CLAUDE.md` if it exists or `--claude` is given) |
+| `status` | Report whether the block is present and current; exits 1 if absent or stale in any applicable file |
+| `remove` | Strip the managed block from all applicable files |
+
+### Agents Options
+
+| Option | Description |
+|--------|-------------|
+| `--path DIR` | Project directory to operate on (default: current directory) |
+| `--claude` | Also include `CLAUDE.md` even when it does not already exist |
+| `--dry-run` | Show what would be written without making any changes |
+| `--json` | Emit a JSON envelope on stdout instead of the plain text status |
+
+### Exit Codes (agents subcommand)
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success — block is present and current (for `status`), or operation completed |
+| 1 | Block is absent or stale in at least one applicable file (for `status`) |
+| 125 | Usage error (invalid arguments or path is not a directory) |
+| 127 | I/O failure (cannot read or write the target file) |
+
+### Managed Block Contract
+
+The block is delimited by HTML comments invisible in rendered Markdown:
+
+```
+<!-- winix:start v=X.Y.Z — managed by `winix agents init`; edits between markers are overwritten -->
+...pointer content...
+<!-- winix:end -->
+```
+
+- The opening marker embeds the version of the binary that wrote the block (the `v=` token).
+- The block body embeds a version-pinned URL (`https://github.com/Yortw/winix/blob/v{version}/AGENTS.md`). Pre-release versions (version string contains `-`) fall back to `/blob/main/AGENTS.md`.
+- `winix agents init` is idempotent and byte-stable: re-running at the same version produces no change to the file.
+- Any edits you make between the markers are overwritten on the next `init` or `init --dry-run`. Keep project-specific guidance outside the markers.
+- `winix agents status` reports `stale` when the block's `v=` version differs from the running binary, and `absent` when no valid block is found. Exit 1 in both cases.
+
+### Usage Pattern
+
+```bash
+# Bootstrap: write the pointer if absent or stale
+winix agents status --path . || winix agents init --path .
+
+# Preview what init would write
+winix agents init --path . --dry-run
+
+# Include CLAUDE.md even if it does not yet exist
+winix agents init --path . --claude
+
+# Machine-readable status (for CI)
+winix agents status --path . --json
+```
 
 ## Side Effects on First `install`
 
