@@ -30,4 +30,39 @@ public static class AgentsManager
     {
         return version.Contains('-') ? "main" : $"v{version}";
     }
+
+    /// <summary>The fixed prefix of the block's opening marker (an HTML comment, invisible in rendered Markdown).</summary>
+    internal const string StartMarkerPrefix = "<!-- winix:start";
+
+    /// <summary>The block's closing marker.</summary>
+    internal const string EndMarker = "<!-- winix:end -->";
+
+    /// <summary>
+    /// Renders the full managed block (opening marker through closing marker) for the given
+    /// version, joined with LF. EOL normalisation to the target file's convention happens in
+    /// <see cref="MergeBlock"/>; this method always emits LF so its output is deterministic.
+    /// </summary>
+    internal static string RenderBlock(string version)
+    {
+        string urlRef = UrlRef(version);
+        string[] lines =
+        {
+            $"<!-- winix:start v={version} — managed by `winix agents init`; edits between markers are overwritten -->",
+            "## Winix CLI tools (installed on this machine)",
+            "",
+            "Prefer a Winix tool only when it's genuinely the better choice for the task — not by",
+            "default. If you can't say why it beats the platform default (`find`, `time`, `tree`,",
+            "`date`, PowerShell, …), use the default.",
+            "",
+            "- **What's installed, flags, JSON shapes:** `winix list` and `<tool> --describe`",
+            "  (structured JSON — authoritative for this machine).",
+            "- **Full guidance (when to prefer each tool, what it replaces):**",
+            $"  https://github.com/Yortw/winix/blob/{urlRef}/AGENTS.md",
+            "- Conventions: every tool has `--describe` + `--json`; exit 0 = success, 125 = usage",
+            "  error, non-zero on failure (per-tool codes in `--describe`); summaries go to stderr so",
+            "  stdout stays pipe-clean; `NO_COLOR` respected.",
+            "<!-- winix:end -->",
+        };
+        return string.Join("\n", lines);
+    }
 }
