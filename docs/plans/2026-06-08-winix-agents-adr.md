@@ -102,3 +102,6 @@ decisions taken in the 2026-06-08 brainstorm.
 | Embedding the full tool list inline | Delegated to runtime `winix list` to avoid manifest coupling/staleness. |
 | Per-subcommand `--describe` for `winix agents` | `winix` is single-parser by design. |
 | Interactive overwrite confirmation | Marker contract + `--dry-run` suffice; a prompt would break non-interactive bootstrap. |
+| Code-fence-aware marker disambiguation (F6) | First-match-wins is documented + test-pinned; full fence parsing is scope creep for v1. A literal `<!-- winix:start -->` in user prose will be treated as the block. |
+| Transactional multi-file `init`/`remove` (F3) | Per-file writes are atomic (temp + `File.Move`); cross-file rollback is not. A second-file failure leaves the first updated, with the failed file named. Acceptable for v1. |
+| Unit test for invariant B (`AGENTS.md` at repo root) (F9) | The design's testing strategy listed a repo-root guard test; the plan cut it (repo-root discovery from the test bin dir is fragile). Enforcement moves to the release-time HTTP-200 check (`post-publish.yml`, stable releases only). **This is a recorded plan↔design divergence**, not a silent omission — a `main`-pinned pre-release block is unverified until the next stable tag. |

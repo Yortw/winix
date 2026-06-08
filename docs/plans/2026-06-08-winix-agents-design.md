@@ -71,10 +71,17 @@ default. If you can't say why it beats the platform default (`find`, `time`, `tr
   (structured JSON — authoritative for this machine).
 - **Full guidance (when to prefer each tool, what it replaces):**
   https://github.com/Yortw/winix/blob/v{version}/AGENTS.md
-- Conventions: every tool has `--describe` + `--json`; exit 0 / 125 (usage) / 126
-  (runtime); summaries go to stderr so stdout stays pipe-clean; `NO_COLOR` respected.
+- Conventions: every tool has `--describe` + `--json`; exit 0 = success, 125 = usage
+  error, non-zero on failure (per-tool codes in `--describe`); summaries go to stderr so
+  stdout stays pipe-clean; `NO_COLOR` respected.
 <!-- winix:end -->
 ```
+
+> **Exit-code wording (adversarial-review F4):** the block states the convention that holds
+> for *every* tool, so it must not enumerate a specific runtime code. `winix` itself uses a
+> richer scheme (126 = no package manager, 127 = internal error — see `WinixExitCode`); the
+> generic "non-zero on failure, per-tool codes in `--describe`" line is true for winix and
+> every other tool. Pin this exact line with a `RenderBlock` test.
 
 Design notes:
 
@@ -236,6 +243,22 @@ to cover the new command, flags, and examples; its contract snapshot is regenera
   `status` reports absent; `init` appends a fresh block rather than corrupting the file;
   document this in the AI guide. (A start-without-end is the realistic hand-edit failure;
   appending is safe and the user can delete the stray start marker.)
+- **Atomic per-file write (adversarial-review F1):** the file-I/O seam writes via a sibling
+  temp file on the same volume followed by `File.Move(overwrite)`, so a crash or `Ctrl+C`
+  mid-write leaves the user's existing file intact (a plain `File.WriteAllText` truncates in
+  place and would lose their content). Multi-file `init`/`remove` is still **not**
+  transactional across files — each file is individually safe, but a failure on the second
+  target leaves the first updated; the failure message names the file that failed (F3).
+- **First-match marker semantics (adversarial-review F6):** the *first* `<!-- winix:start … -->`
+  … `<!-- winix:end -->` pair is the managed block. A literal start marker that a user places
+  in their own prose (e.g. a fenced code block documenting this feature) will be treated as
+  the block; a second real block is left orphaned. This is a documented limitation, pinned by
+  a test so the behaviour is intentional, not accidental. Full code-fence-aware disambiguation
+  is out of scope for v1.
+- **Malformed version token (adversarial-review F5):** the `v=` parser terminates the version
+  at whitespace or at `--` (the start of `-->`), so a hand-mangled marker like `v=-->` yields a
+  clean version (or null) rather than a garbage non-null value that `status` would render as
+  `stale (v-->)`. Worst case is a benign re-`init`; no data loss.
 - **Existing block at a *newer* version than the binary** (a downgrade): `status` reports
   stale (drift in either direction); `init` rewrites to the binary's version.
 - **`--path` pointing at a non-directory / non-existent dir:** `UsageError` (125) with a
