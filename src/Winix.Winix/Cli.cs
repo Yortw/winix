@@ -71,8 +71,8 @@ public static class Cli
             .StandardFlags()
             .Option("--via", null, "PM", "Package manager to use: winget, scoop, brew, dotnet")
             .Flag("--dry-run", "Show commands that would be run without executing them")
-            .Flag("--claude", "agents: include CLAUDE.md even when it does not already exist")
-            .Option("--path", null, "DIR", "agents: project directory to operate on (default: current directory)")
+            .Flag("--claude", "Include CLAUDE.md even when it does not already exist (agents only)")
+            .Option("--path", null, "DIR", "Project directory to operate on (agents only; default: current directory)")
             .Positional("command [tool...]")
             .Platform("cross-platform",
                 new[] { "winget", "scoop", "brew" },

@@ -377,6 +377,7 @@ public sealed class CliTests
                 manifestLoader: ThrowingLoader("unused"));
 
             Assert.Equal(WinixExitCode.ToolFailure, exit);
+            Assert.Contains("absent", stderr.ToString(), StringComparison.Ordinal);
         }
         finally
         {
