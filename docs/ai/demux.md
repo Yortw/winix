@@ -20,7 +20,7 @@ Input is read one line at a time (streaming, never buffering the whole input), s
 
 ## When NOT to Use This
 
-- **Single-sink filtering** (pass/drop by pattern) — use `grep`, `Select-String`, or `files --content`.
+- **Single-sink filtering** (pass/drop by pattern) — use `grep` or `Select-String`.
 - **Transforming lines** (substitutions, field extraction) — use `awk` or `sed`; `demux` only routes, it does not transform.
 - **Copying one stream to N identical sinks** — use `tee`; `demux` routes to one-of-N, not all-N simultaneously (unless `--all` is given, but that still requires explicit routes).
 - **Non-line-oriented data** — `demux` is line-oriented; binary or NUL-delimited data is not supported in v1.

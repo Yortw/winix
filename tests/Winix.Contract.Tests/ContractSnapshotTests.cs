@@ -125,6 +125,13 @@ public sealed class ContractSnapshotTests
             Assert.True(kv.Value == actual,
                 $"{kv.Key}: expected {kv.Value} subcommand surfaces, registry has {actual}");
         }
+
+        // Also lock the TOTAL: a subcommand surface on any OTHER tool would register a
+        // slash-key that the per-tool checks above and the 28-count guard both miss.
+        int totalSubcommand = DescribeSurfaces.All.Keys.Count(k => k.Contains('/'));
+        Assert.True(expected.Values.Sum() == totalSubcommand,
+            $"expected {expected.Values.Sum()} subcommand surfaces total, registry has {totalSubcommand} " +
+            $"— an unexpected tool grew a subcommand --describe surface.");
     }
 
     /// <summary>
@@ -138,8 +145,12 @@ public sealed class ContractSnapshotTests
             { "mksecret", "trash", "hcat", "mkauth", "demux" };
         foreach (string key in DescribeSurfaces.All.Keys.Where(k => !k.Contains('/')))
         {
-            var (stdout, _, _) = await ConsoleCapture.RunAsync(
+            var (stdout, stderr, exit) = await ConsoleCapture.RunAsync(
                 () => DescribeSurfaces.All[key](new[] { "--describe" }));
+            // --describe must be a clean exit-0/empty-stderr path; a tool that emits valid
+            // JSON yet exits non-zero would otherwise slip past this tier check.
+            Assert.True(exit == 0, $"{key}: --describe exited {exit}");
+            Assert.True(stderr == "", $"{key}: --describe wrote to stderr: {stderr}");
             string? maturity = JsonNode.Parse(stdout)!["maturity"]?.GetValue<string>();
             string expectedTier = fresh.Contains(key) ? "fresh" : "core";
             Assert.True(expectedTier == maturity, $"{key}: expected maturity '{expectedTier}', got '{maturity}'");

@@ -117,7 +117,7 @@ public static class ArgParser
             .Description("Route each line of stdin to files or commands by regex; unmatched lines pass through to stdout.")
             .Maturity(ToolMaturity.Fresh)
             .PreferDefaultWhen(
-                "single-sink filtering by pattern — use grep, Select-String, or files --content",
+                "single-sink filtering by pattern — use grep or Select-String",
                 "transforming lines (substitutions, field extraction) — use awk or sed",
                 "copying one stream to N identical sinks — use tee")
             .StandardFlags()

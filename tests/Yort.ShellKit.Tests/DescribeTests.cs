@@ -142,13 +142,16 @@ public class DescribeTests
 
         string json = parser.GenerateDescribe();
 
-        // No examples, composability, json fields, io, exit codes, or platform registered
+        // No examples, composability, json fields, io, exit codes, platform, maturity, or
+        // prefer_default_when registered. (schema_version/tool/version ARE always emitted.)
         Assert.DoesNotContain("\"examples\":", json);
         Assert.DoesNotContain("\"composes_with\":", json);
         Assert.DoesNotContain("\"json_output_fields\":", json);
         Assert.DoesNotContain("\"io\":", json);
         Assert.DoesNotContain("\"exit_codes\":", json);
         Assert.DoesNotContain("\"platform\":", json);
+        Assert.DoesNotContain("\"maturity\":", json);
+        Assert.DoesNotContain("\"prefer_default_when\":", json);
     }
 
     [Fact]

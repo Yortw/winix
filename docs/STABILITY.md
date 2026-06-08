@@ -111,7 +111,9 @@ The `--describe` contract is mechanically enforced by `tests/Winix.Contract.Test
 - Asserts `schema_version` is present and `maturity` is `"core"` or `"fresh"` (a tool
   without a maturity tier cannot ship).
 - Compares the normalised JSON output byte-for-byte against committed snapshots under
-  `tests/Winix.Contract.Tests/snapshots/`.
+  `tests/Winix.Contract.Tests/snapshots/`. Normalisation masks two runtime-derived fields:
+  `version` (the build number) and `digest`'s `description` (it advertises SHA-3 availability,
+  which is probed at runtime). All other fields on every tool are locked.
 - Asserts the registry contains exactly 28 top-level surfaces (one per tool in the suite).
 
 The suite runs in CI on every platform on every push. Any undeclared drift fails the build.

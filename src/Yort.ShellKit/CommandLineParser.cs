@@ -967,7 +967,16 @@ public sealed class CommandLineParser
             writer.WriteString("version", _version);
             if (_maturity is not null)
             {
-                writer.WriteString("maturity", _maturity == ToolMaturity.Core ? "core" : "fresh");
+                // Exhaustive switch (not a ternary): a future third tier maps to a loud
+                // throw, never silently to "fresh" — the contract snapshots would otherwise
+                // bless the wrong value on a new tool's first generation.
+                writer.WriteString("maturity", _maturity.Value switch
+                {
+                    ToolMaturity.Core => "core",
+                    ToolMaturity.Fresh => "fresh",
+                    _ => throw new ArgumentOutOfRangeException(nameof(_maturity), _maturity,
+                        "Unhandled ToolMaturity value — add a case here when extending the enum."),
+                });
             }
             if (_description is not null)
             {
