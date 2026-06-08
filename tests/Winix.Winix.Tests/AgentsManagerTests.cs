@@ -620,4 +620,47 @@ public sealed class AgentsManagerTests
         Assert.Equal(WinixExitCode.Success, exit);
         Assert.Contains("\"action\":\"remove\"", stdout.ToString(), StringComparison.Ordinal);
     }
+
+    // ── Run dispatch ──────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Run_NoVerb_ReturnsUsageErrorListingVerbs()
+    {
+        var fs = new InMemoryFs();
+        fs.Dirs.Add("/proj");
+        var (stdout, stderr) = (new StringWriter(), new StringWriter());
+
+        int exit = AgentsManager.Run(Opts(null!, "/proj") with { Verb = null }, stdout, stderr, fs);
+
+        Assert.Equal(WinixExitCode.UsageError, exit);
+        Assert.Contains("init", stderr.ToString(), StringComparison.Ordinal);
+        Assert.Contains("remove", stderr.ToString(), StringComparison.Ordinal);
+        Assert.Contains("status", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Run_UnknownVerb_ReturnsUsageError()
+    {
+        var fs = new InMemoryFs();
+        fs.Dirs.Add("/proj");
+        var (stdout, stderr) = (new StringWriter(), new StringWriter());
+
+        int exit = AgentsManager.Run(Opts("frobnicate", "/proj"), stdout, stderr, fs);
+
+        Assert.Equal(WinixExitCode.UsageError, exit);
+        Assert.Contains("'frobnicate'", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Run_InitVerb_DispatchesToRunInit()
+    {
+        var fs = new InMemoryFs();
+        fs.Dirs.Add("/proj");
+        var (stdout, stderr) = (new StringWriter(), new StringWriter());
+
+        int exit = AgentsManager.Run(Opts("init", "/proj"), stdout, stderr, fs);
+
+        Assert.Equal(WinixExitCode.Success, exit);
+        Assert.True(fs.FileExists(Path.Combine("/proj", "AGENTS.md")));
+    }
 }

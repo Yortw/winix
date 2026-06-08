@@ -450,6 +450,34 @@ public static class AgentsManager
         return Encoding.UTF8.GetString(buffer.ToArray());
     }
 
+    /// <summary>
+    /// Entry point for the <c>winix agents</c> command. Dispatches on
+    /// <see cref="AgentsOptions.Verb"/> to init / remove / status, returning
+    /// <see cref="WinixExitCode.UsageError"/> for a missing or unknown verb.
+    /// </summary>
+    /// <param name="fs">File-I/O seam; production passes <see langword="null"/> to use the default.</param>
+    public static int Run(AgentsOptions opts, TextWriter stdout, TextWriter stderr, IAgentsFileSystem? fs = null)
+    {
+        IAgentsFileSystem resolved = fs ?? CreateDefaultFileSystem();
+
+        switch (opts.Verb)
+        {
+            case "init":
+                return RunInit(opts, resolved, stdout, stderr);
+            case "remove":
+                return RunRemove(opts, resolved, stdout, stderr);
+            case "status":
+                return RunStatus(opts, resolved, stdout, stderr);
+            case null:
+            case "":
+                stderr.WriteLine("winix: missing agents verb (expected init, remove, or status)");
+                return WinixExitCode.UsageError;
+            default:
+                stderr.WriteLine($"winix: unknown agents verb '{opts.Verb}' (expected init, remove, or status)");
+                return WinixExitCode.UsageError;
+        }
+    }
+
     /// <summary>Returns the production file system (a thin wrapper over <see cref="System.IO.File"/>).</summary>
     public static IAgentsFileSystem CreateDefaultFileSystem()
     {
