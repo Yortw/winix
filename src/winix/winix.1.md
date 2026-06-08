@@ -78,7 +78,7 @@ Cross-platform installer for the Winix CLI tool suite. Installs, updates, and un
 :   Success — all requested operations completed.
 
 **1**
-:   One or more tools failed to install, update, or uninstall.
+:   One or more tools failed to install, update, or uninstall; or (agents) the pointer block is absent or stale.
 
 **125**
 :   Usage error (bad arguments or unrecognised command).
@@ -87,7 +87,7 @@ Cross-platform installer for the Winix CLI tool suite. Installs, updates, and un
 :   Cannot execute — no supported package manager found.
 
 **127**
-:   Internal error (also: **agents** I/O failure).
+:   Internal error (manifest fetch/parse failure, or agents file I/O failure).
 
 For the **agents** subcommand, exit 1 means the discoverability block is absent or stale (use
 **winix agents init** to fix); 125 means bad arguments or the path is not a directory.

@@ -95,7 +95,8 @@ Show help.
 Success \(em all requested operations completed.
 .TP
 \f[B]1\f[R]
-One or more tools failed to install, update, or uninstall.
+One or more tools failed to install, update, or uninstall; or (agents)
+the pointer block is absent or stale.
 .TP
 \f[B]125\f[R]
 Usage error (bad arguments or unrecognised command).
@@ -104,7 +105,8 @@ Usage error (bad arguments or unrecognised command).
 Cannot execute \(em no supported package manager found.
 .TP
 \f[B]127\f[R]
-Internal error (also: \f[B]agents\f[R] I/O failure).
+Internal error (manifest fetch/parse failure, or agents file I/O
+failure).
 .PP
 For the \f[B]agents\f[R] subcommand, exit 1 means the discoverability
 block is absent or stale (use \f[B]winix agents init\f[R] to fix); 125

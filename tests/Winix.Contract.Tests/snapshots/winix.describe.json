@@ -93,7 +93,7 @@
     },
     {
       "code": 1,
-      "description": "One or more tools failed"
+      "description": "One or more tools failed; or (agents) the pointer block is absent or stale"
     },
     {
       "code": 125,
@@ -105,7 +105,7 @@
     },
     {
       "code": 127,
-      "description": "Internal error (manifest fetch/parse failure)"
+      "description": "Internal error (manifest fetch/parse failure, or agents file I/O failure)"
     }
   ],
   "io": {

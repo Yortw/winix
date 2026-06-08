@@ -94,10 +94,10 @@ public static class Cli
             .Example("winix agents remove", "Remove the Winix discoverability pointer block")
             .ExitCodes(
                 (WinixExitCode.Success, "Success"),
-                (WinixExitCode.ToolFailure, "One or more tools failed"),
+                (WinixExitCode.ToolFailure, "One or more tools failed; or (agents) the pointer block is absent or stale"),
                 (WinixExitCode.UsageError, "Usage error (bad command or argument)"),
                 (WinixExitCode.NoPackageManager, "No supported package manager found"),
-                (WinixExitCode.InternalError, "Internal error (manifest fetch/parse failure)"));
+                (WinixExitCode.InternalError, "Internal error (manifest fetch/parse failure, or agents file I/O failure)"));
 
         var result = parser.Parse(args);
         if (result.IsHandled) { return result.ExitCode; }
