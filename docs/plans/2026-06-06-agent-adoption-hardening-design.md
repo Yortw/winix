@@ -1,5 +1,7 @@
 # Design Notes: Hardening Winix for Agent Adoption & Consumer Confidence
 
+> **Status as of 2026-06-08:** Recs 1–3 (the `--describe` schema revision — `schema_version`, maturity tiers `core`/`fresh`, `prefer_default_when` hints, contract-lock test suite `tests/Winix.Contract.Tests/`, `docs/STABILITY.md`) were **IMPLEMENTED** on `release/v0.4.0`. See [2026-06-07-describe-schema-revision-design.md](2026-06-07-describe-schema-revision-design.md), [-adr.md](2026-06-07-describe-schema-revision-adr.md), and [-plan.md](2026-06-07-describe-schema-revision-plan.md) (all in this `docs/plans/` directory). **Rec 4 (`winix init`)** is the next piece of work — not yet started.
+
 **Date:** 2026-06-06
 **Status:** Recommendations (for triage — no decisions taken yet)
 **Author/context:** Produced by a fresh-eyes review. A Claude Code instance was pointed at the public repo (`release/v0.4.0`) cold — as if encountering it for the first time — and asked "is this useful / should we adopt it?", then asked to capture the resulting concerns as actionable design notes. This is an *external consumer's* perspective, not the maintainer's.

@@ -102,4 +102,4 @@
 | Suite-level discovery (`winix --list --describe`) | Overlaps with the multi-call binary plan. Will be addressed when that effort starts. |
 | Claude Code skill wrappers | The AI guides in `docs/ai/` are agent-agnostic. Claude-specific skills can reference them later as a convenience layer. |
 | Man page generation | Separate concern (ShellKit extraction). The `--describe` metadata could feed a man page generator, but that's a future pipeline. |
-| `--describe` schema versioning | Not needed until the schema actually changes. When it does, add a `"schema_version"` field. |
+| `--describe` schema versioning | ~~Not needed until the schema actually changes. When it does, add a `"schema_version"` field.~~ **RESOLVED 2026-06-08:** `schema_version:1` shipped on `release/v0.4.0`. See [2026-06-07-describe-schema-revision-adr.md](2026-06-07-describe-schema-revision-adr.md) (also covers maturity tiers and `prefer_default_when`). |
