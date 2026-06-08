@@ -93,6 +93,28 @@ jobs:
             git push
           fi
 
+  verify-agents-url:
+    # Guard: confirm that the version-pinned AGENTS.md URL embedded by `winix agents init`
+    # actually resolves for this tag.  Only run for stable releases — pre-release tags use
+    # /blob/main/ instead of a version-pinned ref so there is nothing to verify here.
+    if: ${{ !contains(github.event.release.tag_name, '-') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify version-pinned agents URL resolves
+        run: |
+          VERSION="${{ github.event.release.tag_name }}"
+          VERSION="${VERSION#v}"
+          case "$VERSION" in
+            *-*) echo "Pre-release ($VERSION) — block uses /main/, skipping pinned-URL check"; exit 0 ;;
+          esac
+          url="https://raw.githubusercontent.com/Yortw/winix/v${VERSION}/AGENTS.md"
+          code="$(curl -s -o /dev/null -w '%{http_code}' "$url")"
+          echo "GET $url -> $code"
+          if [ "$code" != "200" ]; then
+            echo "::error::version-pinned agents URL did not resolve ($code): $url"
+            exit 1
+          fi
+
   generate-winget-manifests:
     # Only for stable versions (no pre-release dash)
     if: ${{ !contains(github.event.release.tag_name, '-') }}
