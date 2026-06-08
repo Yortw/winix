@@ -113,6 +113,31 @@ echo "[E06 SKIPPED] requires synthesizing a malformed manifest URL; verify manua
 # Manual section
 echo "[M*] All Manual probes deferred — see SUITE-DESIGN.md M section." > "$RES/M_NOTE.txt"
 
+# ----- A: agents subcommand (writes files; uses isolated temp dirs under RES) -----
+
+AGTMP="$RES/agents-tmp"
+AGTMP2="$RES/agents-tmp-claude"
+rm -rf "$AGTMP" "$AGTMP2"
+mkdir -p "$AGTMP" "$AGTMP2"
+
+smoke A01 "agents no verb -> usage 125"          -- "$WINIX_EXE" agents
+smoke A02 "agents init writes AGENTS.md -> 0"    -- "$WINIX_EXE" agents init --path "$AGTMP"
+smoke A03 "agents status current -> 0"           -- "$WINIX_EXE" agents status --path "$AGTMP"
+smoke A04 "agents status --json current -> 0"    -- "$WINIX_EXE" agents status --path "$AGTMP" --json
+smoke A05 "agents init idempotent re-run -> 0"   -- "$WINIX_EXE" agents init --path "$AGTMP"
+smoke A06 "agents init --json -> 0"              -- "$WINIX_EXE" agents init --path "$AGTMP" --json
+smoke A07 "agents init --dry-run -> 0"           -- "$WINIX_EXE" agents init --path "$AGTMP" --dry-run
+smoke A08 "agents remove -> 0"                   -- "$WINIX_EXE" agents remove --path "$AGTMP"
+smoke A09 "agents status after remove -> drift 1" -- "$WINIX_EXE" agents status --path "$AGTMP"
+smoke A10 "agents status --json absent -> 1"     -- "$WINIX_EXE" agents status --path "$AGTMP" --json
+smoke A11 "agents unknown verb -> 125"           -- "$WINIX_EXE" agents frobnicate --path "$AGTMP"
+smoke A12 "agents status non-dir path -> 125"    -- "$WINIX_EXE" agents status --path "$AGTMP/nope-not-a-dir"
+smoke A13 "agents init --claude creates both -> 0" -- "$WINIX_EXE" agents init --path "$AGTMP2" --claude
+
+# Capture the rendered block + the two target files for inspection.
+cp "$AGTMP2/AGENTS.md" "$RES/A13.AGENTS.md.txt" 2>/dev/null || true
+cp "$AGTMP2/CLAUDE.md" "$RES/A13.CLAUDE.md.txt" 2>/dev/null || true
+
 echo
 echo "==== Done. Results in $RES/ ===="
 ls "$RES" | wc -l
