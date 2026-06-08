@@ -1,0 +1,167 @@
+{
+  "schema_version": 1,
+  "tool": "whoholds",
+  "version": "<normalised>",
+  "maturity": "core",
+  "description": "Find which processes are holding a file lock or binding a network port.",
+  "platform": {
+    "scope": "cross-platform",
+    "replaces": [
+      "handle.exe",
+      "lsof"
+    ],
+    "value_on_windows": "Windows has no built-in CLI for file/port locks",
+    "value_on_unix": "Unified syntax for both files and ports; lsof delegation with clean output"
+  },
+  "usage": "whoholds [options] [<file-or-port>]",
+  "options": [
+    {
+      "long": "--pid-only",
+      "type": "flag",
+      "description": "Force one-PID-per-line output (auto when piped)",
+      "repeatable": false
+    },
+    {
+      "long": "--full-path",
+      "short": "-l",
+      "type": "flag",
+      "description": "Show full executable path instead of process name",
+      "repeatable": false
+    },
+    {
+      "long": "--help",
+      "short": "-h",
+      "type": "flag",
+      "description": "Show help",
+      "repeatable": false
+    },
+    {
+      "long": "--version",
+      "type": "flag",
+      "description": "Show version",
+      "repeatable": false
+    },
+    {
+      "long": "--no-color",
+      "type": "flag",
+      "description": "Disable colored output",
+      "repeatable": false
+    },
+    {
+      "long": "--json",
+      "type": "flag",
+      "description": "JSON output",
+      "repeatable": false
+    },
+    {
+      "long": "--describe",
+      "type": "flag",
+      "description": "Structured JSON metadata for AI agents",
+      "repeatable": false
+    },
+    {
+      "long": "--color",
+      "type": "optional-value",
+      "allowed_values": [
+        "auto",
+        "always",
+        "never"
+      ],
+      "default_when_bare": "always",
+      "description": "Coloured output: auto (default when omitted), always, or never",
+      "repeatable": false
+    }
+  ],
+  "exit_codes": [
+    {
+      "code": 0,
+      "description": "Success (includes no-results)"
+    },
+    {
+      "code": 1,
+      "description": "Target not found or query error (file/directory does not exist, or backend API failure)"
+    },
+    {
+      "code": 125,
+      "description": "Usage error (bad flags, missing positional, invalid port number, or unrecognised argument shape)"
+    }
+  ],
+  "io": {
+    "stdin": "Not used",
+    "stdout": "PID-only or table of locking processes (PID-only when --pid-only or piped); --json envelope.",
+    "stderr": "Elevation warning, no-results message, and plain-text errors."
+  },
+  "examples": [
+    {
+      "command": "whoholds myfile.dll",
+      "description": "Find what's locking a file"
+    },
+    {
+      "command": "whoholds :8080",
+      "description": "Find what's binding port 8080"
+    },
+    {
+      "command": "whoholds myfile.dll --pid-only | wargs taskkill /PID {} /F",
+      "description": "Kill all processes locking a file"
+    }
+  ],
+  "composes_with": [
+    {
+      "tool": "wargs",
+      "pattern": "whoholds myfile.dll --pid-only | wargs taskkill /PID {} /F",
+      "description": "Kill all processes locking a file"
+    }
+  ],
+  "json_output_fields": [
+    {
+      "name": "tool",
+      "type": "string",
+      "description": "Tool name (\"whoholds\")"
+    },
+    {
+      "name": "version",
+      "type": "string",
+      "description": "Tool version"
+    },
+    {
+      "name": "exit_code",
+      "type": "int",
+      "description": "Tool exit code (0 = success)"
+    },
+    {
+      "name": "exit_reason",
+      "type": "string",
+      "description": "Machine-readable exit reason"
+    },
+    {
+      "name": "processes",
+      "type": "array",
+      "description": "Array of locking process objects"
+    },
+    {
+      "name": "processes[].pid",
+      "type": "int",
+      "description": "Process ID"
+    },
+    {
+      "name": "processes[].name",
+      "type": "string",
+      "description": "Process name"
+    },
+    {
+      "name": "processes[].path",
+      "type": "string",
+      "description": "Full executable path (empty if unavailable)"
+    },
+    {
+      "name": "processes[].state",
+      "type": "string",
+      "description": "TCP state (e.g. LISTEN); empty for files and UDP"
+    },
+    {
+      "name": "processes[].resource",
+      "type": "string",
+      "description": "Locked file path or port specifier"
+    }
+  ]
+}

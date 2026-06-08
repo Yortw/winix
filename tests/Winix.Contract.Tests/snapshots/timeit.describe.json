@@ -1,0 +1,170 @@
+{
+  "schema_version": 1,
+  "tool": "timeit",
+  "version": "<normalised>",
+  "maturity": "core",
+  "description": "Time a command and show wall clock, CPU time, peak memory, and exit code.",
+  "platform": {
+    "scope": "cross-platform",
+    "replaces": [
+      "time"
+    ],
+    "value_on_windows": "No native time command; Measure-Command is verbose and doesn't stream output",
+    "value_on_unix": "Richer output than time — peak memory, CPU breakdown, JSON output"
+  },
+  "usage": "timeit [options] [--] <command> [args...]",
+  "options": [
+    {
+      "long": "--help",
+      "short": "-h",
+      "type": "flag",
+      "description": "Show help",
+      "repeatable": false
+    },
+    {
+      "long": "--version",
+      "type": "flag",
+      "description": "Show version",
+      "repeatable": false
+    },
+    {
+      "long": "--no-color",
+      "type": "flag",
+      "description": "Disable colored output",
+      "repeatable": false
+    },
+    {
+      "long": "--json",
+      "type": "flag",
+      "description": "JSON output",
+      "repeatable": false
+    },
+    {
+      "long": "--describe",
+      "type": "flag",
+      "description": "Structured JSON metadata for AI agents",
+      "repeatable": false
+    },
+    {
+      "long": "--oneline",
+      "short": "-1",
+      "type": "flag",
+      "description": "Single-line output format",
+      "repeatable": false
+    },
+    {
+      "long": "--stdout",
+      "type": "flag",
+      "description": "Write summary to stdout instead of stderr",
+      "repeatable": false
+    },
+    {
+      "long": "--color",
+      "type": "optional-value",
+      "allowed_values": [
+        "auto",
+        "always",
+        "never"
+      ],
+      "default_when_bare": "always",
+      "description": "Coloured output: auto (default when omitted), always, or never",
+      "repeatable": false
+    }
+  ],
+  "exit_codes": [
+    {
+      "code": 0,
+      "description": "Child process exit code (pass-through)"
+    },
+    {
+      "code": 125,
+      "description": "No command specified or bad timeit arguments"
+    },
+    {
+      "code": 126,
+      "description": "Command not executable (permission denied) or bad-EXE-format"
+    },
+    {
+      "code": 127,
+      "description": "Command not found"
+    }
+  ],
+  "io": {
+    "stdin": "Not used (child process inherits stdin)",
+    "stdout": "Child process stdout passes through unmodified",
+    "stderr": "Timing summary after child exits. JSON with --json. Child stderr also passes through."
+  },
+  "examples": [
+    {
+      "command": "timeit dotnet build",
+      "description": "Time a build"
+    },
+    {
+      "command": "timeit --json dotnet test",
+      "description": "Machine-parseable timing for CI"
+    },
+    {
+      "command": "timeit --stdout dotnet build 2>/dev/null",
+      "description": "Capture just the timing summary"
+    }
+  ],
+  "composes_with": [
+    {
+      "tool": "peep",
+      "pattern": "peep -- timeit dotnet build",
+      "description": "Watch build time on every file change"
+    }
+  ],
+  "json_output_fields": [
+    {
+      "name": "tool",
+      "type": "string",
+      "description": "Tool name (\"timeit\")"
+    },
+    {
+      "name": "version",
+      "type": "string",
+      "description": "Tool version"
+    },
+    {
+      "name": "exit_code",
+      "type": "int",
+      "description": "Tool exit code (0 = success). Distinct from child_exit_code below."
+    },
+    {
+      "name": "exit_reason",
+      "type": "string",
+      "description": "Machine-readable exit reason: success, usage_error, command_not_found, command_not_executable, start_error."
+    },
+    {
+      "name": "child_exit_code",
+      "type": "int|null",
+      "description": "Child process exit code (the code the child process itself returned). null when the child never ran (e.g. command_not_found)."
+    },
+    {
+      "name": "wall_seconds",
+      "type": "float",
+      "description": "Wall clock time in seconds"
+    },
+    {
+      "name": "user_cpu_seconds",
+      "type": "float|null",
+      "description": "User CPU time in seconds"
+    },
+    {
+      "name": "sys_cpu_seconds",
+      "type": "float|null",
+      "description": "System CPU time in seconds"
+    },
+    {
+      "name": "cpu_seconds",
+      "type": "float|null",
+      "description": "Total CPU time (user + sys)"
+    },
+    {
+      "name": "peak_memory_bytes",
+      "type": "int|null",
+      "description": "Peak working set in bytes"
+    }
+  ]
+}

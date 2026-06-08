@@ -1,0 +1,179 @@
+{
+  "schema_version": 1,
+  "tool": "protect",
+  "version": "<normalised>",
+  "maturity": "core",
+  "description": "Cross-platform encrypt-at-rest CLI wrapping native OS key-storage primitives (DPAPI / Keychain / libsecret). Files are NOT portable between users, machines, or scopes — use age or gpg for portable encryption.",
+  "platform": {
+    "scope": "cross-platform",
+    "replaces": [
+      "dpapi.ps1",
+      "security add-generic-password + openssl",
+      "secret-tool + openssl",
+      "gpg --symmetric (for single-user at-rest)"
+    ],
+    "value_on_windows": "Zero-dependency DPAPI wrapper with chunked streaming, atomic --in-place mode, and round-trip verification — no PowerShell scripting or certificate provisioning needed.",
+    "value_on_unix": "Uniform --scope flag and chunked WPRT format across macOS Keychain and Linux libsecret. Single AOT binary — replaces ad-hoc openssl + security/secret-tool glue."
+  },
+  "prefer_default_when": [
+    "portable encryption (cross-machine/user) — use age or gpg",
+    "encrypting structured data with external KMS — use sops",
+    "whole-disk or filesystem encryption — use FileVault, BitLocker, or LUKS"
+  ],
+  "usage": "protect [options] [FILE]",
+  "options": [
+    {
+      "long": "--help",
+      "short": "-h",
+      "type": "flag",
+      "description": "Show help",
+      "repeatable": false
+    },
+    {
+      "long": "--version",
+      "type": "flag",
+      "description": "Show version",
+      "repeatable": false
+    },
+    {
+      "long": "--no-color",
+      "type": "flag",
+      "description": "Disable colored output",
+      "repeatable": false
+    },
+    {
+      "long": "--json",
+      "type": "flag",
+      "description": "JSON output",
+      "repeatable": false
+    },
+    {
+      "long": "--describe",
+      "type": "flag",
+      "description": "Structured JSON metadata for AI agents",
+      "repeatable": false
+    },
+    {
+      "long": "--in-place",
+      "type": "flag",
+      "description": "Replace FILE atomically via temp + rename. Mutually exclusive with --output.",
+      "repeatable": false
+    },
+    {
+      "long": "--rm",
+      "type": "flag",
+      "description": "Delete source FILE after successful round-trip verification.",
+      "repeatable": false
+    },
+    {
+      "long": "--remove-source",
+      "type": "flag",
+      "description": "Alias for --rm.",
+      "repeatable": false
+    },
+    {
+      "long": "--keep",
+      "short": "-k",
+      "type": "flag",
+      "description": "Retain source FILE (explicit default; accepted for symmetry with --rm).",
+      "repeatable": false
+    },
+    {
+      "long": "--no-verify",
+      "type": "flag",
+      "description": "Skip the post-encrypt round-trip integrity check (encrypt path only). Faster, less safe.",
+      "repeatable": false
+    },
+    {
+      "long": "--force",
+      "short": "-f",
+      "type": "flag",
+      "description": "Overwrite an existing destination file. Without this flag, the tool refuses to clobber existing data. Symlink-safe: the destination is unlinked before exclusive create, so an attacker-planted symlink cannot redirect the write.",
+      "repeatable": false
+    },
+    {
+      "long": "--output",
+      "short": "-o",
+      "type": "string",
+      "placeholder": "PATH",
+      "description": "Explicit output path. Default: FILE.prot for file input, stdout for stdin.",
+      "repeatable": false
+    },
+    {
+      "long": "--scope",
+      "type": "string",
+      "placeholder": "user|machine",
+      "description": "Key-derivation scope. 'user' (default) — key bound to current OS user, decryptable only by that user on that machine. 'machine' — key bound to machine credential, decryptable by any user on that machine (Windows needs DPAPI LocalMachine access; macOS needs sudo for System Keychain; Linux: unsupported — tool exits with usage error).",
+      "repeatable": false
+    },
+    {
+      "long": "--color",
+      "type": "optional-value",
+      "allowed_values": [
+        "auto",
+        "always",
+        "never"
+      ],
+      "default_when_bare": "always",
+      "description": "Coloured output: auto (default when omitted), always, or never",
+      "repeatable": false
+    }
+  ],
+  "exit_codes": [
+    {
+      "code": 0,
+      "description": "Success"
+    },
+    {
+      "code": 125,
+      "description": "Usage error: bad flags, path collision, --in-place without a FILE, unsupported scope on Linux"
+    },
+    {
+      "code": 126,
+      "description": "Runtime error: file not found, encryption/decryption failure, key store unavailable, round-trip verify failed, header magic mismatch, user/machine/scope mismatch on decrypt"
+    }
+  ],
+  "io": {
+    "stdin": "Plaintext to encrypt when no FILE is given.",
+    "stdout": "Ciphertext when neither FILE nor -o is given (streaming mode).",
+    "stderr": "Errors, retention warnings (plaintext not removed when --rm omitted), and diagnostic messages."
+  },
+  "examples": [
+    {
+      "command": "protect secrets.json",
+      "description": "Encrypt to secrets.json.prot (plaintext retained; stderr warning)"
+    },
+    {
+      "command": "protect secrets.json --rm",
+      "description": "Encrypt, verify, then delete the plaintext source"
+    },
+    {
+      "command": "protect config.xml --in-place",
+      "description": "Atomic replace: writes to temp, renames over original"
+    },
+    {
+      "command": "protect api.key -o api.enc --no-verify",
+      "description": "Explicit output path; skip the round-trip check"
+    },
+    {
+      "command": "protect --scope machine service.conf",
+      "description": "Machine-scoped (Windows LocalMachine or macOS System Keychain; Linux not supported)"
+    },
+    {
+      "command": "cat api.key | protect > api.key.prot",
+      "description": "Stream-encrypt via pipe"
+    }
+  ],
+  "composes_with": [
+    {
+      "tool": "digest",
+      "pattern": "digest config.json; protect config.json --rm",
+      "description": "Hash a file for audit, then encrypt and remove plaintext"
+    },
+    {
+      "tool": "clip",
+      "pattern": "clip --paste | protect -o clip.prot",
+      "description": "Encrypt clipboard contents to a file"
+    }
+  ]
+}

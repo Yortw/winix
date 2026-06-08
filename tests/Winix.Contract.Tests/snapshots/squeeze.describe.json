@@ -1,0 +1,271 @@
+{
+  "schema_version": 1,
+  "tool": "squeeze",
+  "version": "<normalised>",
+  "maturity": "core",
+  "description": "Compress and decompress files using gzip, brotli, or zstd.",
+  "platform": {
+    "scope": "cross-platform",
+    "replaces": [
+      "gzip",
+      "brotli",
+      "zstd"
+    ],
+    "value_on_windows": "Windows ships no compression CLI tools at all",
+    "value_on_unix": "Single tool for gzip + brotli + zstd; brotli CLI is rarely installed anywhere"
+  },
+  "glob_expansion": {
+    "positionals": true,
+    "syntax": "* and ? in any path segment",
+    "not_patterns": [
+      "[...] (matched literally; legal Windows filename chars)",
+      "** (rejected with usage error)"
+    ],
+    "no_match": "literal passthrough",
+    "quoting": "quoted args not expanded (effective from cmd; PowerShell strips quotes)",
+    "windows_only": true
+  },
+  "usage": "squeeze [options] [file...]",
+  "options": [
+    {
+      "long": "--help",
+      "short": "-h",
+      "type": "flag",
+      "description": "Show help",
+      "repeatable": false
+    },
+    {
+      "long": "--version",
+      "type": "flag",
+      "description": "Show version",
+      "repeatable": false
+    },
+    {
+      "long": "--no-color",
+      "type": "flag",
+      "description": "Disable colored output",
+      "repeatable": false
+    },
+    {
+      "long": "--json",
+      "type": "flag",
+      "description": "JSON output",
+      "repeatable": false
+    },
+    {
+      "long": "--describe",
+      "type": "flag",
+      "description": "Structured JSON metadata for AI agents",
+      "repeatable": false
+    },
+    {
+      "long": "--decompress",
+      "short": "-d",
+      "type": "flag",
+      "description": "Decompress (auto-detects format)",
+      "repeatable": false
+    },
+    {
+      "long": "--brotli",
+      "short": "-b",
+      "type": "flag",
+      "description": "Use brotli format",
+      "repeatable": false
+    },
+    {
+      "long": "--zstd",
+      "short": "-z",
+      "type": "flag",
+      "description": "Use zstd format",
+      "repeatable": false
+    },
+    {
+      "long": "--stdout",
+      "short": "-c",
+      "type": "flag",
+      "description": "Write to stdout",
+      "repeatable": false
+    },
+    {
+      "long": "--force",
+      "short": "-f",
+      "type": "flag",
+      "description": "Overwrite existing output files",
+      "repeatable": false
+    },
+    {
+      "long": "--remove",
+      "type": "flag",
+      "description": "Delete input file after success",
+      "repeatable": false
+    },
+    {
+      "long": "--keep",
+      "short": "-k",
+      "type": "flag",
+      "description": "Keep original file (default; takes precedence if --remove also set)",
+      "repeatable": false
+    },
+    {
+      "long": "--verbose",
+      "short": "-v",
+      "type": "flag",
+      "description": "Show stats even when piped",
+      "repeatable": false
+    },
+    {
+      "long": "--quiet",
+      "short": "-q",
+      "type": "flag",
+      "description": "Suppress stats even on terminal",
+      "repeatable": false
+    },
+    {
+      "long": "--level",
+      "type": "int",
+      "placeholder": "N",
+      "description": "Compression level (format-specific range)",
+      "repeatable": false
+    },
+    {
+      "long": "--output",
+      "short": "-o",
+      "type": "string",
+      "placeholder": "FILE",
+      "description": "Output file (single input only)",
+      "repeatable": false
+    },
+    {
+      "long": "--color",
+      "type": "optional-value",
+      "allowed_values": [
+        "auto",
+        "always",
+        "never"
+      ],
+      "default_when_bare": "always",
+      "description": "Coloured output: auto (default when omitted), always, or never",
+      "repeatable": false
+    }
+  ],
+  "exit_codes": [
+    {
+      "code": 0,
+      "description": "Success"
+    },
+    {
+      "code": 1,
+      "description": "Compression/decompression error: corrupt input, write failed, format detection failed"
+    },
+    {
+      "code": 2,
+      "description": "Usage error: bad flags, missing input, --brotli with --zstd, --output empty/whitespace, --output with multiple inputs, level out of range"
+    }
+  ],
+  "io": {
+    "stdin": "Reads input data when no file argument given (pipe mode)",
+    "stdout": "Compressed/decompressed data in pipe mode",
+    "stderr": "Status summary. JSON with --json."
+  },
+  "examples": [
+    {
+      "command": "squeeze file.csv",
+      "description": "Compress with gzip (default)"
+    },
+    {
+      "command": "squeeze --zstd largefile.bin",
+      "description": "Compress with zstd"
+    },
+    {
+      "command": "squeeze -d file.csv.gz",
+      "description": "Decompress (auto-detect format)"
+    },
+    {
+      "command": "cat dump.sql | squeeze > dump.gz",
+      "description": "Pipe mode compression"
+    },
+    {
+      "command": "squeeze --json file.csv",
+      "description": "Machine-parseable result for CI"
+    }
+  ],
+  "composes_with": [
+    {
+      "tool": "files",
+      "pattern": "files . --ext log | wargs squeeze --zstd",
+      "description": "Compress all log files"
+    },
+    {
+      "tool": "wargs",
+      "pattern": "files . --ext csv | wargs squeeze",
+      "description": "Batch compress files"
+    }
+  ],
+  "json_output_fields": [
+    {
+      "name": "tool",
+      "type": "string",
+      "description": "Tool name (\"squeeze\")"
+    },
+    {
+      "name": "version",
+      "type": "string",
+      "description": "Tool version"
+    },
+    {
+      "name": "exit_code",
+      "type": "int",
+      "description": "Tool exit code (0 = success, 1 = compression error, 2 = usage error)"
+    },
+    {
+      "name": "exit_reason",
+      "type": "string",
+      "description": "Machine-readable exit reason: success, partial_failure, failure, usage_error, file_not_found, corrupt_input, decompress_failed, compress_failed, io_error, output_exists, unknown_extension"
+    },
+    {
+      "name": "files",
+      "type": "array",
+      "description": "Array of per-file result objects"
+    },
+    {
+      "name": "files[].input",
+      "type": "string",
+      "description": "Input file path"
+    },
+    {
+      "name": "files[].output",
+      "type": "string",
+      "description": "Output file path"
+    },
+    {
+      "name": "files[].input_bytes",
+      "type": "int",
+      "description": "Original size in bytes"
+    },
+    {
+      "name": "files[].output_bytes",
+      "type": "int",
+      "description": "Compressed/decompressed size in bytes"
+    },
+    {
+      "name": "files[].ratio",
+      "type": "float",
+      "description": "Compression ratio (0.0–1.0)"
+    },
+    {
+      "name": "files[].format",
+      "type": "string",
+      "description": "Compression format short name (gz, br, zst)"
+    },
+    {
+      "name": "files[].seconds",
+      "type": "float",
+      "description": "Processing time in seconds"
+    },
+    {
+      "name": "errors",
+      "type": "array|null",
+      "description": "Per-file error messages when exit_reason is partial_failure or failure (file mode only). Null or omitted on success."
+    }
+  ]
+}

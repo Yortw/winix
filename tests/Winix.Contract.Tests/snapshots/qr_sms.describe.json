@@ -1,0 +1,155 @@
+{
+  "schema_version": 1,
+  "tool": "qr sms",
+  "version": "<normalised>",
+  "maturity": "core",
+  "description": "Encode an SMS message intent as a QR code (SMSTO: URI scheme). Scanning opens the SMS composer pre-filled with the number and message.",
+  "platform": {
+    "scope": "cross-platform",
+    "replaces": [
+      "qrencode (lacks structured helpers)",
+      "python qrcode",
+      "manual URI-scheme encoding"
+    ],
+    "value_on_windows": "Native gap-fill — Windows has no built-in QR generator and no structured URI helpers.",
+    "value_on_unix": "Structured helpers for Wi-Fi / SMS / mailto / geo / tel are missing from qrencode and most alternatives."
+  },
+  "usage": "qr sms [options]",
+  "options": [
+    {
+      "long": "--help",
+      "short": "-h",
+      "type": "flag",
+      "description": "Show help",
+      "repeatable": false
+    },
+    {
+      "long": "--version",
+      "type": "flag",
+      "description": "Show version",
+      "repeatable": false
+    },
+    {
+      "long": "--no-color",
+      "type": "flag",
+      "description": "Disable colored output",
+      "repeatable": false
+    },
+    {
+      "long": "--json",
+      "type": "flag",
+      "description": "JSON output",
+      "repeatable": false
+    },
+    {
+      "long": "--describe",
+      "type": "flag",
+      "description": "Structured JSON metadata for AI agents",
+      "repeatable": false
+    },
+    {
+      "long": "--no-margin",
+      "type": "flag",
+      "description": "Strip the 4-module quiet zone.",
+      "repeatable": false
+    },
+    {
+      "long": "--force-binary",
+      "type": "flag",
+      "description": "Allow PNG output to a TTY.",
+      "repeatable": false
+    },
+    {
+      "long": "--force",
+      "type": "flag",
+      "description": "Overwrite an existing --output file (refused by default).",
+      "repeatable": false
+    },
+    {
+      "long": "--format",
+      "type": "string",
+      "placeholder": "FMT",
+      "description": "Output format: auto, unicode, ascii, svg, png. Default auto (unicode on TTY, svg when stdout redirected).",
+      "repeatable": false
+    },
+    {
+      "long": "--size",
+      "short": "-s",
+      "type": "int",
+      "placeholder": "PIXELS",
+      "description": "Pixels per module (PNG/SVG only). Default 10.",
+      "repeatable": false
+    },
+    {
+      "long": "--error-correction",
+      "short": "-e",
+      "type": "string",
+      "placeholder": "LEVEL",
+      "description": "Error-correction level: l (~7%), m (~15%, default), q (~25%), h (~30%).",
+      "repeatable": false
+    },
+    {
+      "long": "--output",
+      "short": "-o",
+      "type": "string",
+      "placeholder": "PATH",
+      "description": "Write to file instead of stdout.",
+      "repeatable": false
+    },
+    {
+      "long": "--number",
+      "type": "string",
+      "placeholder": "PHONE",
+      "description": "Destination phone number (E.164 recommended, required).",
+      "repeatable": false
+    },
+    {
+      "long": "--message",
+      "type": "string",
+      "placeholder": "TEXT",
+      "description": "Pre-filled message body.",
+      "repeatable": false
+    },
+    {
+      "long": "--color",
+      "type": "optional-value",
+      "allowed_values": [
+        "auto",
+        "always",
+        "never"
+      ],
+      "default_when_bare": "always",
+      "description": "Coloured output: auto (default when omitted), always, or never",
+      "repeatable": false
+    }
+  ],
+  "exit_codes": [
+    {
+      "code": 0,
+      "description": "Success"
+    },
+    {
+      "code": 125,
+      "description": "Usage error: missing required field, bad flag value, helper grammar violation (e.g. tel/sms with letters or out-of-range geo coordinates), --format vs --output extension contradiction, refusing to overwrite an existing --output file without --force"
+    },
+    {
+      "code": 126,
+      "description": "Runtime error: payload exceeds QR capacity (try --error-correction l), output write failed (parent missing, permission denied, etc.)"
+    }
+  ],
+  "io": {
+    "stdin": "Not used by helper subcommands.",
+    "stdout": "Rendered QR code (unicode/ascii/svg by default; bytes for PNG unless --output).",
+    "stderr": "Errors and diagnostic messages."
+  },
+  "examples": [
+    {
+      "command": "qr sms --number +15551234 --message 'Hi'",
+      "description": "SMS with pre-filled message"
+    },
+    {
+      "command": "qr sms --number +6421555123",
+      "description": "SMS number only, blank message"
+    }
+  ]
+}

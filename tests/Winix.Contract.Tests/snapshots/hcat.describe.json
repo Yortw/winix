@@ -1,0 +1,194 @@
+{
+  "schema_version": 1,
+  "tool": "hcat",
+  "version": "<normalised>",
+  "maturity": "fresh",
+  "description": "Instant HTTP server: serve a folder, catch incoming requests, or pipe a command over HTTP.",
+  "platform": {
+    "scope": "cross-platform",
+    "replaces": [
+      "python -m http.server",
+      "npx http-server",
+      "ncat -l",
+      "webhook.site"
+    ],
+    "value_on_windows": "Windows has no built-in one-line HTTP server; this is a single AOT binary, no Python/Node runtime.",
+    "value_on_unix": "One binary covering serve / inspect / pipe, with LAN-share QR codes and CI stop conditions built in."
+  },
+  "prefer_default_when": [
+    "raw TCP listener (non-HTTP) — use nc"
+  ],
+  "usage": "hcat [options] [[serve|inspect|pipe] [dir] [-- command...]]",
+  "options": [
+    {
+      "long": "--help",
+      "short": "-h",
+      "type": "flag",
+      "description": "Show help",
+      "repeatable": false
+    },
+    {
+      "long": "--version",
+      "type": "flag",
+      "description": "Show version",
+      "repeatable": false
+    },
+    {
+      "long": "--no-color",
+      "type": "flag",
+      "description": "Disable colored output",
+      "repeatable": false
+    },
+    {
+      "long": "--json",
+      "type": "flag",
+      "description": "JSON output",
+      "repeatable": false
+    },
+    {
+      "long": "--describe",
+      "type": "flag",
+      "description": "Structured JSON metadata for AI agents",
+      "repeatable": false
+    },
+    {
+      "long": "--lan",
+      "type": "flag",
+      "description": "Bind 0.0.0.0 to share on the local network (prints a QR code).",
+      "repeatable": false
+    },
+    {
+      "long": "--local",
+      "type": "flag",
+      "description": "Force loopback-only binding (overrides --lan/--host).",
+      "repeatable": false
+    },
+    {
+      "long": "--https",
+      "type": "flag",
+      "description": "Enable TLS with an in-memory self-signed certificate.",
+      "repeatable": false
+    },
+    {
+      "long": "--upload",
+      "type": "flag",
+      "description": "(serve) Enable the POST upload receiver.",
+      "repeatable": false
+    },
+    {
+      "long": "--spa",
+      "type": "flag",
+      "description": "(serve) SPA fallback: unmatched browser navigations return the index file.",
+      "repeatable": false
+    },
+    {
+      "long": "--spa-index",
+      "type": "string",
+      "placeholder": "FILE",
+      "description": "(serve, with --spa) SPA fallback filename (default index.html).",
+      "repeatable": false
+    },
+    {
+      "long": "--host",
+      "type": "string",
+      "placeholder": "ADDR",
+      "description": "Explicit bind address.",
+      "repeatable": false
+    },
+    {
+      "long": "--port",
+      "type": "int",
+      "placeholder": "N",
+      "description": "Listen port (default 8080).",
+      "repeatable": false
+    },
+    {
+      "long": "--upload-dir",
+      "type": "string",
+      "placeholder": "DIR",
+      "description": "(serve) Upload target directory (default ./uploads).",
+      "repeatable": false
+    },
+    {
+      "long": "--status",
+      "type": "int",
+      "placeholder": "CODE",
+      "description": "(inspect) HTTP status to respond with (default 200).",
+      "repeatable": false
+    },
+    {
+      "long": "--capture",
+      "type": "string",
+      "placeholder": "N",
+      "description": "(CI) Exit after capturing N requests.",
+      "repeatable": false
+    },
+    {
+      "long": "--exit-on",
+      "type": "string",
+      "placeholder": "EXPR",
+      "description": "(CI) Exit when a request matches: path=/x, method=POST, body~text (body~ is inspect-only).",
+      "repeatable": false
+    },
+    {
+      "long": "--timeout",
+      "type": "string",
+      "placeholder": "DUR",
+      "description": "(CI) Fail if the stop condition is not met within DUR (e.g. 30s, 5m).",
+      "repeatable": false
+    },
+    {
+      "long": "--color",
+      "type": "optional-value",
+      "allowed_values": [
+        "auto",
+        "always",
+        "never"
+      ],
+      "default_when_bare": "always",
+      "description": "Coloured output: auto (default when omitted), always, or never",
+      "repeatable": false
+    }
+  ],
+  "exit_codes": [
+    {
+      "code": 0,
+      "description": "Success (clean shutdown, or a CI stop condition was met)"
+    },
+    {
+      "code": 1,
+      "description": "A CI stop condition (--capture/--exit-on) was not met before --timeout elapsed"
+    },
+    {
+      "code": 125,
+      "description": "Usage error: unknown subcommand/flag, bad --exit-on key, non-integer port/status/capture"
+    },
+    {
+      "code": 126,
+      "description": "Startup failure: could not bind the port, or the self-signed certificate could not be created"
+    }
+  ],
+  "io": {
+    "stdin": "Not used.",
+    "stdout": "Plain: human request log to stderr; --json: JSONL to stdout — request records (inspect/pipe) or {method,path,status} access-log lines (serve).",
+    "stderr": "Bind banner, request log, and errors."
+  },
+  "examples": [
+    {
+      "command": "hcat",
+      "description": "Serve the current directory (localhost)"
+    },
+    {
+      "command": "hcat serve ./public --lan",
+      "description": "Share a folder on your LAN (QR printed)"
+    },
+    {
+      "command": "hcat inspect --lan",
+      "description": "Catch and print incoming webhooks"
+    },
+    {
+      "command": "hcat pipe -- jq .",
+      "description": "Expose jq over HTTP"
+    }
+  ]
+}

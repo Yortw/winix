@@ -1,0 +1,138 @@
+{
+  "schema_version": 1,
+  "tool": "man",
+  "version": "<normalised>",
+  "maturity": "core",
+  "description": "Display manual pages. Renders groff man pages to the terminal with colour and hyperlinks.",
+  "platform": {
+    "scope": "cross-platform",
+    "replaces": [
+      "man"
+    ],
+    "value_on_windows": "Windows has no built-in man; renders groff pages natively without groff installed",
+    "value_on_unix": "Colour output, hyperlinks, built-in pager — no system groff or nroff required"
+  },
+  "usage": "man [options] [[[section] page]]",
+  "options": [
+    {
+      "long": "--help",
+      "short": "-h",
+      "type": "flag",
+      "description": "Show help",
+      "repeatable": false
+    },
+    {
+      "long": "--version",
+      "type": "flag",
+      "description": "Show version",
+      "repeatable": false
+    },
+    {
+      "long": "--no-color",
+      "type": "flag",
+      "description": "Disable colored output",
+      "repeatable": false
+    },
+    {
+      "long": "--json",
+      "type": "flag",
+      "description": "JSON output",
+      "repeatable": false
+    },
+    {
+      "long": "--describe",
+      "type": "flag",
+      "description": "Structured JSON metadata for AI agents",
+      "repeatable": false
+    },
+    {
+      "long": "--no-pager",
+      "type": "flag",
+      "description": "Disable pager; write directly to stdout",
+      "repeatable": false
+    },
+    {
+      "long": "--path",
+      "short": "-w",
+      "type": "flag",
+      "description": "Print the file path of the page instead of rendering it",
+      "repeatable": false
+    },
+    {
+      "long": "--where",
+      "type": "flag",
+      "description": "Print the file path of the page instead of rendering it (GNU compatibility alias for --path)",
+      "repeatable": false
+    },
+    {
+      "long": "--manpath",
+      "type": "flag",
+      "description": "Print the effective man page search path and exit",
+      "repeatable": false
+    },
+    {
+      "long": "--width",
+      "type": "int",
+      "placeholder": "N",
+      "description": "Render width in columns",
+      "repeatable": false
+    },
+    {
+      "long": "--color",
+      "type": "optional-value",
+      "allowed_values": [
+        "auto",
+        "always",
+        "never"
+      ],
+      "default_when_bare": "always",
+      "description": "Coloured output: auto (default when omitted), always, or never",
+      "repeatable": false
+    }
+  ],
+  "exit_codes": [
+    {
+      "code": 0,
+      "description": "Page found and displayed"
+    },
+    {
+      "code": 1,
+      "description": "Page not found"
+    },
+    {
+      "code": 2,
+      "description": "Usage error (bad arguments)"
+    },
+    {
+      "code": 125,
+      "description": "Internal error (corrupt page or read failure)"
+    }
+  ],
+  "io": {
+    "stdin": "Not used",
+    "stdout": "Rendered man page text (with --no-pager or piped output), or JSON metadata with --json",
+    "stderr": "Errors"
+  },
+  "examples": [
+    {
+      "command": "man ls",
+      "description": "Display the manual page for ls"
+    },
+    {
+      "command": "man 3 printf",
+      "description": "Display section 3 of the printf manual page"
+    },
+    {
+      "command": "man --path ls",
+      "description": "Print the file path of the ls man page"
+    },
+    {
+      "command": "man --manpath",
+      "description": "Print the effective search path"
+    },
+    {
+      "command": "man --no-pager ls | head -40",
+      "description": "Show first 40 lines without pager"
+    }
+  ]
+}

@@ -11,6 +11,10 @@
     <PackageReference Include="xunit" Version="2.*" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.*" />
   </ItemGroup>
+  <!-- Copy committed snapshot files to the test output directory so SnapshotDir resolves correctly at runtime. -->
+  <ItemGroup>
+    <Content Include="snapshots\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Yort.ShellKit\Yort.ShellKit.csproj" />
     <ProjectReference Include="..\..\src\Winix.TimeIt\Winix.TimeIt.csproj" />

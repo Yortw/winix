@@ -1,0 +1,166 @@
+{
+  "schema_version": 1,
+  "tool": "clip",
+  "version": "<normalised>",
+  "maturity": "core",
+  "description": "Cross-platform clipboard bridge — copy from stdin, paste to stdout, clear.",
+  "platform": {
+    "scope": "cross-platform",
+    "replaces": [
+      "clip.exe",
+      "pbcopy",
+      "pbpaste",
+      "xclip",
+      "xsel",
+      "wl-copy",
+      "wl-paste"
+    ],
+    "value_on_windows": "Windows clip.exe is write-only — this adds paste and clear",
+    "value_on_unix": "Normalises xclip/xsel/wl-copy/pbcopy behaviour behind one command"
+  },
+  "usage": "clip [options]",
+  "options": [
+    {
+      "long": "--help",
+      "short": "-h",
+      "type": "flag",
+      "description": "Show help",
+      "repeatable": false
+    },
+    {
+      "long": "--version",
+      "type": "flag",
+      "description": "Show version",
+      "repeatable": false
+    },
+    {
+      "long": "--no-color",
+      "type": "flag",
+      "description": "Disable colored output",
+      "repeatable": false
+    },
+    {
+      "long": "--json",
+      "type": "flag",
+      "description": "JSON output",
+      "repeatable": false
+    },
+    {
+      "long": "--describe",
+      "type": "flag",
+      "description": "Structured JSON metadata for AI agents",
+      "repeatable": false
+    },
+    {
+      "long": "--copy",
+      "short": "-c",
+      "type": "flag",
+      "description": "Force copy mode (read stdin to clipboard), overriding autodetect",
+      "repeatable": false
+    },
+    {
+      "long": "--paste",
+      "short": "-p",
+      "type": "flag",
+      "description": "Force paste mode (read clipboard to stdout), overriding autodetect",
+      "repeatable": false
+    },
+    {
+      "long": "--clear",
+      "type": "flag",
+      "description": "Empty the clipboard, overriding autodetect",
+      "repeatable": false
+    },
+    {
+      "long": "--raw",
+      "short": "-r",
+      "type": "flag",
+      "description": "Do not strip trailing newline on paste",
+      "repeatable": false
+    },
+    {
+      "long": "--primary",
+      "type": "flag",
+      "description": "Target X11/Wayland PRIMARY selection (Linux only; ignored elsewhere)",
+      "repeatable": false
+    },
+    {
+      "long": "--color",
+      "type": "optional-value",
+      "allowed_values": [
+        "auto",
+        "always",
+        "never"
+      ],
+      "default_when_bare": "always",
+      "description": "Coloured output: auto (default when omitted), always, or never",
+      "repeatable": false
+    }
+  ],
+  "exit_codes": [
+    {
+      "code": 0,
+      "description": "Success (including empty-clipboard paste)"
+    },
+    {
+      "code": 125,
+      "description": "Invalid flags / conflicting modes / invalid UTF-8 input"
+    },
+    {
+      "code": 126,
+      "description": "Clipboard busy or helper failure"
+    },
+    {
+      "code": 127,
+      "description": "No clipboard helper found (Linux only)"
+    }
+  ],
+  "io": {
+    "stdin": "Content to copy when stdin is redirected with content, or when -c is passed",
+    "stdout": "Clipboard contents on paste; nothing on copy or clear",
+    "stderr": "Error messages only"
+  },
+  "examples": [
+    {
+      "command": "clip",
+      "description": "Paste clipboard contents to stdout"
+    },
+    {
+      "command": "echo hello | clip",
+      "description": "Copy 'hello' to the clipboard (trailing newline preserved in copy)"
+    },
+    {
+      "command": "clip --clear",
+      "description": "Empty the clipboard"
+    },
+    {
+      "command": "clip -r > out.txt",
+      "description": "Paste without stripping trailing newline"
+    },
+    {
+      "command": "clip --primary",
+      "description": "Paste from the Linux PRIMARY selection (middle-click buffer)"
+    },
+    {
+      "command": "echo hi | clip --primary",
+      "description": "Copy to the Linux PRIMARY selection (applies to copy and clear too)"
+    }
+  ],
+  "composes_with": [
+    {
+      "tool": "ids",
+      "pattern": "ids | clip",
+      "description": "Generate an ID and copy it to the clipboard"
+    },
+    {
+      "tool": "digest",
+      "pattern": "digest report.txt | clip",
+      "description": "Copy a file hash to the clipboard (sha256 default)"
+    },
+    {
+      "tool": "qr",
+      "pattern": "qr \"https://example.com\" --format svg | clip",
+      "description": "Copy an SVG-encoded QR payload to the clipboard"
+    }
+  ]
+}

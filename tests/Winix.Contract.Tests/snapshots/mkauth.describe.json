@@ -1,0 +1,372 @@
+{
+  "schema_version": 1,
+  "tool": "mkauth",
+  "version": "<normalised>",
+  "maturity": "fresh",
+  "description": "Compute HTTP Authorization headers (Basic, Bearer, OAuth 1.0a, JWT, Azure Storage SharedKey).",
+  "platform": {
+    "scope": "cross-platform",
+    "replaces": [
+      "ad-hoc openssl/base64 signing scripts"
+    ],
+    "value_on_windows": "No openssl/base64 toolchain assumptions — one self-contained binary computes the signature.",
+    "value_on_unix": "Consistent header construction across shells without bespoke openssl pipelines per scheme."
+  },
+  "prefer_default_when": [
+    "AWS SigV4 signing — use curl --aws-sigv4",
+    "generic body HMAC (webhooks) — use digest --hmac"
+  ],
+  "usage": "mkauth [options]",
+  "options": [
+    {
+      "long": "--help",
+      "short": "-h",
+      "type": "flag",
+      "description": "Show help",
+      "repeatable": false
+    },
+    {
+      "long": "--version",
+      "type": "flag",
+      "description": "Show version",
+      "repeatable": false
+    },
+    {
+      "long": "--no-color",
+      "type": "flag",
+      "description": "Disable colored output",
+      "repeatable": false
+    },
+    {
+      "long": "--json",
+      "type": "flag",
+      "description": "JSON output",
+      "repeatable": false
+    },
+    {
+      "long": "--describe",
+      "type": "flag",
+      "description": "Structured JSON metadata for AI agents",
+      "repeatable": false
+    },
+    {
+      "long": "--value-only",
+      "type": "flag",
+      "description": "Print the header value only — keeps the scheme prefix (e.g. 'Bearer <jwt>'); not a bare token",
+      "repeatable": false
+    },
+    {
+      "long": "--show-base-string",
+      "type": "flag",
+      "description": "(oauth1/azure-storage) emit the computed signature base string for debugging",
+      "repeatable": false
+    },
+    {
+      "long": "--claims-stdin",
+      "type": "flag",
+      "description": "(jwt) merge a JSON object from stdin (exclusive with --key stdin)",
+      "repeatable": false
+    },
+    {
+      "long": "--iat",
+      "type": "flag",
+      "description": "(jwt) set iat to now",
+      "repeatable": false
+    },
+    {
+      "long": "--user",
+      "type": "string",
+      "placeholder": "NAME",
+      "description": "(basic) username — required",
+      "repeatable": false
+    },
+    {
+      "long": "--password",
+      "type": "string",
+      "placeholder": "REF",
+      "description": "(basic) password secret reference (env:/file:/vault:/literal:/stdin) — required",
+      "repeatable": false
+    },
+    {
+      "long": "--token",
+      "type": "string",
+      "placeholder": "REF",
+      "description": "(bearer) token secret reference; (oauth1) oauth_token value",
+      "repeatable": false
+    },
+    {
+      "long": "--method",
+      "type": "string",
+      "placeholder": "VERB",
+      "description": "(oauth1/azure-storage) HTTP method — required",
+      "repeatable": false
+    },
+    {
+      "long": "--url",
+      "type": "string",
+      "placeholder": "URL",
+      "description": "(oauth1/azure-storage) full request URL — required",
+      "repeatable": false
+    },
+    {
+      "long": "--consumer-key",
+      "type": "string",
+      "placeholder": "K",
+      "description": "(oauth1) oauth_consumer_key — required",
+      "repeatable": false
+    },
+    {
+      "long": "--consumer-secret",
+      "type": "string",
+      "placeholder": "REF",
+      "description": "(oauth1) consumer secret reference — required",
+      "repeatable": false
+    },
+    {
+      "long": "--token-secret",
+      "type": "string",
+      "placeholder": "REF",
+      "description": "(oauth1) token secret reference (empty for 2-legged)",
+      "repeatable": false
+    },
+    {
+      "long": "--signature-method",
+      "type": "string",
+      "placeholder": "M",
+      "description": "(oauth1) HMAC-SHA1 (default), HMAC-SHA256, or PLAINTEXT",
+      "repeatable": false
+    },
+    {
+      "long": "--realm",
+      "type": "string",
+      "placeholder": "R",
+      "description": "(oauth1) realm (not part of the signature base)",
+      "repeatable": false
+    },
+    {
+      "long": "--timestamp",
+      "type": "string",
+      "placeholder": "N",
+      "description": "(oauth1) override oauth_timestamp (default: clock)",
+      "repeatable": false
+    },
+    {
+      "long": "--nonce",
+      "type": "string",
+      "placeholder": "S",
+      "description": "(oauth1) override oauth_nonce (default: random)",
+      "repeatable": false
+    },
+    {
+      "long": "--alg",
+      "type": "string",
+      "placeholder": "A",
+      "description": "(jwt) HS256 (default), HS384, HS512, RS256/384/512, ES256/384/512",
+      "repeatable": false
+    },
+    {
+      "long": "--key",
+      "type": "string",
+      "placeholder": "REF",
+      "description": "(jwt) signing key reference; (azure-storage) account key reference — required",
+      "repeatable": false
+    },
+    {
+      "long": "--claims-file",
+      "type": "string",
+      "placeholder": "PATH",
+      "description": "(jwt) JSON object merged into the claim set",
+      "repeatable": false
+    },
+    {
+      "long": "--iss",
+      "type": "string",
+      "placeholder": "S",
+      "description": "(jwt) iss claim",
+      "repeatable": false
+    },
+    {
+      "long": "--sub",
+      "type": "string",
+      "placeholder": "S",
+      "description": "(jwt) sub claim",
+      "repeatable": false
+    },
+    {
+      "long": "--aud",
+      "type": "string",
+      "placeholder": "S",
+      "description": "(jwt) aud claim",
+      "repeatable": false
+    },
+    {
+      "long": "--exp",
+      "type": "string",
+      "placeholder": "DURATION",
+      "description": "(jwt) exp = now + DURATION",
+      "repeatable": false
+    },
+    {
+      "long": "--nbf",
+      "type": "string",
+      "placeholder": "DURATION",
+      "description": "(jwt) nbf = now + DURATION",
+      "repeatable": false
+    },
+    {
+      "long": "--kid",
+      "type": "string",
+      "placeholder": "S",
+      "description": "(jwt) kid JOSE header parameter",
+      "repeatable": false
+    },
+    {
+      "long": "--account",
+      "type": "string",
+      "placeholder": "NAME",
+      "description": "(azure-storage) storage account name — required",
+      "repeatable": false
+    },
+    {
+      "long": "--x-ms-date",
+      "type": "string",
+      "placeholder": "DATE",
+      "description": "(azure-storage) x-ms-date header value (default: clock, RFC1123 GMT)",
+      "repeatable": false
+    },
+    {
+      "long": "--x-ms-version",
+      "type": "string",
+      "placeholder": "V",
+      "description": "(azure-storage) x-ms-version header value",
+      "repeatable": false
+    },
+    {
+      "long": "--param",
+      "type": "string",
+      "placeholder": "K=V",
+      "description": "(oauth1) extra/body param folded into the signature base; repeatable",
+      "repeatable": true
+    },
+    {
+      "long": "--claim",
+      "type": "string",
+      "placeholder": "K=V",
+      "description": "(jwt) string claim; repeatable",
+      "repeatable": true
+    },
+    {
+      "long": "--claim-num",
+      "type": "string",
+      "placeholder": "K=V",
+      "description": "(jwt) numeric claim (value parsed as a number); repeatable",
+      "repeatable": true
+    },
+    {
+      "long": "--claim-json",
+      "type": "string",
+      "placeholder": "K=V",
+      "description": "(jwt) raw-JSON claim (value parsed as JSON); repeatable",
+      "repeatable": true
+    },
+    {
+      "long": "--header",
+      "type": "string",
+      "placeholder": "NAME:VAL",
+      "description": "(jwt) JOSE header parameter; (azure-storage) HTTP header. Accepts 'name: value' or name=value. Repeatable.",
+      "repeatable": true
+    },
+    {
+      "long": "--color",
+      "type": "optional-value",
+      "allowed_values": [
+        "auto",
+        "always",
+        "never"
+      ],
+      "default_when_bare": "always",
+      "description": "Coloured output: auto (default when omitted), always, or never",
+      "repeatable": false
+    }
+  ],
+  "exit_codes": [
+    {
+      "code": 0,
+      "description": "Success"
+    },
+    {
+      "code": 125,
+      "description": "Usage error: bad flags, unknown subcommand, missing required flag"
+    },
+    {
+      "code": 126,
+      "description": "Runtime error: secret resolution failed, malformed URL, signing error"
+    }
+  ],
+  "io": {
+    "stdin": "Reads a secret/key or claims body when a flag uses 'stdin'",
+    "stdout": "The computed header line, the header value only (--value-only), or JSON (--json)",
+    "stderr": "Warnings (literal: secret exposure, PLAINTEXT-over-HTTP), --show-base-string debug, errors"
+  },
+  "examples": [
+    {
+      "command": "mkauth basic --user alice --password env:PASSWORD",
+      "description": "Compute a Basic header from an env var"
+    },
+    {
+      "command": "mkauth bearer --token vault:api/token",
+      "description": "Bearer header from a vaulted token"
+    },
+    {
+      "command": "mkauth oauth1 --method GET --url https://api.x.com/1.1/x.json --consumer-key CK --consumer-secret env:CS --token T --token-secret env:TS",
+      "description": "Sign a 3-legged OAuth 1.0a request"
+    },
+    {
+      "command": "mkauth jwt --alg HS256 --key env:JWT_KEY --iss me --exp 1h --value-only",
+      "description": "Mint a short-lived HS256 JWT"
+    },
+    {
+      "command": "curl -H \"$(mkauth oauth1 --method GET --url https://api.x.com/x --consumer-key CK --consumer-secret env:CS)\" https://api.x.com/x",
+      "description": "Pipe the header straight into curl"
+    }
+  ],
+  "composes_with": [
+    {
+      "tool": "curl",
+      "pattern": "curl -H \"$(mkauth bearer --token env:TOKEN)\" https://api.example.com/",
+      "description": "Use the computed header in a request"
+    },
+    {
+      "tool": "envvault",
+      "pattern": "envvault api mkauth oauth1 --method GET --url https://api.x.com/x --consumer-key CK --consumer-secret env:CONSUMER_SECRET",
+      "description": "Inject secrets from a vault namespace, then sign"
+    },
+    {
+      "tool": "digest",
+      "pattern": "printf '%s.%s' \"$ts\" \"$body\" | digest --hmac sha256 --key-env WEBHOOK_SECRET --base64",
+      "description": "Generic webhook HMAC (deliberately not a mkauth scheme — compose with digest)"
+    }
+  ],
+  "json_output_fields": [
+    {
+      "name": "scheme",
+      "type": "string",
+      "description": "Auth scheme name (basic, bearer, oauth1, jwt, azure-storage)"
+    },
+    {
+      "name": "header_name",
+      "type": "string",
+      "description": "Header name (always Authorization)"
+    },
+    {
+      "name": "header_value",
+      "type": "string",
+      "description": "The computed header value"
+    },
+    {
+      "name": "base_string",
+      "type": "string",
+      "description": "Signature base string (only with --show-base-string)"
+    }
+  ]
+}

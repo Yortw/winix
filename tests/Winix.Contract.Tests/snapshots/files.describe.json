@@ -1,0 +1,317 @@
+{
+  "schema_version": 1,
+  "tool": "files",
+  "version": "<normalised>",
+  "maturity": "core",
+  "description": "Find files by name, size, date, type, and content.",
+  "platform": {
+    "scope": "cross-platform",
+    "replaces": [
+      "find"
+    ],
+    "value_on_windows": "No native find equivalent; fills a major gap",
+    "value_on_unix": "Cleaner flag syntax, --json output, composes with wargs"
+  },
+  "glob_expansion": {
+    "positionals": true,
+    "syntax": "* and ? in any path segment",
+    "not_patterns": [
+      "[...] (matched literally; legal Windows filename chars)",
+      "** (rejected with usage error)"
+    ],
+    "no_match": "literal passthrough",
+    "quoting": "quoted args not expanded (effective from cmd; PowerShell strips quotes)",
+    "windows_only": true
+  },
+  "usage": "files [options] [paths...]",
+  "options": [
+    {
+      "long": "--help",
+      "short": "-h",
+      "type": "flag",
+      "description": "Show help",
+      "repeatable": false
+    },
+    {
+      "long": "--version",
+      "type": "flag",
+      "description": "Show version",
+      "repeatable": false
+    },
+    {
+      "long": "--no-color",
+      "type": "flag",
+      "description": "Disable colored output",
+      "repeatable": false
+    },
+    {
+      "long": "--json",
+      "type": "flag",
+      "description": "JSON output",
+      "repeatable": false
+    },
+    {
+      "long": "--describe",
+      "type": "flag",
+      "description": "Structured JSON metadata for AI agents",
+      "repeatable": false
+    },
+    {
+      "long": "--text",
+      "type": "flag",
+      "description": "Only text files",
+      "repeatable": false
+    },
+    {
+      "long": "--binary",
+      "type": "flag",
+      "description": "Only binary files",
+      "repeatable": false
+    },
+    {
+      "long": "--follow",
+      "short": "-L",
+      "type": "flag",
+      "description": "Follow symlinks",
+      "repeatable": false
+    },
+    {
+      "long": "--absolute",
+      "type": "flag",
+      "description": "Output absolute paths",
+      "repeatable": false
+    },
+    {
+      "long": "--no-hidden",
+      "type": "flag",
+      "description": "Skip hidden files and directories",
+      "repeatable": false
+    },
+    {
+      "long": "--gitignore",
+      "type": "flag",
+      "description": "Respect .gitignore rules",
+      "repeatable": false
+    },
+    {
+      "long": "--ignore-case",
+      "short": "-i",
+      "type": "flag",
+      "description": "Case-insensitive matching",
+      "repeatable": false
+    },
+    {
+      "long": "--case-sensitive",
+      "type": "flag",
+      "description": "Case-sensitive matching",
+      "repeatable": false
+    },
+    {
+      "long": "--long",
+      "short": "-l",
+      "type": "flag",
+      "description": "Tab-delimited detail output",
+      "repeatable": false
+    },
+    {
+      "long": "--print0",
+      "short": "-0",
+      "type": "flag",
+      "description": "Null-delimited output",
+      "repeatable": false
+    },
+    {
+      "long": "--ndjson",
+      "type": "flag",
+      "description": "Streaming NDJSON output",
+      "repeatable": false
+    },
+    {
+      "long": "--type",
+      "short": "-t",
+      "type": "string",
+      "placeholder": "TYPE",
+      "description": "f (file), d (directory), or l (symlink)",
+      "repeatable": false
+    },
+    {
+      "long": "--min-size",
+      "type": "string",
+      "placeholder": "SIZE",
+      "description": "Minimum file size (e.g. 100k, 10M)",
+      "repeatable": false
+    },
+    {
+      "long": "--max-size",
+      "type": "string",
+      "placeholder": "SIZE",
+      "description": "Maximum file size (e.g. 100k, 10M)",
+      "repeatable": false
+    },
+    {
+      "long": "--newer",
+      "type": "string",
+      "placeholder": "DURATION",
+      "description": "Modified within duration (e.g. 1h, 7d)",
+      "repeatable": false
+    },
+    {
+      "long": "--older",
+      "type": "string",
+      "placeholder": "DURATION",
+      "description": "Not modified within duration (e.g. 1h, 7d)",
+      "repeatable": false
+    },
+    {
+      "long": "--max-depth",
+      "short": "-d",
+      "type": "int",
+      "placeholder": "N",
+      "description": "Maximum directory depth (0-based; 0 = root only)",
+      "repeatable": false
+    },
+    {
+      "long": "--glob",
+      "short": "-g",
+      "type": "string",
+      "placeholder": "PATTERN",
+      "description": "Match filenames against glob",
+      "repeatable": true
+    },
+    {
+      "long": "--regex",
+      "short": "-e",
+      "type": "string",
+      "placeholder": "PATTERN",
+      "description": "Match filenames against regex",
+      "repeatable": true
+    },
+    {
+      "long": "--ext",
+      "type": "string",
+      "placeholder": "EXT",
+      "description": "Match file extension",
+      "repeatable": true
+    },
+    {
+      "long": "--color",
+      "type": "optional-value",
+      "allowed_values": [
+        "auto",
+        "always",
+        "never"
+      ],
+      "default_when_bare": "always",
+      "description": "Coloured output: auto (default when omitted), always, or never",
+      "repeatable": false
+    }
+  ],
+  "exit_codes": [
+    {
+      "code": 0,
+      "description": "Success"
+    },
+    {
+      "code": 1,
+      "description": "Runtime error (path not found, not a directory, or partial walk with one or more unreadable directories)"
+    },
+    {
+      "code": 125,
+      "description": "Usage error"
+    }
+  ],
+  "io": {
+    "stdin": "Not used",
+    "stdout": "One file path per line (default); null-delimited with --print0; NDJSON with --ndjson; --json envelope.",
+    "stderr": "Warnings, errors, and per-path walk errors."
+  },
+  "examples": [
+    {
+      "command": "files src --glob '*.cs'",
+      "description": "Find all C# source files under src/"
+    },
+    {
+      "command": "files . --ext cs",
+      "description": "Find all C# files (shorthand for --glob '*.cs')"
+    },
+    {
+      "command": "files . --newer 1h --type f",
+      "description": "Files modified in the last hour"
+    },
+    {
+      "command": "files . --glob '*.log' | wargs rm",
+      "description": "Delete all log files (compose with wargs)"
+    },
+    {
+      "command": "files . --long --ext cs",
+      "description": "List C# files with size and date"
+    },
+    {
+      "command": "files . --text",
+      "description": "Find all text files (skip binaries)"
+    },
+    {
+      "command": "files . --gitignore --no-hidden --ext cs",
+      "description": "fd-style: source files only"
+    }
+  ],
+  "composes_with": [
+    {
+      "tool": "wargs",
+      "pattern": "files ... | wargs <command>",
+      "description": "Find files then execute a command for each one"
+    },
+    {
+      "tool": "peep",
+      "pattern": "peep -- files . --glob '*.log' --newer 5m",
+      "description": "Watch for recently created log files"
+    },
+    {
+      "tool": "squeeze",
+      "pattern": "files . --glob '*.json' | wargs squeeze --zstd",
+      "description": "Compress all JSON files"
+    }
+  ],
+  "json_output_fields": [
+    {
+      "name": "path",
+      "type": "string",
+      "description": "File path (relative or absolute)"
+    },
+    {
+      "name": "name",
+      "type": "string",
+      "description": "Filename only"
+    },
+    {
+      "name": "type",
+      "type": "string",
+      "description": "file, directory, or symlink"
+    },
+    {
+      "name": "size_bytes",
+      "type": "int|null",
+      "description": "File size in bytes; null for directory entries"
+    },
+    {
+      "name": "modified",
+      "type": "string|null",
+      "description": "ISO 8601 last modified timestamp; null when not populated"
+    },
+    {
+      "name": "depth",
+      "type": "int",
+      "description": "Depth relative to search root"
+    },
+    {
+      "name": "is_text",
+      "type": "bool?",
+      "description": "True if text, false if binary. Present only when --text/--binary used."
+    },
+    {
+      "name": "walk_errors",
+      "type": "array",
+      "description": "On --json summary: array of {path, reason} for paths that could not be read; empty on success."
+    }
+  ]
+}

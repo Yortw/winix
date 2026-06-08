@@ -1,0 +1,137 @@
+{
+  "schema_version": 1,
+  "tool": "winix",
+  "version": "<normalised>",
+  "maturity": "core",
+  "description": "Install, update, and manage the Winix CLI tool suite.",
+  "platform": {
+    "scope": "cross-platform",
+    "replaces": [
+      "winget",
+      "scoop",
+      "brew"
+    ],
+    "value_on_windows": "No cross-platform suite installer exists",
+    "value_on_unix": "Manages all Winix tools with a single command across Windows and macOS"
+  },
+  "usage": "winix [options] [command [tool...]]",
+  "options": [
+    {
+      "long": "--help",
+      "short": "-h",
+      "type": "flag",
+      "description": "Show help",
+      "repeatable": false
+    },
+    {
+      "long": "--version",
+      "type": "flag",
+      "description": "Show version",
+      "repeatable": false
+    },
+    {
+      "long": "--no-color",
+      "type": "flag",
+      "description": "Disable colored output",
+      "repeatable": false
+    },
+    {
+      "long": "--json",
+      "type": "flag",
+      "description": "JSON output",
+      "repeatable": false
+    },
+    {
+      "long": "--describe",
+      "type": "flag",
+      "description": "Structured JSON metadata for AI agents",
+      "repeatable": false
+    },
+    {
+      "long": "--dry-run",
+      "type": "flag",
+      "description": "Show commands that would be run without executing them",
+      "repeatable": false
+    },
+    {
+      "long": "--via",
+      "type": "string",
+      "placeholder": "PM",
+      "description": "Package manager to use: winget, scoop, brew, dotnet",
+      "repeatable": false
+    },
+    {
+      "long": "--color",
+      "type": "optional-value",
+      "allowed_values": [
+        "auto",
+        "always",
+        "never"
+      ],
+      "default_when_bare": "always",
+      "description": "Coloured output: auto (default when omitted), always, or never",
+      "repeatable": false
+    }
+  ],
+  "exit_codes": [
+    {
+      "code": 0,
+      "description": "Success"
+    },
+    {
+      "code": 1,
+      "description": "One or more tools failed"
+    },
+    {
+      "code": 125,
+      "description": "Usage error (bad command or argument)"
+    },
+    {
+      "code": 126,
+      "description": "No supported package manager found"
+    },
+    {
+      "code": 127,
+      "description": "Internal error (manifest fetch/parse failure)"
+    }
+  ],
+  "io": {
+    "stdin": "Not used",
+    "stdout": "JSON metadata when --json is set, otherwise unused",
+    "stderr": "Progress and result lines, one per tool."
+  },
+  "examples": [
+    {
+      "command": "winix install",
+      "description": "Install all Winix tools using the default package manager"
+    },
+    {
+      "command": "winix install timeit squeeze",
+      "description": "Install specific tools"
+    },
+    {
+      "command": "winix install --via scoop",
+      "description": "Install all tools via Scoop"
+    },
+    {
+      "command": "winix update",
+      "description": "Update all installed Winix tools"
+    },
+    {
+      "command": "winix uninstall",
+      "description": "Remove all Winix tools"
+    },
+    {
+      "command": "winix list",
+      "description": "List all tools and their install status"
+    },
+    {
+      "command": "winix status",
+      "description": "Show a summary of installed tools"
+    },
+    {
+      "command": "winix install --dry-run",
+      "description": "Preview what would be installed"
+    }
+  ]
+}

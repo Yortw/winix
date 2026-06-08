@@ -1,0 +1,282 @@
+{
+  "schema_version": 1,
+  "tool": "wargs",
+  "version": "<normalised>",
+  "maturity": "core",
+  "description": "Read items from stdin and execute a command for each one.",
+  "platform": {
+    "scope": "cross-platform",
+    "replaces": [
+      "xargs"
+    ],
+    "value_on_windows": "No native xargs; Git Bash xargs has path-mangling issues with Windows paths",
+    "value_on_unix": "Sane line-delimited default instead of whitespace splitting"
+  },
+  "usage": "wargs [options] [--] <command> [args...]",
+  "options": [
+    {
+      "long": "--help",
+      "short": "-h",
+      "type": "flag",
+      "description": "Show help",
+      "repeatable": false
+    },
+    {
+      "long": "--version",
+      "type": "flag",
+      "description": "Show version",
+      "repeatable": false
+    },
+    {
+      "long": "--no-color",
+      "type": "flag",
+      "description": "Disable colored output",
+      "repeatable": false
+    },
+    {
+      "long": "--json",
+      "type": "flag",
+      "description": "JSON output",
+      "repeatable": false
+    },
+    {
+      "long": "--describe",
+      "type": "flag",
+      "description": "Structured JSON metadata for AI agents",
+      "repeatable": false
+    },
+    {
+      "long": "--ndjson",
+      "type": "flag",
+      "description": "Streaming NDJSON per job to stderr",
+      "repeatable": false
+    },
+    {
+      "long": "--null",
+      "short": "-0",
+      "type": "flag",
+      "description": "Null-delimited input",
+      "repeatable": false
+    },
+    {
+      "long": "--compat",
+      "type": "flag",
+      "description": "POSIX whitespace splitting with quote handling",
+      "repeatable": false
+    },
+    {
+      "long": "--fail-fast",
+      "type": "flag",
+      "description": "Stop spawning after first failure",
+      "repeatable": false
+    },
+    {
+      "long": "--keep-order",
+      "short": "-k",
+      "type": "flag",
+      "description": "Print output in input order",
+      "repeatable": false
+    },
+    {
+      "long": "--line-buffered",
+      "type": "flag",
+      "description": "Children inherit stdio directly",
+      "repeatable": false
+    },
+    {
+      "long": "--confirm",
+      "short": "-p",
+      "type": "flag",
+      "description": "Prompt before each job",
+      "repeatable": false
+    },
+    {
+      "long": "--dry-run",
+      "type": "flag",
+      "description": "Print commands without executing",
+      "repeatable": false
+    },
+    {
+      "long": "--verbose",
+      "short": "-v",
+      "type": "flag",
+      "description": "Print each command to stderr before running",
+      "repeatable": false
+    },
+    {
+      "long": "--no-shell-fallback",
+      "type": "flag",
+      "description": "Disable shell fallback for builtins (cmd /c, sh -c)",
+      "repeatable": false
+    },
+    {
+      "long": "--parallel",
+      "short": "-P",
+      "type": "int",
+      "placeholder": "N",
+      "description": "Max concurrent jobs (default 1, 0 = unlimited)",
+      "repeatable": false
+    },
+    {
+      "long": "--batch",
+      "short": "-n",
+      "type": "int",
+      "placeholder": "N",
+      "description": "Items per invocation (default 1)",
+      "repeatable": false
+    },
+    {
+      "long": "--delimiter",
+      "short": "-d",
+      "type": "string",
+      "placeholder": "CHAR",
+      "description": "Custom input delimiter",
+      "repeatable": false
+    },
+    {
+      "long": "--color",
+      "type": "optional-value",
+      "allowed_values": [
+        "auto",
+        "always",
+        "never"
+      ],
+      "default_when_bare": "always",
+      "description": "Coloured output: auto (default when omitted), always, or never",
+      "repeatable": false
+    }
+  ],
+  "exit_codes": [
+    {
+      "code": 0,
+      "description": "All jobs succeeded"
+    },
+    {
+      "code": 123,
+      "description": "One or more child processes failed (or could not be spawned). Per-job spawn failures surface in fault_message rather than as a separate exit code — wargs intentionally collapses spawn failures into 123 + per-job diagnostic."
+    },
+    {
+      "code": 124,
+      "description": "Aborted due to --fail-fast"
+    },
+    {
+      "code": 125,
+      "description": "Usage error"
+    },
+    {
+      "code": 126,
+      "description": "Internal/IO failure: stdin read failed, unexpected exception escaped to safety net"
+    },
+    {
+      "code": 130,
+      "description": "Cancelled by signal (Ctrl+C / SIGINT)"
+    }
+  ],
+  "io": {
+    "stdin": "Items to process, one per line (default). Null-delimited with -0. Whitespace with --compat.",
+    "stdout": "Child process stdout (buffered per job by default)",
+    "stderr": "Failure summary. JSON with --json. NDJSON per job with --ndjson."
+  },
+  "examples": [
+    {
+      "command": "files . --ext log | wargs rm",
+      "description": "Delete all log files"
+    },
+    {
+      "command": "git diff --name-only | wargs dotnet format",
+      "description": "Format changed files"
+    },
+    {
+      "command": "files . --ext cs | wargs -P4 dotnet format",
+      "description": "Parallel format"
+    },
+    {
+      "command": "echo 'one\\ntwo\\nthree' | wargs echo",
+      "description": "Basic usage"
+    }
+  ],
+  "composes_with": [
+    {
+      "tool": "files",
+      "pattern": "files ... | wargs <command>",
+      "description": "Find then execute (find | xargs pattern)"
+    },
+    {
+      "tool": "squeeze",
+      "pattern": "files . --ext csv | wargs squeeze --zstd",
+      "description": "Batch compress"
+    }
+  ],
+  "json_output_fields": [
+    {
+      "name": "tool",
+      "type": "string",
+      "description": "Tool name (\"wargs\"). Emitted in both --json summary envelope and --ndjson per-job lines."
+    },
+    {
+      "name": "version",
+      "type": "string",
+      "description": "Tool version. Emitted in both --json summary envelope and --ndjson per-job lines."
+    },
+    {
+      "name": "exit_code",
+      "type": "int",
+      "description": "(--json summary) Tool exit code: 0 = success; 123 = child_failed (any child non-zero exit OR spawn failure — spawn failures surface via per-job fault_message rather than a separate exit code); 124 = fail_fast_abort; 125 = usage_error; 126 = unexpected_error / input_read_failed; 130 = cancelled. (--ndjson per-job) Restricted to 0 (job succeeded) or 123 (job's child failed or could not be spawned)."
+    },
+    {
+      "name": "exit_reason",
+      "type": "string",
+      "description": "(--json summary) One of: success, child_failed, fail_fast_abort, no_input, input_read_failed, usage_error, dry_run, cancelled, unexpected_error. (--ndjson per-job) Restricted to: success or child_failed."
+    },
+    {
+      "name": "total_jobs",
+      "type": "int",
+      "description": "(--json summary) Total number of jobs. Reflects --dry-run plan count when emitted under exit_reason=dry_run."
+    },
+    {
+      "name": "succeeded",
+      "type": "int",
+      "description": "(--json summary) Jobs that exited 0"
+    },
+    {
+      "name": "failed",
+      "type": "int",
+      "description": "(--json summary) Jobs that exited non-zero"
+    },
+    {
+      "name": "skipped",
+      "type": "int",
+      "description": "(--json summary) Jobs skipped (fail-fast or confirm declined)"
+    },
+    {
+      "name": "wall_seconds",
+      "type": "float",
+      "description": "(--json summary) Wall-clock duration of the wargs run in seconds — NOT the sum of per-job durations (under -P parallel jobs overlap, so wall_seconds is closer to max(per-job durations) plus dispatch overhead). (--ndjson per-job) Per-job wall-clock duration in seconds."
+    },
+    {
+      "name": "faults",
+      "type": "object[]|null",
+      "description": "(--json summary) Per-job fault diagnostics; present only when at least one job carries a FaultMessage. Each entry is {job: int, message: string}."
+    },
+    {
+      "name": "job",
+      "type": "int",
+      "description": "(--ndjson per-job) 1-based job index of this line"
+    },
+    {
+      "name": "child_exit_code",
+      "type": "int",
+      "description": "(--ndjson per-job) Child process exit code. -1 only on a TRUE spawn failure (--no-shell-fallback, or the fallback shell itself failing to start) — under the default shell fallback a not-found command is retried via sh -c / cmd /c, so the shell's exit code (127 / 9009) appears here instead, with no fault_message."
+    },
+    {
+      "name": "input",
+      "type": "string|string[]",
+      "description": "(--ndjson per-job) Source item(s) — string when --batch=1, array when batched"
+    },
+    {
+      "name": "fault_message",
+      "type": "string|null",
+      "description": "(--ndjson per-job) Spawn/task fault diagnostic; omitted on normal paths"
+    }
+  ]
+}

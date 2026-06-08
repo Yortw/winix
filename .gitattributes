@@ -23,6 +23,10 @@
 *.bat text eol=crlf
 *.ps1 text eol=crlf
 
+# Contract snapshot files — must stay LF on all platforms so byte-equality comparisons
+# work correctly on Windows (where autocrlf would otherwise rewrite them to CRLF).
+tests/Winix.Contract.Tests/snapshots/*.json text eol=lf
+
 # Binary files — do not diff or merge
 *.png binary
 *.ico binary

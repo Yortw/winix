@@ -1,0 +1,287 @@
+{
+  "schema_version": 1,
+  "tool": "nc",
+  "version": "<normalised>",
+  "maturity": "core",
+  "description": "Cross-platform netcat — TCP/UDP send/receive, port checks, TLS clients.",
+  "usage": "nc [options] [<host> <port> | <port>]",
+  "options": [
+    {
+      "long": "--listen",
+      "short": "-l",
+      "type": "flag",
+      "description": "Listen for one inbound connection / datagram",
+      "repeatable": false
+    },
+    {
+      "long": "--check",
+      "short": "-z",
+      "type": "flag",
+      "description": "Check whether port(s) are open and exit",
+      "repeatable": false
+    },
+    {
+      "long": "--udp",
+      "short": "-u",
+      "type": "flag",
+      "description": "Use UDP (default is TCP)",
+      "repeatable": false
+    },
+    {
+      "long": "--tls",
+      "type": "flag",
+      "description": "Wrap TCP connection in TLS (client mode only)",
+      "repeatable": false
+    },
+    {
+      "long": "--insecure",
+      "type": "flag",
+      "description": "Skip TLS certificate validation (warning emitted)",
+      "repeatable": false
+    },
+    {
+      "long": "--ipv4",
+      "short": "-4",
+      "type": "flag",
+      "description": "Force IPv4",
+      "repeatable": false
+    },
+    {
+      "long": "--ipv6",
+      "short": "-6",
+      "type": "flag",
+      "description": "Force IPv6",
+      "repeatable": false
+    },
+    {
+      "long": "--no-shutdown",
+      "type": "flag",
+      "description": "Don't half-close socket on stdin EOF",
+      "repeatable": false
+    },
+    {
+      "long": "--verbose",
+      "short": "-v",
+      "type": "flag",
+      "description": "Show closed/timeout ports too in --check mode",
+      "repeatable": false
+    },
+    {
+      "long": "--help",
+      "short": "-h",
+      "type": "flag",
+      "description": "Show help",
+      "repeatable": false
+    },
+    {
+      "long": "--version",
+      "type": "flag",
+      "description": "Show version",
+      "repeatable": false
+    },
+    {
+      "long": "--no-color",
+      "type": "flag",
+      "description": "Disable colored output",
+      "repeatable": false
+    },
+    {
+      "long": "--json",
+      "type": "flag",
+      "description": "JSON output",
+      "repeatable": false
+    },
+    {
+      "long": "--describe",
+      "type": "flag",
+      "description": "Structured JSON metadata for AI agents",
+      "repeatable": false
+    },
+    {
+      "long": "--timeout",
+      "short": "-w",
+      "type": "int",
+      "placeholder": "SEC",
+      "description": "Connection / idle timeout in seconds",
+      "repeatable": false
+    },
+    {
+      "long": "--bind",
+      "type": "string",
+      "placeholder": "ADDR",
+      "description": "Bind listener to specific interface (default: all)",
+      "repeatable": false
+    },
+    {
+      "long": "--color",
+      "type": "optional-value",
+      "allowed_values": [
+        "auto",
+        "always",
+        "never"
+      ],
+      "default_when_bare": "always",
+      "description": "Coloured output: auto (default when omitted), always, or never",
+      "repeatable": false
+    }
+  ],
+  "exit_codes": [
+    {
+      "code": 0,
+      "description": "Success"
+    },
+    {
+      "code": 1,
+      "description": "Connection refused, DNS failure, bind failure, any closed port (check)"
+    },
+    {
+      "code": 2,
+      "description": "Timeout"
+    },
+    {
+      "code": 125,
+      "description": "Usage error"
+    },
+    {
+      "code": 126,
+      "description": "Permission denied (e.g., privileged port)"
+    },
+    {
+      "code": 130,
+      "description": "Interrupted (Ctrl-C)"
+    }
+  ],
+  "io": {
+    "stdin": "Bytes to send to the remote (connect/listen modes)",
+    "stdout": "Bytes received from the remote, or open ports (check mode)",
+    "stderr": "Status messages, errors, --json summary"
+  },
+  "examples": [
+    {
+      "command": "nc -z target.com 443",
+      "description": "Quick port check"
+    },
+    {
+      "command": "nc -z target.com 80,443,5432",
+      "description": "Check multiple ports"
+    },
+    {
+      "command": "nc -z target.com 1-1024 --json",
+      "description": "Range check with JSON output"
+    },
+    {
+      "command": "echo \"GET / HTTP/1.0\" | nc target.com 80",
+      "description": "Send and receive over TCP"
+    },
+    {
+      "command": "nc --tls api.example.com 443",
+      "description": "TLS client"
+    },
+    {
+      "command": "nc -u dnsserver 53 < query.bin",
+      "description": "UDP client"
+    },
+    {
+      "command": "nc -l 8080",
+      "description": "Listen for one TCP connection on :8080"
+    },
+    {
+      "command": "nc target.com 80 < request.bin > response.bin",
+      "description": "File transfer via piping"
+    }
+  ],
+  "composes_with": [
+    {
+      "tool": "xargs",
+      "pattern": "nc -z target 22,80,443 | xargs -I{} echo open: {}",
+      "description": "Process open-port list"
+    },
+    {
+      "tool": "retry",
+      "pattern": "retry --until 0 --times 30 --delay 2s nc -z localhost 5432",
+      "description": "Wait until a service port accepts connections (wait-for-it replacement)"
+    }
+  ],
+  "json_output_fields": [
+    {
+      "name": "tool",
+      "type": "string",
+      "description": "Tool name (\"nc\")"
+    },
+    {
+      "name": "version",
+      "type": "string",
+      "description": "Tool version"
+    },
+    {
+      "name": "mode",
+      "type": "string",
+      "description": "connect | listen | check"
+    },
+    {
+      "name": "exit_code",
+      "type": "int",
+      "description": "Tool exit code"
+    },
+    {
+      "name": "exit_reason",
+      "type": "string",
+      "description": "Machine-readable exit reason"
+    },
+    {
+      "name": "host",
+      "type": "string",
+      "description": "Target host (connect/check modes)"
+    },
+    {
+      "name": "port",
+      "type": "int",
+      "description": "Target port (connect/listen modes)"
+    },
+    {
+      "name": "protocol",
+      "type": "string",
+      "description": "tcp | udp (connect/listen modes)"
+    },
+    {
+      "name": "tls",
+      "type": "bool",
+      "description": "Whether TLS was used (connect mode)"
+    },
+    {
+      "name": "remote_address",
+      "type": "string",
+      "description": "Resolved remote endpoint"
+    },
+    {
+      "name": "local_address",
+      "type": "string",
+      "description": "Bind endpoint (listen mode)"
+    },
+    {
+      "name": "bytes_sent",
+      "type": "int",
+      "description": "Bytes sent to peer"
+    },
+    {
+      "name": "bytes_received",
+      "type": "int",
+      "description": "Bytes received from peer"
+    },
+    {
+      "name": "duration_ms",
+      "type": "number",
+      "description": "Wall-clock duration (ms)"
+    },
+    {
+      "name": "ports",
+      "type": "array",
+      "description": "Per-port results (check mode): port, status, latency_ms?, error?"
+    },
+    {
+      "name": "error",
+      "type": "string",
+      "description": "Error summary (only present when the run crashed out of normal exit paths)"
+    }
+  ]
+}

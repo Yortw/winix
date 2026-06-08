@@ -1,0 +1,246 @@
+{
+  "schema_version": 1,
+  "tool": "url",
+  "version": "<normalised>",
+  "maturity": "core",
+  "description": "Cross-platform URL encode/decode/parse/build/join/query-edit.",
+  "platform": {
+    "scope": "cross-platform",
+    "replaces": [
+      "python -c 'import urllib.parse'"
+    ],
+    "value_on_windows": "cmd.exe has no clean subprocess-substitution, so URL assembly is painful. url absorbs per-value encoding into one call.",
+    "value_on_unix": "Consistent surface across bash / zsh / fish — each shell has different (or no) built-in URL-encoding primitives."
+  },
+  "usage": "url [options]",
+  "options": [
+    {
+      "long": "--help",
+      "short": "-h",
+      "type": "flag",
+      "description": "Show help",
+      "repeatable": false
+    },
+    {
+      "long": "--version",
+      "type": "flag",
+      "description": "Show version",
+      "repeatable": false
+    },
+    {
+      "long": "--no-color",
+      "type": "flag",
+      "description": "Disable colored output",
+      "repeatable": false
+    },
+    {
+      "long": "--json",
+      "type": "flag",
+      "description": "JSON output",
+      "repeatable": false
+    },
+    {
+      "long": "--describe",
+      "type": "flag",
+      "description": "Structured JSON metadata for AI agents",
+      "repeatable": false
+    },
+    {
+      "long": "--form",
+      "type": "flag",
+      "description": "Shorthand for --mode form (applies to encode/decode)",
+      "repeatable": false
+    },
+    {
+      "long": "--raw",
+      "type": "flag",
+      "description": "Disable normalisation on build/join/query set/delete",
+      "repeatable": false
+    },
+    {
+      "long": "--strict",
+      "type": "flag",
+      "description": "(decode only) reject malformed percent-escapes (default: pass through)",
+      "repeatable": false
+    },
+    {
+      "long": "--all",
+      "type": "flag",
+      "description": "(query get only) print every value for the key, one per line",
+      "repeatable": false
+    },
+    {
+      "long": "--mode",
+      "type": "string",
+      "placeholder": "MODE",
+      "description": "Encoding variant: component (default), path, query, form",
+      "repeatable": false
+    },
+    {
+      "long": "--field",
+      "type": "string",
+      "placeholder": "NAME",
+      "description": "(parse only) emit a single field; conflicts with --json",
+      "repeatable": false
+    },
+    {
+      "long": "--scheme",
+      "type": "string",
+      "placeholder": "S",
+      "description": "(build only) URL scheme; defaults to https",
+      "repeatable": false
+    },
+    {
+      "long": "--host",
+      "type": "string",
+      "placeholder": "H",
+      "description": "(build only) hostname — required",
+      "repeatable": false
+    },
+    {
+      "long": "--port",
+      "type": "string",
+      "placeholder": "N",
+      "description": "(build only) port number",
+      "repeatable": false
+    },
+    {
+      "long": "--path",
+      "type": "string",
+      "placeholder": "P",
+      "description": "(build only) URL path",
+      "repeatable": false
+    },
+    {
+      "long": "--fragment",
+      "type": "string",
+      "placeholder": "F",
+      "description": "(build only) fragment",
+      "repeatable": false
+    },
+    {
+      "long": "--query",
+      "type": "string",
+      "placeholder": "K=V",
+      "description": "(build only) query pair; repeatable",
+      "repeatable": true
+    },
+    {
+      "long": "--color",
+      "type": "optional-value",
+      "allowed_values": [
+        "auto",
+        "always",
+        "never"
+      ],
+      "default_when_bare": "always",
+      "description": "Coloured output: auto (default when omitted), always, or never",
+      "repeatable": false
+    }
+  ],
+  "exit_codes": [
+    {
+      "code": 0,
+      "description": "Success"
+    },
+    {
+      "code": 125,
+      "description": "Usage error: bad flags, unknown subcommand, base URL must be absolute"
+    },
+    {
+      "code": 126,
+      "description": "Runtime error: invalid URL, key not found"
+    }
+  ],
+  "io": {
+    "stdin": "Not used in v1",
+    "stdout": "Plain text or JSON per subcommand",
+    "stderr": "Usage errors and runtime errors"
+  },
+  "examples": [
+    {
+      "command": "url encode \"hello world\"",
+      "description": "Percent-encode a string"
+    },
+    {
+      "command": "url decode \"hello%20world\"",
+      "description": "Percent-decode"
+    },
+    {
+      "command": "url parse \"https://x.io/a?b=1\"",
+      "description": "Deconstruct a URL into key=value lines"
+    },
+    {
+      "command": "url parse \"https://x.io/\" --field host",
+      "description": "Extract a single field"
+    },
+    {
+      "command": "url parse \"https://x.io/?a=1&b=2\" --json",
+      "description": "Structured JSON with ordered + duplicate-preserving query"
+    },
+    {
+      "command": "url build --host api.example.com --path /v1 --query q=\"hello world\"",
+      "description": "Assemble a URL from parts"
+    },
+    {
+      "command": "url join \"https://x.io/blog/\" \"./post-1\"",
+      "description": "RFC 3986 §5 relative-URL resolution"
+    },
+    {
+      "command": "url query get \"https://x.io/?a=1\" a",
+      "description": "Read a query value"
+    },
+    {
+      "command": "url query set \"https://x.io/?a=1\" b 2",
+      "description": "Set or append a query key"
+    },
+    {
+      "command": "url query delete \"https://x.io/?a=1&b=2\" a",
+      "description": "Remove a query key"
+    }
+  ],
+  "composes_with": [
+    {
+      "tool": "ids",
+      "pattern": "ids --type uuid7 | xargs -I{} url build --host api.example.com --path /v1/resources/{}",
+      "description": "Compose ID + URL assembly"
+    },
+    {
+      "tool": "retry",
+      "pattern": "retry -- curl \"$(url build ...)\"",
+      "description": "Retried request with constructed URL"
+    }
+  ],
+  "json_output_fields": [
+    {
+      "name": "scheme",
+      "type": "string",
+      "description": "URL scheme"
+    },
+    {
+      "name": "host",
+      "type": "string",
+      "description": "Hostname"
+    },
+    {
+      "name": "port",
+      "type": "number|null",
+      "description": "Port (null if default)"
+    },
+    {
+      "name": "path",
+      "type": "string",
+      "description": "Path including leading /"
+    },
+    {
+      "name": "query",
+      "type": "array",
+      "description": "Ordered [{key, value}] entries — preserves duplicates"
+    },
+    {
+      "name": "fragment",
+      "type": "string|null",
+      "description": "Fragment without #"
+    }
+  ]
+}

@@ -1,0 +1,164 @@
+{
+  "schema_version": 1,
+  "tool": "schedule",
+  "version": "<normalised>",
+  "maturity": "core",
+  "description": "Cross-platform task scheduler with cron expressions.",
+  "platform": {
+    "scope": "cross-platform",
+    "replaces": [
+      "schtasks.exe",
+      "crontab"
+    ],
+    "value_on_windows": "No cross-platform scheduler CLI with cron syntax exists",
+    "value_on_unix": "Unified cron syntax for Windows Task Scheduler and crontab"
+  },
+  "prefer_default_when": [
+    "sub-minute polling — use peep"
+  ],
+  "usage": "schedule [options] [command [args...]]",
+  "options": [
+    {
+      "long": "--help",
+      "short": "-h",
+      "type": "flag",
+      "description": "Show help",
+      "repeatable": false
+    },
+    {
+      "long": "--version",
+      "type": "flag",
+      "description": "Show version",
+      "repeatable": false
+    },
+    {
+      "long": "--no-color",
+      "type": "flag",
+      "description": "Disable colored output",
+      "repeatable": false
+    },
+    {
+      "long": "--json",
+      "type": "flag",
+      "description": "JSON output",
+      "repeatable": false
+    },
+    {
+      "long": "--describe",
+      "type": "flag",
+      "description": "Structured JSON metadata for AI agents",
+      "repeatable": false
+    },
+    {
+      "long": "--all",
+      "type": "flag",
+      "description": "Show all tasks, not just Winix-managed",
+      "repeatable": false
+    },
+    {
+      "long": "--cron",
+      "type": "string",
+      "placeholder": "EXPR",
+      "description": "Cron expression (required for add)",
+      "repeatable": false
+    },
+    {
+      "long": "--name",
+      "type": "string",
+      "placeholder": "NAME",
+      "description": "Task name (auto-generated if omitted)",
+      "repeatable": false
+    },
+    {
+      "long": "--folder",
+      "type": "string",
+      "placeholder": "PATH",
+      "description": "Task Scheduler folder (default: \\Winix\\ on Windows)",
+      "repeatable": false
+    },
+    {
+      "long": "--count",
+      "type": "string",
+      "placeholder": "N",
+      "description": "Number of occurrences to show (default: 5)",
+      "repeatable": false
+    },
+    {
+      "long": "--color",
+      "type": "optional-value",
+      "allowed_values": [
+        "auto",
+        "always",
+        "never"
+      ],
+      "default_when_bare": "always",
+      "description": "Coloured output: auto (default when omitted), always, or never",
+      "repeatable": false
+    }
+  ],
+  "exit_codes": [
+    {
+      "code": 0,
+      "description": "Success"
+    },
+    {
+      "code": 125,
+      "description": "Usage error (bad arguments, invalid cron expression)"
+    },
+    {
+      "code": 126,
+      "description": "Backend failure (task not found, scheduler error)"
+    }
+  ],
+  "io": {
+    "stdin": "Not used",
+    "stdout": "JSON envelope when --json is set (success/error envelope on stdout per suite convention); otherwise unused",
+    "stderr": "Plain-text tables, status messages, and human diagnostics. Usage-error JSON envelopes also land here."
+  },
+  "examples": [
+    {
+      "command": "schedule add --cron \"0 2 * * *\" -- dotnet build",
+      "description": "Create a task that runs daily at 2am"
+    },
+    {
+      "command": "schedule add --cron \"*/5 * * * *\" --name health-check -- curl http://localhost:8080/health",
+      "description": "Create a named task"
+    },
+    {
+      "command": "schedule list",
+      "description": "List Winix-managed tasks"
+    },
+    {
+      "command": "schedule list --all",
+      "description": "List all scheduled tasks"
+    },
+    {
+      "command": "schedule remove health-check",
+      "description": "Remove a task"
+    },
+    {
+      "command": "schedule enable health-check",
+      "description": "Enable a disabled task"
+    },
+    {
+      "command": "schedule disable health-check",
+      "description": "Disable a task"
+    },
+    {
+      "command": "schedule run health-check",
+      "description": "Trigger immediate execution"
+    },
+    {
+      "command": "schedule history health-check",
+      "description": "Show run history"
+    },
+    {
+      "command": "schedule next \"0 2 * * *\"",
+      "description": "Show next 5 fire times for a cron expression"
+    },
+    {
+      "command": "schedule next \"*/5 * * * *\" --count 10",
+      "description": "Show next 10 fire times"
+    }
+  ]
+}

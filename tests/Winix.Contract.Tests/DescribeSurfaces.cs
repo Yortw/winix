@@ -279,6 +279,70 @@ internal static class DescribeSurfaces
             //   Cli.Run(args, stdin, stdout, stderr)
             ["demux"] = args => Task.FromResult(
                 DemuxCli.Run(args, TextReader.Null, TextWriter.Null, TextWriter.Null)),
+
+            // ── qr subcommands ────────────────────────────────────────────────────────
+            // Each helper subcommand emits its own distinct envelope (tool: "qr wifi", etc.).
+            // Args are supplied by the snapshot test as [subcommand, "--describe"].
+            // Exact QrCli.Run signature copied from the "qr" entry above.
+            ["qr/wifi"] = args => Task.FromResult(
+                QrCli.Run(
+                    args,
+                    TextReader.Null,
+                    TextWriter.Null,
+                    TextWriter.Null,
+                    Stream.Null,
+                    stdinIsRedirected: false,
+                    stdoutIsTty: false)),
+
+            ["qr/sms"] = args => Task.FromResult(
+                QrCli.Run(
+                    args,
+                    TextReader.Null,
+                    TextWriter.Null,
+                    TextWriter.Null,
+                    Stream.Null,
+                    stdinIsRedirected: false,
+                    stdoutIsTty: false)),
+
+            ["qr/mailto"] = args => Task.FromResult(
+                QrCli.Run(
+                    args,
+                    TextReader.Null,
+                    TextWriter.Null,
+                    TextWriter.Null,
+                    Stream.Null,
+                    stdinIsRedirected: false,
+                    stdoutIsTty: false)),
+
+            ["qr/geo"] = args => Task.FromResult(
+                QrCli.Run(
+                    args,
+                    TextReader.Null,
+                    TextWriter.Null,
+                    TextWriter.Null,
+                    Stream.Null,
+                    stdinIsRedirected: false,
+                    stdoutIsTty: false)),
+
+            ["qr/tel"] = args => Task.FromResult(
+                QrCli.Run(
+                    args,
+                    TextReader.Null,
+                    TextWriter.Null,
+                    TextWriter.Null,
+                    Stream.Null,
+                    stdinIsRedirected: false,
+                    stdoutIsTty: false)),
+
+            // ── mksecret subcommands ──────────────────────────────────────────────────
+            // mksecret/phrase and mksecret/key emit distinct envelopes (tool: "mksecret phrase"
+            // / "mksecret key", maturity "fresh"). Exact MkSecretCli.Run signature copied
+            // from the "mksecret" entry above.
+            ["mksecret/phrase"] = args => Task.FromResult(
+                MkSecretCli.Run(args, TextWriter.Null, TextWriter.Null)),
+
+            ["mksecret/key"] = args => Task.FromResult(
+                MkSecretCli.Run(args, TextWriter.Null, TextWriter.Null)),
         };
 
     // ── Minimal stubs for envvault's required non-IO deps ────────────────────────────

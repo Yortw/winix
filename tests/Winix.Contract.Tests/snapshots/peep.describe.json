@@ -1,0 +1,256 @@
+{
+  "schema_version": 1,
+  "tool": "peep",
+  "version": "<normalised>",
+  "maturity": "core",
+  "description": "Run a command repeatedly and display output on a refreshing screen.",
+  "platform": {
+    "scope": "cross-platform",
+    "replaces": [
+      "watch",
+      "entr"
+    ],
+    "value_on_windows": "No native watch or entr equivalent on Windows",
+    "value_on_unix": "Combines watch + entr in one tool with diff highlighting"
+  },
+  "usage": "peep [options] [--] <command> [args...]",
+  "options": [
+    {
+      "long": "--help",
+      "short": "-h",
+      "type": "flag",
+      "description": "Show help",
+      "repeatable": false
+    },
+    {
+      "long": "--version",
+      "type": "flag",
+      "description": "Show version",
+      "repeatable": false
+    },
+    {
+      "long": "--no-color",
+      "type": "flag",
+      "description": "Disable colored output",
+      "repeatable": false
+    },
+    {
+      "long": "--json",
+      "type": "flag",
+      "description": "JSON output",
+      "repeatable": false
+    },
+    {
+      "long": "--describe",
+      "type": "flag",
+      "description": "Structured JSON metadata for AI agents",
+      "repeatable": false
+    },
+    {
+      "long": "--exit-on-change",
+      "short": "-g",
+      "type": "flag",
+      "description": "Exit when output changes",
+      "repeatable": false
+    },
+    {
+      "long": "--exit-on-success",
+      "type": "flag",
+      "description": "Exit when command returns exit code 0",
+      "repeatable": false
+    },
+    {
+      "long": "--exit-on-error",
+      "short": "-e",
+      "type": "flag",
+      "description": "Exit when command returns non-zero",
+      "repeatable": false
+    },
+    {
+      "long": "--differences",
+      "short": "-d",
+      "type": "flag",
+      "description": "Highlight changed lines between runs",
+      "repeatable": false
+    },
+    {
+      "long": "--no-gitignore",
+      "type": "flag",
+      "description": "Disable automatic .gitignore filtering",
+      "repeatable": false
+    },
+    {
+      "long": "--once",
+      "type": "flag",
+      "description": "Run once, display, and exit",
+      "repeatable": false
+    },
+    {
+      "long": "--no-header",
+      "short": "-t",
+      "type": "flag",
+      "description": "Hide the header lines",
+      "repeatable": false
+    },
+    {
+      "long": "--json-output",
+      "type": "flag",
+      "description": "Include last captured output in JSON (implies --json)",
+      "repeatable": false
+    },
+    {
+      "long": "--interval",
+      "short": "-n",
+      "type": "double",
+      "placeholder": "N",
+      "description": "Seconds between runs (default: 2)",
+      "repeatable": false
+    },
+    {
+      "long": "--debounce",
+      "type": "int",
+      "placeholder": "N",
+      "description": "Milliseconds to debounce file changes (default: 300)",
+      "repeatable": false
+    },
+    {
+      "long": "--history",
+      "type": "int",
+      "placeholder": "N",
+      "description": "Max history snapshots to retain (default: 1000, 0=unlimited)",
+      "repeatable": false
+    },
+    {
+      "long": "--watch",
+      "short": "-w",
+      "type": "string",
+      "placeholder": "GLOB",
+      "description": "Re-run on file changes matching glob",
+      "repeatable": true
+    },
+    {
+      "long": "--exit-on-match",
+      "type": "string",
+      "placeholder": "PAT",
+      "description": "Exit when output matches regex",
+      "repeatable": true
+    },
+    {
+      "long": "--color",
+      "type": "optional-value",
+      "allowed_values": [
+        "auto",
+        "always",
+        "never"
+      ],
+      "default_when_bare": "always",
+      "description": "Coloured output: auto (default when omitted), always, or never",
+      "repeatable": false
+    }
+  ],
+  "exit_codes": [
+    {
+      "code": 0,
+      "description": "Auto-exit condition met, or manual quit with last child exit 0"
+    },
+    {
+      "code": 125,
+      "description": "Usage error"
+    },
+    {
+      "code": 126,
+      "description": "Command not executable"
+    },
+    {
+      "code": 127,
+      "description": "Command not found"
+    }
+  ],
+  "io": {
+    "stdin": "Not used",
+    "stdout": "Child process output displayed on refreshing screen",
+    "stderr": "Errors and diagnostics"
+  },
+  "examples": [
+    {
+      "command": "peep -- git status",
+      "description": "Watch git status every 2 seconds"
+    },
+    {
+      "command": "peep -n 5 -- kubectl get pods",
+      "description": "Watch pods every 5 seconds"
+    },
+    {
+      "command": "peep -w 'src/**/*.cs' -- dotnet test",
+      "description": "Re-run tests on file change"
+    },
+    {
+      "command": "peep -w 'src/**/*.cs' -e 0 -- dotnet test",
+      "description": "Run tests on file change, exit on first success"
+    }
+  ],
+  "composes_with": [
+    {
+      "tool": "files",
+      "pattern": "peep -- files . --newer 5m --type f",
+      "description": "Watch for recently created files"
+    },
+    {
+      "tool": "timeit",
+      "pattern": "peep -- timeit dotnet build",
+      "description": "Monitor build times"
+    }
+  ],
+  "json_output_fields": [
+    {
+      "name": "tool",
+      "type": "string",
+      "description": "Tool name (\"peep\")"
+    },
+    {
+      "name": "version",
+      "type": "string",
+      "description": "Tool version"
+    },
+    {
+      "name": "exit_code",
+      "type": "int",
+      "description": "Tool exit code (0 = success)"
+    },
+    {
+      "name": "exit_reason",
+      "type": "string",
+      "description": "Machine-readable exit reason (manual, once, exit_on_success, etc.)"
+    },
+    {
+      "name": "runs",
+      "type": "int",
+      "description": "Total command executions during session"
+    },
+    {
+      "name": "last_child_exit_code",
+      "type": "int|null",
+      "description": "Exit code of the final child run"
+    },
+    {
+      "name": "duration_seconds",
+      "type": "float",
+      "description": "Total session wall time in seconds"
+    },
+    {
+      "name": "command",
+      "type": "string",
+      "description": "The watched command"
+    },
+    {
+      "name": "last_output",
+      "type": "string|null",
+      "description": "Captured output from final run (with --json-output)"
+    },
+    {
+      "name": "history_retained",
+      "type": "int|null",
+      "description": "Snapshots retained at session end"
+    }
+  ]
+}

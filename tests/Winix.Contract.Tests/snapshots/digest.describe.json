@@ -1,0 +1,318 @@
+{
+  "schema_version": 1,
+  "tool": "digest",
+  "version": "<normalised>",
+  "maturity": "core",
+  "description": "<platform-variant: SHA-3 availability probed at runtime>",
+  "platform": {
+    "scope": "cross-platform",
+    "replaces": [
+      "sha256sum",
+      "md5sum",
+      "openssl dgst"
+    ],
+    "value_on_windows": "Native gap-fill — Windows has no first-class HMAC CLI; certutil and Get-FileHash don't cover HMAC; openssl requires a separate install.",
+    "value_on_unix": "Consistent flag surface across sha256sum / md5sum variants, plus built-in HMAC, base64/base32 output, and --describe metadata."
+  },
+  "prefer_default_when": [
+    "verifying a sha256sum checkfile — use sha256sum -c",
+    "password hashing — use argon2, bcrypt, or scrypt",
+    "file encryption/decryption — use age or gpg"
+  ],
+  "glob_expansion": {
+    "positionals": true,
+    "syntax": "* and ? in any path segment",
+    "not_patterns": [
+      "[...] (matched literally; legal Windows filename chars)",
+      "** (rejected with usage error)"
+    ],
+    "no_match": "literal passthrough",
+    "quoting": "quoted args not expanded (effective from cmd; PowerShell strips quotes)",
+    "windows_only": true
+  },
+  "usage": "digest [options]",
+  "options": [
+    {
+      "long": "--help",
+      "short": "-h",
+      "type": "flag",
+      "description": "Show help",
+      "repeatable": false
+    },
+    {
+      "long": "--version",
+      "type": "flag",
+      "description": "Show version",
+      "repeatable": false
+    },
+    {
+      "long": "--no-color",
+      "type": "flag",
+      "description": "Disable colored output",
+      "repeatable": false
+    },
+    {
+      "long": "--json",
+      "type": "flag",
+      "description": "JSON output",
+      "repeatable": false
+    },
+    {
+      "long": "--describe",
+      "type": "flag",
+      "description": "Structured JSON metadata for AI agents",
+      "repeatable": false
+    },
+    {
+      "long": "--sha256",
+      "type": "flag",
+      "description": "SHA-256 (default)",
+      "repeatable": false
+    },
+    {
+      "long": "--sha384",
+      "type": "flag",
+      "description": "SHA-384",
+      "repeatable": false
+    },
+    {
+      "long": "--sha512",
+      "type": "flag",
+      "description": "SHA-512",
+      "repeatable": false
+    },
+    {
+      "long": "--sha1",
+      "type": "flag",
+      "description": "SHA-1 (legacy; emits warning)",
+      "repeatable": false
+    },
+    {
+      "long": "--md5",
+      "type": "flag",
+      "description": "MD5 (legacy; emits warning)",
+      "repeatable": false
+    },
+    {
+      "long": "--sha3-256",
+      "type": "flag",
+      "description": "SHA3-256",
+      "repeatable": false
+    },
+    {
+      "long": "--sha3-512",
+      "type": "flag",
+      "description": "SHA3-512",
+      "repeatable": false
+    },
+    {
+      "long": "--blake2b",
+      "type": "flag",
+      "description": "BLAKE2b-512",
+      "repeatable": false
+    },
+    {
+      "long": "--key-stdin",
+      "type": "flag",
+      "description": "Read HMAC key from stdin",
+      "repeatable": false
+    },
+    {
+      "long": "--key-raw",
+      "type": "flag",
+      "description": "Preserve bytes on --key-file / --key-stdin (skip trailing-newline strip)",
+      "repeatable": false
+    },
+    {
+      "long": "--hex",
+      "type": "flag",
+      "description": "Hex output (default, lowercase)",
+      "repeatable": false
+    },
+    {
+      "long": "--base64",
+      "type": "flag",
+      "description": "Base64 output (standard alphabet)",
+      "repeatable": false
+    },
+    {
+      "long": "--base64-url",
+      "type": "flag",
+      "description": "Base64 URL-safe variant",
+      "repeatable": false
+    },
+    {
+      "long": "--base32",
+      "type": "flag",
+      "description": "Crockford base32 output",
+      "repeatable": false
+    },
+    {
+      "long": "--uppercase",
+      "short": "-u",
+      "type": "flag",
+      "description": "Uppercase hex output",
+      "repeatable": false
+    },
+    {
+      "long": "--algo",
+      "short": "-a",
+      "type": "string",
+      "placeholder": "ALGO",
+      "description": "Alternative to individual algorithm flags: sha256, sha384, sha512, sha1, md5, sha3-256, sha3-512, blake2b",
+      "repeatable": false
+    },
+    {
+      "long": "--hmac",
+      "type": "string",
+      "placeholder": "ALGO",
+      "description": "HMAC mode using the given hash algorithm (requires a key source)",
+      "repeatable": false
+    },
+    {
+      "long": "--key-env",
+      "type": "string",
+      "placeholder": "VAR",
+      "description": "Read HMAC key from environment variable",
+      "repeatable": false
+    },
+    {
+      "long": "--key-file",
+      "type": "string",
+      "placeholder": "PATH",
+      "description": "Read HMAC key from file (Unix permission warning if group/other readable)",
+      "repeatable": false
+    },
+    {
+      "long": "--key",
+      "type": "string",
+      "placeholder": "KEY",
+      "description": "HMAC key as literal argument (emits warning about process visibility)",
+      "repeatable": false
+    },
+    {
+      "long": "--string",
+      "short": "-s",
+      "type": "string",
+      "placeholder": "VALUE",
+      "description": "Hash the literal string VALUE (UTF-8 bytes). Exclusive with positional file args.",
+      "repeatable": false
+    },
+    {
+      "long": "--verify",
+      "type": "string",
+      "placeholder": "EXPECTED",
+      "description": "Compare output (constant-time); exit 0 if match, 1 if mismatch",
+      "repeatable": false
+    },
+    {
+      "long": "--color",
+      "type": "optional-value",
+      "allowed_values": [
+        "auto",
+        "always",
+        "never"
+      ],
+      "default_when_bare": "always",
+      "description": "Coloured output: auto (default when omitted), always, or never",
+      "repeatable": false
+    }
+  ],
+  "exit_codes": [
+    {
+      "code": 0,
+      "description": "Success"
+    },
+    {
+      "code": 125,
+      "description": "Usage error: bad flags, unknown value, flag conflict, missing file, empty HMAC key, or key file too large"
+    },
+    {
+      "code": 1,
+      "description": "Verification failed (digest --verify mismatch)"
+    },
+    {
+      "code": 126,
+      "description": "Runtime error: SHA-3 unavailable on this platform, file read failure, key file read failure, or generic catch-all"
+    }
+  ],
+  "io": {
+    "stdin": "Payload to hash (default when no positional files), or key with --key-stdin",
+    "stdout": "Hash (plain single line, sha256sum-compatible multi-file lines, or JSON)",
+    "stderr": "Warnings (legacy algorithms, insecure --key literal, group-readable key files) and errors"
+  },
+  "examples": [
+    {
+      "command": "digest file.iso",
+      "description": "SHA-256 of a file"
+    },
+    {
+      "command": "digest *.txt",
+      "description": "Hash every matching file, sha256sum-compatible output"
+    },
+    {
+      "command": "digest --sha512 -s \"hello\"",
+      "description": "SHA-512 of a literal string"
+    },
+    {
+      "command": "digest --hmac sha256 --key-env API_SECRET -s \"payload\"",
+      "description": "HMAC-SHA-256 with key from env var"
+    },
+    {
+      "command": "digest --hmac sha256 --key-file ~/.secret file.bin",
+      "description": "HMAC of a file with key from file"
+    },
+    {
+      "command": "age --decrypt key.age | digest --hmac sha256 --key-stdin -s \"msg\"",
+      "description": "HMAC with key piped from age"
+    },
+    {
+      "command": "digest --verify \"abc123...\" file.bin",
+      "description": "Exit 0 if hash matches"
+    }
+  ],
+  "composes_with": [
+    {
+      "tool": "clip",
+      "pattern": "digest file.bin | clip",
+      "description": "Copy a hash to the clipboard"
+    },
+    {
+      "tool": "age",
+      "pattern": "age --decrypt key.age | digest --hmac sha256 --key-stdin ...",
+      "description": "Read HMAC key from an age-encrypted file"
+    },
+    {
+      "tool": "pass",
+      "pattern": "pass show mykey | digest --hmac sha256 --key-stdin ...",
+      "description": "Read HMAC key from passwordstore"
+    }
+  ],
+  "json_output_fields": [
+    {
+      "name": "algorithm",
+      "type": "string",
+      "description": "Hash algorithm (sha256, sha3-256, hmac-sha256, etc.)"
+    },
+    {
+      "name": "format",
+      "type": "string",
+      "description": "Output encoding (hex, base64, base64url, base32)"
+    },
+    {
+      "name": "hash",
+      "type": "string",
+      "description": "The encoded hash value"
+    },
+    {
+      "name": "source",
+      "type": "string",
+      "description": "Input source (string, stdin, file)"
+    },
+    {
+      "name": "path",
+      "type": "string",
+      "description": "(file source only) file path"
+    }
+  ]
+}

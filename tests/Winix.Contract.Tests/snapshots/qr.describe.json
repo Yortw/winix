@@ -1,0 +1,181 @@
+{
+  "schema_version": 1,
+  "tool": "qr",
+  "version": "<normalised>",
+  "maturity": "core",
+  "description": "Cross-platform QR code generator with helpers for Wi-Fi, SMS, mailto, geo, and tel. Default mode encodes a text payload from a positional argument or stdin.",
+  "platform": {
+    "scope": "cross-platform",
+    "replaces": [
+      "qrencode",
+      "python qrcode",
+      "online QR generators"
+    ],
+    "value_on_windows": "Native gap-fill — Windows has no built-in QR generator; single-binary AOT avoids requiring Python or a Cygwin-built qrencode.",
+    "value_on_unix": "One tool covering unicode terminal output, ascii for no-UTF8 terminals, SVG and PNG, plus structured helpers (Wi-Fi / SMS / mailto / geo / tel) missing from qrencode."
+  },
+  "usage": "qr [options] [PAYLOAD]",
+  "options": [
+    {
+      "long": "--help",
+      "short": "-h",
+      "type": "flag",
+      "description": "Show help",
+      "repeatable": false
+    },
+    {
+      "long": "--version",
+      "type": "flag",
+      "description": "Show version",
+      "repeatable": false
+    },
+    {
+      "long": "--no-color",
+      "type": "flag",
+      "description": "Disable colored output",
+      "repeatable": false
+    },
+    {
+      "long": "--json",
+      "type": "flag",
+      "description": "JSON output",
+      "repeatable": false
+    },
+    {
+      "long": "--describe",
+      "type": "flag",
+      "description": "Structured JSON metadata for AI agents",
+      "repeatable": false
+    },
+    {
+      "long": "--no-margin",
+      "type": "flag",
+      "description": "Strip the 4-module quiet zone.",
+      "repeatable": false
+    },
+    {
+      "long": "--force-binary",
+      "type": "flag",
+      "description": "Allow PNG output to a TTY.",
+      "repeatable": false
+    },
+    {
+      "long": "--force",
+      "type": "flag",
+      "description": "Overwrite an existing --output file (refused by default).",
+      "repeatable": false
+    },
+    {
+      "long": "--format",
+      "type": "string",
+      "placeholder": "FMT",
+      "description": "Output format: auto, unicode, ascii, svg, png. Default auto (unicode on TTY, svg when stdout redirected).",
+      "repeatable": false
+    },
+    {
+      "long": "--size",
+      "short": "-s",
+      "type": "int",
+      "placeholder": "PIXELS",
+      "description": "Pixels per module (PNG/SVG only). Default 10.",
+      "repeatable": false
+    },
+    {
+      "long": "--error-correction",
+      "short": "-e",
+      "type": "string",
+      "placeholder": "LEVEL",
+      "description": "Error-correction level: l (~7%), m (~15%, default), q (~25%), h (~30%).",
+      "repeatable": false
+    },
+    {
+      "long": "--output",
+      "short": "-o",
+      "type": "string",
+      "placeholder": "PATH",
+      "description": "Write to file instead of stdout.",
+      "repeatable": false
+    },
+    {
+      "long": "--color",
+      "type": "optional-value",
+      "allowed_values": [
+        "auto",
+        "always",
+        "never"
+      ],
+      "default_when_bare": "always",
+      "description": "Coloured output: auto (default when omitted), always, or never",
+      "repeatable": false
+    }
+  ],
+  "exit_codes": [
+    {
+      "code": 0,
+      "description": "Success"
+    },
+    {
+      "code": 125,
+      "description": "Usage error: bad flags, missing required field for a helper subcommand, helper grammar violation (e.g. tel/sms with letters), --format vs --output extension contradiction, refusing to overwrite an existing --output file without --force, PNG to TTY without --force-binary"
+    },
+    {
+      "code": 126,
+      "description": "Runtime error: payload exceeds QR capacity (try --error-correction l), stdin not valid UTF-8, output write failed (parent missing, permission denied, etc.)"
+    }
+  ],
+  "io": {
+    "stdin": "Text payload to encode when no positional is given, or when '-' is passed.",
+    "stdout": "Rendered QR code (unicode/ascii/svg by default; bytes for PNG unless --output).",
+    "stderr": "Errors, capacity-overflow hints, and diagnostic messages."
+  },
+  "examples": [
+    {
+      "command": "qr 'Hello, world'",
+      "description": "Encode text, render unicode QR to the terminal"
+    },
+    {
+      "command": "echo payload | qr",
+      "description": "Read payload from stdin (no positional)"
+    },
+    {
+      "command": "qr 'https://example.com' --format svg -o code.svg",
+      "description": "SVG file output"
+    },
+    {
+      "command": "qr 'https://example.com' --format png --size 16 -o code.png",
+      "description": "PNG with 16 pixels/module"
+    },
+    {
+      "command": "qr wifi --ssid HomeNet --password s3cr3t --security wpa2",
+      "description": "Wi-Fi helper subcommand"
+    },
+    {
+      "command": "qr sms --number +15551234 --message 'Hi'",
+      "description": "SMS helper subcommand"
+    },
+    {
+      "command": "qr mailto --to a@b.com --subject 'Hello'",
+      "description": "Mailto helper subcommand"
+    },
+    {
+      "command": "qr geo --lat -41.2924 --lon 174.7787 --query Wellington",
+      "description": "Geo helper subcommand"
+    },
+    {
+      "command": "qr tel --number +15551234",
+      "description": "Tel helper subcommand"
+    }
+  ],
+  "composes_with": [
+    {
+      "tool": "pipe",
+      "pattern": "echo 'secret' | qr --format png -o secret.png",
+      "description": "Pipe any text producer into qr for encoding"
+    },
+    {
+      "tool": "clip",
+      "pattern": "clip --paste | qr",
+      "description": "Encode the clipboard contents as a QR code"
+    }
+  ]
+}

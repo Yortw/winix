@@ -1,0 +1,199 @@
+{
+  "schema_version": 1,
+  "tool": "notify",
+  "version": "<normalised>",
+  "maturity": "core",
+  "description": "Cross-platform desktop notifications + ntfy.sh push notifications.",
+  "platform": {
+    "scope": "cross-platform",
+    "replaces": [
+      "notify-send",
+      "osascript",
+      "BurntToast"
+    ],
+    "value_on_windows": "Native gap-fill — Windows has no first-class notification CLI; users currently install BurntToast or third-party binaries.",
+    "value_on_unix": "One consistent flag surface across notify-send (Linux) and osascript (macOS), plus optional ntfy.sh push to phone/web in the same call."
+  },
+  "usage": "notify [options]",
+  "options": [
+    {
+      "long": "--help",
+      "short": "-h",
+      "type": "flag",
+      "description": "Show help",
+      "repeatable": false
+    },
+    {
+      "long": "--version",
+      "type": "flag",
+      "description": "Show version",
+      "repeatable": false
+    },
+    {
+      "long": "--no-color",
+      "type": "flag",
+      "description": "Disable colored output",
+      "repeatable": false
+    },
+    {
+      "long": "--json",
+      "type": "flag",
+      "description": "JSON output",
+      "repeatable": false
+    },
+    {
+      "long": "--describe",
+      "type": "flag",
+      "description": "Structured JSON metadata for AI agents",
+      "repeatable": false
+    },
+    {
+      "long": "--no-desktop",
+      "type": "flag",
+      "description": "Suppress the desktop backend",
+      "repeatable": false
+    },
+    {
+      "long": "--no-ntfy",
+      "type": "flag",
+      "description": "Suppress ntfy even if env var is set",
+      "repeatable": false
+    },
+    {
+      "long": "--strict",
+      "type": "flag",
+      "description": "Exit non-zero if any configured backend fails (default: best-effort)",
+      "repeatable": false
+    },
+    {
+      "long": "--urgency",
+      "type": "string",
+      "placeholder": "LEVEL",
+      "description": "Urgency: low, normal, critical (default: normal)",
+      "repeatable": false
+    },
+    {
+      "long": "--icon",
+      "type": "string",
+      "placeholder": "PATH",
+      "description": "Icon path (best-effort per backend; macOS ignores)",
+      "repeatable": false
+    },
+    {
+      "long": "--ntfy",
+      "type": "string",
+      "placeholder": "TOPIC",
+      "description": "Send to ntfy.sh on TOPIC (env: NOTIFY_NTFY_TOPIC)",
+      "repeatable": false
+    },
+    {
+      "long": "--ntfy-server",
+      "type": "string",
+      "placeholder": "URL",
+      "description": "Override ntfy server URL (env: NOTIFY_NTFY_SERVER, default https://ntfy.sh)",
+      "repeatable": false
+    },
+    {
+      "long": "--ntfy-token",
+      "type": "string",
+      "placeholder": "TOKEN",
+      "description": "Bearer token for self-hosted ntfy (env: NOTIFY_NTFY_TOKEN)",
+      "repeatable": false
+    },
+    {
+      "long": "--color",
+      "type": "optional-value",
+      "allowed_values": [
+        "auto",
+        "always",
+        "never"
+      ],
+      "default_when_bare": "always",
+      "description": "Coloured output: auto (default when omitted), always, or never",
+      "repeatable": false
+    }
+  ],
+  "exit_codes": [
+    {
+      "code": 0,
+      "description": "Success — at least one backend succeeded"
+    },
+    {
+      "code": 1,
+      "description": "Strict mode — at least one configured backend failed"
+    },
+    {
+      "code": 125,
+      "description": "Usage error: bad flags, missing TITLE, no backends configured"
+    },
+    {
+      "code": 126,
+      "description": "All backends failed"
+    }
+  ],
+  "io": {
+    "stdin": "Not used",
+    "stdout": "Empty by default; JSON document with --json",
+    "stderr": "Per-backend failure warnings (best-effort mode); also usage errors"
+  },
+  "examples": [
+    {
+      "command": "notify \"build done\"",
+      "description": "Send a desktop notification"
+    },
+    {
+      "command": "notify \"tests done\" \"5 of 200 failed\"",
+      "description": "Title and body"
+    },
+    {
+      "command": "notify \"deploy done\" --urgency critical",
+      "description": "Critical urgency — sound + attention"
+    },
+    {
+      "command": "notify \"alert\" --ntfy myalerts",
+      "description": "Send to desktop AND push to ntfy.sh/myalerts"
+    },
+    {
+      "command": "NOTIFY_NTFY_TOPIC=alerts notify \"see you\"",
+      "description": "Env-set ntfy topic — applies to all calls in the shell"
+    },
+    {
+      "command": "notify \"server warn\" --no-desktop --ntfy phone",
+      "description": "Push only — useful in headless CI"
+    }
+  ],
+  "composes_with": [
+    {
+      "tool": "anything",
+      "pattern": "long-cmd; notify \"done\"",
+      "description": "Append to a long-running command"
+    },
+    {
+      "tool": "timeit",
+      "pattern": "timeit slow-script.sh && notify \"done\"",
+      "description": "Time + alert pattern"
+    }
+  ],
+  "json_output_fields": [
+    {
+      "name": "title",
+      "type": "string",
+      "description": "The notification title"
+    },
+    {
+      "name": "body",
+      "type": "string",
+      "description": "Optional second line of text"
+    },
+    {
+      "name": "urgency",
+      "type": "string",
+      "description": "low / normal / critical"
+    },
+    {
+      "name": "backends",
+      "type": "array",
+      "description": "Per-backend status (name, ok, error?, detail fields)"
+    }
+  ]
+}

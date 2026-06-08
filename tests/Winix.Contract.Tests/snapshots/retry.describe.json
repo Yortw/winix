@@ -1,0 +1,220 @@
+{
+  "schema_version": 1,
+  "tool": "retry",
+  "version": "<normalised>",
+  "maturity": "core",
+  "description": "Run a command with automatic retries on failure.",
+  "platform": {
+    "scope": "cross-platform",
+    "replaces": [
+      "retry"
+    ],
+    "value_on_windows": "No native retry loop; requires scripting boilerplate in PowerShell or batch",
+    "value_on_unix": "Simpler than shell retry loops; richer output with exit-code filtering and backoff"
+  },
+  "usage": "retry [options] [--] <command> [args...]",
+  "options": [
+    {
+      "long": "--help",
+      "short": "-h",
+      "type": "flag",
+      "description": "Show help",
+      "repeatable": false
+    },
+    {
+      "long": "--version",
+      "type": "flag",
+      "description": "Show version",
+      "repeatable": false
+    },
+    {
+      "long": "--no-color",
+      "type": "flag",
+      "description": "Disable colored output",
+      "repeatable": false
+    },
+    {
+      "long": "--json",
+      "type": "flag",
+      "description": "JSON output",
+      "repeatable": false
+    },
+    {
+      "long": "--describe",
+      "type": "flag",
+      "description": "Structured JSON metadata for AI agents",
+      "repeatable": false
+    },
+    {
+      "long": "--jitter",
+      "type": "flag",
+      "description": "Add random jitter to delay (50-100% of calculated value)",
+      "repeatable": false
+    },
+    {
+      "long": "--stdout",
+      "type": "flag",
+      "description": "Write summary to stdout instead of stderr (errors still go to stderr)",
+      "repeatable": false
+    },
+    {
+      "long": "--times",
+      "short": "-n",
+      "type": "string",
+      "placeholder": "N",
+      "description": "Max retry attempts, not counting initial run (default: 3)",
+      "repeatable": false
+    },
+    {
+      "long": "--delay",
+      "short": "-d",
+      "type": "string",
+      "placeholder": "DURATION",
+      "description": "Delay before retries, e.g. 500ms, 2s, 1m (default: 1s)",
+      "repeatable": false
+    },
+    {
+      "long": "--backoff",
+      "short": "-b",
+      "type": "string",
+      "placeholder": "STRATEGY",
+      "description": "Backoff strategy: fixed, linear, exp (default: fixed)",
+      "repeatable": false
+    },
+    {
+      "long": "--on",
+      "type": "string",
+      "placeholder": "CODES",
+      "description": "Retry only on these exit codes (comma-separated)",
+      "repeatable": false
+    },
+    {
+      "long": "--until",
+      "type": "string",
+      "placeholder": "CODES",
+      "description": "Stop when exit code matches (comma-separated)",
+      "repeatable": false
+    },
+    {
+      "long": "--color",
+      "type": "optional-value",
+      "allowed_values": [
+        "auto",
+        "always",
+        "never"
+      ],
+      "default_when_bare": "always",
+      "description": "Coloured output: auto (default when omitted), always, or never",
+      "repeatable": false
+    }
+  ],
+  "exit_codes": [
+    {
+      "code": 0,
+      "description": "Success (child returned 0) or child exit code pass-through (1–124)"
+    },
+    {
+      "code": 125,
+      "description": "Usage error: no command, bad retry arguments, invalid --on/--until list"
+    },
+    {
+      "code": 126,
+      "description": "Command not executable (permission denied, bad EXE format)"
+    },
+    {
+      "code": 127,
+      "description": "Command not found on PATH"
+    }
+  ],
+  "io": {
+    "stdin": "Not used (child process inherits stdin)",
+    "stdout": "Child process stdout passes through unmodified",
+    "stderr": "Progress lines and final JSON summary. Child stderr also passes through."
+  },
+  "examples": [
+    {
+      "command": "retry dotnet build",
+      "description": "Retry a build up to 3 times on failure"
+    },
+    {
+      "command": "retry --times 5 --delay 2s curl https://example.com/api",
+      "description": "Retry HTTP call with delay"
+    },
+    {
+      "command": "retry --backoff exp --delay 1s --times 6 dotnet test",
+      "description": "Exponential backoff"
+    },
+    {
+      "command": "retry --on 1,2 --times 3 my-script.sh",
+      "description": "Retry only on specific exit codes"
+    },
+    {
+      "command": "retry --until 42 --times 10 poll-command",
+      "description": "Stop when exit code matches target"
+    }
+  ],
+  "composes_with": [
+    {
+      "tool": "timeit",
+      "pattern": "timeit retry --times 3 dotnet build",
+      "description": "Time a build with retries"
+    },
+    {
+      "tool": "peep",
+      "pattern": "peep -- retry dotnet test",
+      "description": "Watch tests with auto-retry on file change"
+    },
+    {
+      "tool": "nc",
+      "pattern": "retry --until 0 --times 30 --delay 2s nc -z localhost 5432",
+      "description": "Wait until a service port accepts connections (wait-for-it replacement)"
+    }
+  ],
+  "json_output_fields": [
+    {
+      "name": "tool",
+      "type": "string",
+      "description": "Tool name (\"retry\")"
+    },
+    {
+      "name": "version",
+      "type": "string",
+      "description": "Tool version"
+    },
+    {
+      "name": "exit_code",
+      "type": "int",
+      "description": "Tool exit code (retry's own return value — equal to child's on pass-through, or 125/126/127 on tool errors)"
+    },
+    {
+      "name": "exit_reason",
+      "type": "string",
+      "description": "Machine-readable exit reason: succeeded, retries_exhausted, not_retryable, launch_failed, cancelled"
+    },
+    {
+      "name": "child_exit_code",
+      "type": "int|null",
+      "description": "Final child process exit code, or null if the child never ran (e.g. launch_failed)"
+    },
+    {
+      "name": "attempts",
+      "type": "int",
+      "description": "Total attempts made (initial run + retries)"
+    },
+    {
+      "name": "max_attempts",
+      "type": "int",
+      "description": "Maximum attempts allowed (--times + 1)"
+    },
+    {
+      "name": "total_seconds",
+      "type": "float",
+      "description": "Total wall time including delays in seconds"
+    },
+    {
+      "name": "delays_seconds",
+      "type": "float[]",
+      "description": "Actual delay durations between attempts in seconds"
+    }
+  ]
+}

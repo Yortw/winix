@@ -1,0 +1,290 @@
+{
+  "schema_version": 1,
+  "tool": "treex",
+  "version": "<normalised>",
+  "maturity": "core",
+  "description": "Enhanced directory tree with colour, filtering, size rollups, and clickable hyperlinks.",
+  "platform": {
+    "scope": "cross-platform",
+    "replaces": [
+      "tree"
+    ],
+    "value_on_windows": "Windows tree is DOS-era — no colour, filtering, or sizes",
+    "value_on_unix": "Adds clickable hyperlinks, size rollups, gitignore, JSON output"
+  },
+  "prefer_default_when": [
+    "piping file paths into another tool — use files"
+  ],
+  "glob_expansion": {
+    "positionals": true,
+    "syntax": "* and ? in any path segment",
+    "not_patterns": [
+      "[...] (matched literally; legal Windows filename chars)",
+      "** (rejected with usage error)"
+    ],
+    "no_match": "literal passthrough",
+    "quoting": "quoted args not expanded (effective from cmd; PowerShell strips quotes)",
+    "windows_only": true
+  },
+  "usage": "treex [options] [paths...]",
+  "options": [
+    {
+      "long": "--help",
+      "short": "-h",
+      "type": "flag",
+      "description": "Show help",
+      "repeatable": false
+    },
+    {
+      "long": "--version",
+      "type": "flag",
+      "description": "Show version",
+      "repeatable": false
+    },
+    {
+      "long": "--no-color",
+      "type": "flag",
+      "description": "Disable colored output",
+      "repeatable": false
+    },
+    {
+      "long": "--json",
+      "type": "flag",
+      "description": "JSON output",
+      "repeatable": false
+    },
+    {
+      "long": "--describe",
+      "type": "flag",
+      "description": "Structured JSON metadata for AI agents",
+      "repeatable": false
+    },
+    {
+      "long": "--ndjson",
+      "type": "flag",
+      "description": "Streaming NDJSON output",
+      "repeatable": false
+    },
+    {
+      "long": "--no-hidden",
+      "type": "flag",
+      "description": "Skip hidden files and directories",
+      "repeatable": false
+    },
+    {
+      "long": "--gitignore",
+      "type": "flag",
+      "description": "Respect .gitignore rules",
+      "repeatable": false
+    },
+    {
+      "long": "--ignore-case",
+      "short": "-i",
+      "type": "flag",
+      "description": "Case-insensitive matching",
+      "repeatable": false
+    },
+    {
+      "long": "--case-sensitive",
+      "type": "flag",
+      "description": "Case-sensitive matching",
+      "repeatable": false
+    },
+    {
+      "long": "--size",
+      "short": "-s",
+      "type": "flag",
+      "description": "Show file sizes",
+      "repeatable": false
+    },
+    {
+      "long": "--date",
+      "type": "flag",
+      "description": "Show last-modified dates",
+      "repeatable": false
+    },
+    {
+      "long": "--dirs-only",
+      "short": "-D",
+      "type": "flag",
+      "description": "Show only directories",
+      "repeatable": false
+    },
+    {
+      "long": "--no-links",
+      "type": "flag",
+      "description": "Disable clickable hyperlinks",
+      "repeatable": false
+    },
+    {
+      "long": "--type",
+      "short": "-t",
+      "type": "string",
+      "placeholder": "TYPE",
+      "description": "f (file), d (directory), or l (symlink)",
+      "repeatable": false
+    },
+    {
+      "long": "--min-size",
+      "type": "string",
+      "placeholder": "SIZE",
+      "description": "Minimum file size (e.g. 100k, 10M)",
+      "repeatable": false
+    },
+    {
+      "long": "--max-size",
+      "type": "string",
+      "placeholder": "SIZE",
+      "description": "Maximum file size (e.g. 100k, 10M)",
+      "repeatable": false
+    },
+    {
+      "long": "--newer",
+      "type": "string",
+      "placeholder": "DURATION",
+      "description": "Modified within duration (e.g. 1h, 7d)",
+      "repeatable": false
+    },
+    {
+      "long": "--older",
+      "type": "string",
+      "placeholder": "DURATION",
+      "description": "Not modified within duration (e.g. 1h, 7d)",
+      "repeatable": false
+    },
+    {
+      "long": "--max-depth",
+      "short": "-d",
+      "type": "int",
+      "placeholder": "N",
+      "description": "Maximum directory depth (0-based; 0 = root only)",
+      "repeatable": false
+    },
+    {
+      "long": "--sort",
+      "type": "string",
+      "placeholder": "MODE",
+      "description": "Sort: name (default), size, modified",
+      "repeatable": false
+    },
+    {
+      "long": "--glob",
+      "short": "-g",
+      "type": "string",
+      "placeholder": "PATTERN",
+      "description": "Match filenames against glob",
+      "repeatable": true
+    },
+    {
+      "long": "--regex",
+      "short": "-e",
+      "type": "string",
+      "placeholder": "PATTERN",
+      "description": "Match filenames against regex",
+      "repeatable": true
+    },
+    {
+      "long": "--ext",
+      "type": "string",
+      "placeholder": "EXT",
+      "description": "Match file extension",
+      "repeatable": true
+    },
+    {
+      "long": "--color",
+      "type": "optional-value",
+      "allowed_values": [
+        "auto",
+        "always",
+        "never"
+      ],
+      "default_when_bare": "always",
+      "description": "Coloured output: auto (default when omitted), always, or never",
+      "repeatable": false
+    }
+  ],
+  "exit_codes": [
+    {
+      "code": 0,
+      "description": "Success"
+    },
+    {
+      "code": 1,
+      "description": "Runtime error (path not found, not a directory, walk error)"
+    },
+    {
+      "code": 125,
+      "description": "Usage error"
+    }
+  ],
+  "io": {
+    "stdin": "Not used",
+    "stdout": "Tree-formatted directory listing; NDJSON with --ndjson; JSON envelope with --json.",
+    "stderr": "Summary line, errors, and warnings."
+  },
+  "examples": [
+    {
+      "command": "treex",
+      "description": "Show current directory tree"
+    },
+    {
+      "command": "treex src --ext cs",
+      "description": "Show only C# files with ancestor directories"
+    },
+    {
+      "command": "treex --size --gitignore --no-hidden",
+      "description": "Clean tree with sizes"
+    },
+    {
+      "command": "treex --size --sort size",
+      "description": "Find largest files"
+    },
+    {
+      "command": "treex -d 2",
+      "description": "Limit to root + 2 levels of children"
+    },
+    {
+      "command": "treex src tests",
+      "description": "Show multiple roots"
+    }
+  ],
+  "composes_with": [
+    {
+      "tool": "jq",
+      "pattern": "treex --ndjson | jq -r 'select(.type==\"file\") | .path'",
+      "description": "Filter NDJSON records to file paths only"
+    }
+  ],
+  "json_output_fields": [
+    {
+      "name": "path",
+      "type": "string",
+      "description": "File path relative to root"
+    },
+    {
+      "name": "name",
+      "type": "string",
+      "description": "Filename only"
+    },
+    {
+      "name": "type",
+      "type": "string",
+      "description": "file, dir, or link"
+    },
+    {
+      "name": "size_bytes",
+      "type": "int|null",
+      "description": "File size in bytes; null for directories without --size rollup"
+    },
+    {
+      "name": "modified",
+      "type": "string",
+      "description": "ISO 8601 last modified"
+    },
+    {
+      "name": "depth",
+      "type": "int",
+      "description": "Depth relative to root"
+    }
+  ]
+}

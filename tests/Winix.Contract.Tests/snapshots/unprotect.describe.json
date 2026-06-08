@@ -1,0 +1,179 @@
+{
+  "schema_version": 1,
+  "tool": "unprotect",
+  "version": "<normalised>",
+  "maturity": "core",
+  "description": "Cross-platform decrypt-at-rest CLI for files produced by protect. Auto-selects backend (DPAPI / Keychain / libsecret) from the WPRT header marker.",
+  "platform": {
+    "scope": "cross-platform",
+    "replaces": [
+      "dpapi.ps1",
+      "security add-generic-password + openssl",
+      "secret-tool + openssl",
+      "gpg --symmetric (for single-user at-rest)"
+    ],
+    "value_on_windows": "Header-based backend auto-dispatch: decrypts any protect-produced file without the caller remembering which scope was used.",
+    "value_on_unix": "Streaming decryption from stdin, implicit .prot-suffix stripping on output, and automatic Keychain/libsecret backend selection from the header marker."
+  },
+  "prefer_default_when": [
+    "portable encryption (cross-machine/user) — use age or gpg",
+    "encrypting structured data with external KMS — use sops",
+    "whole-disk or filesystem encryption — use FileVault, BitLocker, or LUKS"
+  ],
+  "usage": "unprotect [options] [FILE]",
+  "options": [
+    {
+      "long": "--help",
+      "short": "-h",
+      "type": "flag",
+      "description": "Show help",
+      "repeatable": false
+    },
+    {
+      "long": "--version",
+      "type": "flag",
+      "description": "Show version",
+      "repeatable": false
+    },
+    {
+      "long": "--no-color",
+      "type": "flag",
+      "description": "Disable colored output",
+      "repeatable": false
+    },
+    {
+      "long": "--json",
+      "type": "flag",
+      "description": "JSON output",
+      "repeatable": false
+    },
+    {
+      "long": "--describe",
+      "type": "flag",
+      "description": "Structured JSON metadata for AI agents",
+      "repeatable": false
+    },
+    {
+      "long": "--in-place",
+      "type": "flag",
+      "description": "Replace FILE atomically via temp + rename. Mutually exclusive with --output.",
+      "repeatable": false
+    },
+    {
+      "long": "--rm",
+      "type": "flag",
+      "description": "Delete source FILE after successful round-trip verification.",
+      "repeatable": false
+    },
+    {
+      "long": "--remove-source",
+      "type": "flag",
+      "description": "Alias for --rm.",
+      "repeatable": false
+    },
+    {
+      "long": "--keep",
+      "short": "-k",
+      "type": "flag",
+      "description": "Retain source FILE (explicit default; accepted for symmetry with --rm).",
+      "repeatable": false
+    },
+    {
+      "long": "--no-verify",
+      "type": "flag",
+      "description": "Skip the post-encrypt round-trip integrity check (encrypt path only). Faster, less safe.",
+      "repeatable": false
+    },
+    {
+      "long": "--force",
+      "short": "-f",
+      "type": "flag",
+      "description": "Overwrite an existing destination file. Without this flag, the tool refuses to clobber existing data. Symlink-safe: the destination is unlinked before exclusive create, so an attacker-planted symlink cannot redirect the write.",
+      "repeatable": false
+    },
+    {
+      "long": "--output",
+      "short": "-o",
+      "type": "string",
+      "placeholder": "PATH",
+      "description": "Explicit output path. Default: FILE with .prot stripped for file input, stdout for stdin.",
+      "repeatable": false
+    },
+    {
+      "long": "--scope",
+      "type": "string",
+      "placeholder": "user|machine",
+      "description": "Key-derivation scope. 'user' (default) — key bound to current OS user, decryptable only by that user on that machine. 'machine' — key bound to machine credential, decryptable by any user on that machine (Windows needs DPAPI LocalMachine access; macOS needs sudo for System Keychain; Linux: unsupported — tool exits with usage error).",
+      "repeatable": false
+    },
+    {
+      "long": "--color",
+      "type": "optional-value",
+      "allowed_values": [
+        "auto",
+        "always",
+        "never"
+      ],
+      "default_when_bare": "always",
+      "description": "Coloured output: auto (default when omitted), always, or never",
+      "repeatable": false
+    }
+  ],
+  "exit_codes": [
+    {
+      "code": 0,
+      "description": "Success"
+    },
+    {
+      "code": 125,
+      "description": "Usage error: bad flags, path collision, --in-place without a FILE, unsupported scope on Linux"
+    },
+    {
+      "code": 126,
+      "description": "Runtime error: file not found, encryption/decryption failure, key store unavailable, round-trip verify failed, header magic mismatch, user/machine/scope mismatch on decrypt"
+    }
+  ],
+  "io": {
+    "stdin": "Ciphertext (.prot stream) to decrypt when no FILE is given.",
+    "stdout": "Plaintext when neither FILE nor -o is given (streaming mode).",
+    "stderr": "Errors, retention warnings (plaintext not removed when --rm omitted), and diagnostic messages."
+  },
+  "examples": [
+    {
+      "command": "unprotect secrets.json.prot",
+      "description": "Decrypt to secrets.json (implicit .prot-suffix strip)"
+    },
+    {
+      "command": "unprotect secrets.json.prot -o /tmp/out.json",
+      "description": "Decrypt to an explicit output path"
+    },
+    {
+      "command": "unprotect config.prot --in-place",
+      "description": "Atomic decrypt-over-ciphertext via temp + rename"
+    },
+    {
+      "command": "unprotect config.prot --rm",
+      "description": "Decrypt then delete the ciphertext source"
+    },
+    {
+      "command": "cat api.key.prot | unprotect",
+      "description": "Stream-decrypt via pipe"
+    },
+    {
+      "command": "unprotect < api.key.prot | digest --hmac sha256 --key-stdin -s payload",
+      "description": "Decrypt an HMAC key in memory (never hits disk) and hash a payload"
+    }
+  ],
+  "composes_with": [
+    {
+      "tool": "digest",
+      "pattern": "unprotect key.prot | digest --hmac sha256 --key-stdin -s payload",
+      "description": "Use an encrypted key without writing plaintext to disk"
+    },
+    {
+      "tool": "clip",
+      "pattern": "unprotect token.prot | clip",
+      "description": "Decrypt and copy to the clipboard (pair with --rm for single-use tokens)"
+    }
+  ]
+}

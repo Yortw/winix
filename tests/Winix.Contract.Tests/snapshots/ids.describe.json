@@ -1,0 +1,188 @@
+{
+  "schema_version": 1,
+  "tool": "ids",
+  "version": "<normalised>",
+  "maturity": "core",
+  "description": "Cross-platform identifier generator — UUID v4, UUID v7, ULID, NanoID.",
+  "platform": {
+    "scope": "cross-platform",
+    "replaces": [
+      "uuidgen"
+    ],
+    "value_on_windows": "Replaces the slow PowerShell `[guid]::NewGuid()` and adds UUID v7, ULID, NanoID support absent from the Windows platform.",
+    "value_on_unix": "Adds UUID v7, ULID, and NanoID which `uuidgen` (v1/v4-only on Linux, v4-only on macOS) cannot produce."
+  },
+  "prefer_default_when": [
+    "UUID v1 — use uuidgen"
+  ],
+  "usage": "ids [options]",
+  "options": [
+    {
+      "long": "--help",
+      "short": "-h",
+      "type": "flag",
+      "description": "Show help",
+      "repeatable": false
+    },
+    {
+      "long": "--version",
+      "type": "flag",
+      "description": "Show version",
+      "repeatable": false
+    },
+    {
+      "long": "--no-color",
+      "type": "flag",
+      "description": "Disable colored output",
+      "repeatable": false
+    },
+    {
+      "long": "--json",
+      "type": "flag",
+      "description": "JSON output",
+      "repeatable": false
+    },
+    {
+      "long": "--describe",
+      "type": "flag",
+      "description": "Structured JSON metadata for AI agents",
+      "repeatable": false
+    },
+    {
+      "long": "--uppercase",
+      "short": "-u",
+      "type": "flag",
+      "description": "Uppercase UUID hex output",
+      "repeatable": false
+    },
+    {
+      "long": "--type",
+      "short": "-t",
+      "type": "string",
+      "placeholder": "TYPE",
+      "description": "Identifier type: uuid4, uuid7, ulid, nanoid (default: uuid7)",
+      "repeatable": false
+    },
+    {
+      "long": "--count",
+      "short": "-n",
+      "type": "string",
+      "placeholder": "N",
+      "description": "Number of IDs to generate (default: 1)",
+      "repeatable": false
+    },
+    {
+      "long": "--length",
+      "short": "-l",
+      "type": "string",
+      "placeholder": "N",
+      "description": "NanoID length (default: 21, nanoid only)",
+      "repeatable": false
+    },
+    {
+      "long": "--alphabet",
+      "type": "string",
+      "placeholder": "ALPHA",
+      "description": "NanoID alphabet: url-safe, alphanum, hex, lower, upper (nanoid only)",
+      "repeatable": false
+    },
+    {
+      "long": "--format",
+      "type": "string",
+      "placeholder": "FORMAT",
+      "description": "UUID shape: default, hex, braces, urn (uuid only)",
+      "repeatable": false
+    },
+    {
+      "long": "--color",
+      "type": "optional-value",
+      "allowed_values": [
+        "auto",
+        "always",
+        "never"
+      ],
+      "default_when_bare": "always",
+      "description": "Coloured output: auto (default when omitted), always, or never",
+      "repeatable": false
+    }
+  ],
+  "exit_codes": [
+    {
+      "code": 0,
+      "description": "Success"
+    },
+    {
+      "code": 1,
+      "description": "Unexpected runtime error (e.g. OS CSPRNG failure, OOM)"
+    },
+    {
+      "code": 125,
+      "description": "Usage error: bad flags, unknown value, or flag/type mismatch"
+    }
+  ],
+  "io": {
+    "stdin": "Not used",
+    "stdout": "One identifier per line (plain), or a JSON array (--json)",
+    "stderr": "Errors on invalid input; empty on success"
+  },
+  "examples": [
+    {
+      "command": "ids",
+      "description": "Generate one UUID v7 (default)"
+    },
+    {
+      "command": "ids --type ulid --count 100",
+      "description": "100 time-ordered ULIDs, one per line"
+    },
+    {
+      "command": "ids --type nanoid --length 12",
+      "description": "A 12-char URL-safe NanoID"
+    },
+    {
+      "command": "ids --type uuid7 --format braces --uppercase",
+      "description": "Windows-registry-style braced uppercase GUID"
+    },
+    {
+      "command": "ids --type nanoid --alphabet hex --length 16",
+      "description": "Short random hex token"
+    },
+    {
+      "command": "ids --count 5 --json",
+      "description": "Five UUID v7 IDs as a JSON array"
+    }
+  ],
+  "composes_with": [
+    {
+      "tool": "clip",
+      "pattern": "ids | clip",
+      "description": "Generate an ID and copy it to the clipboard"
+    },
+    {
+      "tool": "xargs",
+      "pattern": "ids --type nanoid --count 5 | xargs -I{} curl http://host/{}",
+      "description": "Feed generated IDs into another command"
+    }
+  ],
+  "json_output_fields": [
+    {
+      "name": "id",
+      "type": "string",
+      "description": "The generated identifier"
+    },
+    {
+      "name": "type",
+      "type": "string",
+      "description": "ID type: uuid4, uuid7, ulid, nanoid"
+    },
+    {
+      "name": "length",
+      "type": "int",
+      "description": "(nanoid only) output length"
+    },
+    {
+      "name": "alphabet",
+      "type": "string",
+      "description": "(nanoid only) alphabet name: url-safe, alphanum, hex, lower, upper"
+    }
+  ]
+}

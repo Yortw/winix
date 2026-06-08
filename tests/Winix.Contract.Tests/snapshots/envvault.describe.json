@@ -1,0 +1,168 @@
+{
+  "schema_version": 1,
+  "tool": "envvault",
+  "version": "<normalised>",
+  "maturity": "core",
+  "description": "Cross-platform keychain-backed env-var manager. Envchain-compatible plus a Windows backend.",
+  "platform": {
+    "scope": "cross-platform",
+    "replaces": [
+      "envchain"
+    ],
+    "value_on_windows": "Native Credential Manager backend — envchain has no Windows build; envvault fills the gap with the same CLI surface.",
+    "value_on_unix": "Drop-in replacement for envchain: Keychain on macOS, libsecret on Linux, identical bare-positional invocation."
+  },
+  "prefer_default_when": [
+    "shared team secrets — use Vault, Doppler, or AWS Secrets Manager",
+    "cross-user/machine decryptable secrets — use sops or age"
+  ],
+  "usage": "envvault [options] [NAMESPACE]",
+  "options": [
+    {
+      "long": "--help",
+      "short": "-h",
+      "type": "flag",
+      "description": "Show help",
+      "repeatable": false
+    },
+    {
+      "long": "--version",
+      "type": "flag",
+      "description": "Show version",
+      "repeatable": false
+    },
+    {
+      "long": "--no-color",
+      "type": "flag",
+      "description": "Disable colored output",
+      "repeatable": false
+    },
+    {
+      "long": "--json",
+      "type": "flag",
+      "description": "JSON output",
+      "repeatable": false
+    },
+    {
+      "long": "--describe",
+      "type": "flag",
+      "description": "Structured JSON metadata for AI agents",
+      "repeatable": false
+    },
+    {
+      "long": "--set",
+      "type": "flag",
+      "description": "Store one or more KEYs in NAMESPACE. Values come from an interactive prompt (or --value for non-interactive; single key only when combined with --value).",
+      "repeatable": false
+    },
+    {
+      "long": "--list",
+      "type": "flag",
+      "description": "With no NAMESPACE, list all namespaces. With a NAMESPACE, list its keys.",
+      "repeatable": false
+    },
+    {
+      "long": "--get",
+      "type": "flag",
+      "description": "Print the value of KEY in NAMESPACE to stdout.",
+      "repeatable": false
+    },
+    {
+      "long": "--unset",
+      "type": "flag",
+      "description": "Delete KEY from NAMESPACE.",
+      "repeatable": false
+    },
+    {
+      "long": "--allow-empty",
+      "type": "flag",
+      "description": "Allow --set to store an empty string. By default envvault refuses empty values because silently storing \"\" is the exact footgun the tool exists to prevent (child command fails hours later with 'invalid credentials').",
+      "repeatable": false
+    },
+    {
+      "long": "--noecho",
+      "type": "flag",
+      "description": "Accepted for envchain compatibility (we never echo by default).",
+      "repeatable": false
+    },
+    {
+      "long": "--require-passphrase",
+      "type": "flag",
+      "description": "Defer decryption to a passphrase prompt. Accepted as a flag but not yet implemented — returns an error until v1.1.",
+      "repeatable": false
+    },
+    {
+      "long": "--no-require-passphrase",
+      "type": "flag",
+      "description": "Explicitly disable passphrase mode (default).",
+      "repeatable": false
+    },
+    {
+      "long": "--value",
+      "type": "string",
+      "placeholder": "VALUE",
+      "description": "Explicit value for --set (alternative to stdin prompting). Be careful with shell history.",
+      "repeatable": false
+    },
+    {
+      "long": "--color",
+      "type": "optional-value",
+      "allowed_values": [
+        "auto",
+        "always",
+        "never"
+      ],
+      "default_when_bare": "always",
+      "description": "Coloured output: auto (default when omitted), always, or never",
+      "repeatable": false
+    }
+  ],
+  "exit_codes": [
+    {
+      "code": 0,
+      "description": "Success; in exec form, the child process's exit code is passed through"
+    },
+    {
+      "code": 125,
+      "description": "Usage error: bad flags, missing positionals, mutually-exclusive action flags, or deferred feature used (--require-passphrase)"
+    },
+    {
+      "code": 126,
+      "description": "Runtime error: key store unavailable, permission denied launching child command"
+    },
+    {
+      "code": 127,
+      "description": "Not found: namespace or key missing on --get/--unset; command for exec form not on PATH"
+    }
+  ],
+  "examples": [
+    {
+      "command": "envvault github gh pr list",
+      "description": "Run gh with GitHub env-vars injected (envchain-compat form)"
+    },
+    {
+      "command": "envvault --set aws AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY",
+      "description": "Prompt for and store two AWS keys in the 'aws' namespace"
+    },
+    {
+      "command": "envvault --list",
+      "description": "List all namespaces"
+    },
+    {
+      "command": "envvault --list github",
+      "description": "List keys stored in the 'github' namespace"
+    },
+    {
+      "command": "envvault --get github GITHUB_TOKEN",
+      "description": "Print the stored GITHUB_TOKEN value"
+    },
+    {
+      "command": "envvault --unset github GITHUB_TOKEN",
+      "description": "Remove a key from a namespace"
+    },
+    {
+      "command": "envvault github,aws deploy.sh",
+      "description": "Inject GitHub and AWS env-vars (in order) and run deploy.sh"
+    }
+  ]
+}

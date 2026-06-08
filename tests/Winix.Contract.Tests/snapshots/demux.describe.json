@@ -1,0 +1,152 @@
+{
+  "schema_version": 1,
+  "tool": "demux",
+  "version": "<normalised>",
+  "maturity": "fresh",
+  "description": "Route each line of stdin to files or commands by regex; unmatched lines pass through to stdout.",
+  "prefer_default_when": [
+    "single-sink filtering by pattern — use grep, Select-String, or files --content",
+    "transforming lines (substitutions, field extraction) — use awk or sed",
+    "copying one stream to N identical sinks — use tee"
+  ],
+  "usage": "demux [options]",
+  "options": [
+    {
+      "long": "--help",
+      "short": "-h",
+      "type": "flag",
+      "description": "Show help",
+      "repeatable": false
+    },
+    {
+      "long": "--version",
+      "type": "flag",
+      "description": "Show version",
+      "repeatable": false
+    },
+    {
+      "long": "--no-color",
+      "type": "flag",
+      "description": "Disable colored output",
+      "repeatable": false
+    },
+    {
+      "long": "--json",
+      "type": "flag",
+      "description": "JSON output",
+      "repeatable": false
+    },
+    {
+      "long": "--describe",
+      "type": "flag",
+      "description": "Structured JSON metadata for AI agents",
+      "repeatable": false
+    },
+    {
+      "long": "--all",
+      "type": "flag",
+      "description": "Broadcast: route to every matching route (default: first-match)",
+      "repeatable": false
+    },
+    {
+      "long": "--append",
+      "type": "flag",
+      "description": "File targets append instead of truncate",
+      "repeatable": false
+    },
+    {
+      "long": "--exit-on-child-error",
+      "type": "flag",
+      "description": "A watched child's non-zero exit makes demux exit 2",
+      "repeatable": false
+    },
+    {
+      "long": "--field",
+      "type": "int",
+      "placeholder": "N",
+      "description": "Test the regex against column N (1-based) instead of the whole line",
+      "repeatable": false
+    },
+    {
+      "long": "--delimiter",
+      "type": "string",
+      "placeholder": "CHAR",
+      "description": "Field delimiter (default: runs of whitespace)",
+      "repeatable": false
+    },
+    {
+      "long": "--color",
+      "type": "optional-value",
+      "allowed_values": [
+        "auto",
+        "always",
+        "never"
+      ],
+      "default_when_bare": "always",
+      "description": "Coloured output: auto (default when omitted), always, or never",
+      "repeatable": false
+    }
+  ],
+  "exit_codes": [
+    {
+      "code": 0,
+      "description": "Success — all input routed and delivered"
+    },
+    {
+      "code": 1,
+      "description": "Partial delivery failure — a route died, records undelivered"
+    },
+    {
+      "code": 2,
+      "description": "Watched child exited non-zero (--exit-on-child-error)"
+    },
+    {
+      "code": 125,
+      "description": "Usage error"
+    },
+    {
+      "code": 126,
+      "description": "Setup failure — could not open a --to file or launch the shell"
+    }
+  ],
+  "examples": [
+    {
+      "command": "cat app.log | demux --to ERROR err.log --default-exec 'gzip > rest.gz'",
+      "description": "Split errors into a file, compress the rest"
+    }
+  ],
+  "composes_with": [
+    {
+      "tool": "clip",
+      "pattern": "demux --exec ERROR clip --default-to rest.log",
+      "description": "Copy error lines to the clipboard, file the rest"
+    }
+  ],
+  "json_output_fields": [
+    {
+      "name": "tool",
+      "type": "string",
+      "description": "Tool name (\"demux\")"
+    },
+    {
+      "name": "version",
+      "type": "string",
+      "description": "demux version"
+    },
+    {
+      "name": "exit_code",
+      "type": "int",
+      "description": "0/1/2 — see exit codes"
+    },
+    {
+      "name": "exit_reason",
+      "type": "string",
+      "description": "success | partial_delivery_failure | watched_child_failed"
+    },
+    {
+      "name": "routes",
+      "type": "array",
+      "description": "Per-route {label, delivered, undelivered, dead, child_exit_code, killed_after_timeout}"
+    }
+  ]
+}

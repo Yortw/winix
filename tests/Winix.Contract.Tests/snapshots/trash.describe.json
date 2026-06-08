@@ -1,0 +1,142 @@
+{
+  "schema_version": 1,
+  "tool": "trash",
+  "version": "<normalised>",
+  "maturity": "fresh",
+  "description": "Move files and directories to the recycle bin / Trash. Also lists and empties the trash.",
+  "platform": {
+    "scope": "cross-platform",
+    "replaces": [
+      "rm -i",
+      "trash-cli",
+      "macos-trash",
+      "PowerShell Remove-Item"
+    ],
+    "value_on_windows": "Windows has no built-in recycle-bin CLI; Remove-Item deletes permanently.",
+    "value_on_unix": "One binary matching trash-cli/macos-trash semantics, no Python/Node runtime required."
+  },
+  "prefer_default_when": [
+    "permanent unrecoverable delete — use rm or shred"
+  ],
+  "glob_expansion": {
+    "positionals": true,
+    "syntax": "* and ? in any path segment",
+    "not_patterns": [
+      "[...] (matched literally; legal Windows filename chars)",
+      "** (rejected with usage error)"
+    ],
+    "no_match": "literal passthrough",
+    "quoting": "quoted args not expanded (effective from cmd; PowerShell strips quotes)",
+    "windows_only": true
+  },
+  "usage": "trash [options] [paths...]",
+  "options": [
+    {
+      "long": "--help",
+      "short": "-h",
+      "type": "flag",
+      "description": "Show help",
+      "repeatable": false
+    },
+    {
+      "long": "--version",
+      "type": "flag",
+      "description": "Show version",
+      "repeatable": false
+    },
+    {
+      "long": "--no-color",
+      "type": "flag",
+      "description": "Disable colored output",
+      "repeatable": false
+    },
+    {
+      "long": "--json",
+      "type": "flag",
+      "description": "JSON output",
+      "repeatable": false
+    },
+    {
+      "long": "--describe",
+      "type": "flag",
+      "description": "Structured JSON metadata for AI agents",
+      "repeatable": false
+    },
+    {
+      "long": "--list",
+      "type": "flag",
+      "description": "Show what is currently in the recycle bin / Trash.",
+      "repeatable": false
+    },
+    {
+      "long": "--empty",
+      "type": "flag",
+      "description": "Permanently empty the recycle bin / Trash (prompts unless --yes or non-interactive).",
+      "repeatable": false
+    },
+    {
+      "long": "--yes",
+      "short": "-y",
+      "type": "flag",
+      "description": "Skip confirmation when emptying the trash.",
+      "repeatable": false
+    },
+    {
+      "long": "--color",
+      "type": "optional-value",
+      "allowed_values": [
+        "auto",
+        "always",
+        "never"
+      ],
+      "default_when_bare": "always",
+      "description": "Coloured output: auto (default when omitted), always, or never",
+      "repeatable": false
+    }
+  ],
+  "exit_codes": [
+    {
+      "code": 0,
+      "description": "Success (a closed downstream pipe, e.g. | head -1, also exits 0 — not an error)"
+    },
+    {
+      "code": 2,
+      "description": "--empty cancelled: declined at the prompt, or refused without --yes when not interactive"
+    },
+    {
+      "code": 125,
+      "description": "Usage error: unknown flag, --list/--empty misuse, empty/duplicate path, no paths"
+    },
+    {
+      "code": 1,
+      "description": "One or more paths failed (missing path, permission denied), or some items could not be emptied — like rm"
+    },
+    {
+      "code": 126,
+      "description": "Backend failure: OS recycle-bin API error"
+    }
+  ],
+  "io": {
+    "stdin": "Not used.",
+    "stdout": "Plain mode: nothing on success (summary to stderr); --list: the listing; --json: a JSON envelope.",
+    "stderr": "Per-path/operation summary and errors."
+  },
+  "examples": [
+    {
+      "command": "trash file.txt",
+      "description": "Send a file to the recycle bin / Trash"
+    },
+    {
+      "command": "trash old.log build/",
+      "description": "Trash multiple paths (a file and a directory)"
+    },
+    {
+      "command": "trash --list",
+      "description": "Show what's in the trash"
+    },
+    {
+      "command": "trash --empty",
+      "description": "Permanently empty the trash"
+    }
+  ]
+}

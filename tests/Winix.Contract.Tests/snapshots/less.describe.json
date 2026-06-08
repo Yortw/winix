@@ -1,0 +1,160 @@
+{
+  "schema_version": 1,
+  "tool": "less",
+  "version": "<normalised>",
+  "maturity": "core",
+  "description": "Display file contents one screen at a time with scrolling, search, and ANSI colour passthrough.",
+  "platform": {
+    "scope": "cross-platform",
+    "replaces": [
+      "less",
+      "more"
+    ],
+    "value_on_windows": "Windows has no native pager — more.com is forward-only and destroys ANSI",
+    "value_on_unix": "Native ANSI passthrough, search, follow mode, modern defaults"
+  },
+  "glob_expansion": {
+    "positionals": true,
+    "syntax": "* and ? in any path segment",
+    "not_patterns": [
+      "[...] (matched literally; legal Windows filename chars)",
+      "** (rejected with usage error)"
+    ],
+    "no_match": "literal passthrough",
+    "quoting": "quoted args not expanded (effective from cmd; PowerShell strips quotes)",
+    "windows_only": true
+  },
+  "usage": "less [options] [[file]]",
+  "options": [
+    {
+      "long": "--help",
+      "short": "-h",
+      "type": "flag",
+      "description": "Show help",
+      "repeatable": false
+    },
+    {
+      "long": "--version",
+      "type": "flag",
+      "description": "Show version",
+      "repeatable": false
+    },
+    {
+      "long": "--no-color",
+      "type": "flag",
+      "description": "Disable colored output",
+      "repeatable": false
+    },
+    {
+      "long": "--json",
+      "type": "flag",
+      "description": "JSON output",
+      "repeatable": false
+    },
+    {
+      "long": "--describe",
+      "type": "flag",
+      "description": "Structured JSON metadata for AI agents",
+      "repeatable": false
+    },
+    {
+      "long": "-N",
+      "type": "flag",
+      "description": "Show line numbers",
+      "repeatable": false
+    },
+    {
+      "long": "-S",
+      "type": "flag",
+      "description": "Chop (truncate) long lines instead of wrapping",
+      "repeatable": false
+    },
+    {
+      "long": "-F",
+      "type": "flag",
+      "description": "Quit if content fits on one screen (default: on)",
+      "repeatable": false
+    },
+    {
+      "long": "-R",
+      "type": "flag",
+      "description": "Raw ANSI passthrough (default: on)",
+      "repeatable": false
+    },
+    {
+      "long": "-X",
+      "type": "flag",
+      "description": "Don't clear screen on exit (default: on)",
+      "repeatable": false
+    },
+    {
+      "long": "-i",
+      "type": "flag",
+      "description": "Case-insensitive search (smart case: sensitive if pattern has uppercase)",
+      "repeatable": false
+    },
+    {
+      "long": "-I",
+      "type": "flag",
+      "description": "Force case-insensitive search",
+      "repeatable": false
+    },
+    {
+      "long": "--color",
+      "type": "optional-value",
+      "allowed_values": [
+        "auto",
+        "always",
+        "never"
+      ],
+      "default_when_bare": "always",
+      "description": "Coloured output: auto (default when omitted), always, or never",
+      "repeatable": false
+    }
+  ],
+  "exit_codes": [
+    {
+      "code": 0,
+      "description": "Success"
+    },
+    {
+      "code": 1,
+      "description": "Error (file not found, read error, permission denied)"
+    },
+    {
+      "code": 2,
+      "description": "Usage error (POSIX-traditional; deliberate suite divergence since less replaces a POSIX tool)"
+    }
+  ],
+  "io": {
+    "stdin": "Content to page (when no file argument)",
+    "stdout": "Paged content (with -F for short content, or when piped)",
+    "stderr": "Errors"
+  },
+  "examples": [
+    {
+      "command": "git diff | less",
+      "description": "Page coloured diff output"
+    },
+    {
+      "command": "less logfile.txt",
+      "description": "View a file with scrolling and search"
+    },
+    {
+      "command": "less -N logfile.txt",
+      "description": "View with line numbers"
+    },
+    {
+      "command": "less -S wide.csv",
+      "description": "View wide file with horizontal scrolling"
+    },
+    {
+      "command": "less +F logfile.txt",
+      "description": "Follow file for new content (like tail -f)"
+    },
+    {
+      "command": "less +/error logfile.txt",
+      "description": "Open file and jump to first 'error'"
+    }
+  ]
+}

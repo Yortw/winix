@@ -1,0 +1,255 @@
+{
+  "schema_version": 1,
+  "tool": "when",
+  "version": "<normalised>",
+  "maturity": "core",
+  "description": "Convert timestamps between formats, apply time arithmetic, and calculate durations.",
+  "platform": {
+    "scope": "cross-platform",
+    "replaces": [
+      "date"
+    ],
+    "value_on_windows": "No native date conversion command; replaces web tools and PowerShell gymnastics",
+    "value_on_unix": "Simpler than arcane date(1) syntax; cross-platform, consistent output"
+  },
+  "usage": "when [options] [<input> [+/-offset] | diff <time1> <time2>]",
+  "options": [
+    {
+      "long": "--help",
+      "short": "-h",
+      "type": "flag",
+      "description": "Show help",
+      "repeatable": false
+    },
+    {
+      "long": "--version",
+      "type": "flag",
+      "description": "Show version",
+      "repeatable": false
+    },
+    {
+      "long": "--no-color",
+      "type": "flag",
+      "description": "Disable colored output",
+      "repeatable": false
+    },
+    {
+      "long": "--json",
+      "type": "flag",
+      "description": "JSON output",
+      "repeatable": false
+    },
+    {
+      "long": "--describe",
+      "type": "flag",
+      "description": "Structured JSON metadata for AI agents",
+      "repeatable": false
+    },
+    {
+      "long": "--utc",
+      "type": "flag",
+      "description": "Output only UTC ISO 8601 string (conversion mode)",
+      "repeatable": false
+    },
+    {
+      "long": "--local",
+      "type": "flag",
+      "description": "Output only local ISO 8601 string (conversion mode)",
+      "repeatable": false
+    },
+    {
+      "long": "--iso",
+      "type": "flag",
+      "description": "Output only ISO 8601 duration string (diff mode)",
+      "repeatable": false
+    },
+    {
+      "long": "--tz",
+      "type": "string",
+      "placeholder": "ZONE",
+      "description": "Display in this timezone (IANA or Windows ID)",
+      "repeatable": false
+    },
+    {
+      "long": "--color",
+      "type": "optional-value",
+      "allowed_values": [
+        "auto",
+        "always",
+        "never"
+      ],
+      "default_when_bare": "always",
+      "description": "Coloured output: auto (default when omitted), always, or never",
+      "repeatable": false
+    }
+  ],
+  "exit_codes": [
+    {
+      "code": 0,
+      "description": "Success"
+    },
+    {
+      "code": 125,
+      "description": "Usage error — bad arguments, unparseable input, unknown timezone"
+    }
+  ],
+  "io": {
+    "stdin": "Not used",
+    "stdout": "Timestamp conversions, durations, or JSON output",
+    "stderr": "Error messages only"
+  },
+  "examples": [
+    {
+      "command": "when 1718745600",
+      "description": "Convert a Unix epoch to all formats"
+    },
+    {
+      "command": "when now",
+      "description": "Show current time in all formats"
+    },
+    {
+      "command": "when now --tz Asia/Tokyo",
+      "description": "Show current time in Tokyo"
+    },
+    {
+      "command": "when now +7d",
+      "description": "Show the date 7 days from now"
+    },
+    {
+      "command": "when now --utc",
+      "description": "Pipe-friendly UTC timestamp"
+    },
+    {
+      "command": "when diff 2024-06-18 2024-06-25",
+      "description": "Calculate duration between two dates"
+    },
+    {
+      "command": "when diff now 2024-12-25 --iso",
+      "description": "ISO 8601 duration until Christmas"
+    }
+  ],
+  "composes_with": [
+    {
+      "tool": "wargs",
+      "pattern": "cat epochs.txt | wargs when",
+      "description": "Convert a list of epochs"
+    },
+    {
+      "tool": "timeit",
+      "pattern": "timeit when diff 2024-01-01 2024-12-31",
+      "description": "Time the diff calculation"
+    }
+  ],
+  "json_output_fields": [
+    {
+      "name": "tool",
+      "type": "string",
+      "description": "Tool name (\"when\")"
+    },
+    {
+      "name": "version",
+      "type": "string",
+      "description": "Tool version"
+    },
+    {
+      "name": "exit_code",
+      "type": "int",
+      "description": "0 = success, 125 = usage error"
+    },
+    {
+      "name": "exit_reason",
+      "type": "string",
+      "description": "Machine-readable exit reason: success, usage_error"
+    },
+    {
+      "name": "input",
+      "type": "string",
+      "description": "Original input string (conversion mode)"
+    },
+    {
+      "name": "offset",
+      "type": "string|null",
+      "description": "Offset string if applied (conversion mode)"
+    },
+    {
+      "name": "utc",
+      "type": "string",
+      "description": "UTC ISO 8601 timestamp (conversion mode)"
+    },
+    {
+      "name": "local",
+      "type": "string",
+      "description": "Local ISO 8601 timestamp (conversion mode)"
+    },
+    {
+      "name": "local_timezone",
+      "type": "string",
+      "description": "Local timezone abbreviation (conversion mode)"
+    },
+    {
+      "name": "target",
+      "type": "string|null",
+      "description": "Target-timezone ISO 8601 timestamp (only when --tz set, conversion mode)"
+    },
+    {
+      "name": "target_timezone",
+      "type": "string|null",
+      "description": "Target timezone abbreviation (only when --tz set, conversion mode)"
+    },
+    {
+      "name": "unix_seconds",
+      "type": "int",
+      "description": "Unix epoch in seconds (conversion mode)"
+    },
+    {
+      "name": "unix_milliseconds",
+      "type": "int",
+      "description": "Unix epoch in milliseconds (conversion mode)"
+    },
+    {
+      "name": "relative",
+      "type": "string",
+      "description": "Relative time string (conversion mode)"
+    },
+    {
+      "name": "from",
+      "type": "string",
+      "description": "First timestamp, UTC (diff mode)"
+    },
+    {
+      "name": "to",
+      "type": "string",
+      "description": "Second timestamp, UTC (diff mode)"
+    },
+    {
+      "name": "duration_iso",
+      "type": "string",
+      "description": "ISO 8601 duration, signed (diff mode)"
+    },
+    {
+      "name": "total_seconds",
+      "type": "int",
+      "description": "Total seconds, signed (diff mode)"
+    },
+    {
+      "name": "days",
+      "type": "int",
+      "description": "Day component, signed (diff mode)"
+    },
+    {
+      "name": "hours",
+      "type": "int",
+      "description": "Hour component, signed (diff mode)"
+    },
+    {
+      "name": "minutes",
+      "type": "int",
+      "description": "Minute component, signed (diff mode)"
+    },
+    {
+      "name": "seconds",
+      "type": "int",
+      "description": "Second component, signed (diff mode)"
+    }
+  ]
+}
