@@ -54,10 +54,23 @@
       "repeatable": false
     },
     {
+      "long": "--claude",
+      "type": "flag",
+      "description": "Include CLAUDE.md even when it does not already exist (agents only)",
+      "repeatable": false
+    },
+    {
       "long": "--via",
       "type": "string",
       "placeholder": "PM",
       "description": "Package manager to use: winget, scoop, brew, dotnet",
+      "repeatable": false
+    },
+    {
+      "long": "--path",
+      "type": "string",
+      "placeholder": "DIR",
+      "description": "Project directory to operate on (agents only; default: current directory)",
       "repeatable": false
     },
     {
@@ -132,6 +145,18 @@
     {
       "command": "winix install --dry-run",
       "description": "Preview what would be installed"
+    },
+    {
+      "command": "winix agents init",
+      "description": "Write the Winix discoverability pointer into AGENTS.md (and CLAUDE.md if present)"
+    },
+    {
+      "command": "winix agents status",
+      "description": "Report whether the pointer block is present and current (exit 1 if not)"
+    },
+    {
+      "command": "winix agents remove",
+      "description": "Remove the Winix discoverability pointer block"
     }
   ]
 }
