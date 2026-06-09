@@ -350,30 +350,76 @@ public static class AgentsManager
     }
 
     /// <summary>
-    /// Writes or refreshes the managed block in every applicable target. Returns
-    /// <see cref="WinixExitCode.Success"/> on success, <see cref="WinixExitCode.UsageError"/>
-    /// when the base directory does not exist, or <see cref="WinixExitCode.InternalError"/> on
-    /// an I/O failure (reported as a clean one-line message — never a framework stack trace).
+    /// Resolves the files an action operates on for the given scope, plus the render mode. Returns
+    /// <see langword="false"/> with <paramref name="errorMessage"/>/<paramref name="errorCode"/>
+    /// set when a scope precondition fails (project base dir missing, or user scope with no home
+    /// and no force flag). The user-scope no-home case is surfaced as
+    /// <see cref="WinixExitCode.UsageError"/>; callers that need a different exit code (status)
+    /// re-map it themselves.
+    /// </summary>
+    internal static bool TryResolveTargets(
+        AgentsOptions opts, IAgentsFileSystem fs,
+        out List<string> targets, out RenderMode mode, out string? errorMessage, out int errorCode)
+    {
+        errorMessage = null;
+        errorCode = WinixExitCode.Success;
+        if (opts.Scope == AgentsScope.Project)
+        {
+            mode = RenderMode.ProjectScope;
+            if (!fs.DirectoryExists(opts.BaseDir))
+            {
+                targets = new List<string>();
+                errorMessage = $"winix: path '{opts.BaseDir}' is not a directory";
+                errorCode = WinixExitCode.UsageError;
+                return false;
+            }
+            targets = ResolveInitTargets(opts, fs);
+            return true;
+        }
+
+        mode = RenderMode.UserScope;
+        targets = ResolveUserTargets(opts, fs);
+        if (targets.Count == 0)
+        {
+            errorMessage = "winix: no agent home found (use --claude or --codex to create one)";
+            errorCode = WinixExitCode.UsageError;
+            return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Writes or refreshes the managed block in every applicable target for the options' scope.
+    /// Returns <see cref="WinixExitCode.Success"/> on success, <see cref="WinixExitCode.UsageError"/>
+    /// when a scope precondition fails (project base dir missing, or user scope with no home and no
+    /// force flag), or <see cref="WinixExitCode.InternalError"/> on an I/O failure (reported as a
+    /// clean one-line message — never a framework stack trace).
     /// </summary>
     internal static int RunInit(AgentsOptions opts, IAgentsFileSystem fs, TextWriter stdout, TextWriter stderr)
     {
-        if (!fs.DirectoryExists(opts.BaseDir))
+        if (!TryResolveTargets(opts, fs, out List<string> targets, out RenderMode mode, out string? err, out int code))
         {
-            stderr.WriteLine($"winix: path '{opts.BaseDir}' is not a directory");
-            return WinixExitCode.UsageError;
+            stderr.WriteLine(err);
+            return code;
         }
 
         var changed = new List<string>();
         string current = string.Empty;
         try
         {
-            foreach (string target in ResolveInitTargets(opts, fs))
+            foreach (string target in targets)
             {
                 current = target;
                 string existing = fs.FileExists(target) ? fs.ReadAllText(target) : string.Empty;
-                string merged = MergeBlock(existing, opts.Version);
+                string merged = MergeBlock(existing, opts.Version, mode);
                 if (!opts.DryRun)
                 {
+                    // Ensure the target dir exists through the SEAM before writing — this makes
+                    // force-create (--claude/--codex into an absent home) deterministically unit-
+                    // testable (assert fs.Created) instead of relying on the production writer's own
+                    // dir-creation, which the in-memory fake can't observe. Idempotent for existing dirs.
+                    string? dir = Path.GetDirectoryName(target);
+                    if (!string.IsNullOrEmpty(dir)) { fs.CreateDirectory(dir); }
                     fs.WriteAllText(target, merged);
                 }
                 changed.Add(target);

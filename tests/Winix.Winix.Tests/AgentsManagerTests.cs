@@ -501,6 +501,92 @@ public sealed class AgentsManagerTests
     // ── RunInit ───────────────────────────────────────────────────────────────────
 
     [Fact]
+    public void RunInit_UserScope_WritesExistingHomesWithAssertWording()
+    {
+        var fs = new InMemoryFs { Home = "/home/u" };
+        fs.Dirs.Add(Path.Combine("/home/u", ".claude"));
+        var sw = new StringWriter();
+
+        int code = AgentsManager.RunInit(UserOpts(), fs, sw, sw);
+
+        Assert.Equal(WinixExitCode.Success, code);
+        string written = fs.Files[Path.Combine("/home/u", ".claude", "CLAUDE.md")];
+        Assert.Contains("(available on this machine)", written, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RunInit_UserScope_ForceCodex_CreatesDirAndWrites()
+    {
+        var fs = new InMemoryFs { Home = "/home/u" }; // no homes exist
+        var sw = new StringWriter();
+
+        int code = AgentsManager.RunInit(UserOpts(forceCodex: true), fs, sw, sw);
+
+        Assert.Equal(WinixExitCode.Success, code);
+        // Compute the expected dir the way production does (Path.GetDirectoryName of the target),
+        // so the assertion is robust to OS separator normalisation (/ → \ on Windows).
+        string codexFile = Path.Combine("/home/u", ".codex", "AGENTS.md");
+        Assert.Contains(Path.GetDirectoryName(codexFile)!, fs.Created);
+        Assert.True(fs.Files.ContainsKey(codexFile));
+    }
+
+    [Fact]
+    public void RunInit_UserScope_NoHomesNoForce_UsageErrorWritesNothing()
+    {
+        var fs = new InMemoryFs { Home = "/home/u" };
+        var sw = new StringWriter();
+
+        int code = AgentsManager.RunInit(UserOpts(), fs, sw, sw);
+
+        Assert.Equal(WinixExitCode.UsageError, code);
+        Assert.Empty(fs.Files);
+        Assert.Contains("no agent home found", sw.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RunInit_ProjectScope_WritesConditionalWording()
+    {
+        var fs = new InMemoryFs();
+        fs.Dirs.Add("/repo");
+        var opts = new AgentsManager.AgentsOptions(
+            "init", AgentsManager.AgentsScope.Project, "/repo", false, false, false, false, "0.4.0");
+        var sw = new StringWriter();
+
+        int code = AgentsManager.RunInit(opts, fs, sw, sw);
+
+        Assert.Equal(WinixExitCode.Success, code);
+        Assert.Contains("(if available in your environment)",
+            fs.Files[Path.Combine("/repo", "AGENTS.md")], StringComparison.Ordinal);
+    }
+
+    [Fact] // IOException mid-write surfaces InternalError + names the failing target.
+    public void RunInit_WriteFailure_InternalErrorNamesTarget()
+    {
+        var fs = new InMemoryFs { Home = "/home/u", ThrowOnWritePath = ".claude" };
+        fs.Dirs.Add(Path.Combine("/home/u", ".claude"));
+        var sw = new StringWriter();
+
+        int code = AgentsManager.RunInit(UserOpts(), fs, sw, sw);
+
+        Assert.Equal(WinixExitCode.InternalError, code);
+        Assert.Contains(Path.Combine("/home/u", ".claude", "CLAUDE.md"), sw.ToString(), StringComparison.Ordinal);
+        // Resource-key history: the surfaced text must not leak a bare framework SR key.
+        Assert.DoesNotContain("Arg_", sw.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact] // A non-existent WINIX_AGENTS_HOME resolves to empty-home, not a crash.
+    public void RunInit_NonExistentHome_NoForce_EmptyHomeUsageError()
+    {
+        var fs = new InMemoryFs { Home = "/does/not/exist" }; // no dirs registered
+        var sw = new StringWriter();
+
+        int code = AgentsManager.RunInit(UserOpts(), fs, sw, sw);
+
+        Assert.Equal(WinixExitCode.UsageError, code);
+        Assert.Contains("no agent home found", sw.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void RunInit_NoExistingFiles_WritesAgentsMdAndReturnsSuccess()
     {
         var fs = new InMemoryFs();
