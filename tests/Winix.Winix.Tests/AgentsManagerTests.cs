@@ -330,6 +330,30 @@ public sealed class AgentsManagerTests
         }
     }
 
+    [Fact]
+    public void DefaultFileSystem_ResolveHome_WhitespaceOverride_FallsBackToUserProfileNoThrow()
+    {
+        // Regression: a blank WINIX_AGENTS_HOME (e.g. a `export VAR=" "` harness quoting accident)
+        // must NOT reach Path.GetFullPath — that throws ArgumentException, an uncaught type that
+        // escaped as a raw stack trace leaking an SR resource key. Blank is treated as "unset".
+        // Drives the PRODUCTION fs (not the InMemoryFs stub) so GetFullPath is actually exercised.
+        string? saved = Environment.GetEnvironmentVariable("WINIX_AGENTS_HOME");
+        try
+        {
+            Environment.SetEnvironmentVariable("WINIX_AGENTS_HOME", "   ");
+            var fs = AgentsManager.CreateDefaultFileSystem();
+
+            string home = fs.ResolveHome(); // must not throw
+
+            Assert.Equal(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), home);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("WINIX_AGENTS_HOME", saved);
+        }
+    }
+
     // In-memory fake shared by orchestration tests (both project- and user-scope). Exposes the
     // user-home seam (ResolveHome/CreateDirectory) plus a fault-injection knob for write failures.
     private sealed class InMemoryFs : IAgentsFileSystem

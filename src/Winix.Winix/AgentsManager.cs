@@ -692,8 +692,13 @@ public static class AgentsManager
             // than silently CWD-relative at each Path.Combine. It need NOT exist — a non-existent
             // override resolves to the empty-home path (no homes found) for a non-force init, which
             // is the intended "nothing set up" outcome.
+            //
+            // Use IsNullOrWhiteSpace, not IsNullOrEmpty: a blank value (e.g. a `export VAR=" "`
+            // shell-quoting accident in a harness) would otherwise reach Path.GetFullPath, which
+            // throws ArgumentException on whitespace — an uncaught type that escapes as a raw stack
+            // trace leaking an SR resource key. Treat blank as "unset" → fall back to the profile.
             string? overrideHome = Environment.GetEnvironmentVariable("WINIX_AGENTS_HOME");
-            return !string.IsNullOrEmpty(overrideHome)
+            return !string.IsNullOrWhiteSpace(overrideHome)
                 ? Path.GetFullPath(overrideHome)
                 : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         }

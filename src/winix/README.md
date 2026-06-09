@@ -44,7 +44,7 @@ Manages all Winix tools via your platform's native package manager. On Windows, 
 | `uninstall` | Uninstall all Winix tools (or a subset) |
 | `list` | List all available Winix tools |
 | `status` | Show install status and version of each tool |
-| `agents` | Write, check, or remove the Winix discoverability pointer in a project |
+| `agents` | Write, check, or remove the Winix discoverability pointer in your user agent config (or a repo with `--project`) |
 
 ### Examples
 
