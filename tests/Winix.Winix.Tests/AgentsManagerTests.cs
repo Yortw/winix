@@ -466,6 +466,38 @@ public sealed class AgentsManagerTests
         Assert.Contains(targets, t => t.EndsWith("CLAUDE.md", StringComparison.Ordinal));
     }
 
+    // ── ResolveUserTargets (user scope) ───────────────────────────────────────────
+
+    [Fact]
+    public void ResolveUserTargets_OnlyExistingHomes()
+    {
+        var fs = new InMemoryFs { Home = "/home/u" };
+        fs.Dirs.Add(Path.Combine("/home/u", ".claude")); // codex dir absent
+
+        var targets = AgentsManager.ResolveUserTargets(UserOpts(), fs);
+
+        Assert.Equal(new[] { Path.Combine("/home/u", ".claude", "CLAUDE.md") }, targets);
+    }
+
+    [Fact]
+    public void ResolveUserTargets_ForceCodexIncludesAbsentHome()
+    {
+        var fs = new InMemoryFs { Home = "/home/u" };
+        fs.Dirs.Add(Path.Combine("/home/u", ".claude"));
+
+        var targets = AgentsManager.ResolveUserTargets(UserOpts(forceCodex: true), fs);
+
+        Assert.Contains(Path.Combine("/home/u", ".claude", "CLAUDE.md"), targets);
+        Assert.Contains(Path.Combine("/home/u", ".codex", "AGENTS.md"), targets);
+    }
+
+    [Fact]
+    public void ResolveUserTargets_NoHomesNoForce_Empty()
+    {
+        var fs = new InMemoryFs { Home = "/home/u" };
+        Assert.Empty(AgentsManager.ResolveUserTargets(UserOpts(), fs));
+    }
+
     // ── RunInit ───────────────────────────────────────────────────────────────────
 
     [Fact]

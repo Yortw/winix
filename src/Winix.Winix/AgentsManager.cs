@@ -299,6 +299,42 @@ public static class AgentsManager
         string Version);
 
     /// <summary>
+    /// A known agent-config home: the directory under the user profile and the Markdown file
+    /// within it that the agent reads as global context.
+    /// </summary>
+    internal readonly record struct AgentHome(string Id, string Dir, string File);
+
+    /// <summary>
+    /// The user-scope homes <c>winix agents</c> manages, in write order. Adding a third agent is a
+    /// single row — no other code changes.
+    /// </summary>
+    internal static readonly AgentHome[] KnownHomes =
+    {
+        new AgentHome("claude", ".claude", "CLAUDE.md"),
+        new AgentHome("codex", ".codex", "AGENTS.md"),
+    };
+
+    /// <summary>
+    /// Resolves the user-home files to act on: every known home whose directory exists, plus any
+    /// home named by a force flag (<c>--claude</c>/<c>--codex</c>) even when its directory is absent.
+    /// </summary>
+    internal static List<string> ResolveUserTargets(AgentsOptions opts, IAgentsFileSystem fs)
+    {
+        string home = fs.ResolveHome();
+        var targets = new List<string>();
+        foreach (AgentHome h in KnownHomes)
+        {
+            string dir = Path.Combine(home, h.Dir);
+            bool forced = (h.Id == "claude" && opts.ForceClaude) || (h.Id == "codex" && opts.ForceCodex);
+            if (forced || fs.DirectoryExists(dir))
+            {
+                targets.Add(Path.Combine(dir, h.File));
+            }
+        }
+        return targets;
+    }
+
+    /// <summary>
     /// Resolves the files <c>init</c> would write (and that <c>status</c> evaluates): always
     /// <c>AGENTS.md</c>, plus <c>CLAUDE.md</c> when it already exists or <c>--claude</c> forces it.
     /// </summary>
