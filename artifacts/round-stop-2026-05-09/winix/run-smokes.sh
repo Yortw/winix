@@ -113,30 +113,52 @@ echo "[E06 SKIPPED] requires synthesizing a malformed manifest URL; verify manua
 # Manual section
 echo "[M*] All Manual probes deferred — see SUITE-DESIGN.md M section." > "$RES/M_NOTE.txt"
 
-# ----- A: agents subcommand (writes files; uses isolated temp dirs under RES) -----
+# ----- A: agents subcommand (writes files; isolated temp dirs + WINIX_AGENTS_HOME) -----
+#
+# MECHANISM (verified 2026-06-09): the smoke/smoke_env helpers do NOT assert exit codes —
+# they CAPTURE the command's exit to $RES/$id.exit.txt for inspection. The "-> N" in each
+# description is the EXPECTED code, verified by reading the captured artifact (or by the CI
+# step that diffs exit.txt against the expectation), not by the harness failing red. The A00
+# control below is a known-nonzero command: its $RES/A00.exit.txt MUST be non-zero — if it is
+# ever 0, the binary stopped distinguishing bad verbs and every negative-path case is suspect.
+# User-scope cases set WINIX_AGENTS_HOME to a scratch dir so the real ~/.claude is never touched.
 
-AGTMP="$RES/agents-tmp"
-AGTMP2="$RES/agents-tmp-claude"
-rm -rf "$AGTMP" "$AGTMP2"
-mkdir -p "$AGTMP" "$AGTMP2"
+AGHOME="$RES/agents-home"        # fake user home for user-scope cases (.claude exists)
+AGEMPTY="$RES/agents-home-empty" # fake user home with no known agent dirs
+AGREPO="$RES/agents-repo"        # fake repo for --project cases
+AGREPO2="$RES/agents-repo-claude"
+rm -rf "$AGHOME" "$AGEMPTY" "$AGREPO" "$AGREPO2"
+mkdir -p "$AGHOME/.claude" "$AGEMPTY" "$AGREPO" "$AGREPO2"
 
-smoke A01 "agents no verb -> usage 125"          -- "$WINIX_EXE" agents
-smoke A02 "agents init writes AGENTS.md -> 0"    -- "$WINIX_EXE" agents init --path "$AGTMP"
-smoke A03 "agents status current -> 0"           -- "$WINIX_EXE" agents status --path "$AGTMP"
-smoke A04 "agents status --json current -> 0"    -- "$WINIX_EXE" agents status --path "$AGTMP" --json
-smoke A05 "agents init idempotent re-run -> 0"   -- "$WINIX_EXE" agents init --path "$AGTMP"
-smoke A06 "agents init --json -> 0"              -- "$WINIX_EXE" agents init --path "$AGTMP" --json
-smoke A07 "agents init --dry-run -> 0"           -- "$WINIX_EXE" agents init --path "$AGTMP" --dry-run
-smoke A08 "agents remove -> 0"                   -- "$WINIX_EXE" agents remove --path "$AGTMP"
-smoke A09 "agents status after remove -> drift 1" -- "$WINIX_EXE" agents status --path "$AGTMP"
-smoke A10 "agents status --json absent -> 1"     -- "$WINIX_EXE" agents status --path "$AGTMP" --json
-smoke A11 "agents unknown verb -> 125"           -- "$WINIX_EXE" agents frobnicate --path "$AGTMP"
-smoke A12 "agents status non-dir path -> 125"    -- "$WINIX_EXE" agents status --path "$AGTMP/nope-not-a-dir"
-smoke A13 "agents init --claude creates both -> 0" -- "$WINIX_EXE" agents init --path "$AGTMP2" --claude
+# CONTROL: known-nonzero. A00.exit.txt MUST be non-zero (proves negative-path cases have teeth).
+smoke A00 "CONTROL agents bad verb -> nonzero"      -- "$WINIX_EXE" agents frobnicate
 
-# Capture the rendered block + the two target files for inspection.
-cp "$AGTMP2/AGENTS.md" "$RES/A13.AGENTS.md.txt" 2>/dev/null || true
-cp "$AGTMP2/CLAUDE.md" "$RES/A13.CLAUDE.md.txt" 2>/dev/null || true
+# User scope (default) — redirected to the fake home so the real ~/.claude is never touched.
+smoke_env A01 "agents no verb -> usage 125"          "WINIX_AGENTS_HOME=$AGHOME" -- "$WINIX_EXE" agents
+smoke_env A02 "agents init (user) writes .claude -> 0" "WINIX_AGENTS_HOME=$AGHOME" -- "$WINIX_EXE" agents init
+smoke_env A03 "agents status (user) current -> 0"    "WINIX_AGENTS_HOME=$AGHOME" -- "$WINIX_EXE" agents status
+smoke_env A04 "agents status --json current -> 0"    "WINIX_AGENTS_HOME=$AGHOME" -- "$WINIX_EXE" agents status --json
+smoke_env A05 "agents init idempotent re-run -> 0"   "WINIX_AGENTS_HOME=$AGHOME" -- "$WINIX_EXE" agents init
+smoke_env A06 "agents remove (user) -> 0"            "WINIX_AGENTS_HOME=$AGHOME" -- "$WINIX_EXE" agents remove
+smoke_env A07 "agents status after remove -> drift 1" "WINIX_AGENTS_HOME=$AGHOME" -- "$WINIX_EXE" agents status
+
+# Empty home (no .claude/.codex, no force) -> usage 125; --codex force-creates -> 0.
+smoke_env A08 "agents init no home no force -> 125"  "WINIX_AGENTS_HOME=$AGEMPTY" -- "$WINIX_EXE" agents init
+smoke_env A09 "agents init --codex force-creates -> 0" "WINIX_AGENTS_HOME=$AGEMPTY" -- "$WINIX_EXE" agents init --codex
+
+# Project scope (opt-in) — committed-file behaviour, conditional wording.
+smoke A10 "agents init --project writes AGENTS.md -> 0" -- "$WINIX_EXE" agents init --project --path "$AGREPO"
+smoke A11 "agents status --project current -> 0"        -- "$WINIX_EXE" agents status --project --path "$AGREPO"
+smoke A12 "agents init --project --claude both -> 0"    -- "$WINIX_EXE" agents init --project --path "$AGREPO2" --claude
+smoke A13 "agents init --project --dry-run -> 0"        -- "$WINIX_EXE" agents init --project --path "$AGREPO" --dry-run
+
+# Validation errors.
+smoke A14 "agents --path without --project -> 125" -- "$WINIX_EXE" agents status --path "$AGREPO"
+smoke A15 "agents --project with --codex -> 125"   -- "$WINIX_EXE" agents init --project --codex --path "$AGREPO"
+
+# Capture rendered blocks for inspection (user assert vs project conditional).
+cp "$AGHOME/.claude/CLAUDE.md" "$RES/A.user.CLAUDE.md.txt" 2>/dev/null || true
+cp "$AGREPO2/AGENTS.md" "$RES/A.project.AGENTS.md.txt" 2>/dev/null || true
 
 echo
 echo "==== Done. Results in $RES/ ===="
