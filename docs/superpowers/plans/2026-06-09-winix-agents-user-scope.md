@@ -248,11 +248,21 @@ private sealed class FakeFs : IAgentsFileSystem
     public HashSet<string> Dirs { get; } = new(StringComparer.Ordinal);
     public string Home { get; set; } = "/home/u";
     public List<string> Created { get; } = new();
+    // (Review F4) Fault-injection knob: when set, WriteAllText throws for paths containing this
+    // substring, so the IOException-surfacing contract in Run* is reachable by a deterministic test.
+    public string? ThrowOnWritePath { get; set; }
 
     public bool FileExists(string path) => Files.ContainsKey(path);
     public bool DirectoryExists(string path) => Dirs.Contains(path);
     public string ReadAllText(string path) => Files[path];
-    public void WriteAllText(string path, string content) { Files[path] = content; }
+    public void WriteAllText(string path, string content)
+    {
+        if (ThrowOnWritePath != null && path.Contains(ThrowOnWritePath, StringComparison.Ordinal))
+        {
+            throw new IOException("injected write failure");
+        }
+        Files[path] = content;
+    }
     public string ResolveHome() => Home;
     public void CreateDirectory(string path) { Dirs.Add(path); Created.Add(path); }
 }
@@ -318,14 +328,20 @@ public string ResolveHome()
 {
     // WINIX_AGENTS_HOME lets smokes/integration tests redirect user-scope writes to a scratch
     // dir instead of the developer's real ~/.claude — never clobber a real agent config in CI.
+    // Contract (test/smoke use only): must be an ABSOLUTE path. A relative value is normalised
+    // against CWD via GetFullPath so behaviour is deterministic rather than silently CWD-relative
+    // at each Path.Combine. It need NOT exist — a non-existent override resolves to the empty-home
+    // path (no homes found) for a non-force init, which is the intended "nothing set up" outcome.
     string? overrideHome = Environment.GetEnvironmentVariable("WINIX_AGENTS_HOME");
     return !string.IsNullOrEmpty(overrideHome)
-        ? overrideHome
+        ? Path.GetFullPath(overrideHome)
         : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 }
 
 public void CreateDirectory(string path) => Directory.CreateDirectory(path);
 ```
+
+> **(Review F1)** Document the `WINIX_AGENTS_HOME` contract in the `IAgentsFileSystem.ResolveHome` XML-doc and the README: absolute path, test/smoke isolation only, may be non-existent. The file-collision case (override points at a regular file, then `--codex` force-creates `<file>/.codex`) already maps to a clean `InternalError` via the existing `IOException` catch — no crash, just an opaque type name; acceptable for a test-only knob.
 
 Also make `WriteAllText` ensure the target dir exists (force-created homes have no dir yet). Add at the top of `DefaultAgentsFileSystem.WriteAllText`, before computing `temp`:
 
@@ -512,11 +528,38 @@ public void RunInit_ProjectScope_WritesConditionalWording()
     Assert.Contains("(if available in your environment)",
         fs.Files[Path.Combine("/repo", "AGENTS.md")], StringComparison.Ordinal);
 }
+
+[Fact] // (Review F4) IOException mid-write surfaces InternalError + names the failing target.
+public void RunInit_WriteFailure_InternalErrorNamesTarget()
+{
+    var fs = new FakeFs { Home = "/home/u", ThrowOnWritePath = ".claude" };
+    fs.Dirs.Add(Path.Combine("/home/u", ".claude"));
+    var sw = new StringWriter();
+
+    int code = AgentsManager.RunInit(UserOpts(), fs, sw, sw);
+
+    Assert.Equal(WinixExitCode.InternalError, code);
+    Assert.Contains(Path.Combine("/home/u", ".claude", "CLAUDE.md"), sw.ToString(), StringComparison.Ordinal);
+    // Resource-key history: the surfaced text must not leak a bare framework SR key.
+    Assert.DoesNotContain("Arg_", sw.ToString(), StringComparison.Ordinal);
+}
+
+[Fact] // (Review F1) A non-existent WINIX_AGENTS_HOME resolves to empty-home, not a crash.
+public void RunInit_NonExistentHome_NoForce_EmptyHomeUsageError()
+{
+    var fs = new FakeFs { Home = "/does/not/exist" }; // no dirs registered
+    var sw = new StringWriter();
+
+    int code = AgentsManager.RunInit(UserOpts(), fs, sw, sw);
+
+    Assert.Equal(WinixExitCode.UsageError, code);
+    Assert.Contains("no agent home found", sw.ToString(), StringComparison.Ordinal);
+}
 ```
 
 - [ ] **Step 2: Run, verify fail**
 
-Run: `dotnet test tests/Winix.Winix.Tests/Winix.Winix.Tests.csproj --filter "FullyQualifiedName~RunInit_UserScope|FullyQualifiedName~RunInit_ProjectScope"`
+Run: `dotnet test tests/Winix.Winix.Tests/Winix.Winix.Tests.csproj --filter "FullyQualifiedName~RunInit_UserScope|FullyQualifiedName~RunInit_ProjectScope|FullyQualifiedName~RunInit_WriteFailure|FullyQualifiedName~RunInit_NonExistentHome"`
 Expected: FAIL (current `RunInit` ignores scope, has no empty-home path, writes user-mode wording for project).
 
 - [ ] **Step 3: Add a shared target/precondition resolver and rewrite `RunInit`**
@@ -579,7 +622,16 @@ internal static int RunInit(AgentsOptions opts, IAgentsFileSystem fs, TextWriter
             current = target;
             string existing = fs.FileExists(target) ? fs.ReadAllText(target) : string.Empty;
             string merged = MergeBlock(existing, opts.Version, mode);
-            if (!opts.DryRun) { fs.WriteAllText(target, merged); }
+            if (!opts.DryRun)
+            {
+                // (Review F9) Ensure the target dir exists through the SEAM before writing — this
+                // makes force-create (--claude/--codex into an absent home) deterministically unit-
+                // testable (assert fs.Created) instead of relying on the production writer's own
+                // dir-creation, which the in-memory fake can't observe. Idempotent for existing dirs.
+                string? dir = Path.GetDirectoryName(target);
+                if (!string.IsNullOrEmpty(dir)) { fs.CreateDirectory(dir); }
+                fs.WriteAllText(target, merged);
+            }
             changed.Add(target);
             if (!opts.Json)
             {
@@ -597,7 +649,7 @@ internal static int RunInit(AgentsOptions opts, IAgentsFileSystem fs, TextWriter
 }
 ```
 
-> Note: `WriteAllText` on the fake does not create dirs; the production `DefaultAgentsFileSystem.WriteAllText` (Task 3) does. The `RunInit_UserScope_ForceCodex` test asserts `fs.Created` — so call `fs.CreateDirectory(parentDir)` explicitly inside `RunInit` for force-created targets is NOT needed; instead, have the fake's `WriteAllText` record nothing and assert on the file existing. **Correction to keep the test meaningful:** change the force-codex test to assert only `fs.Files.ContainsKey(...)` (drop the `fs.Created` assertion), since dir creation is a production-`WriteAllText` concern covered by the integration smoke in Task 9, not the in-memory fake. Apply this correction when writing Step 1's test.
+> **(Review F9)** `RunInit` now creates the target dir through the `IAgentsFileSystem.CreateDirectory` seam (above) before `WriteAllText`, so the `RunInit_UserScope_ForceCodex_CreatesDirAndWrites` test's `fs.Created` assertion is meaningful and deterministic — keep it. The production `DefaultAgentsFileSystem.WriteAllText` dir-creation from Task 3 stays as belt-and-braces. Do NOT drop the `fs.Created` assertion.
 
 - [ ] **Step 4: Run, verify pass**
 
@@ -661,12 +713,57 @@ public void RunRemove_UserScope_StripsBlock()
     Assert.DoesNotContain("winix:start", fs.Files[file], StringComparison.Ordinal);
     Assert.Contains("# keep me", fs.Files[file], StringComparison.Ordinal);
 }
+
+[Fact] // (Review F8) Pin the no-home --json shape so the no-home/absent-block ambiguity is a
+       // conscious, documented choice rather than an accident. allCurrent must be false.
+public void RunStatus_UserScope_NoHome_Json_ShapePinned()
+{
+    var fs = new FakeFs { Home = "/home/u" };
+    var sw = new StringWriter();
+    var opts = new AgentsManager.AgentsOptions(
+        "status", AgentsManager.AgentsScope.User, ".", false, false, false, Json: true, "0.4.0");
+
+    int code = AgentsManager.RunStatus(opts, fs, sw, sw);
+
+    Assert.Equal(WinixExitCode.ToolFailure, code);
+    Assert.Contains("\"current\":false", sw.ToString(), StringComparison.Ordinal);
+    Assert.Contains("\"files\":[]", sw.ToString(), StringComparison.Ordinal);
+}
+
+[Fact] // (Review F2) KNOWN LIMITATION: markers encode version only, not render mode. A current-
+       // version block whose WORDING is the wrong mode reports "current" — status can't detect
+       // wording drift. This test documents that behaviour so it's a conscious accepted limitation.
+public void RunStatus_UserScope_ProjectWordedBlockAtCurrentVersion_ReportsCurrent()
+{
+    var fs = new FakeFs { Home = "/home/u" };
+    string claudeDir = Path.Combine("/home/u", ".claude");
+    fs.Dirs.Add(claudeDir);
+    // A project-mode block (conditional wording) sitting in a USER home file at the current version.
+    fs.Files[Path.Combine(claudeDir, "CLAUDE.md")] =
+        AgentsManager.MergeBlock(string.Empty, "0.4.0", AgentsManager.RenderMode.ProjectScope);
+    var sw = new StringWriter();
+
+    // Reported current despite wrong-mode wording — markers carry no mode token. Accepted limitation.
+    Assert.Equal(WinixExitCode.Success, AgentsManager.RunStatus(UserOpts(), fs, sw, sw));
+}
+
+[Fact] // (Review F7) The mode-agnostic marker parser still finds + removes a PROJECT-mode block.
+       // Cross-mode belt-and-braces over the existing parser tests (FindBlockVersion_StartWithoutEnd_
+       // ReturnsNull, RemoveBlock duplicate-strip) which already pin malformed-marker handling.
+public void RemoveBlock_ProjectModeBlock_StrippedByModeAgnosticParser()
+{
+    string file = "# Repo\n\n" + AgentsManager.RenderBlock("0.4.0", AgentsManager.RenderMode.ProjectScope) + "\n";
+    Assert.Equal("0.4.0", AgentsManager.FindBlockVersion(file));
+    string after = AgentsManager.RemoveBlock(file);
+    Assert.DoesNotContain("winix:start", after, StringComparison.Ordinal);
+    Assert.Contains("# Repo", after, StringComparison.Ordinal);
+}
 ```
 
 - [ ] **Step 2: Run, verify fail**
 
-Run: `dotnet test tests/Winix.Winix.Tests/Winix.Winix.Tests.csproj --filter "FullyQualifiedName~RunStatus_UserScope|FullyQualifiedName~RunRemove_UserScope"`
-Expected: FAIL.
+Run: `dotnet test tests/Winix.Winix.Tests/Winix.Winix.Tests.csproj --filter "FullyQualifiedName~RunStatus_UserScope|FullyQualifiedName~RunRemove_UserScope|FullyQualifiedName~RemoveBlock_ProjectMode"`
+Expected: FAIL (the new scope-aware Run* methods don't exist yet; `RemoveBlock_ProjectMode` compiles only after Task 1's `RenderMode`).
 
 - [ ] **Step 3: Rewrite `RunStatus` to resolve targets by scope**
 
@@ -961,6 +1058,18 @@ git commit -m "feat(agents): CLI --project/--codex scope dispatch + validation"
 **Files:**
 - Modify: `artifacts/round-stop-2026-05-09/winix/run-smokes.sh:116-138`
 
+- [ ] **Step 0 (Review F5 — BLOCKER): Determine the `smoke` helper's expected-exit-code mechanism BEFORE writing any case**
+
+Read the `smoke` (and `cp`) helper definitions at the top of `artifacts/round-stop-2026-05-09/winix/run-smokes.sh`. Establish exactly how a case declares an expected NON-zero exit (does it parse `-> 125` from the label, take an expected-code argument, or always expect 0?). State the mechanism in a comment in the A-section. **This is load-bearing:** if the helper ignores exit codes, every negative-path case (no-verb, drift, empty-home, validation errors) is false-green and the whole negative-path smoke surface is worthless — the exact "verification that constrains nothing" failure mode. Then add a **known-nonzero control** as the first case and confirm the harness reports it RED when the command unexpectedly succeeds:
+
+```bash
+# CONTROL: this MUST be reported as a failure by the harness if exit-code checking works.
+# (Per "run a known-nonzero control first" — proves the negative-path smokes below have teeth.)
+smoke A00 "CONTROL agents bad verb -> nonzero" -- "$WINIX_EXE" agents frobnicate
+```
+
+Do not proceed to Step 1 until the expected-nonzero mechanism is confirmed and the control demonstrably fails-red on a forced success.
+
 - [ ] **Step 1: Rewrite the A-section so default cases are user scope (env-isolated) and project cases use `--project`**
 
 Replace lines 116-138 with (preserving the `smoke`/`cp` helper conventions already in the file):
@@ -1080,7 +1189,14 @@ winix agents init --codex
 winix agents init --project
 ```
 
-Add a **Migration** note: *"v0.4.0 changed the default scope from the project directory to your user agent config. If you committed a project-scope block from a pre-release build, remove it with `winix agents remove --project`."*
+Add a **Migration** note (Review F6 — the default `status` now inspects your user home, so it will NOT detect a block previously committed into a repo; the note must say so explicitly or migration is documentation theatre):
+
+> **Migration (v0.4.0):** the default scope changed from the project directory to your user agent config. **`winix agents status` (default) no longer looks at repo files** — so if you ran a pre-release build that wrote a block into a project's `AGENTS.md`/`CLAUDE.md`, default status will not surface it. In any repo where you previously ran `winix agents init`, run `winix agents status --project` to detect the committed block and `winix agents remove --project` to clear it.
+
+Add a **Known limitations** subsection (README + `docs/ai/winix.md`):
+
+> - **(F3) Multi-target writes are not atomic across files.** `init`/`remove` write each target independently; on a mid-run I/O error, already-written targets are kept and the command exits non-zero naming the failing target. Re-run to converge — the operation is idempotent.
+> - **(F2) The managed block records its version, not its wording mode.** A block at the current version is reported `current` even if it carries the other scope's wording (e.g. a project-mode block hand-placed in a user home). Status detects version drift, not wording drift; `remove` + `init` re-writes the correct wording.
 
 - [ ] **Step 3: Edit the man source and regenerate**
 
@@ -1148,4 +1264,20 @@ git commit -m "docs(agents): reconcile help/README/man/llms against actual behav
 - **Type consistency:** `RenderMode {UserScope,ProjectScope}`, `AgentsScope {User,Project}`, `AgentHome(Id,Dir,File)`, `KnownHomes`, `ResolveUserTargets`, `TryResolveTargets`, `ResolveHome`/`CreateDirectory` used identically across tasks. `AgentsOptions` 8-arg shape (Verb, Scope, BaseDir, ForceClaude, ForceCodex, DryRun, Json, Version) consistent in Tasks 3,5,6,7,8.
 - **Placeholder scan:** the two "verify-at-implementation" notes (Task 4 path separators, Task 8 `Cli.RunAsync` signature, Task 9 smoke-helper exit convention) are deliberate flags for the implementer to confirm against source, not unfilled gaps — each names exactly what to check and why.
 - **Known caller-audit risk:** changing `AgentsOptions`, `RenderBlock`, `MergeBlock` arity breaks existing test callers; Task 7 is the dedicated caller-migration step, and Tasks 5/6 note in-step that old project tests must adopt `AgentsScope.Project`.
+
+## Adversarial Review Integration (2026-06-09)
+
+A fresh-subagent adversarial review (15-category taxonomy) produced 3 blockers / 5 test gaps / 4 defers. Disposition:
+
+- **F1** (`WINIX_AGENTS_HOME` non-dir/relative) — integrated: `Path.GetFullPath` normalisation + contract doc + non-existent-home test (Task 3, Task 5). Downgraded from blocker (test-only knob; file-collision already maps to clean `InternalError`).
+- **F2** (render-mode-vs-version drift reported `current`) — integrated as accepted **known limitation** + pinning test (Task 6) + README/agent-guide note (Task 11). Chose docs over a marker mode-token (would break the byte-stable parser).
+- **F3** (multi-target non-atomic partial commit) — integrated: known-issues note (Task 11).
+- **F4** (no I/O-error-mid-write test) — integrated: `FakeFs.ThrowOnWritePath` + `RunInit_WriteFailure` test (Tasks 3, 5).
+- **F5** (smoke expected-exit-code mechanism unverified — **BLOCKER**) — integrated: mandatory Task 9 **Step 0** + known-nonzero control before any case is trusted.
+- **F6** (migration orphans committed block; default status won't surface it) — integrated option (a): explicit README note that default status doesn't inspect repos + `status --project` discovery step (Task 11). Downgraded from blocker (feature shipped only on untagged `release/v0.4.0` — no released binary, migration population ≈ this repo's dev; proactive CWD-peek hint rejected as over-scope).
+- **F7** (malformed-marker tests under new modes) — verified existing suite already pins this (`FindBlockVersion_StartWithoutEnd_ReturnsNull`, `RemoveBlock` duplicate-strip); added one cross-mode belt-and-braces test (Task 6).
+- **F8** (empty-home `status --json` ambiguity) — integrated: shape-pinning test (Task 6); distinguishing field deferred as a documented conscious choice.
+- **F9** (force-create dir not deterministically unit-tested) — integrated: `RunInit` creates dir via the `CreateDirectory` seam; restored the `fs.Created` assertion; removed the self-defeating "drop the assertion" correction (Task 5).
+
+Single review pass; findings converged and integrated — no second pass required (changes are additive tests + docs + one small seam call, no structural plan change).
 ```
