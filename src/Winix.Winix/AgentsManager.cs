@@ -299,19 +299,22 @@ public static class AgentsManager
         string Version);
 
     /// <summary>
-    /// A known agent-config home: the directory under the user profile and the Markdown file
-    /// within it that the agent reads as global context.
+    /// A known agent-config home: the directory under the user profile, the Markdown file within it
+    /// that the agent reads as global context, and the predicate that decides whether a force flag
+    /// targets this home. The force predicate lives on the row (rather than the resolver matching a
+    /// magic string id) so each home owns its own force wiring.
     /// </summary>
-    internal readonly record struct AgentHome(string Id, string Dir, string File);
+    internal readonly record struct AgentHome(string Dir, string File, Func<AgentsOptions, bool> IsForced);
 
     /// <summary>
-    /// The user-scope homes <c>winix agents</c> manages, in write order. Adding a third agent is a
-    /// single row — no other code changes.
+    /// The user-scope homes <c>winix agents</c> manages, in write order. Adding a home is a row here
+    /// plus its force flag (a <c>ForceXxx</c> field on <see cref="AgentsOptions"/> and the matching
+    /// <c>--xxx</c> flag in <c>Cli.cs</c>); the resolver below needs no change.
     /// </summary>
     internal static readonly AgentHome[] KnownHomes =
     {
-        new AgentHome("claude", ".claude", "CLAUDE.md"),
-        new AgentHome("codex", ".codex", "AGENTS.md"),
+        new AgentHome(".claude", "CLAUDE.md", static o => o.ForceClaude),
+        new AgentHome(".codex", "AGENTS.md", static o => o.ForceCodex),
     };
 
     /// <summary>
@@ -325,8 +328,7 @@ public static class AgentsManager
         foreach (AgentHome h in KnownHomes)
         {
             string dir = Path.Combine(home, h.Dir);
-            bool forced = (h.Id == "claude" && opts.ForceClaude) || (h.Id == "codex" && opts.ForceCodex);
-            if (forced || fs.DirectoryExists(dir))
+            if (h.IsForced(opts) || fs.DirectoryExists(dir))
             {
                 targets.Add(Path.Combine(dir, h.File));
             }

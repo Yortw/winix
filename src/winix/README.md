@@ -216,7 +216,7 @@ Whichever local source has the later mtime wins, with one safeguard: a cache fil
 | Code | Meaning |
 |------|---------|
 | 0 | Success — all requested operations completed |
-| 1 | One or more tools failed to install/update/uninstall; or (agents) the pointer block is absent or stale |
+| 1 | One or more tools failed to install/update/uninstall; or (agents) the pointer block is absent or stale, or (user scope) no agent home exists |
 | 125 | Usage error (bad arguments or unrecognised command) |
 | 126 | Cannot execute — no supported package manager found |
 | 127 | Internal error (manifest fetch/parse failure, or agents file I/O failure) |

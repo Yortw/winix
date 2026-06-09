@@ -97,7 +97,7 @@ public static class Cli
             .Example("winix agents remove", "Remove the Winix pointer block from your user agent config")
             .ExitCodes(
                 (WinixExitCode.Success, "Success"),
-                (WinixExitCode.ToolFailure, "One or more tools failed; or (agents) the pointer block is absent or stale"),
+                (WinixExitCode.ToolFailure, "One or more tools failed; or (agents) the pointer block is absent or stale, or (user scope) no agent home exists"),
                 (WinixExitCode.UsageError, "Usage error (bad command or argument)"),
                 (WinixExitCode.NoPackageManager, "No supported package manager found"),
                 (WinixExitCode.InternalError, "Internal error (manifest fetch/parse failure, or agents file I/O failure)"));

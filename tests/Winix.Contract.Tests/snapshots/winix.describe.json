@@ -105,7 +105,7 @@
     },
     {
       "code": 1,
-      "description": "One or more tools failed; or (agents) the pointer block is absent or stale"
+      "description": "One or more tools failed; or (agents) the pointer block is absent or stale, or (user scope) no agent home exists"
     },
     {
       "code": 125,
