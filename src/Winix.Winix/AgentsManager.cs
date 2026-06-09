@@ -27,6 +27,21 @@ public interface IAgentsFileSystem
 
     /// <summary>Writes <paramref name="content"/> to <paramref name="path"/>, overwriting.</summary>
     void WriteAllText(string path, string content);
+
+    /// <summary>
+    /// Returns the current user's home directory (the parent of agent-config dirs like
+    /// <c>.claude</c>). Production honours the <c>WINIX_AGENTS_HOME</c> override (an absolute path,
+    /// for test/smoke isolation only — it may point at a non-existent dir) before falling back to
+    /// the OS user-profile path, so smoke tests can redirect user-scope writes to a scratch dir and
+    /// never clobber a real agent config.
+    /// </summary>
+    string ResolveHome();
+
+    /// <summary>
+    /// Creates <paramref name="path"/> and any missing parents (idempotent). Used to force-create
+    /// an agent home (<c>--claude</c>/<c>--codex</c>) whose directory does not yet exist.
+    /// </summary>
+    void CreateDirectory(string path);
 }
 
 /// <summary>
@@ -249,13 +264,36 @@ public static class AgentsManager
     }
 
     /// <summary>
+    /// Target location for the managed block: <see cref="User"/> = per-user agent homes (the
+    /// default); <see cref="Project"/> = committed files in a repository directory.
+    /// </summary>
+    public enum AgentsScope
+    {
+        /// <summary>Per-user agent homes (<c>~/.claude/CLAUDE.md</c>, <c>~/.codex/AGENTS.md</c>).</summary>
+        User,
+
+        /// <summary>Committed project files in <see cref="AgentsOptions.BaseDir"/>.</summary>
+        Project,
+    }
+
+    /// <summary>
     /// Parsed inputs for an <c>agents</c> run. <paramref name="Verb"/> is the subcommand
     /// (<c>init</c>/<c>remove</c>/<c>status</c>), or <see langword="null"/> when none was given.
     /// </summary>
+    /// <param name="Verb">The subcommand, or <see langword="null"/> when none was given.</param>
+    /// <param name="Scope">User (per-user homes, default) or Project (committed repo files).</param>
+    /// <param name="BaseDir">Project directory; only meaningful when <paramref name="Scope"/> is Project.</param>
+    /// <param name="ForceClaude">Force the Claude home/file even when absent.</param>
+    /// <param name="ForceCodex">Force the Codex user home even when absent (user scope only).</param>
+    /// <param name="DryRun">Report what would change, write nothing.</param>
+    /// <param name="Json">Emit a JSON envelope on stdout.</param>
+    /// <param name="Version">The running binary's version (recorded in the marker / pinned URL).</param>
     public sealed record AgentsOptions(
         string? Verb,
+        AgentsScope Scope,
         string BaseDir,
         bool ForceClaude,
+        bool ForceCodex,
         bool DryRun,
         bool Json,
         string Version);
@@ -533,8 +571,30 @@ public static class AgentsManager
         public bool DirectoryExists(string path) => Directory.Exists(path);
         public string ReadAllText(string path) => File.ReadAllText(path);
 
+        public string ResolveHome()
+        {
+            // WINIX_AGENTS_HOME lets smokes/integration tests redirect user-scope writes to a
+            // scratch dir instead of the developer's real ~/.claude — never clobber a real agent
+            // config in CI. Contract (test/smoke use only): must be an ABSOLUTE path. A relative
+            // value is normalised against CWD via GetFullPath so behaviour is deterministic rather
+            // than silently CWD-relative at each Path.Combine. It need NOT exist — a non-existent
+            // override resolves to the empty-home path (no homes found) for a non-force init, which
+            // is the intended "nothing set up" outcome.
+            string? overrideHome = Environment.GetEnvironmentVariable("WINIX_AGENTS_HOME");
+            return !string.IsNullOrEmpty(overrideHome)
+                ? Path.GetFullPath(overrideHome)
+                : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        }
+
+        public void CreateDirectory(string path) => Directory.CreateDirectory(path);
+
         public void WriteAllText(string path, string content)
         {
+            // Force-created homes (--claude/--codex into an absent dir) have no directory yet;
+            // the atomic temp+move below needs it to exist. Idempotent for existing dirs.
+            string? parent = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(parent)) { Directory.CreateDirectory(parent); }
+
             // F1: atomic per-file replace. Write a sibling temp on the same volume, then move
             // it over the target. A crash / Ctrl+C mid-write leaves the user's existing file
             // intact — a plain File.WriteAllText truncates in place and would lose their

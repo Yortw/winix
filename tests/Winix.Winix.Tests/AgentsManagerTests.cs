@@ -318,15 +318,31 @@ public sealed class AgentsManagerTests
         }
     }
 
-    // In-memory fake shared by later orchestration tests.
+    // In-memory fake shared by orchestration tests (both project- and user-scope). Exposes the
+    // user-home seam (ResolveHome/CreateDirectory) plus a fault-injection knob for write failures.
     private sealed class InMemoryFs : IAgentsFileSystem
     {
         public Dictionary<string, string> Files { get; } = new(StringComparer.Ordinal);
         public HashSet<string> Dirs { get; } = new(StringComparer.Ordinal);
+        public string Home { get; set; } = "/home/u";
+        public List<string> Created { get; } = new();
+        // Fault-injection knob: when set, WriteAllText throws for paths containing this substring,
+        // so the IOException-surfacing contract in Run* is reachable by a deterministic test.
+        public string? ThrowOnWritePath { get; set; }
+
         public bool FileExists(string path) => Files.ContainsKey(path);
         public bool DirectoryExists(string path) => Dirs.Contains(path);
         public string ReadAllText(string path) => Files[path];
-        public void WriteAllText(string path, string content) => Files[path] = content;
+        public void WriteAllText(string path, string content)
+        {
+            if (ThrowOnWritePath != null && path.Contains(ThrowOnWritePath, StringComparison.Ordinal))
+            {
+                throw new IOException("injected write failure");
+            }
+            Files[path] = content;
+        }
+        public string ResolveHome() => Home;
+        public void CreateDirectory(string path) { Dirs.Add(path); Created.Add(path); }
     }
 
     private sealed class ThrowingFs : IAgentsFileSystem
@@ -335,6 +351,8 @@ public sealed class AgentsManagerTests
         public bool DirectoryExists(string path) => true;
         public string ReadAllText(string path) => string.Empty;
         public void WriteAllText(string path, string content) => throw new IOException("disk full");
+        public string ResolveHome() => "/home/u";
+        public void CreateDirectory(string path) { }
     }
 
     // Succeeds on every target except CLAUDE.md — models a multi-file partial write failure.
@@ -350,6 +368,8 @@ public sealed class AgentsManagerTests
                 throw new IOException("nope");
             }
         }
+        public string ResolveHome() => "/home/u";
+        public void CreateDirectory(string path) { }
     }
 
     // File exists but the read throws — models a permission-denied read for the F8 status path.
@@ -359,6 +379,8 @@ public sealed class AgentsManagerTests
         public bool DirectoryExists(string path) => true;
         public string ReadAllText(string path) => throw new UnauthorizedAccessException("denied");
         public void WriteAllText(string path, string content) => throw new UnauthorizedAccessException("denied");
+        public string ResolveHome() => "/home/u";
+        public void CreateDirectory(string path) { }
     }
 
     // Reads AGENTS.md fine but throws on CLAUDE.md — exercises the second-file read diagnostic.
@@ -372,6 +394,8 @@ public sealed class AgentsManagerTests
             return AgentsManager.MergeBlock(string.Empty, "0.4.0");
         }
         public void WriteAllText(string path, string content) { }
+        public string ResolveHome() => "/home/u";
+        public void CreateDirectory(string path) { }
     }
 
     // For RunRemove write-failure: AGENTS.md exists and contains a block, but the write throws.
@@ -381,14 +405,34 @@ public sealed class AgentsManagerTests
         public bool DirectoryExists(string path) => true;
         public string ReadAllText(string path) => AgentsManager.RenderBlock("0.4.0");
         public void WriteAllText(string path, string content) => throw new IOException("disk full");
+        public string ResolveHome() => "/home/u";
+        public void CreateDirectory(string path) { }
     }
 
     // ── ResolveInitTargets (option B) ─────────────────────────────────────────────
 
+    // Project-scope options for the pre-existing orchestration tests (committed repo files).
     private static AgentsManager.AgentsOptions Opts(string verb, string baseDir, bool forceClaude = false,
         bool dryRun = false, bool json = false, string version = "0.4.0")
     {
-        return new AgentsManager.AgentsOptions(verb, baseDir, forceClaude, dryRun, json, version);
+        return new AgentsManager.AgentsOptions(
+            verb, AgentsManager.AgentsScope.Project, baseDir, forceClaude,
+            ForceCodex: false, dryRun, json, version);
+    }
+
+    // User-scope options for the home-resolution / user-default tests.
+    private static AgentsManager.AgentsOptions UserOpts(bool forceClaude = false, bool forceCodex = false) =>
+        new("init", AgentsManager.AgentsScope.User, ".", forceClaude, forceCodex, false, false, "0.4.0");
+
+    [Fact]
+    public void AgentsOptions_CarriesScopeAndForceCodex()
+    {
+        var opts = new AgentsManager.AgentsOptions(
+            Verb: "init", Scope: AgentsManager.AgentsScope.User, BaseDir: ".",
+            ForceClaude: false, ForceCodex: true, DryRun: false, Json: false, Version: "0.4.0");
+
+        Assert.Equal(AgentsManager.AgentsScope.User, opts.Scope);
+        Assert.True(opts.ForceCodex);
     }
 
     [Fact]
@@ -767,7 +811,8 @@ public sealed class AgentsManagerTests
         var (stdout, stderr) = (new StringWriter(), new StringWriter());
 
         var opts = new AgentsManager.AgentsOptions(
-            Verb: null, BaseDir: "/proj", ForceClaude: false, DryRun: false, Json: false, Version: "0.4.0");
+            Verb: null, Scope: AgentsManager.AgentsScope.Project, BaseDir: "/proj",
+            ForceClaude: false, ForceCodex: false, DryRun: false, Json: false, Version: "0.4.0");
         int exit = AgentsManager.Run(opts, stdout, stderr, fs);
 
         Assert.Equal(WinixExitCode.UsageError, exit);

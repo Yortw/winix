@@ -131,8 +131,10 @@ public static class Cli
 
             var agentsOptions = new AgentsManager.AgentsOptions(
                 Verb: verb,
+                Scope: AgentsManager.AgentsScope.Project,
                 BaseDir: baseDir,
                 ForceClaude: result.Has("--claude"),
+                ForceCodex: false,
                 DryRun: result.Has("--dry-run"),
                 Json: result.Has("--json"),
                 Version: version);
