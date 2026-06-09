@@ -139,6 +139,8 @@ smoke_env A02 "agents init (user) writes .claude -> 0" "WINIX_AGENTS_HOME=$AGHOM
 smoke_env A03 "agents status (user) current -> 0"    "WINIX_AGENTS_HOME=$AGHOME" -- "$WINIX_EXE" agents status
 smoke_env A04 "agents status --json current -> 0"    "WINIX_AGENTS_HOME=$AGHOME" -- "$WINIX_EXE" agents status --json
 smoke_env A05 "agents init idempotent re-run -> 0"   "WINIX_AGENTS_HOME=$AGHOME" -- "$WINIX_EXE" agents init
+# Capture the user block NOW — A06 (remove) strips it, so a capture at end-of-run would be empty.
+cp "$AGHOME/.claude/CLAUDE.md" "$RES/A.user.CLAUDE.md.txt" 2>/dev/null || true
 smoke_env A06 "agents remove (user) -> 0"            "WINIX_AGENTS_HOME=$AGHOME" -- "$WINIX_EXE" agents remove
 smoke_env A07 "agents status after remove -> drift 1" "WINIX_AGENTS_HOME=$AGHOME" -- "$WINIX_EXE" agents status
 
@@ -156,8 +158,8 @@ smoke A13 "agents init --project --dry-run -> 0"        -- "$WINIX_EXE" agents i
 smoke A14 "agents --path without --project -> 125" -- "$WINIX_EXE" agents status --path "$AGREPO"
 smoke A15 "agents --project with --codex -> 125"   -- "$WINIX_EXE" agents init --project --codex --path "$AGREPO"
 
-# Capture rendered blocks for inspection (user assert vs project conditional).
-cp "$AGHOME/.claude/CLAUDE.md" "$RES/A.user.CLAUDE.md.txt" 2>/dev/null || true
+# Capture the project block (AGREPO2 is never removed). The user block was captured above,
+# before A06 removed it.
 cp "$AGREPO2/AGENTS.md" "$RES/A.project.AGENTS.md.txt" 2>/dev/null || true
 
 echo
