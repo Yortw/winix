@@ -76,14 +76,17 @@ winix install --via scoop
 # Preview what would happen without making changes
 winix install --dry-run
 
-# Write the Winix discoverability pointer into AGENTS.md (and CLAUDE.md if present)
+# Write the Winix pointer into your user agent config (~/.claude/CLAUDE.md, ~/.codex/AGENTS.md)
 winix agents init
 
-# Check whether the pointer block is present and current (exit 1 if absent or stale)
+# Check whether your user agent config carries a current pointer (exit 1 if absent or stale)
 winix agents status
 
-# Remove the Winix discoverability pointer block
+# Remove the Winix pointer block from your user agent config
 winix agents remove
+
+# Team opt-in: write a conditional pointer into a repo's committed AGENTS.md/CLAUDE.md
+winix agents init --project
 
 # AI agent metadata
 winix --describe
@@ -102,15 +105,19 @@ winix --describe
 | `--version` | Show version |
 | `-h`, `--help` | Show help |
 
-## `agents` — Project Discoverability Pointer
+## `agents` — Discoverability Pointer
 
-`winix agents <verb>` writes, checks, or removes a marker-delimited Winix discoverability block in a project's `AGENTS.md` (and `CLAUDE.md` if applicable). This lets any AI agent loading the project automatically discover that Winix tools are available and how to use them — without requiring the project maintainer to write this guidance by hand.
+`winix agents <verb>` writes, checks, or removes a marker-delimited Winix discoverability block that tells any AI agent that Winix tools are available and how to use them — without writing that guidance by hand.
+
+**By default it operates on your per-user agent config** (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`), so you run it **once per machine** and the claim ("these tools are available on this machine") stays true. The block is never committed to a repository, so it can't impose Winix on contributors or make a false claim on a clone where Winix isn't installed.
+
+For teams that have deliberately standardized on Winix, `--project` writes the block into a repo's committed `AGENTS.md`/`CLAUDE.md` instead, using **conditional** wording ("if available in your environment… if Winix is not installed, ignore this section") so a shared file makes no false claim.
 
 ### Verbs
 
 | Verb | Description |
 |------|-------------|
-| `init` | Write or refresh the managed block in `AGENTS.md` (and `CLAUDE.md` if it exists or `--claude` is given) |
+| `init` | Write or refresh the managed block (user homes by default; project files with `--project`) |
 | `status` | Report whether the block is present and current; exits 1 if absent or stale in any applicable file |
 | `remove` | Strip the managed block from all applicable files |
 
@@ -118,18 +125,22 @@ winix --describe
 
 | Option | Description |
 |--------|-------------|
-| `--path DIR` | Project directory to operate on (default: current directory) |
-| `--claude` | Also include `CLAUDE.md` even when it does not already exist |
+| `--project` | Write into committed project files (`AGENTS.md`/`CLAUDE.md`) instead of user/global agent config |
+| `--path DIR` | Project directory for `--project` (default: current directory). Only valid with `--project`. |
+| `--claude` | Force the Claude home/file even when absent: user scope → `~/.claude/CLAUDE.md`; `--project` → include `CLAUDE.md` |
+| `--codex` | Force the Codex user home (`~/.codex/AGENTS.md`) even when absent. User scope only. |
 | `--dry-run` | Show what would be written without making any changes |
 | `--json` | Emit a JSON envelope on stdout instead of the plain text status |
+
+In user scope, `init` writes to every known agent home whose directory already exists (so `~/.codex/` absent ⇒ Codex is silently skipped). If **no** known home exists and neither `--claude` nor `--codex` is given, `init` writes nothing and exits 125 (`no agent home found`) — it never guesses where to create files.
 
 ### Exit Codes (agents subcommand)
 
 | Code | Meaning |
 |------|---------|
 | 0 | Success — block is present and current (for `status`), or operation completed |
-| 1 | Block is absent or stale in at least one applicable file (for `status`) |
-| 125 | Usage error (invalid arguments or path is not a directory) |
+| 1 | Block is absent or stale in at least one applicable file, or (user scope) no agent home exists (for `status`) |
+| 125 | Usage error (invalid arguments; `--path` without `--project`; `--project` with `--codex`; project path is not a directory; or user-scope `init` with no agent home and no force flag) |
 | 127 | I/O failure (cannot read or write the target file) |
 
 ### Managed Block Contract
@@ -151,18 +162,30 @@ The block is delimited by HTML comments invisible in rendered Markdown:
 ### Usage Pattern
 
 ```bash
-# Bootstrap: write the pointer if absent or stale
-winix agents status --path . || winix agents init --path .
+# Bootstrap: write the pointer to your user agent config if absent or stale
+winix agents status || winix agents init
+
+# Force-create a specific home that doesn't exist yet
+winix agents init --codex
 
 # Preview what init would write
-winix agents init --path . --dry-run
+winix agents init --dry-run
 
-# Include CLAUDE.md even if it does not yet exist
-winix agents init --path . --claude
+# Team opt-in: a conditional pointer committed into the repo
+winix agents init --project
 
 # Machine-readable status (for CI)
-winix agents status --path . --json
+winix agents status --json
 ```
+
+### Migration (v0.4.0)
+
+The default scope changed from the project directory to your user agent config. **`winix agents status` (default) no longer looks at repo files** — so if you ran a pre-release build that wrote a block into a project's `AGENTS.md`/`CLAUDE.md`, default status will not surface it. In any repo where you previously ran `winix agents init`, run `winix agents status --project` to detect the committed block and `winix agents remove --project` to clear it.
+
+### Known limitations
+
+- **Multi-target writes are not atomic across files.** `init`/`remove` write each target independently; on a mid-run I/O error, already-written targets are kept and the command exits non-zero naming the failing target. Re-run to converge — the operation is idempotent.
+- **The managed block records its version, not its wording mode.** A block at the current version is reported `current` even if it carries the other scope's wording (e.g. a project-mode block hand-placed in a user home). Status detects version drift, not wording drift; `remove` + `init` re-writes the correct wording.
 
 ## Side Effects on First `install`
 

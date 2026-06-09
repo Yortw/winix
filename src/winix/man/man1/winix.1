@@ -33,37 +33,61 @@ With \f[B]\(enjson\f[R], emits a JSON summary envelope on stdout instead
 of the one\-line text summary.
 .TP
 \f[B]agents\f[R] \f[I]verb\f[R]
-Manage the marker\-delimited Winix discoverability pointer in a
-project\(cqs \f[B]AGENTS.md\f[R] (and \f[B]CLAUDE.md\f[R] when
-applicable).
+Manage the marker\-delimited Winix discoverability pointer.
+By default it operates on your per\-user agent config
+(\f[B]\(ti/.claude/CLAUDE.md\f[R], \f[B]\(ti/.codex/AGENTS.md\f[R]) \(em
+run once per machine; the block is never committed to a repository.
+With \f[B]\(enproject\f[R] it operates on a repo\(cqs committed
+\f[B]AGENTS.md\f[R]/\f[B]CLAUDE.md\f[R] using conditional (\(lqif
+available\(rq) wording instead.
 \f[I]verb\f[R] is one of \f[B]init\f[R], \f[B]status\f[R], or
 \f[B]remove\f[R].
 \f[B]init\f[R] \(em write or refresh the managed block.
-\f[B]AGENTS.md\f[R] is always a target; \f[B]CLAUDE.md\f[R] is added
-when it already exists or \f[B]\(enclaude\f[R] is given.
+In user scope, writes every known agent home whose directory exists (or
+is force\-created with \f[B]\(enclaude\f[R]/\f[B]\(encodex\f[R]); with
+no home and no force flag it writes nothing and exits 125.
+With \f[B]\(enproject\f[R], \f[B]AGENTS.md\f[R] is always a target and
+\f[B]CLAUDE.md\f[R] is added when it exists or \f[B]\(enclaude\f[R] is
+given.
 The block embeds a version\-pinned URL; re\-running at the same version
 is byte\-stable.
-Supports \f[B]\(enpath\f[R], \f[B]\(enclaude\f[R],
-\f[B]\(endry\-run\f[R], \f[B]\(enjson\f[R].
+Supports \f[B]\(enproject\f[R], \f[B]\(enpath\f[R],
+\f[B]\(enclaude\f[R], \f[B]\(encodex\f[R], \f[B]\(endry\-run\f[R],
+\f[B]\(enjson\f[R].
 \f[B]status\f[R] \(em report whether the block is present and current.
-Exits 0 if current, 1 if absent or stale in any applicable file.
-Supports \f[B]\(enpath\f[R], \f[B]\(enclaude\f[R], \f[B]\(enjson\f[R].
+Exits 0 if current, 1 if absent or stale in any applicable file (or, in
+user scope, if no agent home exists).
+Supports \f[B]\(enproject\f[R], \f[B]\(enpath\f[R],
+\f[B]\(enclaude\f[R], \f[B]\(encodex\f[R], \f[B]\(enjson\f[R].
 \f[B]remove\f[R] \(em strip the managed block from all applicable files.
-Supports \f[B]\(enpath\f[R], \f[B]\(enclaude\f[R],
-\f[B]\(endry\-run\f[R], \f[B]\(enjson\f[R].
+Supports \f[B]\(enproject\f[R], \f[B]\(enpath\f[R],
+\f[B]\(enclaude\f[R], \f[B]\(encodex\f[R], \f[B]\(endry\-run\f[R],
+\f[B]\(enjson\f[R].
 .SH OPTIONS
 .TP
 \f[B]\(envia\f[R] \f[I]PM\f[R]
 Force a specific package manager: \f[B]scoop\f[R], \f[B]winget\f[R],
 \f[B]dotnet\f[R], \f[B]brew\f[R].
 .TP
+\f[B]\(enproject\f[R]
+For \f[B]agents\f[R]: write into committed project files
+(\f[B]AGENTS.md\f[R]/\f[B]CLAUDE.md\f[R]) instead of user/global agent
+config.
+.TP
 \f[B]\(enpath\f[R] \f[I]DIR\f[R]
-For \f[B]agents\f[R]: project directory to operate on (default: current
-directory).
+For \f[B]agents\f[R]: project directory for \f[B]\(enproject\f[R]
+(default: current directory).
+Only valid with \f[B]\(enproject\f[R].
 .TP
 \f[B]\(enclaude\f[R]
-For \f[B]agents\f[R]: include \f[B]CLAUDE.md\f[R] as a target even when
-it does not already exist.
+For \f[B]agents\f[R]: force the Claude home/file even when absent \(em
+user scope creates \f[B]\(ti/.claude/CLAUDE.md\f[R];
+\f[B]\(enproject\f[R] includes \f[B]CLAUDE.md\f[R].
+.TP
+\f[B]\(encodex\f[R]
+For \f[B]agents\f[R]: force the Codex user home
+(\f[B]\(ti/.codex/AGENTS.md\f[R]) even when absent.
+User scope only (cannot combine with \f[B]\(enproject\f[R]).
 .TP
 \f[B]\(endry\-run\f[R]
 Print what would be done without executing any changes.
@@ -96,7 +120,8 @@ Success \(em all requested operations completed.
 .TP
 \f[B]1\f[R]
 One or more tools failed to install, update, or uninstall; or (agents)
-the pointer block is absent or stale.
+the pointer block is absent or stale, or (user scope) no agent home
+exists.
 .TP
 \f[B]125\f[R]
 Usage error (bad arguments or unrecognised command).
@@ -110,11 +135,23 @@ failure).
 .PP
 For the \f[B]agents\f[R] subcommand, exit 1 means the discoverability
 block is absent or stale (use \f[B]winix agents init\f[R] to fix); 125
-means bad arguments or the path is not a directory.
+means bad arguments \(em including \f[B]\(enpath\f[R] without
+\f[B]\(enproject\f[R], \f[B]\(enproject\f[R] with \f[B]\(encodex\f[R], a
+project path that is not a directory, or a user\-scope \f[B]init\f[R]
+with no agent home and no \f[B]\(enclaude\f[R]/\f[B]\(encodex\f[R] force
+flag.
 .SH ENVIRONMENT
 .TP
 \f[B]NO_COLOR\f[R]
 If set, disables coloured output (no\-color.org).
+.TP
+\f[B]WINIX_AGENTS_HOME\f[R]
+For \f[B]agents\f[R] (test/smoke isolation only): an absolute path used
+in place of the OS user\-profile directory when resolving user\-scope
+agent homes.
+Lets tests and smoke runs redirect writes to a scratch directory instead
+of the real \f[B]\(ti/.claude\f[R].
+May point at a non\-existent directory.
 .SH EXAMPLES
 .IP
 .EX
@@ -138,7 +175,9 @@ winix agents init
 
 winix agents status
 
-winix agents init \-\-path /path/to/project \-\-claude \-\-dry\-run
+winix agents init \-\-codex
+
+winix agents init \-\-project \-\-path /path/to/project \-\-claude \-\-dry\-run
 .EE
 .SH SEE ALSO
 \f[B]timeit\f[R](1), \f[B]squeeze\f[R](1), \f[B]peep\f[R](1),

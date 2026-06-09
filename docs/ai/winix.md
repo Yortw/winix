@@ -88,23 +88,27 @@ winix status --no-color
 
 **`winix list` / `status` work offline.** Every released `winix` binary bundles the suite manifest at `<install-dir>/share/winix/winix-manifest.json`, so the catalogue-lookup commands (`list` and `status`) succeed without network access. A per-user cache layer (`%LOCALAPPDATA%\winix\` on Windows; `$XDG_CACHE_HOME/winix/` or `~/.cache/winix/` elsewhere) layers on top when an explicit refresh has happened since the binary's release. There is no automatic network refresh on `LoadAsync`; agents should not assume the manifest is up-to-the-minute. Note: `winix uninstall` mutates installed state — it consults the bundled manifest to resolve tool names, but it is not a read-only / query-safe command and should not be invoked speculatively.
 
-## `agents` — Project-Level Discoverability Pointer
+## `agents` — Discoverability Pointer
 
-`winix agents <verb>` writes, checks, or removes a marker-delimited Winix discoverability block in a project's `AGENTS.md` (always) and `CLAUDE.md` (when it already exists, or when `--claude` is given). This makes Winix tools automatically discoverable to any AI agent loading that project, without requiring a manual prose entry.
+`winix agents <verb>` writes, checks, or removes a marker-delimited Winix discoverability block that tells any AI agent that Winix tools are available and how to use them.
+
+**Default scope is user/machine, not project.** With no `--project`, the block is written into the per-user agent homes (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`) — run once per machine, true for that machine, never committed to a repo. This is the right default: the block's content is machine-scoped (it delegates "what's installed" to the runtime `winix list` pointer), so committing it into a shared repo would make a false claim on any clone where Winix isn't installed. `--project` is an explicit opt-in for teams standardized on Winix; it writes the block into committed `AGENTS.md`/`CLAUDE.md` with **conditional** wording ("if available… if Winix is not installed, ignore this section").
 
 ### Verbs
 
-- **`init`** — write or refresh the block. Idempotent: re-running at the same version leaves the file byte-identical.
-- **`status`** — report whether the block is present and current. Exit 0 = current; exit 1 = absent or stale in any applicable file.
+- **`init`** — write or refresh the block. Idempotent: re-running at the same version leaves the file byte-identical. In user scope, writes every known agent home whose directory exists (or is force-created with `--claude`/`--codex`); with no home and no force flag, writes nothing and exits 125 (`no agent home found`).
+- **`status`** — report whether the block is present and current. Exit 0 = current; exit 1 = absent or stale in any applicable file, or (user scope) no agent home exists.
 - **`remove`** — strip the managed block from all applicable files.
 
-All three verbs accept `--path DIR` (default: current directory), `--claude`, and `--json`. `init` and `remove` also accept `--dry-run`.
+Scope/target flags: `--project` (committed repo files instead of user homes), `--path DIR` (project directory, only valid with `--project`), `--claude` (force the Claude home/file even when absent), `--codex` (force the Codex user home even when absent; user scope only — cannot combine with `--project`). All verbs accept `--json`; `init` and `remove` also accept `--dry-run`.
+
+The `WINIX_AGENTS_HOME` env var (absolute path) overrides the user-profile directory for user-scope resolution — test/smoke isolation only, so a harness never clobbers the real `~/.claude`.
 
 ### Bootstrap pattern (CI / onboarding script)
 
 ```bash
-# Write the block if absent or stale; no-op if already current
-winix agents status --path . || winix agents init --path .
+# Write the pointer to your user agent config if absent or stale; no-op if already current
+winix agents status || winix agents init
 ```
 
 ### JSON output
@@ -136,9 +140,14 @@ Key properties:
 | Code | Meaning |
 |------|---------|
 | 0 | Success / block is current |
-| 1 | Block absent or stale in at least one applicable file (`status` only) |
-| 125 | Usage error (bad arguments or `--path` is not a directory) |
+| 1 | Block absent or stale in at least one applicable file, or (user scope) no agent home exists (`status` only) |
+| 125 | Usage error (bad arguments; `--path` without `--project`; `--project` with `--codex`; project path not a directory; or user-scope `init` with no agent home and no `--claude`/`--codex`) |
 | 127 | I/O failure (cannot read or write a target file) |
+
+### Known limitations
+
+- **Multi-target writes are not atomic across files.** `init`/`remove` write each target independently; on a mid-run I/O error, already-written targets are kept and the command exits non-zero naming the failing target. Re-run to converge — the operation is idempotent.
+- **The managed block records its version, not its wording mode.** A block at the current version is reported `current` even if it carries the other scope's wording (e.g. a project-mode block hand-placed in a user home). Status detects version drift, not wording drift; `remove` + `init` re-writes the correct wording.
 
 ## Getting Structured Data
 

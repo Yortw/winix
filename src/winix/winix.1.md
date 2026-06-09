@@ -32,24 +32,30 @@ Cross-platform installer for the Winix CLI tool suite. Installs, updates, and un
 :   Show install status and version of each tool. With **--json**, emits a JSON summary envelope on stdout instead of the one-line text summary.
 
 **agents** *verb*
-:   Manage the marker-delimited Winix discoverability pointer in a project's **AGENTS.md** (and **CLAUDE.md** when applicable). *verb* is one of **init**, **status**, or **remove**.
+:   Manage the marker-delimited Winix discoverability pointer. By default it operates on your per-user agent config (**~/.claude/CLAUDE.md**, **~/.codex/AGENTS.md**) — run once per machine; the block is never committed to a repository. With **--project** it operates on a repo's committed **AGENTS.md**/**CLAUDE.md** using conditional ("if available") wording instead. *verb* is one of **init**, **status**, or **remove**.
 
-:   **init** — write or refresh the managed block. **AGENTS.md** is always a target; **CLAUDE.md** is added when it already exists or **--claude** is given. The block embeds a version-pinned URL; re-running at the same version is byte-stable. Supports **--path**, **--claude**, **--dry-run**, **--json**.
+:   **init** — write or refresh the managed block. In user scope, writes every known agent home whose directory exists (or is force-created with **--claude**/**--codex**); with no home and no force flag it writes nothing and exits 125. With **--project**, **AGENTS.md** is always a target and **CLAUDE.md** is added when it exists or **--claude** is given. The block embeds a version-pinned URL; re-running at the same version is byte-stable. Supports **--project**, **--path**, **--claude**, **--codex**, **--dry-run**, **--json**.
 
-:   **status** — report whether the block is present and current. Exits 0 if current, 1 if absent or stale in any applicable file. Supports **--path**, **--claude**, **--json**.
+:   **status** — report whether the block is present and current. Exits 0 if current, 1 if absent or stale in any applicable file (or, in user scope, if no agent home exists). Supports **--project**, **--path**, **--claude**, **--codex**, **--json**.
 
-:   **remove** — strip the managed block from all applicable files. Supports **--path**, **--claude**, **--dry-run**, **--json**.
+:   **remove** — strip the managed block from all applicable files. Supports **--project**, **--path**, **--claude**, **--codex**, **--dry-run**, **--json**.
 
 # OPTIONS
 
 **--via** *PM*
 :   Force a specific package manager: **scoop**, **winget**, **dotnet**, **brew**.
 
+**--project**
+:   For **agents**: write into committed project files (**AGENTS.md**/**CLAUDE.md**) instead of user/global agent config.
+
 **--path** *DIR*
-:   For **agents**: project directory to operate on (default: current directory).
+:   For **agents**: project directory for **--project** (default: current directory). Only valid with **--project**.
 
 **--claude**
-:   For **agents**: include **CLAUDE.md** as a target even when it does not already exist.
+:   For **agents**: force the Claude home/file even when absent — user scope creates **~/.claude/CLAUDE.md**; **--project** includes **CLAUDE.md**.
+
+**--codex**
+:   For **agents**: force the Codex user home (**~/.codex/AGENTS.md**) even when absent. User scope only (cannot combine with **--project**).
 
 **--dry-run**
 :   Print what would be done without executing any changes.
@@ -78,7 +84,7 @@ Cross-platform installer for the Winix CLI tool suite. Installs, updates, and un
 :   Success — all requested operations completed.
 
 **1**
-:   One or more tools failed to install, update, or uninstall; or (agents) the pointer block is absent or stale.
+:   One or more tools failed to install, update, or uninstall; or (agents) the pointer block is absent or stale, or (user scope) no agent home exists.
 
 **125**
 :   Usage error (bad arguments or unrecognised command).
@@ -90,12 +96,17 @@ Cross-platform installer for the Winix CLI tool suite. Installs, updates, and un
 :   Internal error (manifest fetch/parse failure, or agents file I/O failure).
 
 For the **agents** subcommand, exit 1 means the discoverability block is absent or stale (use
-**winix agents init** to fix); 125 means bad arguments or the path is not a directory.
+**winix agents init** to fix); 125 means bad arguments — including **--path** without **--project**,
+**--project** with **--codex**, a project path that is not a directory, or a user-scope **init** with
+no agent home and no **--claude**/**--codex** force flag.
 
 # ENVIRONMENT
 
 **NO_COLOR**
 :   If set, disables coloured output (no-color.org).
+
+**WINIX_AGENTS_HOME**
+:   For **agents** (test/smoke isolation only): an absolute path used in place of the OS user-profile directory when resolving user-scope agent homes. Lets tests and smoke runs redirect writes to a scratch directory instead of the real **~/.claude**. May point at a non-existent directory.
 
 # EXAMPLES
 
@@ -119,7 +130,9 @@ For the **agents** subcommand, exit 1 means the discoverability block is absent 
 
     winix agents status
 
-    winix agents init --path /path/to/project --claude --dry-run
+    winix agents init --codex
+
+    winix agents init --project --path /path/to/project --claude --dry-run
 
 # SEE ALSO
 
