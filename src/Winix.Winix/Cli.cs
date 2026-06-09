@@ -71,8 +71,10 @@ public static class Cli
             .StandardFlags()
             .Option("--via", null, "PM", "Package manager to use: winget, scoop, brew, dotnet")
             .Flag("--dry-run", "Show commands that would be run without executing them")
-            .Flag("--claude", "Include CLAUDE.md even when it does not already exist (agents only)")
-            .Option("--path", null, "DIR", "Project directory to operate on (agents only; default: current directory)")
+            .Flag("--project", "Write into committed project files (AGENTS.md/CLAUDE.md) instead of user/global agent config (agents only)")
+            .Flag("--claude", "Force the Claude home/file even when absent: user scope → ~/.claude/CLAUDE.md; --project → include CLAUDE.md (agents only)")
+            .Flag("--codex", "Force the Codex user home (~/.codex/AGENTS.md) even when absent (agents user scope only)")
+            .Option("--path", null, "DIR", "Project directory for --project (agents only; default: current directory)")
             .Positional("command [tool...]")
             .Platform("cross-platform",
                 new[] { "winget", "scoop", "brew" },
@@ -89,9 +91,10 @@ public static class Cli
             .Example("winix list", "List all tools and their install status")
             .Example("winix status", "Show a summary of installed tools")
             .Example("winix install --dry-run", "Preview what would be installed")
-            .Example("winix agents init", "Write the Winix discoverability pointer into AGENTS.md (and CLAUDE.md if present)")
-            .Example("winix agents status", "Report whether the pointer block is present and current (exit 1 if not)")
-            .Example("winix agents remove", "Remove the Winix discoverability pointer block")
+            .Example("winix agents init", "Write the Winix pointer into your user agent config (~/.claude/CLAUDE.md, ~/.codex/AGENTS.md)")
+            .Example("winix agents init --project", "Write a conditional pointer into this repo's AGENTS.md/CLAUDE.md (for teams standardized on Winix)")
+            .Example("winix agents status", "Report whether your user agent config carries a current pointer (exit 1 if not)")
+            .Example("winix agents remove", "Remove the Winix pointer block from your user agent config")
             .ExitCodes(
                 (WinixExitCode.Success, "Success"),
                 (WinixExitCode.ToolFailure, "One or more tools failed; or (agents) the pointer block is absent or stale"),
@@ -124,6 +127,22 @@ public static class Cli
             // agents never needs the tool manifest (the block delegates "what's installed" to
             // the runtime `winix list` pointer), so dispatch before --via validation and the
             // manifest fetch — neither applies, and a manifest fetch failure must not block it.
+            bool project = result.Has("--project");
+
+            // --path is only meaningful for a project directory; reject it in user scope so a
+            // misplaced --path can't silently no-op against the wrong target.
+            if (result.Has("--path") && !project)
+            {
+                return result.WriteError(
+                    "--path is only valid with --project (user scope writes to your agent home)", stderr);
+            }
+            // --codex names a user home; it has no meaning when writing committed project files.
+            if (result.Has("--codex") && project)
+            {
+                return result.WriteError(
+                    "--codex is a user-scope flag and cannot be combined with --project", stderr);
+            }
+
             string? verb = result.Positionals.Length > 1 ? result.Positionals[1] : null;
             string baseDir = result.Has("--path")
                 ? result.GetString("--path")!
@@ -131,10 +150,10 @@ public static class Cli
 
             var agentsOptions = new AgentsManager.AgentsOptions(
                 Verb: verb,
-                Scope: AgentsManager.AgentsScope.Project,
+                Scope: project ? AgentsManager.AgentsScope.Project : AgentsManager.AgentsScope.User,
                 BaseDir: baseDir,
                 ForceClaude: result.Has("--claude"),
-                ForceCodex: false,
+                ForceCodex: result.Has("--codex"),
                 DryRun: result.Has("--dry-run"),
                 Json: result.Has("--json"),
                 Version: version);

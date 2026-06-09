@@ -345,7 +345,7 @@ public sealed class CliTests
         {
             var (stdout, stderr) = Sinks();
             int exit = await Cli.RunAsync(
-                new[] { "agents", "init", "--path", dir },
+                new[] { "agents", "init", "--project", "--path", dir },
                 stdout, stderr,
                 adapters: new Dictionary<string, IPackageManagerAdapter>(),
                 platform: PlatformId.Linux,
@@ -370,7 +370,7 @@ public sealed class CliTests
         {
             var (stdout, stderr) = Sinks();
             int exit = await Cli.RunAsync(
-                new[] { "agents", "status", "--path", dir },
+                new[] { "agents", "status", "--project", "--path", dir },
                 stdout, stderr,
                 adapters: new Dictionary<string, IPackageManagerAdapter>(),
                 platform: PlatformId.Linux,
@@ -409,7 +409,7 @@ public sealed class CliTests
         {
             var (stdout, stderr) = Sinks();
             int exit = await Cli.RunAsync(
-                new[] { "agents", "init", "--path", dir, "--dry-run" },
+                new[] { "agents", "init", "--project", "--path", dir, "--dry-run" },
                 stdout, stderr,
                 adapters: new Dictionary<string, IPackageManagerAdapter>(),
                 platform: PlatformId.Linux,
@@ -433,7 +433,7 @@ public sealed class CliTests
         {
             var (stdout, stderr) = Sinks();
             int exit = await Cli.RunAsync(
-                new[] { "agents", "init", "--path", dir, "--json" },
+                new[] { "agents", "init", "--project", "--path", dir, "--json" },
                 stdout, stderr,
                 adapters: new Dictionary<string, IPackageManagerAdapter>(),
                 platform: PlatformId.Linux,
@@ -457,7 +457,7 @@ public sealed class CliTests
         {
             var (stdout, stderr) = Sinks();
             int exit = await Cli.RunAsync(
-                new[] { "agents", "init", "--path", dir, "--claude" },
+                new[] { "agents", "init", "--project", "--path", dir, "--claude" },
                 stdout, stderr,
                 adapters: new Dictionary<string, IPackageManagerAdapter>(),
                 platform: PlatformId.Linux,
@@ -484,7 +484,7 @@ public sealed class CliTests
         {
             var (stdout1, stderr1) = Sinks();
             await Cli.RunAsync(
-                new[] { "agents", "init", "--path", dir },
+                new[] { "agents", "init", "--project", "--path", dir },
                 stdout1, stderr1,
                 adapters: new Dictionary<string, IPackageManagerAdapter>(),
                 platform: PlatformId.Linux,
@@ -492,7 +492,7 @@ public sealed class CliTests
 
             var (stdout2, stderr2) = Sinks();
             int exit = await Cli.RunAsync(
-                new[] { "agents", "status", "--path", dir },
+                new[] { "agents", "status", "--project", "--path", dir },
                 stdout2, stderr2,
                 adapters: new Dictionary<string, IPackageManagerAdapter>(),
                 platform: PlatformId.Linux,
