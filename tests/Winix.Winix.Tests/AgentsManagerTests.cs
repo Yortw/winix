@@ -289,6 +289,18 @@ public sealed class AgentsManagerTests
         Assert.Contains("# mid", stripped, StringComparison.Ordinal);
     }
 
+    [Fact] // The mode-agnostic marker parser still finds + removes a PROJECT-mode block — cross-mode
+           // belt-and-braces over the existing parser tests (FindBlockVersion_StartWithoutEnd_ReturnsNull,
+           // RemoveBlock duplicate-strip) which already pin malformed-marker handling.
+    public void RemoveBlock_ProjectModeBlock_StrippedByModeAgnosticParser()
+    {
+        string file = "# Repo\n\n" + AgentsManager.RenderBlock("0.4.0", AgentsManager.RenderMode.ProjectScope) + "\n";
+        Assert.Equal("0.4.0", AgentsManager.FindBlockVersion(file));
+        string after = AgentsManager.RemoveBlock(file);
+        Assert.DoesNotContain("winix:start", after, StringComparison.Ordinal);
+        Assert.Contains("# Repo", after, StringComparison.Ordinal);
+    }
+
     // ── IAgentsFileSystem default impl + fakes ────────────────────────────────────
 
     [Fact]
@@ -828,6 +840,64 @@ public sealed class AgentsManagerTests
         Assert.Contains("CLAUDE.md", stderr.ToString(), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void RunStatus_UserScope_NoHome_ReportsNotCurrent()
+    {
+        var fs = new InMemoryFs { Home = "/home/u" };
+        var sw = new StringWriter();
+
+        int code = AgentsManager.RunStatus(UserOpts(), fs, sw, sw);
+
+        Assert.Equal(WinixExitCode.ToolFailure, code);
+        Assert.Contains("no agent home found", sw.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RunStatus_UserScope_CurrentBlock_Zero()
+    {
+        var fs = new InMemoryFs { Home = "/home/u" };
+        string claudeDir = Path.Combine("/home/u", ".claude");
+        fs.Dirs.Add(claudeDir);
+        fs.Files[Path.Combine(claudeDir, "CLAUDE.md")] =
+            AgentsManager.MergeBlock(string.Empty, "0.4.0", AgentsManager.RenderMode.UserScope);
+        var sw = new StringWriter();
+
+        Assert.Equal(WinixExitCode.Success, AgentsManager.RunStatus(UserOpts(), fs, sw, sw));
+    }
+
+    [Fact] // Pin the no-home --json shape so the no-home/absent-block ambiguity is a conscious,
+           // documented choice rather than an accident. allCurrent must be false.
+    public void RunStatus_UserScope_NoHome_Json_ShapePinned()
+    {
+        var fs = new InMemoryFs { Home = "/home/u" };
+        var sw = new StringWriter();
+        var opts = new AgentsManager.AgentsOptions(
+            "status", AgentsManager.AgentsScope.User, ".", false, false, false, Json: true, "0.4.0");
+
+        int code = AgentsManager.RunStatus(opts, fs, sw, sw);
+
+        Assert.Equal(WinixExitCode.ToolFailure, code);
+        Assert.Contains("\"current\":false", sw.ToString(), StringComparison.Ordinal);
+        Assert.Contains("\"files\":[]", sw.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact] // KNOWN LIMITATION: markers encode version only, not render mode. A current-version
+           // block whose WORDING is the wrong mode reports "current" — status can't detect wording
+           // drift. This test documents that behaviour so it's a conscious accepted limitation.
+    public void RunStatus_UserScope_ProjectWordedBlockAtCurrentVersion_ReportsCurrent()
+    {
+        var fs = new InMemoryFs { Home = "/home/u" };
+        string claudeDir = Path.Combine("/home/u", ".claude");
+        fs.Dirs.Add(claudeDir);
+        // A project-mode block (conditional wording) sitting in a USER home file at current version.
+        fs.Files[Path.Combine(claudeDir, "CLAUDE.md")] =
+            AgentsManager.MergeBlock(string.Empty, "0.4.0", AgentsManager.RenderMode.ProjectScope);
+        var sw = new StringWriter();
+
+        // Reported current despite wrong-mode wording — markers carry no mode token. Accepted.
+        Assert.Equal(WinixExitCode.Success, AgentsManager.RunStatus(UserOpts(), fs, sw, sw));
+    }
+
     // ── RunRemove ─────────────────────────────────────────────────────────────────
 
     [Fact]
@@ -844,6 +914,21 @@ public sealed class AgentsManagerTests
         Assert.Equal(WinixExitCode.Success, exit);
         Assert.DoesNotContain(AgentsManager.StartMarkerPrefix, fs.Files[agentsPath], StringComparison.Ordinal);
         Assert.Contains("# Project", fs.Files[agentsPath], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RunRemove_UserScope_StripsBlock()
+    {
+        var fs = new InMemoryFs { Home = "/home/u" };
+        string claudeDir = Path.Combine("/home/u", ".claude");
+        fs.Dirs.Add(claudeDir);
+        string file = Path.Combine(claudeDir, "CLAUDE.md");
+        fs.Files[file] = AgentsManager.MergeBlock("# keep me\n", "0.4.0", AgentsManager.RenderMode.UserScope);
+        var sw = new StringWriter();
+
+        Assert.Equal(WinixExitCode.Success, AgentsManager.RunRemove(UserOpts(), fs, sw, sw));
+        Assert.DoesNotContain("winix:start", fs.Files[file], StringComparison.Ordinal);
+        Assert.Contains("# keep me", fs.Files[file], StringComparison.Ordinal);
     }
 
     [Fact]

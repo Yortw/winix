@@ -453,10 +453,27 @@ public static class AgentsManager
     /// </summary>
     internal static int RunStatus(AgentsOptions opts, IAgentsFileSystem fs, TextWriter stdout, TextWriter stderr)
     {
-        if (!fs.DirectoryExists(opts.BaseDir))
+        List<string> targets;
+        if (opts.Scope == AgentsScope.Project)
         {
-            stderr.WriteLine($"winix: path '{opts.BaseDir}' is not a directory");
-            return WinixExitCode.UsageError;
+            if (!fs.DirectoryExists(opts.BaseDir))
+            {
+                stderr.WriteLine($"winix: path '{opts.BaseDir}' is not a directory");
+                return WinixExitCode.UsageError;
+            }
+            targets = ResolveInitTargets(opts, fs);
+        }
+        else
+        {
+            targets = ResolveUserTargets(opts, fs);
+            if (targets.Count == 0)
+            {
+                // "Nothing set up" is a not-current state, not success — return ToolFailure (not
+                // UsageError) so the `status || init` bootstrap idiom still triggers an init.
+                if (opts.Json) { stdout.WriteLine(FormatStatusJson(new(), allCurrent: false)); }
+                else { stderr.WriteLine("winix: no agent home found"); }
+                return WinixExitCode.ToolFailure;
+            }
         }
 
         var results = new List<(string Path, string State, string? Version)>();
@@ -465,7 +482,7 @@ public static class AgentsManager
 
         try
         {
-            foreach (string target in ResolveInitTargets(opts, fs))
+            foreach (string target in targets)
             {
                 current = target;
                 string? blockVer = fs.FileExists(target) ? FindBlockVersion(fs.ReadAllText(target)) : null;
@@ -545,17 +562,30 @@ public static class AgentsManager
     /// </summary>
     internal static int RunRemove(AgentsOptions opts, IAgentsFileSystem fs, TextWriter stdout, TextWriter stderr)
     {
-        if (!fs.DirectoryExists(opts.BaseDir))
+        string[] candidates;
+        if (opts.Scope == AgentsScope.Project)
         {
-            stderr.WriteLine($"winix: path '{opts.BaseDir}' is not a directory");
-            return WinixExitCode.UsageError;
+            if (!fs.DirectoryExists(opts.BaseDir))
+            {
+                stderr.WriteLine($"winix: path '{opts.BaseDir}' is not a directory");
+                return WinixExitCode.UsageError;
+            }
+            candidates = new[]
+            {
+                Path.Combine(opts.BaseDir, "AGENTS.md"),
+                Path.Combine(opts.BaseDir, "CLAUDE.md"),
+            };
         }
-
-        string[] candidates =
+        else
         {
-            Path.Combine(opts.BaseDir, "AGENTS.md"),
-            Path.Combine(opts.BaseDir, "CLAUDE.md"),
-        };
+            // User scope strips from every known home file regardless of force flags — removing a
+            // block where none exists is a safe, idempotent no-op (handled by the FindBlockVersion
+            // guard in the loop), so there is no empty-home error path for remove.
+            string home = fs.ResolveHome();
+            var list = new List<string>();
+            foreach (AgentHome h in KnownHomes) { list.Add(Path.Combine(home, h.Dir, h.File)); }
+            candidates = list.ToArray();
+        }
 
         var changed = new List<string>();
         string current = string.Empty;
