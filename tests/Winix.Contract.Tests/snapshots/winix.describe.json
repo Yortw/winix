@@ -54,9 +54,21 @@
       "repeatable": false
     },
     {
+      "long": "--project",
+      "type": "flag",
+      "description": "Write into committed project files (AGENTS.md/CLAUDE.md) instead of user/global agent config (agents only)",
+      "repeatable": false
+    },
+    {
       "long": "--claude",
       "type": "flag",
-      "description": "Include CLAUDE.md even when it does not already exist (agents only)",
+      "description": "Force the Claude home/file even when absent: user scope → ~/.claude/CLAUDE.md; --project → include CLAUDE.md (agents only)",
+      "repeatable": false
+    },
+    {
+      "long": "--codex",
+      "type": "flag",
+      "description": "Force the Codex user home (~/.codex/AGENTS.md) even when absent (agents user scope only)",
       "repeatable": false
     },
     {
@@ -70,7 +82,7 @@
       "long": "--path",
       "type": "string",
       "placeholder": "DIR",
-      "description": "Project directory to operate on (agents only; default: current directory)",
+      "description": "Project directory for --project (agents only; default: current directory)",
       "repeatable": false
     },
     {
@@ -148,15 +160,19 @@
     },
     {
       "command": "winix agents init",
-      "description": "Write the Winix discoverability pointer into AGENTS.md (and CLAUDE.md if present)"
+      "description": "Write the Winix pointer into your user agent config (~/.claude/CLAUDE.md, ~/.codex/AGENTS.md)"
+    },
+    {
+      "command": "winix agents init --project",
+      "description": "Write a conditional pointer into this repo's AGENTS.md/CLAUDE.md (for teams standardized on Winix)"
     },
     {
       "command": "winix agents status",
-      "description": "Report whether the pointer block is present and current (exit 1 if not)"
+      "description": "Report whether your user agent config carries a current pointer (exit 1 if not)"
     },
     {
       "command": "winix agents remove",
-      "description": "Remove the Winix discoverability pointer block"
+      "description": "Remove the Winix pointer block from your user agent config"
     }
   ]
 }
