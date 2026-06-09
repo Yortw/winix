@@ -64,6 +64,40 @@ public sealed class AgentsManagerTests
         Assert.DoesNotContain("/blob/v0.4.0-dev/", block, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void RenderBlock_UserScope_AssertsAvailabilityAndKeepsRestraint()
+    {
+        string block = AgentsManager.RenderBlock("0.4.0", AgentsManager.RenderMode.UserScope);
+
+        Assert.Contains("## Winix CLI tools (available on this machine)", block, StringComparison.Ordinal);
+        Assert.Contains("Prefer a Winix tool only when it's genuinely the better choice", block, StringComparison.Ordinal);
+        Assert.DoesNotContain("If Winix is not", block, StringComparison.Ordinal); // no conditional escape hatch in user mode
+        Assert.Contains("not by", block, StringComparison.Ordinal);
+        Assert.Contains("use the default", block, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RenderBlock_ProjectScope_UsesConditionalWordingNoInstallAssertion()
+    {
+        string block = AgentsManager.RenderBlock("0.4.0", AgentsManager.RenderMode.ProjectScope);
+
+        Assert.Contains("## Winix CLI tools (if available in your environment)", block, StringComparison.Ordinal);
+        Assert.Contains("If Winix tools are installed in your environment", block, StringComparison.Ordinal);
+        Assert.Contains("If Winix is not", block, StringComparison.Ordinal); // explicit ignore-if-absent escape hatch
+        Assert.DoesNotContain("(available on this machine)", block, StringComparison.Ordinal); // no machine-local assertion
+        // Shared invariants hold in both modes:
+        Assert.Contains("https://github.com/Yortw/winix/blob/v0.4.0/AGENTS.md", block, StringComparison.Ordinal);
+        Assert.Contains("`winix list`", block, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RenderBlock_DefaultModeIsUserScope()
+    {
+        Assert.Equal(
+            AgentsManager.RenderBlock("0.4.0", AgentsManager.RenderMode.UserScope),
+            AgentsManager.RenderBlock("0.4.0"));
+    }
+
     // ── FindBlockVersion ──────────────────────────────────────────────────────────
 
     [Fact]

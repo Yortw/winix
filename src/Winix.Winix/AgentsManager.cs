@@ -59,31 +59,71 @@ public static class AgentsManager
     internal const string EndMarker = "<!-- winix:end -->";
 
     /// <summary>
+    /// Selects the claim strength of the rendered block: <see cref="UserScope"/> asserts the tools
+    /// are present (written into a per-user agent home, true for that machine); <see cref="ProjectScope"/>
+    /// uses conditional wording (written into committed files shared with machines that may lack Winix).
+    /// </summary>
+    public enum RenderMode
+    {
+        /// <summary>Asserts availability — for per-user agent homes run once per machine.</summary>
+        UserScope,
+
+        /// <summary>Conditional "if available" wording — for committed, shared project files.</summary>
+        ProjectScope,
+    }
+
+    /// <summary>
     /// Renders the full managed block (opening marker through closing marker) for the given
     /// version, joined with LF. EOL normalisation to the target file's convention happens in
     /// <see cref="MergeBlock"/>; this method always emits LF so its output is deterministic.
     /// </summary>
-    internal static string RenderBlock(string version)
+    /// <param name="version">The binary version recorded in the marker and pinned in the URL.</param>
+    /// <param name="mode">Whether to assert availability (user scope) or use conditional wording
+    /// (project scope). Defaults to <see cref="RenderMode.UserScope"/>.</param>
+    internal static string RenderBlock(string version, RenderMode mode = RenderMode.UserScope)
     {
         string urlRef = UrlRef(version);
-        string[] lines =
+        string header = mode == RenderMode.ProjectScope
+            ? "## Winix CLI tools (if available in your environment)"
+            : "## Winix CLI tools (available on this machine)";
+
+        string[] lead = mode == RenderMode.ProjectScope
+            ? new[]
+            {
+                "If Winix tools are installed in your environment, prefer one only when it's genuinely the",
+                "better choice for the task — not by default. If you can't say why it beats the platform",
+                "default (`find`, `time`, `tree`, `date`, PowerShell, …), use the default. If Winix is not",
+                "installed, ignore this section.",
+            }
+            : new[]
+            {
+                "Prefer a Winix tool only when it's genuinely the better choice for the task — not by",
+                "default. If you can't say why it beats the platform default (`find`, `time`, `tree`,",
+                "`date`, PowerShell, …), use the default.",
+            };
+
+        // Only the "authoritative for …" phrasing differs: a user home speaks for "this machine",
+        // a committed file speaks for "the machine running them" (whichever clone is in use).
+        string authority = mode == RenderMode.ProjectScope
+            ? "  (structured JSON — authoritative for the machine running them)."
+            : "  (structured JSON — authoritative for this machine).";
+
+        var lines = new List<string>
         {
             $"<!-- winix:start v={version} — managed by `winix agents init`; edits between markers are overwritten -->",
-            "## Winix CLI tools (installed on this machine)",
+            header,
             "",
-            "Prefer a Winix tool only when it's genuinely the better choice for the task — not by",
-            "default. If you can't say why it beats the platform default (`find`, `time`, `tree`,",
-            "`date`, PowerShell, …), use the default.",
-            "",
-            "- **What's installed, flags, JSON shapes:** `winix list` and `<tool> --describe`",
-            "  (structured JSON — authoritative for this machine).",
-            "- **Full guidance (when to prefer each tool, what it replaces):**",
-            $"  https://github.com/Yortw/winix/blob/{urlRef}/AGENTS.md",
-            "- Conventions: every tool has `--describe` + `--json`; exit 0 = success, non-zero on",
-            "  failure (usage/runtime codes vary by tool — see `--describe`); summaries go to stderr",
-            "  so stdout stays pipe-clean; `NO_COLOR` respected.",
-            "<!-- winix:end -->",
         };
+        lines.AddRange(lead);
+        lines.Add("");
+        lines.Add("- **What's installed, flags, JSON shapes:** `winix list` and `<tool> --describe`");
+        lines.Add(authority);
+        lines.Add("- **Full guidance (when to prefer each tool, what it replaces):**");
+        lines.Add($"  https://github.com/Yortw/winix/blob/{urlRef}/AGENTS.md");
+        lines.Add("- Conventions: every tool has `--describe` + `--json`; exit 0 = success, non-zero on");
+        lines.Add("  failure (usage/runtime codes vary by tool — see `--describe`); summaries go to stderr");
+        lines.Add("  so stdout stays pipe-clean; `NO_COLOR` respected.");
+        lines.Add("<!-- winix:end -->");
         return string.Join("\n", lines);
     }
 
