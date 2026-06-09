@@ -167,10 +167,10 @@ public static class AgentsManager
     /// the file's existing convention (CRLF if the file already uses it, LF otherwise), so the
     /// operation is byte-stable on re-run at the same version.
     /// </summary>
-    internal static string MergeBlock(string content, string version)
+    internal static string MergeBlock(string content, string version, RenderMode mode = RenderMode.UserScope)
     {
         string eol = DetectEol(content);
-        string block = NormalizeEol(RenderBlock(version), eol);
+        string block = NormalizeEol(RenderBlock(version, mode), eol);
 
         int start = content.IndexOf(StartMarkerPrefix, StringComparison.Ordinal);
         if (start >= 0)

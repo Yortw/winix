@@ -213,6 +213,15 @@ public sealed class AgentsManagerTests
     }
 
     [Fact]
+    public void MergeBlock_ProjectMode_InsertsConditionalBlock()
+    {
+        string merged = AgentsManager.MergeBlock("# Repo\n", "0.4.0", AgentsManager.RenderMode.ProjectScope);
+
+        Assert.Contains("(if available in your environment)", merged, StringComparison.Ordinal);
+        Assert.StartsWith("# Repo", merged, StringComparison.Ordinal); // surrounding text preserved
+    }
+
+    [Fact]
     public void MergeBlock_LiteralMarkerPairInProse_FirstPairWins()
     {
         // F6 (documented limitation): the FIRST start..end pair is the managed block. A user
