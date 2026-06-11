@@ -83,8 +83,14 @@ network — and optionally its own servers — are genuinely healthy.
 - **Context:** "Is the internet up" is not a single probe — link, naming, and reachability are
   distinct, and a captive portal returns 200 to fool naive checks.
 - **Decision:** Layer it: (1) `NetworkInterface.GetIsNetworkAvailable()` as a **fast negative only**,
-  (2) DNS resolves, (3) HTTP GET to a `generate_204` endpoint expecting **204 + empty body**;
+  (2) DNS resolves, (3) HTTP GET to a `generate_204` endpoint expecting **status `204`**;
   short-circuit on the first failing rung.
+- **Update (post-adversarial-review, 2026-06-11):** the rung-3 rule is **status `204` alone**, not
+  "204 + empty body". Review findings F3/F9 showed the body requirement adds a per-cycle full-body
+  read and a false-negative risk (an intermediary injecting a byte into an empty 204) for **zero**
+  extra portal protection — a captive portal must return 200/302, never 204, so the status is the
+  whole discriminator. The probe uses `ResponseHeadersRead` and never buffers the body; redirects are
+  not followed (`AllowAutoRedirect=false`) so a portal's `302` is visible rather than chased to a 200.
 - **Rationale:** The cheap OS rung detects the common outage with **zero external traffic**; the 204
   rung is **captive-portal-aware** (a portal's 200-with-HTML fails it). `GetIsNetworkAvailable()`
   returns `true` for virtual adapters (learned in hcat `--lan`), so `true` is untrustworthy and only
@@ -189,3 +195,6 @@ network — and optionally its own servers — are genuinely healthy.
 | ICMP ping rung | Frequently blocked corporately; HTTP-204 is the portal-aware signal (D5). |
 | Per-endpoint expected-response table (Apple/MS NCSI 200-body) | Default list restricted to 204-style for a uniform rule; arbitrary status = `--url` (D5/D6). |
 | Wait-until-wall-clock-time / fixed timespan | timespan = `sleep`; until-a-time adjacent to `schedule`/`when` (D3). |
+| Sub-cycle timeout precision (F6) | Deadline checked between cycles ⇒ overshoot up to one cycle's probe time; acceptable, documented in README. |
+| IPv4/IPv6 family-specific probing (F8) | DNS rung accepts any family; single-family mismatch falls through correctly at the HTTP rung; per-family probing not worth the surface for v1. |
+| Empty-body requirement on the 204 rung (F3/F9) | Dropped — status 204 alone is the portal discriminator; requiring an empty body adds buffering + false-negative risk for no gain (see D5 update). |

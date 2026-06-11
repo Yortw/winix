@@ -165,17 +165,22 @@ namespace Winix.Online;
 /// <summary>
 /// Outcome of a single HTTP probe. <see cref="Connected"/> is <see langword="false"/> when no HTTP
 /// reply was obtained at all — connect/TLS failure, a DNS failure surfaced at request time, or a
-/// per-probe timeout. When <see langword="true"/>, <see cref="StatusCode"/> and
-/// <see cref="BodyEmpty"/> describe the response.
+/// per-probe timeout. When <see langword="true"/>, <see cref="StatusCode"/> describes the response.
 /// </summary>
+/// <remarks>
+/// The body is deliberately NOT captured: the internet rung's portal discriminator is the 204 STATUS
+/// (a captive portal must return 200/302 to show a login page; none return 204), so reading the body
+/// adds nothing but a per-cycle full-body allocation and a false-negative risk if an intermediary
+/// injects a byte into an otherwise-empty 204. The production probe uses
+/// <c>HttpCompletionOption.ResponseHeadersRead</c> and never buffers the body. (Resolves adversarial
+/// review F3 + F9.)
+/// </remarks>
 /// <param name="Connected">Whether an HTTP response was received.</param>
 /// <param name="StatusCode">HTTP status code (0 when not connected).</param>
-/// <param name="BodyEmpty">Whether the response body was empty (used by the 204 internet rung;
-/// a captive portal returns a non-empty HTML body).</param>
-public sealed record HttpProbeResult(bool Connected, int StatusCode, bool BodyEmpty)
+public sealed record HttpProbeResult(bool Connected, int StatusCode)
 {
     /// <summary>Shared "no HTTP reply" result for connect failures and per-probe timeouts.</summary>
-    public static readonly HttpProbeResult Unreachable = new(false, 0, false);
+    public static readonly HttpProbeResult Unreachable = new(false, 0);
 }
 ```
 
@@ -289,6 +294,8 @@ public class StatusSpecTests
     [InlineData("200,500-599", 503, true)]   // mixed list + range
     [InlineData("5xx", 503, true)]
     [InlineData("5xx", 200, false)]
+    [InlineData("2XX", 204, true)]           // F7: uppercase class shorthand accepted
+    [InlineData("200,", 200, true)]          // F7: trailing comma tolerated (RemoveEmptyEntries)
     public void Parse_then_match(string spec, int code, bool expected)
     {
         Assert.True(StatusSpec.TryParse(spec, out StatusSpec parsed, out _));
@@ -302,6 +309,7 @@ public class StatusSpecTests
     [InlineData("700")]        // out of 100-599 range
     [InlineData("250-200")]    // reversed range
     [InlineData("200-")]       // incomplete range
+    [InlineData(",")]          // F7: all-empty tokens → "empty status spec"
     public void Invalid_specs_report_error(string spec)
     {
         Assert.False(StatusSpec.TryParse(spec, out _, out string? error));
@@ -464,7 +472,7 @@ public class UrlCheckTests
     [Fact]
     public async Task Status_2xx_is_ready()
     {
-        var check = new UrlCheck("https://api/health", StatusSpec.Default, Probe(new HttpProbeResult(true, 200, false)));
+        var check = new UrlCheck("https://api/health", StatusSpec.Default, Probe(new HttpProbeResult(true, 200)));
         CheckResult r = await check.RunAsync(CancellationToken.None);
         Assert.True(r.Ok);
         Assert.Equal("url", r.Kind);
@@ -475,10 +483,12 @@ public class UrlCheckTests
     [InlineData(503)]
     [InlineData(429)]
     [InlineData(404)]
-    [InlineData(301)]
+    [InlineData(301)]   // NOTE: this asserts UrlCheck's status MATCHING given a 301 result. That the
+                        // real handler does not transparently FOLLOW the redirect to a 2xx is proven
+                        // separately by the AllowAutoRedirect integration test (Task 11, F2).
     public async Task Non_matching_status_is_not_ready(int status)
     {
-        var check = new UrlCheck("https://api/health", StatusSpec.Default, Probe(new HttpProbeResult(true, status, false)));
+        var check = new UrlCheck("https://api/health", StatusSpec.Default, Probe(new HttpProbeResult(true, status)));
         CheckResult r = await check.RunAsync(CancellationToken.None);
         Assert.False(r.Ok);
     }
@@ -495,8 +505,8 @@ public class UrlCheckTests
     public async Task Custom_status_matches_exact_set()
     {
         Assert.True(StatusSpec.TryParse("200,204", out StatusSpec spec, out _));
-        var ready = new UrlCheck("https://x", spec, Probe(new HttpProbeResult(true, 204, true)));
-        var notReady = new UrlCheck("https://x", spec, Probe(new HttpProbeResult(true, 201, false)));
+        var ready = new UrlCheck("https://x", spec, Probe(new HttpProbeResult(true, 204)));
+        var notReady = new UrlCheck("https://x", spec, Probe(new HttpProbeResult(true, 201)));
         Assert.True((await ready.RunAsync(CancellationToken.None)).Ok);
         Assert.False((await notReady.RunAsync(CancellationToken.None)).Ok);
     }
@@ -604,7 +614,7 @@ public class InternetCheckTests
             TwoEndpoints,
             routeAvailable: () => false,
             dnsProbe: (_, _) => { dnsCalls++; return Task.FromResult(true); },
-            httpProbe: (_, _) => { httpCalls++; return Task.FromResult(new HttpProbeResult(true, 204, true)); },
+            httpProbe: (_, _) => { httpCalls++; return Task.FromResult(new HttpProbeResult(true, 204)); },
             order: Identity);
 
         CheckResult r = await check.RunAsync(CancellationToken.None);
@@ -622,7 +632,7 @@ public class InternetCheckTests
             new[] { "https://a.example/generate_204" },
             routeAvailable: () => true,
             dnsProbe: (_, _) => Task.FromResult(false),
-            httpProbe: (_, _) => { httpCalls++; return Task.FromResult(new HttpProbeResult(true, 204, true)); },
+            httpProbe: (_, _) => { httpCalls++; return Task.FromResult(new HttpProbeResult(true, 204)); },
             order: Identity);
 
         CheckResult r = await check.RunAsync(CancellationToken.None);
@@ -631,29 +641,32 @@ public class InternetCheckTests
         Assert.Equal(0, httpCalls);  // invariant: no HTTP when DNS fails
     }
 
-    [Fact]
-    public async Task Captive_portal_200_with_body_is_not_online()
+    [Theory]
+    [InlineData(200)]   // captive portal login page
+    [InlineData(302)]   // captive portal redirect
+    [InlineData(403)]
+    public async Task Non_204_status_is_not_online(int status)
     {
         var check = new InternetCheck(
             new[] { "https://a.example/generate_204" },
             routeAvailable: () => true,
             dnsProbe: (_, _) => Task.FromResult(true),
-            httpProbe: (_, _) => Task.FromResult(new HttpProbeResult(true, 200, BodyEmpty: false)),
+            httpProbe: (_, _) => Task.FromResult(new HttpProbeResult(true, status)),
             order: Identity);
 
         CheckResult r = await check.RunAsync(CancellationToken.None);
 
-        Assert.False(r.Ok);
+        Assert.False(r.Ok);   // 204 status is the portal discriminator; anything else ⇒ not online
     }
 
     [Fact]
-    public async Task Empty_204_is_online()
+    public async Task Status_204_is_online()
     {
         var check = new InternetCheck(
             new[] { "https://a.example/generate_204" },
             routeAvailable: () => true,
             dnsProbe: (_, _) => Task.FromResult(true),
-            httpProbe: (_, _) => Task.FromResult(new HttpProbeResult(true, 204, BodyEmpty: true)),
+            httpProbe: (_, _) => Task.FromResult(new HttpProbeResult(true, 204)),
             order: Identity);
 
         CheckResult r = await check.RunAsync(CancellationToken.None);
@@ -670,7 +683,7 @@ public class InternetCheckTests
             TwoEndpoints,
             routeAvailable: () => true,
             dnsProbe: (_, _) => Task.FromResult(true),
-            httpProbe: (_, _) => { httpCalls++; return Task.FromResult(new HttpProbeResult(true, 204, true)); },
+            httpProbe: (_, _) => { httpCalls++; return Task.FromResult(new HttpProbeResult(true, 204)); },
             order: Identity);
 
         CheckResult r = await check.RunAsync(CancellationToken.None);
@@ -691,7 +704,7 @@ public class InternetCheckTests
             {
                 httpCalls++;
                 // First endpoint connect-fails; second returns 204.
-                return Task.FromResult(httpCalls == 1 ? HttpProbeResult.Unreachable : new HttpProbeResult(true, 204, true));
+                return Task.FromResult(httpCalls == 1 ? HttpProbeResult.Unreachable : new HttpProbeResult(true, 204));
             },
             order: Identity);
 
@@ -727,10 +740,12 @@ namespace Winix.Online;
 /// production). <see langword="false"/> ⇒ offline with zero external traffic. <see langword="true"/>
 /// is untrustworthy (lies about virtual adapters), so it only gates continuation.</item>
 /// <item>DNS resolves for the endpoint host.</item>
-/// <item>HTTP GET returns <c>204</c> with an empty body — a 200-with-body / redirect ⇒ captive portal.</item>
+/// <item>HTTP GET returns status <c>204</c> — a 200 (portal login page), 302 (portal redirect), or
+/// any other status ⇒ not online. The 204 status is the portal discriminator (a portal must return
+/// 200/302 to present a login page; none return 204), so the body is never read (review F3/F9).</item>
 /// </list>
 /// Endpoints are tried in the order returned by the injected <c>order</c> seam (randomised in
-/// production), and the first endpoint that returns an empty 204 wins (short-circuit).
+/// production), and the first endpoint that returns a 204 wins (short-circuit).
 /// </summary>
 public sealed class InternetCheck : IReadinessCheck
 {
@@ -781,14 +796,14 @@ public sealed class InternetCheck : IReadinessCheck
                 continue;
             }
 
-            // Rung 3 — HTTP 204. Empty 204 ⇒ online; anything else ⇒ portal / not online.
+            // Rung 3 — HTTP. 204 ⇒ online; anything else ⇒ portal / not online.
             HttpProbeResult probe = await _httpProbe(url, cancellationToken);
             if (!probe.Connected)
             {
                 lastDetail = $"connect failed to {url}";
                 continue;
             }
-            if (probe.StatusCode == 204 && probe.BodyEmpty)
+            if (probe.StatusCode == 204)
             {
                 return new CheckResult("internet", null, true, $"204 via {url}");
             }
@@ -948,6 +963,43 @@ public class WaitEngineTests
         var checks = new IReadinessCheck[] { new ScriptedCheck(true), new ScriptedCheck(false) };
         WaitResult r = await engine.RunAsync(checks, Opts(once: true), null, CancellationToken.None);
         Assert.False(r.Ready);   // requirement: ALL must pass; one passing is not enough
+    }
+
+    // F5 — cancellation: a pre-cancelled token must throw, not return a misleading not-ready result.
+    [Fact]
+    public async Task Cancelled_token_throws_rather_than_returning_a_result()
+    {
+        (WaitEngine engine, _) = BuildEngine();
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            engine.RunAsync(new IReadinessCheck[] { new ScriptedCheck(false) }, Opts(), null, cts.Token));
+    }
+
+    // F10 — infinite budget (--timeout 0) under --once: one cycle, no hang, never times out.
+    [Fact]
+    public async Task Timeout_zero_with_once_returns_after_one_cycle()
+    {
+        (WaitEngine engine, Func<int> sleeps) = BuildEngine();
+        WaitResult r = await engine.RunAsync(
+            new IReadinessCheck[] { new ScriptedCheck(false) },
+            Opts(timeout: TimeSpan.Zero, once: true), null, CancellationToken.None);
+        Assert.False(r.Ready);
+        Assert.False(r.TimedOut);   // infinite budget can never produce a timeout
+        Assert.Equal(1, r.Attempts);
+        Assert.Equal(0, sleeps());
+    }
+
+    // F10 — infinite budget (not once): never times out; becomes ready when the check flips.
+    [Fact]
+    public async Task Timeout_zero_never_times_out_and_eventually_ready()
+    {
+        (WaitEngine engine, _) = BuildEngine();
+        var check = new ScriptedCheck(false, false, true);
+        WaitResult r = await engine.RunAsync(
+            new IReadinessCheck[] { check }, Opts(timeout: TimeSpan.Zero), null, CancellationToken.None);
+        Assert.True(r.Ready);
+        Assert.False(r.TimedOut);
     }
 }
 ```
@@ -1490,7 +1542,7 @@ public class CliRunAsyncTests
     private static OnlineSeams HealthySeams() => new(
         RouteAvailable: () => true,
         DnsProbe: (_, _) => Task.FromResult(true),
-        HttpProbe: (_, _) => Task.FromResult(new HttpProbeResult(true, 204, true)),
+        HttpProbe: (_, _) => Task.FromResult(new HttpProbeResult(true, 204)),
         EndpointOrder: e => e,
         Now: () => DateTimeOffset.UnixEpoch,
         Sleep: (_, _) => Task.CompletedTask);
@@ -1510,7 +1562,7 @@ public class CliRunAsyncTests
         var seams = new OnlineSeams(
             RouteAvailable: () => false,
             DnsProbe: (_, _) => Task.FromResult(true),
-            HttpProbe: (_, _) => Task.FromResult(new HttpProbeResult(true, 204, true)),
+            HttpProbe: (_, _) => Task.FromResult(new HttpProbeResult(true, 204)),
             EndpointOrder: e => e,
             Now: () => DateTimeOffset.UnixEpoch,
             Sleep: (_, _) => Task.CompletedTask);
@@ -1560,6 +1612,42 @@ public class CliRunAsyncTests
     {
         int code = await Cli.RunAsync(new[] { flag, value }, TextWriter.Null, TextWriter.Null, CancellationToken.None, HealthySeams());
         Assert.Equal(125, code);
+    }
+
+    // F4 — silent no-op flags become usage errors, not silently-ignored input.
+    [Fact]
+    public async Task Endpoint_without_internet_is_usage_error()
+    {
+        // --url present, --internet absent ⇒ internet check off ⇒ --endpoint override would be discarded.
+        var errW = new StringWriter();
+        int code = await Cli.RunAsync(
+            new[] { "--url", "https://x.example/health", "--endpoint", "https://my.example/generate_204", "--once" },
+            TextWriter.Null, errW, CancellationToken.None, HealthySeams());
+        Assert.Equal(125, code);
+        Assert.Contains("--endpoint", errW.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Status_without_url_is_usage_error()
+    {
+        var errW = new StringWriter();
+        int code = await Cli.RunAsync(
+            new[] { "--status", "200", "--once" },   // bare online (internet) — --status has no target
+            TextWriter.Null, errW, CancellationToken.None, HealthySeams());
+        Assert.Equal(125, code);
+        Assert.Contains("--status", errW.ToString(), StringComparison.Ordinal);
+    }
+
+    // F5 — Ctrl+C mid-wait surfaces as exit 130 + "interrupted", not a misleading exit 1.
+    [Fact]
+    public async Task Cancelled_token_returns_130_interrupted()
+    {
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var errW = new StringWriter();
+        int code = await Cli.RunAsync(new[] { "--internet" }, TextWriter.Null, errW, cts.Token, HealthySeams());
+        Assert.Equal(130, code);
+        Assert.Contains("interrupted", errW.ToString(), StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -1815,6 +1903,20 @@ public static class Cli
         // Bare online (no --internet, no --url) defaults to --internet.
         bool checkInternet = result.Has("--internet") || urls.Length == 0;
 
+        // Reject silent no-op flags (review F4): a flag that would be parsed but never take effect is
+        // worse than a clean usage error — it masks a misconfiguration (the "--color no-op" defect class).
+        if (endpointOverride.Length > 0 && !checkInternet)
+        {
+            error = "--endpoint requires the internet check (it overrides the connectivity endpoints); "
+                  + "add --internet, or drop --endpoint if you only meant --url checks.";
+            return null;
+        }
+        if (result.Has("--status") && urls.Length == 0)
+        {
+            error = "--status only applies to --url checks, but no --url was given.";
+            return null;
+        }
+
         // --timeout (0 = infinite sentinel TimeSpan.Zero)
         TimeSpan timeout = TimeSpan.FromMinutes(10);
         if (result.Has("--timeout"))
@@ -1907,11 +2009,18 @@ public static class Cli
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            using HttpResponseMessage response = await http.SendAsync(request, HttpCompletionOption.ResponseContentRead, timeoutCts.Token);
-            int status = (int)response.StatusCode;
-            byte[] body = await response.Content.ReadAsByteArrayAsync(timeoutCts.Token);
-            return new HttpProbeResult(true, status, body.Length == 0);
+            // ResponseHeadersRead: we need only the status line, never the body (the 204 STATUS is the
+            // portal discriminator — review F3/F9). Not reading the body avoids a per-cycle full-body
+            // allocation and the false-negative risk of a byte injected into a 204. Disposing the
+            // response aborts the unread connection, which is fine for a probe.
+            using HttpResponseMessage response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token);
+            return new HttpProbeResult(true, (int)response.StatusCode);
         }
+        // Cancel disambiguation (review F1): only rethrow when the OUTER (user) token is cancelled —
+        // in which case exit 130 is correct regardless of which linked token actually fired the OCE.
+        // If only the per-probe timeout fired, the outer token is NOT cancelled, the guard is false,
+        // and we fall through to return Unreachable. There is no path where a probe timeout with no
+        // user-cancel rethrows as a user-cancel.
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;   // user cancel — abort the wait
@@ -2121,6 +2230,23 @@ public class IntegrationTests
             TextWriter.Null, TextWriter.Null, CancellationToken.None);
         Assert.Equal(124, code);
     }
+
+    // F2 — proves AllowAutoRedirect=off is actually wired on the production handler. A unit test
+    // cannot prove this (it injects a fake probe result); only the real handler reveals whether a
+    // 3xx is transparently followed to a 2xx. http://google.com returns a 301 to https; with the
+    // default 2xx status and redirects OFF, the 301 never matches → --once → exit 1. If redirects
+    // were ON, the followed 200 would match → exit 0. Asserting exit 1 proves redirects are off.
+    // VERIFY-AT-IMPLEMENTATION: confirm the chosen URL still issues a single 3xx (not a 200) — pick
+    // another stable permanent-redirector if google's behaviour changes.
+    [SkippableFact]
+    public async Task Redirect_is_not_followed_for_url_check()
+    {
+        Skip.IfNot(Enabled, "Set WINIX_ONLINE_INTEGRATION=1 to run network integration tests.");
+        int code = await Cli.RunAsync(
+            new[] { "--url", "http://google.com", "--once", "--probe-timeout", "5s" },
+            TextWriter.Null, TextWriter.Null, CancellationToken.None);
+        Assert.Equal(1, code);   // 301 not followed → not 2xx → --once miss
+    }
 }
 ```
 
@@ -2195,7 +2321,9 @@ git commit -m "test(online): register --describe contract surface + snapshot"
 - Create: `docs/ai/online.md`
 - Modify: `llms.txt`
 
-- [ ] **Step 1: Write `src/online/README.md`** following the existing pattern (see `src/retry/README.md`): description, install (scoop / nuget / winget / from-source), usage examples, options table, exit-code table, colour section. Include the layered-check explanation, the captive-portal note, the `AllowAutoRedirect=off` behaviour for `--url`, and the `--once` agent pattern (`online --internet --url … && resume`). Mirror the design doc's CLI surface table verbatim.
+- [ ] **Step 1: Write `src/online/README.md`** following the existing pattern (see `src/retry/README.md`): description, install (scoop / nuget / winget / from-source), usage examples, options table, exit-code table, colour section. Include the layered-check explanation, the captive-portal note, the `AllowAutoRedirect=off` behaviour for `--url`, and the `--once` agent pattern (`online --internet --url … && resume`). Mirror the design doc's CLI surface table verbatim. Also document two review-surfaced behaviours in a "Notes / caveats" subsection:
+  - **F6:** the deadline is checked *between* poll cycles, so a wait can overshoot `--timeout` by up to one cycle's probe time (and `elapsed_ms` may slightly exceed `--timeout`). With the default 10m budget this is invisible; it matters only for very short `--timeout` with slow probes.
+  - **F8:** the DNS rung accepts an address of any family (IPv4/IPv6); on a single-family network a name that resolves to the unusable family passes the DNS rung and correctly falls through to "not online" at the HTTP rung — the `-v` DNS line may overstate success in that case.
 
 - [ ] **Step 2: Write `src/online/online.1.md`** (pandoc source) with NAME / SYNOPSIS / DESCRIPTION / OPTIONS / EXIT STATUS / EXAMPLES sections. Mirror the README content.
 
@@ -2305,11 +2433,31 @@ Spec coverage — every design-doc section maps to a task:
 ADR decisions honoured: D4 (no `-- command` — none added), D5 (route negative-only + 204), D6 (randomised short-circuit via order seam), D7 (5xx/429 keep waiting — UrlCheck tests), D8 (10m default, 0=infinite, 124/1 codes), D9 (`--json` to stdout — CliRunAsync test), D10 (seams internal, testability-only).
 
 Open verify-at-implementation items the executor MUST resolve (do not skip):
-1. Default endpoint URLs return empty 204 (Task 11 Step 1).
+1. Default endpoint URLs return 204 (Task 11 Step 1).
 2. `AnsiColor.Green/Red/Dim/Reset(bool)` signatures (Task 8).
 3. `CommandLineParser.ListOption` / `.Platform` / `.ComposesWith` / `.JsonField` / `.ExitCodes` chain signatures (Task 9).
 4. `DurationParser.TryParse` behaviour and the bare-`0`-as-infinite handling (Task 9).
 5. Contract-test snapshot workflow + exact smoke-fixture directory (Tasks 12, 14).
+6. The F2 redirect integration test's URL still issues a 3xx, not a 200 (Task 11).
+
+### Adversarial-plan-review integration (2026-06-11)
+
+A fresh-subagent adversarial review (15-category taxonomy) produced 10 findings; resolution:
+- **F3 + F9 (blockers) — adopted, design refined.** Internet rung now requires `StatusCode == 204`
+  ALONE (204 is the captive-portal discriminator); the empty-body requirement is dropped and the
+  production probe uses `ResponseHeadersRead` (never buffers the body). Kills the per-cycle full-body
+  read (F3) and the byte-injected-204 false negative (F9). Design D5/§3 updated.
+- **F4 (silent no-op) — adopted.** `--endpoint` without the internet check, and `--status` without
+  `--url`, are now usage errors (125) with tests (Task 9).
+- **F2 (caller-wired) — adopted.** Gated integration test proves `AllowAutoRedirect=off` is wired
+  (Task 11) — a unit test cannot.
+- **F5, F7, F10 (test gaps) — adopted.** Cancellation (130 + throw), StatusSpec edges, and
+  `--timeout 0`/`--once` tests added (Tasks 3, 6, 9).
+- **F6, F8 (explicit defers) — adopted as documentation.** Deadline-overshoot-between-cycles and
+  IPv4/IPv6 family behaviour documented in README + design §7 / ADR Deferred (Task 13; design/ADR).
+- **F1 (claimed blocker) — rejected as a blocker, hardened anyway.** The existing cancel guard is
+  correct: it only rethrows when the OUTER token is cancelled (where exit 130 is the right outcome
+  regardless of which linked token fired). Added a clarifying comment + the F5 test; no logic change.
 
 ---
 

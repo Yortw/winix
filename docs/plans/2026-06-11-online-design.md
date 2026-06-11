@@ -104,11 +104,20 @@ online --url https://x --status 200,204      # wait for an exact status set
    (wifi dropped, cable out) is detected with no network requests at all.
 2. **DNS resolves** — `Dns.GetHostAddressesAsync` for the chosen endpoint's host.
 3. **Connectivity endpoint returns its expected response** — HTTP GET to a built-in
-   `generate_204`-style endpoint; **204 No Content with an empty body ⇒ online.** A `200`-with-body,
-   a redirect, or any other response ⇒ **captive portal / not online** (this is what makes the check
-   honest rather than fooled by a portal's login page). Endpoints are tried in **randomised order,
-   first expected-204 wins** (short-circuit) — so the healthy case is **one request**, and the order
-   spreads load across providers over repeated polling (good-citizen; ADR D6).
+   `generate_204`-style endpoint; **status `204` ⇒ online.** A `200` (portal login page), a redirect
+   (`302`), or any other status ⇒ **captive portal / not online** (this is what makes the check honest
+   rather than fooled by a portal's login page). The **204 status is the discriminator** — a captive
+   portal must return 200/302 to present a login page, so the status alone is portal-proof; the body
+   is **not read** (redirects are not followed, and `ResponseHeadersRead` avoids buffering — see ADR
+   D5 note). Endpoints are tried in **randomised order, first 204 wins** (short-circuit) — so the
+   healthy case is **one request**, and the order spreads load across providers over repeated polling
+   (good-citizen; ADR D6).
+
+   > **Why not also require an empty body?** An earlier draft required `204 + empty body`. Adversarial
+   > review (F3/F9) showed that adds a per-cycle full-body read and a false-negative risk (an
+   > intermediary injecting a byte into an otherwise-empty 204 would read as "not online") for **zero**
+   > additional portal protection — the 204 status already excludes every portal. The body requirement
+   > was dropped; the rung is status-204-only.
 
 > Default endpoint list: neutral 204-style endpoints (e.g. Google `gstatic` `generate_204`,
 > Cloudflare `cp.cloudflare.com` `generate_204`). **Exact URLs and their expected 204 responses are
@@ -203,7 +212,7 @@ JSON envelope (shape; fields pinned at implementation):
   per "test the requirement, not the mechanism").
 - **`InternetCheck`** — injected probes: route `false` short-circuits with **zero DNS/HTTP calls**
   (assert via counting fakes — the invariant that no traffic flows when offline); DNS-fail → not
-  online; **captive portal** (200 + body) → not online; 204 → online; randomised-order + short-circuit
+  online; **captive portal** (200/302) → not online; **204 → online**; randomised-order + short-circuit
   (first success stops — assert the remaining endpoints are **not** probed, via counting fake).
 - **`UrlCheck`** — 2xx → ready; **503 → not ready**; **429 → not ready**; connection failure → not
   ready; custom `--status` match/non-match.
@@ -230,3 +239,5 @@ JSON envelope (shape; fields pinned at implementation):
 | ICMP ping rung | ICMP is frequently blocked on corporate networks; HTTP-204 is the better, portal-aware signal. |
 | Per-endpoint expected-response table (Apple/MS NCSI 200-body style) | Default list restricted to 204-style for a uniform rule; arbitrary-status = use `--url`. |
 | Wait-until-wall-clock-time / fixed timespan | timespan = `sleep`; until-a-time is adjacent to `schedule`/`when`. |
+| Sub-cycle timeout precision (F6) | The deadline is checked *between* poll cycles, so a wait may overshoot `--timeout` by up to one cycle's probe time, and `elapsed_ms` may slightly exceed `--timeout`. Invisible at the 10m default; documented in README. |
+| IPv4/IPv6 family selection (F8) | The DNS rung accepts an address of any family; on a single-family network a name resolving to the unusable family passes DNS and falls through correctly to "not online" at the HTTP rung, though the `-v` DNS line may overstate success. Per-family probing deferred. |
