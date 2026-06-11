@@ -70,7 +70,9 @@ public static class Cli
                 (ExitReady, "Ready — every requested check healthy"),
                 (ExitNotReadyOnce, "--once only: checked once, not ready right now"),
                 (ExitTimedOut, "Timed out before ready (wait mode)"),
-                (ExitCode.UsageError, "Usage error: bad arguments, unparseable duration/status, malformed URL"))
+                (ExitCode.UsageError, "Usage error: bad arguments, unparseable duration/status, malformed URL"),
+                (ExitUnexpected, "Unexpected error (tool fault)"),
+                (130, "Interrupted (Ctrl+C)"))
             .Platform("cross-platform",
                 replaces: new[] { "wait-for-it.sh", "wait-on" },
                 valueOnWindows: "No native 'is the internet up' wait; PowerShell scripting required, and Test-Connection is ICMP (portal-blind)",

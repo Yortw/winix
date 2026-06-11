@@ -82,6 +82,7 @@ public class CliRunAsyncTests
     [InlineData("--status", "abc")]
     [InlineData("--url", "not-a-url")]
     [InlineData("--interval", "0")]
+    [InlineData("--probe-timeout", "0")]
     public async Task Invalid_args_return_125(string flag, string value)
     {
         int code = await Cli.RunAsync(new[] { flag, value }, TextWriter.Null, TextWriter.Null, CancellationToken.None, HealthySeams());
@@ -139,6 +140,16 @@ public class CliRunAsyncTests
         Assert.Equal(ExitCodeForUnexpected, code);
         Assert.Contains("online:", errW.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain("InvalidOperationException\n   at ", errW.ToString(), StringComparison.Ordinal); // no stack trace
+    }
+
+    [Fact]
+    public async Task Timeout_zero_is_accepted_not_usage_error()
+    {
+        // --timeout 0 = wait forever; with --once + healthy it completes one cycle → exit 0 (not 125).
+        int code = await Cli.RunAsync(
+            new[] { "--once", "--timeout", "0" },
+            TextWriter.Null, TextWriter.Null, CancellationToken.None, HealthySeams());
+        Assert.Equal(0, code);
     }
 
     // Unexpected-error exit code chosen in Cli (see implementation): 126 (NotExecutable-style "tool fault").
