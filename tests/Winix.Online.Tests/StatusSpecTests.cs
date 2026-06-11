@@ -31,6 +31,8 @@ public class StatusSpecTests
     [InlineData("5xx", 200, false)]
     [InlineData("2XX", 204, true)]           // F7: uppercase class shorthand accepted
     [InlineData("200,", 200, true)]          // F7: trailing comma tolerated (RemoveEmptyEntries)
+    [InlineData("100", 100, true)]           // lower boundary valid
+    [InlineData("599", 599, true)]           // upper boundary valid
     public void Parse_then_match(string spec, int code, bool expected)
     {
         Assert.True(StatusSpec.TryParse(spec, out StatusSpec parsed, out _));
@@ -45,6 +47,9 @@ public class StatusSpecTests
     [InlineData("250-200")]    // reversed range
     [InlineData("200-")]       // incomplete range
     [InlineData(",")]          // F7: all-empty tokens → "empty status spec"
+    [InlineData("99")]         // below 100
+    [InlineData("600")]        // above 599
+    [InlineData("+200")]       // leading sign rejected (NumberStyles.None)
     public void Invalid_specs_report_error(string spec)
     {
         Assert.False(StatusSpec.TryParse(spec, out _, out string? error));

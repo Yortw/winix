@@ -93,7 +93,9 @@ public sealed class StatusSpec
 
     private static bool TryCode(string text, out int code)
     {
-        if (int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out code)
+        // NumberStyles.None: status codes are bare digits — reject a leading sign/whitespace
+        // (NumberStyles.Integer would accept "+200" as 200, a surprising silent success).
+        if (int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out code)
             && code >= 100 && code <= 599)
         {
             return true;
