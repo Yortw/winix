@@ -62,19 +62,27 @@ public sealed class WaitEngine
 
             if (allOk)
             {
-                return new WaitResult(WaitOutcome.Ready, attempts, _now() - start, results);
+                return new WaitResult(WaitOutcome.Ready, attempts, ElapsedSince(start), results);
             }
             if (options.Once)
             {
                 // A single-probe miss is a normal negative, NOT a timeout — distinct exit code.
-                return new WaitResult(WaitOutcome.NotReady, attempts, _now() - start, results);
+                return new WaitResult(WaitOutcome.NotReady, attempts, ElapsedSince(start), results);
             }
             if (deadline.HasValue && _now() >= deadline.Value)
             {
-                return new WaitResult(WaitOutcome.TimedOut, attempts, _now() - start, results);
+                return new WaitResult(WaitOutcome.TimedOut, attempts, ElapsedSince(start), results);
             }
 
             await _sleep(options.Interval, cancellationToken);
         }
+    }
+
+    // Wall-clock seams can step backwards (NTP/VM resume); never report a negative elapsed
+    // (DisplayFormat.FormatDuration throws on a negative TimeSpan, and elapsed_ms must be >= 0).
+    private TimeSpan ElapsedSince(DateTimeOffset start)
+    {
+        TimeSpan elapsed = _now() - start;
+        return elapsed < TimeSpan.Zero ? TimeSpan.Zero : elapsed;
     }
 }

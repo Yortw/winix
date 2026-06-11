@@ -97,14 +97,14 @@
       "long": "--url",
       "type": "string",
       "placeholder": "URL",
-      "description": "Wait until URL returns a status matching --status (repeatable)",
+      "description": "Wait until URL returns a status matching --status",
       "repeatable": true
     },
     {
       "long": "--endpoint",
       "type": "string",
       "placeholder": "URL",
-      "description": "Override the built-in 204 connectivity endpoints for --internet (repeatable)",
+      "description": "Override the built-in 204 connectivity endpoints for --internet",
       "repeatable": true
     },
     {

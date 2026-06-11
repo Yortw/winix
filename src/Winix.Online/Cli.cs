@@ -57,8 +57,8 @@ public static class Cli
             .Description("Block until the internet — or a named endpoint — is actually healthy.")
             .Maturity(ToolMaturity.Fresh)
             .Flag("--internet", null, "Wait for working internet (layered, captive-portal-aware). Default when no check flag is given.")
-            .ListOption("--url", null, "URL", "Wait until URL returns a status matching --status (repeatable)")
-            .ListOption("--endpoint", null, "URL", "Override the built-in 204 connectivity endpoints for --internet (repeatable)")
+            .ListOption("--url", null, "URL", "Wait until URL returns a status matching --status")
+            .ListOption("--endpoint", null, "URL", "Override the built-in 204 connectivity endpoints for --internet")
             .Option("--status", null, "SPEC", "Expected status for --url: 2xx (default), list 200,204, or range 200-299")
             .Option("--timeout", null, "DURATION", "Total wait budget, e.g. 30s, 10m. 0 = forever (default: 10m)")
             .Option("--interval", null, "DURATION", "Sleep between poll cycles (default: 2s)")
@@ -140,7 +140,7 @@ public static class Cli
         using var http = new HttpClient(handler) { Timeout = System.Threading.Timeout.InfiniteTimeSpan };
 
         Func<bool> route = seams?.RouteAvailable ?? NetworkInterface.GetIsNetworkAvailable;
-        DnsProbe dns = seams?.DnsProbe ?? RealDnsProbe;
+        DnsProbe dns = seams?.DnsProbe ?? ((host, ct) => RealDnsProbe(host, options.ProbeTimeout, ct));
         HttpProbe httpProbe = seams?.HttpProbe ?? ((url, ct) => RealHttpProbe(http, url, options.ProbeTimeout, ct));
         Func<IReadOnlyList<string>, IReadOnlyList<string>> order = seams?.EndpointOrder ?? Shuffle;
         Func<DateTimeOffset> now = seams?.Now ?? (() => DateTimeOffset.UtcNow);
@@ -304,16 +304,24 @@ public static class Cli
 
     // ── Production seam implementations ──────────────────────────────────────────────
 
-    private static async Task<bool> RealDnsProbe(string host, CancellationToken cancellationToken)
+    private static async Task<bool> RealDnsProbe(string host, TimeSpan probeTimeout, CancellationToken cancellationToken)
     {
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(probeTimeout);
         try
         {
-            IPAddress[] addresses = await Dns.GetHostAddressesAsync(host, cancellationToken);
+            IPAddress[] addresses = await Dns.GetHostAddressesAsync(host, timeoutCts.Token);
             return addresses.Length > 0;
         }
+        // Mirror RealHttpProbe's F1 disambiguation: only rethrow when the OUTER (user) token is
+        // cancelled; a per-probe DNS timeout is just "this endpoint isn't resolving right now".
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
+        }
+        catch (OperationCanceledException)
+        {
+            return false;   // per-probe DNS timeout — treat as unresolved, keep waiting
         }
         catch (SocketException)
         {

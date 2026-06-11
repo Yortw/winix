@@ -151,6 +151,27 @@ public class WaitEngineTests
         Assert.False(r.TimedOut);
     }
 
+    // FIX: a backward wall-clock step must not produce a negative Elapsed (FormatDuration throws on negative).
+    [Fact]
+    public async Task Backward_clock_step_clamps_elapsed_to_non_negative()
+    {
+        // now() returns a LATER time first (start), then an EARLIER time (backward step) for the elapsed read.
+        var times = new Queue<DateTimeOffset>(new[]
+        {
+            DateTimeOffset.UnixEpoch + TimeSpan.FromSeconds(10),  // start
+            DateTimeOffset.UnixEpoch,                             // elapsed read — 10s earlier
+        });
+        var engine = new WaitEngine(
+            now: () => times.Count > 1 ? times.Dequeue() : times.Peek(),
+            sleep: (_, _) => Task.CompletedTask);
+
+        WaitResult r = await engine.RunAsync(
+            new IReadinessCheck[] { new ScriptedCheck(true) }, Opts(), null, CancellationToken.None);
+
+        Assert.True(r.Ready);
+        Assert.True(r.Elapsed >= TimeSpan.Zero);   // clamped, not negative
+    }
+
     [Fact]
     public async Task OnAttempt_fires_once_per_cycle_with_sequential_numbers()
     {

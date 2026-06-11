@@ -5,8 +5,8 @@ using System.Collections.Generic;
 namespace Winix.Online;
 
 /// <summary>
-/// Built-in connectivity endpoints for <c>--internet</c>. Each MUST return <c>204 No Content</c>
-/// with an empty body (a <c>generate_204</c>-style endpoint). Overridable via <c>--endpoint</c>.
+/// Built-in connectivity endpoints for <c>--internet</c>. Each MUST return status <c>204 No Content</c>
+/// (a <c>generate_204</c>-style endpoint); the body is not read. Overridable via <c>--endpoint</c>.
 /// </summary>
 /// <remarks>
 /// These exact URLs are verified to return an empty 204 in Task 11 (real-network reconciliation)
