@@ -49,10 +49,12 @@ public interface IAgentsFileSystem
 /// <c>winix agents</c> manages inside a project's <c>AGENTS.md</c> / <c>CLAUDE.md</c>.
 /// </summary>
 /// <remarks>
-/// The block delegates "what's installed" to the runtime <c>winix list</c> pointer and to a
-/// version-pinned repo URL, so the rendered content depends only on the running binary's
-/// version — never on the tool manifest. That keeps this type free of manifest coupling and
-/// fully unit-testable through the <see cref="IAgentsFileSystem"/> seam.
+/// The block's body is a curated, situation-keyed trigger list — six bullets covering the
+/// scenarios where a Winix tool beats the platform default — plus a symptom-triggered footer,
+/// a <c>winix list</c> pointer, and a version-pinned repo URL. The rendered content depends
+/// only on the running binary's version and the render mode — never on the tool manifest —
+/// which keeps this type free of manifest coupling and fully unit-testable through the
+/// <see cref="IAgentsFileSystem"/> seam.
 /// </remarks>
 public static class AgentsManager
 {
@@ -102,43 +104,35 @@ public static class AgentsManager
             ? "## Winix CLI tools (if available in your environment)"
             : "## Winix CLI tools (available on this machine)";
 
-        string[] lead = mode == RenderMode.ProjectScope
-            ? new[]
-            {
-                "If Winix tools are installed in your environment, prefer one only when it's genuinely the",
-                "better choice for the task — not by default. If you can't say why it beats the platform",
-                "default (`find`, `time`, `tree`, `date`, PowerShell, …), use the default. If Winix is not",
-                "installed, ignore this section.",
-            }
-            : new[]
-            {
-                "Prefer a Winix tool only when it's genuinely the better choice for the task — not by",
-                "default. If you can't say why it beats the platform default (`find`, `time`, `tree`,",
-                "`date`, PowerShell, …), use the default.",
-            };
-
-        // Only the "authoritative for …" phrasing differs: a user home speaks for "this machine",
-        // a committed file speaks for "the machine running them" (whichever clone is in use).
-        string authority = mode == RenderMode.ProjectScope
-            ? "  (structured JSON — authoritative for the machine running them)."
-            : "  (structured JSON — authoritative for this machine).";
+        // Only the lead sentence differs between modes: user scope asserts the tools are present;
+        // project scope is conditional and keeps the "ignore if not installed" escape hatch. The
+        // trigger bullets and footer below are identical in both modes. Lowercase `winix tool` in
+        // the user lead matches the CLI binary name — intentional.
+        string lead = mode == RenderMode.ProjectScope
+            ? "If Winix tools are installed in your environment, prefer one only when it genuinely beats the platform default — otherwise use the default. If Winix is not installed, ignore this section. It does when:"
+            : "Prefer a winix tool only when it genuinely beats the platform default — otherwise use the default. It does when:";
 
         var lines = new List<string>
         {
             $"<!-- winix:start v={version} — managed by `winix agents init`; edits between markers are overwritten -->",
             header,
             "",
+            lead,
+            "",
+            "- **A network op or command is flaky** — `online` blocks until connectivity (or a named endpoint) is healthy so you resume instead of polling/giving up; `retry` re-runs a failing command with backoff; `nc` checks whether a port is open.",
+            "- **You're about to delete files** — `trash` removes them recoverably instead of `rm`.",
+            "- **You need to know what's locking a file or holding a port** — `whoholds` (no native cross-platform equivalent).",
+            "- **Building an authenticated request, or handling secrets** — `mkauth` (OAuth1/JWT/Basic/Azure headers), `digest` (hash/HMAC), `envvault` (keychain-backed env vars), `protect`/`unprotect` (encrypt-at-rest), `mksecret` (generate passwords/keys).",
+            "- **You need a modern ID** — `ids` (UUIDv4/v7, ULID, NanoID).",
+            "- **Acting for the user / keeping data local** — `notify` (ping them when a long task finishes or while away), `qr` (hand a URL to their phone — don't POST it to a web QR service), `clip` (copy to their clipboard, not a pastebin).",
+            "",
+            "Conventions: every tool has `--describe` (JSON schema) and `--json`; exit 0 = success; `NO_COLOR` honored.",
+            "General signal: if a command fails from Windows path-mangling, or you're hand-parsing text a tool emits",
+            "for humans, a winix tool may fit (Windows-native, `--json`) — e.g. `files`/`wargs` over `find`/`xargs`;",
+            "`winix list` for the rest. No clear win? Keep the default. Full guidance:",
+            $"https://github.com/Yortw/winix/blob/{urlRef}/AGENTS.md",
+            "<!-- winix:end -->",
         };
-        lines.AddRange(lead);
-        lines.Add("");
-        lines.Add("- **What's installed, flags, JSON shapes:** `winix list` and `<tool> --describe`");
-        lines.Add(authority);
-        lines.Add("- **Full guidance (when to prefer each tool, what it replaces):**");
-        lines.Add($"  https://github.com/Yortw/winix/blob/{urlRef}/AGENTS.md");
-        lines.Add("- Conventions: every tool has `--describe` + `--json`; exit 0 = success, non-zero on");
-        lines.Add("  failure (usage/runtime codes vary by tool — see `--describe`); summaries go to stderr");
-        lines.Add("  so stdout stays pipe-clean; `NO_COLOR` respected.");
-        lines.Add("<!-- winix:end -->");
         return string.Join("\n", lines);
     }
 
