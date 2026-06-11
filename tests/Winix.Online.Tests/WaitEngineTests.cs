@@ -150,4 +150,24 @@ public class WaitEngineTests
         Assert.True(r.Ready);
         Assert.False(r.TimedOut);
     }
+
+    [Fact]
+    public async Task OnAttempt_fires_once_per_cycle_with_sequential_numbers()
+    {
+        (WaitEngine engine, _) = BuildEngine();
+        var seen = new List<int>();
+        var check = new ScriptedCheck(false, false, true);  // ready on cycle 3
+        WaitResult r = await engine.RunAsync(
+            new IReadinessCheck[] { check },
+            Opts(),
+            onAttempt: (attempt, results) =>
+            {
+                seen.Add(attempt);
+                Assert.Single(results);          // the cycle's results list is passed through
+            },
+            CancellationToken.None);
+
+        Assert.True(r.Ready);
+        Assert.Equal(new[] { 1, 2, 3 }, seen);   // fired once per cycle, 1-based, in order
+    }
 }
