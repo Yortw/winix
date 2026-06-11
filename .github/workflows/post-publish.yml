@@ -78,6 +78,7 @@ jobs:
           update_manifest bucket/trash.json aot/trash-win-x64.zip
           update_manifest bucket/hcat.json aot/hcat-win-x64.zip
           update_manifest bucket/demux.json aot/demux-win-x64.zip
+          update_manifest bucket/online.json aot/online-win-x64.zip
 
       - name: Commit and push scoop bucket
         run: |
@@ -241,6 +242,7 @@ jobs:
           generate_manifests "trash" "Trash" "Move files to the recycle bin or Trash instead of deleting them — cross-platform, recoverable." "recycle-bin,delete,undo,rm"
           generate_manifests "hcat" "HCat" "Netcat for HTTP — an instant HTTP server in one native binary: serve files, inspect requests, or pipe a command over HTTP." "http,server,webhook,netcat"
           generate_manifests "demux" "Demux" "Route each line of a stream to files or commands by regex — the partition verb for pipes." "pipe,filter,router,partition,awk"
+          generate_manifests "online" "Online" "Block until the internet — or a named endpoint — is actually healthy." "network,connectivity,readiness,wait,captive-portal"
 
       - name: Upload winget manifests
         uses: actions/upload-artifact@v7

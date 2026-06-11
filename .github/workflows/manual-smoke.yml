@@ -91,7 +91,7 @@ jobs:
         run: |
           INPUT_TOOLS="${{ github.event.inputs.tools }}"
           if [ -z "$INPUT_TOOLS" ] || [ "$INPUT_TOOLS" = "all" ]; then
-            TOOLS="timeit,squeeze,peep,wargs,files,treex,man,less,whoholds,schedule,nc,winix,retry,when,clip,ids,digest,notify,url,qr,protect,unprotect,envvault,demux,mksecret,mkauth,trash,hcat"
+            TOOLS="timeit,squeeze,peep,wargs,files,treex,man,less,whoholds,schedule,nc,winix,retry,when,clip,ids,digest,notify,url,qr,protect,unprotect,envvault,demux,mksecret,mkauth,trash,hcat,online"
           else
             TOOLS="$INPUT_TOOLS"
           fi
@@ -138,7 +138,7 @@ jobs:
                 echo "round-stop-2026-05-09/$1" ;;
               timeit|url|digest|notify|ids|when|qr|squeeze)
                 echo "reverify-2026-05-06/$1" ;;
-              demux|mksecret|mkauth|trash|hcat)
+              demux|mksecret|mkauth|trash|hcat|online)
                 echo "v0.4-smoke/$1" ;;
               *) echo "" ;;
             esac

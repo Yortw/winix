@@ -1,0 +1,21 @@
+{
+  "version": "0.4.0",
+  "description": "Block until the internet — or a named endpoint — is actually healthy (captive-portal-aware network-readiness gate).",
+  "homepage": "https://github.com/Yortw/winix",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/Yortw/winix/releases/download/v0.4.0/online-win-x64.zip",
+      "hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "bin": "online.exe"
+    }
+  },
+  "checkver": "github",
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/Yortw/winix/releases/download/v$version/online-win-x64.zip"
+      }
+    }
+  }
+}

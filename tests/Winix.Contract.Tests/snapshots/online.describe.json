@@ -1,0 +1,216 @@
+{
+  "schema_version": 1,
+  "tool": "online",
+  "version": "<normalised>",
+  "maturity": "fresh",
+  "description": "Block until the internet — or a named endpoint — is actually healthy.",
+  "platform": {
+    "scope": "cross-platform",
+    "replaces": [
+      "wait-for-it.sh",
+      "wait-on"
+    ],
+    "value_on_windows": "No native 'is the internet up' wait; PowerShell scripting required, and Test-Connection is ICMP (portal-blind)",
+    "value_on_unix": "Captive-portal-aware connectivity gate without a Node runtime or bash boilerplate"
+  },
+  "usage": "online [options]",
+  "options": [
+    {
+      "long": "--internet",
+      "type": "flag",
+      "description": "Wait for working internet (layered, captive-portal-aware). Default when no check flag is given.",
+      "repeatable": false
+    },
+    {
+      "long": "--once",
+      "type": "flag",
+      "description": "Run one cycle and exit (no waiting): exit 0 ready, 1 not ready",
+      "repeatable": false
+    },
+    {
+      "long": "--verbose",
+      "short": "-v",
+      "type": "flag",
+      "description": "Print per-attempt diagnostics to stderr",
+      "repeatable": false
+    },
+    {
+      "long": "--help",
+      "short": "-h",
+      "type": "flag",
+      "description": "Show help",
+      "repeatable": false
+    },
+    {
+      "long": "--version",
+      "type": "flag",
+      "description": "Show version",
+      "repeatable": false
+    },
+    {
+      "long": "--no-color",
+      "type": "flag",
+      "description": "Disable colored output",
+      "repeatable": false
+    },
+    {
+      "long": "--json",
+      "type": "flag",
+      "description": "JSON output",
+      "repeatable": false
+    },
+    {
+      "long": "--describe",
+      "type": "flag",
+      "description": "Structured JSON metadata for AI agents",
+      "repeatable": false
+    },
+    {
+      "long": "--status",
+      "type": "string",
+      "placeholder": "SPEC",
+      "description": "Expected status for --url: 2xx (default), list 200,204, or range 200-299",
+      "repeatable": false
+    },
+    {
+      "long": "--timeout",
+      "type": "string",
+      "placeholder": "DURATION",
+      "description": "Total wait budget, e.g. 30s, 10m. 0 = forever (default: 10m)",
+      "repeatable": false
+    },
+    {
+      "long": "--interval",
+      "type": "string",
+      "placeholder": "DURATION",
+      "description": "Sleep between poll cycles (default: 2s)",
+      "repeatable": false
+    },
+    {
+      "long": "--probe-timeout",
+      "type": "string",
+      "placeholder": "DURATION",
+      "description": "Per-probe DNS/HTTP timeout (default: 3s)",
+      "repeatable": false
+    },
+    {
+      "long": "--url",
+      "type": "string",
+      "placeholder": "URL",
+      "description": "Wait until URL returns a status matching --status",
+      "repeatable": true
+    },
+    {
+      "long": "--endpoint",
+      "type": "string",
+      "placeholder": "URL",
+      "description": "Override the built-in 204 connectivity endpoints for --internet",
+      "repeatable": true
+    },
+    {
+      "long": "--color",
+      "type": "optional-value",
+      "allowed_values": [
+        "auto",
+        "always",
+        "never"
+      ],
+      "default_when_bare": "always",
+      "description": "Coloured output: auto (default when omitted), always, or never",
+      "repeatable": false
+    }
+  ],
+  "exit_codes": [
+    {
+      "code": 0,
+      "description": "Ready — every requested check healthy"
+    },
+    {
+      "code": 1,
+      "description": "--once only: checked once, not ready right now"
+    },
+    {
+      "code": 124,
+      "description": "Timed out before ready (wait mode)"
+    },
+    {
+      "code": 125,
+      "description": "Usage error: bad arguments, unparseable duration/status, malformed URL"
+    },
+    {
+      "code": 126,
+      "description": "Unexpected error (tool fault)"
+    },
+    {
+      "code": 130,
+      "description": "Interrupted (Ctrl+C)"
+    }
+  ],
+  "io": {
+    "stdin": "Not used",
+    "stdout": "--json envelope (own-data tool); otherwise empty",
+    "stderr": "Human summary and per-attempt verbose lines"
+  },
+  "examples": [
+    {
+      "command": "online",
+      "description": "Wait up to 10m for working internet"
+    },
+    {
+      "command": "online --once",
+      "description": "Is the internet up right now? (exit 0/1)"
+    },
+    {
+      "command": "online --internet --url https://api/health",
+      "description": "Network back AND my server healthy"
+    },
+    {
+      "command": "online --url https://x --status 200,204",
+      "description": "Wait for an exact status set"
+    }
+  ],
+  "composes_with": [
+    {
+      "tool": "retry",
+      "pattern": "online && retry --times 3 dotnet test",
+      "description": "Resume work once the network is back"
+    }
+  ],
+  "json_output_fields": [
+    {
+      "name": "tool",
+      "type": "string",
+      "description": "Tool name (\"online\")"
+    },
+    {
+      "name": "version",
+      "type": "string",
+      "description": "Tool version"
+    },
+    {
+      "name": "ready",
+      "type": "bool",
+      "description": "Whether every requested check passed"
+    },
+    {
+      "name": "timed_out",
+      "type": "bool",
+      "description": "Whether the wait budget was exhausted"
+    },
+    {
+      "name": "elapsed_ms",
+      "type": "int",
+      "description": "Wall time in milliseconds"
+    },
+    {
+      "name": "attempts",
+      "type": "int",
+      "description": "Poll cycles run"
+    },
+    {
+      "name": "checks",
+      "type": "object[]",
+      "description": "Per-check results: { kind, target, ok, detail }"
+    }
+  ]
+}
