@@ -40,14 +40,11 @@ public sealed class AgentsManagerTests
         Assert.EndsWith("<!-- winix:end -->", block, StringComparison.Ordinal);
         Assert.Contains("https://github.com/Yortw/winix/blob/v0.4.0/AGENTS.md", block, StringComparison.Ordinal);
         Assert.Contains("`winix list`", block, StringComparison.Ordinal);
-        // The honest-framing restraint must be present — this is the behaviour-changing core.
-        Assert.Contains("not by", block, StringComparison.Ordinal);
-        Assert.Contains("use the default", block, StringComparison.Ordinal);
-        // F4: the exit-code convention line must be true for EVERY tool — no specific failure
-        // code (less/squeeze use exit 2; winix uses 127). Lock the universal wording only.
-        // The assertion spans two source lines joined by \n + indent, so check each fragment.
-        Assert.Contains("exit 0 = success, non-zero on", block, StringComparison.Ordinal);
-        Assert.Contains("usage/runtime codes vary by tool", block, StringComparison.Ordinal);
+        // The honest-framing restraint must survive the rework — this is the behaviour-changing core.
+        Assert.Contains("otherwise use the default", block, StringComparison.Ordinal);
+        Assert.Contains("No clear win? Keep the default", block, StringComparison.Ordinal);
+        // Conventions line is now a single universally-true clause (no per-tool failure codes).
+        Assert.Contains("exit 0 = success", block, StringComparison.Ordinal);
         Assert.DoesNotContain("125", block, StringComparison.Ordinal);
         Assert.DoesNotContain("126", block, StringComparison.Ordinal);
         // Block body uses LF only (EOL normalisation happens at merge time).
@@ -70,9 +67,8 @@ public sealed class AgentsManagerTests
         string block = AgentsManager.RenderBlock("0.4.0", AgentsManager.RenderMode.UserScope);
 
         Assert.Contains("## Winix CLI tools (available on this machine)", block, StringComparison.Ordinal);
-        Assert.Contains("Prefer a Winix tool only when it's genuinely the better choice", block, StringComparison.Ordinal);
+        Assert.Contains("Prefer a winix tool only when it genuinely beats the platform default", block, StringComparison.Ordinal);
         Assert.DoesNotContain("If Winix is not", block, StringComparison.Ordinal); // no conditional escape hatch in user mode
-        Assert.Contains("not by", block, StringComparison.Ordinal);
         Assert.Contains("use the default", block, StringComparison.Ordinal);
     }
 
@@ -84,6 +80,7 @@ public sealed class AgentsManagerTests
         Assert.Contains("## Winix CLI tools (if available in your environment)", block, StringComparison.Ordinal);
         Assert.Contains("If Winix tools are installed in your environment", block, StringComparison.Ordinal);
         Assert.Contains("If Winix is not", block, StringComparison.Ordinal); // explicit ignore-if-absent escape hatch
+        Assert.Contains("genuinely beats the platform default", block, StringComparison.Ordinal); // new lead phrasing, project mode
         Assert.DoesNotContain("(available on this machine)", block, StringComparison.Ordinal); // no machine-local assertion
         // Shared invariants hold in both modes:
         Assert.Contains("https://github.com/Yortw/winix/blob/v0.4.0/AGENTS.md", block, StringComparison.Ordinal);
@@ -96,6 +93,82 @@ public sealed class AgentsManagerTests
         Assert.Equal(
             AgentsManager.RenderBlock("0.4.0", AgentsManager.RenderMode.UserScope),
             AgentsManager.RenderBlock("0.4.0"));
+    }
+
+    [Theory]
+    [InlineData(AgentsManager.RenderMode.UserScope)]
+    [InlineData(AgentsManager.RenderMode.ProjectScope)]
+    public void RenderBlock_NamesEveryCuratedTrigger(AgentsManager.RenderMode mode)
+    {
+        string block = AgentsManager.RenderBlock("0.4.0", mode);
+
+        // Group 1 + Group 2 tools that each earn a situational line.
+        foreach (string tool in new[]
+        {
+            "online", "retry", "nc", "trash", "whoholds",
+            "mkauth", "digest", "envvault", "protect", "unprotect", "mksecret",
+            "ids", "notify", "qr", "clip",
+        })
+        {
+            Assert.Contains("`" + tool + "`", block, StringComparison.Ordinal);
+        }
+        // The footer long-tail clause names files/wargs (a half-clause, not a scarce trigger).
+        Assert.Contains("`files`/`wargs`", block, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(AgentsManager.RenderMode.UserScope)]
+    [InlineData(AgentsManager.RenderMode.ProjectScope)]
+    public void RenderBlock_DoesNotNameExcludedHumanPresentationTools(AgentsManager.RenderMode mode)
+    {
+        // Curation invariant (negative/requirement test): presentation-for-human-eyes tools must
+        // NOT be named as triggers — this is what stops the block drifting back into a full dump.
+        // Asserted as backticked tokens so "man" doesn't false-match "machine"/"command", etc.
+        string block = AgentsManager.RenderBlock("0.4.0", mode);
+
+        foreach (string excluded in new[] { "treex", "peep", "less", "man" })
+        {
+            Assert.DoesNotContain("`" + excluded + "`", block, StringComparison.Ordinal);
+        }
+    }
+
+    [Theory]
+    [InlineData(AgentsManager.RenderMode.UserScope)]
+    [InlineData(AgentsManager.RenderMode.ProjectScope)]
+    public void RenderBlock_FooterCarriesSymptomTriggeredGeneralSignal(AgentsManager.RenderMode mode)
+    {
+        // The footer's general-signal rule is symptom-triggered (keyed to an observable event),
+        // not goal-restating — that is what lets it change behaviour. Pin both symptoms.
+        string block = AgentsManager.RenderBlock("0.4.0", mode);
+
+        Assert.Contains("Windows path-mangling", block, StringComparison.Ordinal);
+        Assert.Contains("hand-parsing", block, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(AgentsManager.RenderMode.UserScope)]
+    [InlineData(AgentsManager.RenderMode.ProjectScope)]
+    public void RenderBlock_StaysWithinScannabilityBudget(AgentsManager.RenderMode mode)
+    {
+        // §4 binding constraint: the block is always-loaded context. A regression that grows it
+        // past the budget recreates the dilution it cures. The design ships 18 physical lines
+        // incl. both markers in BOTH modes (the project lead is a single long physical line).
+        // Pin the ceiling at the shipped value, not a loose +2, so any growth fails loudly; a
+        // deliberate trim still passes. Independently pin the "~6 situation bullets" scarcity
+        // discipline by counting bullet lines — that catches a 7th bullet even if total lines
+        // happen to stay flat (e.g. a bullet added, a footer line removed).
+        string block = AgentsManager.RenderBlock("0.4.0", mode);
+        string[] blockLines = block.Split('\n');
+
+        int lineCount = blockLines.Length;
+        Assert.True(lineCount <= 18, $"block is {lineCount} lines; budget ceiling is 18 (mode={mode})");
+
+        int bulletCount = 0;
+        foreach (string line in blockLines)
+        {
+            if (line.StartsWith("- ", StringComparison.Ordinal)) { bulletCount++; }
+        }
+        Assert.Equal(6, bulletCount);
     }
 
     // ── FindBlockVersion ──────────────────────────────────────────────────────────
@@ -176,6 +249,37 @@ public sealed class AgentsManagerTests
     }
 
     [Fact]
+    public void MergeBlock_OldStyleGovernanceBlock_ReplacedWholesaleByNewTriggerBody()
+    {
+        // A pre-rework file: the literal OLD governance block at v=0.3.0 (markers are unchanged
+        // across the rework, so FindBlockVersion still locates it). Re-init at the new version
+        // must swap the whole body for the new trigger content — no leftover old prose.
+        string oldBlock =
+            "<!-- winix:start v=0.3.0 — managed by `winix agents init`; edits between markers are overwritten -->\n" +
+            "## Winix CLI tools (available on this machine)\n\n" +
+            "Prefer a Winix tool only when it's genuinely the better choice for the task — not by\n" +
+            "default. If you can't say why it beats the platform default, use the default.\n\n" +
+            "- **What's installed, flags, JSON shapes:** `winix list` and `<tool> --describe`\n" +
+            "<!-- winix:end -->";
+        string file = "# Project\n\n" + oldBlock + "\n\n## Other section\n";
+
+        string merged = AgentsManager.MergeBlock(file, "0.4.0");
+
+        // New body present, old governance prose gone.
+        Assert.Contains("`online`", merged, StringComparison.Ordinal);
+        Assert.Contains("otherwise use the default", merged, StringComparison.Ordinal);
+        Assert.DoesNotContain("genuinely the better choice", merged, StringComparison.Ordinal);
+        Assert.DoesNotContain("What's installed, flags, JSON shapes", merged, StringComparison.Ordinal);
+        // Version bumped in the marker; surrounding text preserved; exactly one block.
+        Assert.Contains("v=0.4.0", merged, StringComparison.Ordinal);
+        Assert.DoesNotContain("v=0.3.0", merged, StringComparison.Ordinal);
+        Assert.StartsWith("# Project\n", merged, StringComparison.Ordinal);
+        Assert.Contains("## Other section", merged, StringComparison.Ordinal);
+        Assert.Equal(1, CountOccurrences(merged, AgentsManager.StartMarkerPrefix));
+        Assert.Equal(1, CountOccurrences(merged, AgentsManager.EndMarker));
+    }
+
+    [Fact]
     public void MergeBlock_ReRunSameVersion_IsByteStable()
     {
         // Negative invariant: re-running init at the same version must not change the file.
@@ -190,8 +294,8 @@ public sealed class AgentsManagerTests
         string crlf = "# Project\r\n";
         string merged = AgentsManager.MergeBlock(crlf, "0.4.0");
         Assert.Contains("\r\n", merged, StringComparison.Ordinal);
-        // No bare LF block lines smuggled into a CRLF file.
-        Assert.DoesNotContain("respected.\n<!-- winix:end", merged, StringComparison.Ordinal);
+        // No bare LF block lines smuggled into a CRLF file (key on the new last content line).
+        Assert.DoesNotContain("AGENTS.md\n<!-- winix:end", merged, StringComparison.Ordinal);
     }
 
     [Fact]
