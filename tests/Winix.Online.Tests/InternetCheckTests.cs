@@ -51,6 +51,24 @@ public class InternetCheckTests
         Assert.Equal(0, httpCalls);  // invariant: no HTTP when DNS fails
     }
 
+    [Fact]
+    public async Task Dns_failure_continues_to_next_endpoint()
+    {
+        int dnsCalls = 0, httpCalls = 0;
+        var check = new InternetCheck(
+            TwoEndpoints,
+            routeAvailable: () => true,
+            dnsProbe: (_, _) => { dnsCalls++; return Task.FromResult(dnsCalls != 1); },  // 1st host fails DNS, 2nd resolves
+            httpProbe: (_, _) => { httpCalls++; return Task.FromResult(new HttpProbeResult(true, 204)); },
+            order: Identity);
+
+        CheckResult r = await check.RunAsync(CancellationToken.None);
+
+        Assert.True(r.Ok);            // requirement: a DNS failure on endpoint 1 must NOT stop iteration
+        Assert.Equal(2, dnsCalls);    // both endpoints' DNS attempted
+        Assert.Equal(1, httpCalls);   // HTTP skipped for the DNS-failed endpoint, fired once for the 2nd
+    }
+
     [Theory]
     [InlineData(200)]   // captive portal login page
     [InlineData(302)]   // captive portal redirect
@@ -83,6 +101,7 @@ public class InternetCheckTests
 
         Assert.True(r.Ok);
         Assert.Equal("internet", r.Kind);
+        Assert.Equal("204 via https://a.example/generate_204", r.Detail);
     }
 
     [Fact]
