@@ -36,6 +36,7 @@ using MkAuthCli   = global::Winix.MkAuth.Cli;
 using TrashCli    = global::Winix.Trash.Cli;
 using HCatCli     = global::Winix.HCat.Cli;
 using DemuxCli    = global::Winix.Demux.Cli;
+using OnlineCli   = global::Winix.Online.Cli;
 using IProcessLauncherAlias = global::Winix.EnvVault.IProcessLauncher;
 using IConsolePromptAlias   = global::Winix.EnvVault.IConsolePrompt;
 
@@ -279,6 +280,12 @@ internal static class DescribeSurfaces
             //   Cli.Run(args, stdin, stdout, stderr)
             ["demux"] = args => Task.FromResult(
                 DemuxCli.Run(args, TextReader.Null, TextWriter.Null, TextWriter.Null)),
+
+            // ── online ────────────────────────────────────────────────────────────────
+            // Signature from Winix.Online.Tests/CliRunAsyncTests.cs:
+            //   Cli.RunAsync(args, stdout, stderr, CancellationToken.None)  [public overload]
+            ["online"] = args => OnlineCli.RunAsync(
+                args, TextWriter.Null, TextWriter.Null, CancellationToken.None),
 
             // ── qr subcommands ────────────────────────────────────────────────────────
             // Each helper subcommand emits its own distinct envelope (tool: "qr wifi", etc.).

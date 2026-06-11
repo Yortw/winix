@@ -98,8 +98,8 @@ public sealed class ContractSnapshotTests
         // registry entry (and snapshot) fails here. The message lists what IS registered
         // so the gap is self-diagnosing rather than a bare "expected 28, got 27".
         var topLevel = DescribeSurfaces.All.Keys.Where(k => !k.Contains('/')).OrderBy(k => k, StringComparer.Ordinal).ToList();
-        Assert.True(topLevel.Count == 28,
-            $"expected 28 top-level surfaces (CLAUDE.md NuGet-ID canon), got {topLevel.Count}. " +
+        Assert.True(topLevel.Count == 29,
+            $"expected 29 top-level surfaces (CLAUDE.md NuGet-ID canon), got {topLevel.Count}. " +
             $"Registered: {string.Join(", ", topLevel)}");
     }
 
@@ -142,7 +142,7 @@ public sealed class ContractSnapshotTests
     public async Task Tier_assignments_match_the_design_table()
     {
         var fresh = new HashSet<string>(StringComparer.Ordinal)
-            { "mksecret", "trash", "hcat", "mkauth", "demux" };
+            { "mksecret", "trash", "hcat", "mkauth", "demux", "online" };
         foreach (string key in DescribeSurfaces.All.Keys.Where(k => !k.Contains('/')))
         {
             var (stdout, stderr, exit) = await ConsoleCapture.RunAsync(

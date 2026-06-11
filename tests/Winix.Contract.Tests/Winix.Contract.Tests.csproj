@@ -44,6 +44,7 @@
     <ProjectReference Include="..\..\src\Winix.Trash\Winix.Trash.csproj" />
     <ProjectReference Include="..\..\src\Winix.HCat\Winix.HCat.csproj" />
     <ProjectReference Include="..\..\src\Winix.Demux\Winix.Demux.csproj" />
+    <ProjectReference Include="..\..\src\Winix.Online\Winix.Online.csproj" />
     <ProjectReference Include="..\..\src\Winix.SecretStore\Winix.SecretStore.csproj" />
   </ItemGroup>
 </Project>
