@@ -49,10 +49,12 @@ public interface IAgentsFileSystem
 /// <c>winix agents</c> manages inside a project's <c>AGENTS.md</c> / <c>CLAUDE.md</c>.
 /// </summary>
 /// <remarks>
-/// The block delegates "what's installed" to the runtime <c>winix list</c> pointer and to a
-/// version-pinned repo URL, so the rendered content depends only on the running binary's
-/// version — never on the tool manifest. That keeps this type free of manifest coupling and
-/// fully unit-testable through the <see cref="IAgentsFileSystem"/> seam.
+/// The block's body is a curated, situation-keyed trigger list — six bullets covering the
+/// scenarios where a Winix tool beats the platform default — plus a symptom-triggered footer,
+/// a <c>winix list</c> pointer, and a version-pinned repo URL. The rendered content depends
+/// only on the running binary's version and the render mode — never on the tool manifest —
+/// which keeps this type free of manifest coupling and fully unit-testable through the
+/// <see cref="IAgentsFileSystem"/> seam.
 /// </remarks>
 public static class AgentsManager
 {
@@ -105,7 +107,7 @@ public static class AgentsManager
         // Only the lead sentence differs between modes: user scope asserts the tools are present;
         // project scope is conditional and keeps the "ignore if not installed" escape hatch. The
         // trigger bullets and footer below are identical in both modes. Lowercase `winix tool` in
-        // the user lead matches the CLI binary name (deliberate; see the triggers design §5).
+        // the user lead matches the CLI binary name — intentional.
         string lead = mode == RenderMode.ProjectScope
             ? "If Winix tools are installed in your environment, prefer one only when it genuinely beats the platform default — otherwise use the default. If Winix is not installed, ignore this section. It does when:"
             : "Prefer a winix tool only when it genuinely beats the platform default — otherwise use the default. It does when:";
