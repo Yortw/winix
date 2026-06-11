@@ -10,7 +10,7 @@ namespace Winix.Online.Tests;
 public class FormattingTests
 {
     private static WaitResult Ready() => new(
-        Ready: true, TimedOut: false, Attempts: 3, Elapsed: TimeSpan.FromMilliseconds(1234),
+        WaitOutcome.Ready, Attempts: 3, Elapsed: TimeSpan.FromMilliseconds(1234),
         LastChecks: new List<CheckResult>
         {
             new("internet", null, true, "204 via https://www.gstatic.com/generate_204"),
@@ -49,7 +49,7 @@ public class FormattingTests
     [Fact]
     public void Summary_timeout_mentions_timed_out()
     {
-        var timedOut = new WaitResult(false, true, 300, TimeSpan.FromMinutes(10),
+        var timedOut = new WaitResult(WaitOutcome.TimedOut, 300, TimeSpan.FromMinutes(10),
             new List<CheckResult> { new("internet", null, false, "no network route") });
         string summary = Formatting.FormatSummary(timedOut, useColor: false);
         Assert.Contains("timed out", summary, StringComparison.OrdinalIgnoreCase);

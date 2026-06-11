@@ -3,9 +3,10 @@
 namespace Winix.Online;
 
 /// <summary>
-/// Outcome of a single HTTP probe. <see cref="Connected"/> is <see langword="false"/> when no HTTP
-/// reply was obtained at all — connect/TLS failure, a DNS failure surfaced at request time, or a
-/// per-probe timeout. When <see langword="true"/>, <see cref="StatusCode"/> describes the response.
+/// Outcome of a single HTTP probe. Build via <see cref="Unreachable"/> (no HTTP reply — connect/TLS
+/// failure, a DNS failure surfaced at request time, or a per-probe timeout) or <see cref="Reached"/>
+/// (an HTTP response was received). The private ctor makes the contradictory
+/// "not connected but has a status" state unconstructible.
 /// </summary>
 /// <remarks>
 /// The body is deliberately NOT captured: the internet rung's portal discriminator is the 204 STATUS
@@ -15,10 +16,23 @@ namespace Winix.Online;
 /// <c>HttpCompletionOption.ResponseHeadersRead</c> and never buffers the body. (Resolves adversarial
 /// review F3 + F9.)
 /// </remarks>
-/// <param name="Connected">Whether an HTTP response was received.</param>
-/// <param name="StatusCode">HTTP status code (0 when not connected).</param>
-public sealed record HttpProbeResult(bool Connected, int StatusCode)
+public sealed record HttpProbeResult
 {
+    /// <summary>Whether an HTTP response was received.</summary>
+    public bool Connected { get; }
+
+    /// <summary>HTTP status code (0 when not connected).</summary>
+    public int StatusCode { get; }
+
+    private HttpProbeResult(bool connected, int statusCode)
+    {
+        Connected = connected;
+        StatusCode = statusCode;
+    }
+
     /// <summary>Shared "no HTTP reply" result for connect failures and per-probe timeouts.</summary>
     public static readonly HttpProbeResult Unreachable = new(false, 0);
+
+    /// <summary>An HTTP response was received with the given status code.</summary>
+    public static HttpProbeResult Reached(int statusCode) => new(true, statusCode);
 }

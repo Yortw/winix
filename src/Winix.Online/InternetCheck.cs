@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Net.NetworkInformation;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -48,8 +49,19 @@ public sealed class InternetCheck : IReadinessCheck
     public async Task<CheckResult> RunAsync(CancellationToken cancellationToken)
     {
         // Rung 1 — cheap OS negative. The common outage (wifi dropped, cable out) ends here with
-        // no external requests at all.
-        if (!_routeAvailable())
+        // no external requests at all. A transient NetworkInformationException from the OS route
+        // query is itself a "network not ready" signal, not a tool fault — treat it as route-down
+        // and keep waiting (sibling precedent: HCatServer catches the same exception family).
+        bool routeUp;
+        try
+        {
+            routeUp = _routeAvailable();
+        }
+        catch (NetworkInformationException)
+        {
+            routeUp = false;
+        }
+        if (!routeUp)
         {
             return new CheckResult("internet", null, false, "no network route");
         }

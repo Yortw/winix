@@ -16,7 +16,7 @@ public class CliRunAsyncTests
     private static OnlineSeams HealthySeams() => new(
         RouteAvailable: () => true,
         DnsProbe: (_, _) => Task.FromResult(true),
-        HttpProbe: (_, _) => Task.FromResult(new HttpProbeResult(true, 204)),
+        HttpProbe: (_, _) => Task.FromResult(HttpProbeResult.Reached(204)),
         EndpointOrder: e => e,
         Now: () => DateTimeOffset.UnixEpoch,
         Sleep: (_, _) => Task.CompletedTask);
@@ -36,7 +36,7 @@ public class CliRunAsyncTests
         var seams = new OnlineSeams(
             RouteAvailable: () => false,
             DnsProbe: (_, _) => Task.FromResult(true),
-            HttpProbe: (_, _) => Task.FromResult(new HttpProbeResult(true, 204)),
+            HttpProbe: (_, _) => Task.FromResult(HttpProbeResult.Reached(204)),
             EndpointOrder: e => e,
             Now: () => DateTimeOffset.UnixEpoch,
             Sleep: (_, _) => Task.CompletedTask);
@@ -152,7 +152,7 @@ public class CliRunAsyncTests
         Assert.Equal(0, code);
     }
 
-    // Cross-cutting: -v must NOT pollute the --json stdout stream (onAttempt suppressed in json mode).
+    // Cross-cutting: -v must NOT pollute the --json stdout stream; verbose lines go to stderr even under --json.
     [Fact]
     public async Task Verbose_does_not_pollute_json_stdout()
     {
@@ -160,8 +160,9 @@ public class CliRunAsyncTests
         var errW = new StringWriter();
         int code = await Cli.RunAsync(new[] { "-v", "--once", "--json" }, outW, errW, CancellationToken.None, HealthySeams());
         Assert.Equal(0, code);
-        Assert.Contains("\"ready\":true", outW.ToString(), StringComparison.Ordinal);   // JSON on stdout
-        Assert.DoesNotContain("attempt 1", outW.ToString(), StringComparison.Ordinal);    // no verbose line on stdout (JSON field is "attempts", not "attempt N")
+        Assert.Contains("\"ready\":true", outW.ToString(), StringComparison.Ordinal);      // JSON on stdout
+        Assert.DoesNotContain("attempt 1", outW.ToString(), StringComparison.Ordinal);     // no verbose line on stdout (JSON field is "attempts", not "attempt N")
+        Assert.Contains("attempt", errW.ToString(), StringComparison.Ordinal);             // -v now emits to stderr even under --json
     }
 
     // Unexpected-error exit code chosen in Cli (see implementation): 126 (NotExecutable-style "tool fault").

@@ -1,6 +1,7 @@
 #nullable enable
 
 using System.Collections.Generic;
+using System.Net.NetworkInformation;
 using System.Threading;
 using System.Threading.Tasks;
 using Winix.Online;
@@ -24,7 +25,7 @@ public class InternetCheckTests
             TwoEndpoints,
             routeAvailable: () => false,
             dnsProbe: (_, _) => { dnsCalls++; return Task.FromResult(true); },
-            httpProbe: (_, _) => { httpCalls++; return Task.FromResult(new HttpProbeResult(true, 204)); },
+            httpProbe: (_, _) => { httpCalls++; return Task.FromResult(HttpProbeResult.Reached(204)); },
             order: Identity);
 
         CheckResult r = await check.RunAsync(CancellationToken.None);
@@ -42,7 +43,7 @@ public class InternetCheckTests
             new[] { "https://a.example/generate_204" },
             routeAvailable: () => true,
             dnsProbe: (_, _) => Task.FromResult(false),
-            httpProbe: (_, _) => { httpCalls++; return Task.FromResult(new HttpProbeResult(true, 204)); },
+            httpProbe: (_, _) => { httpCalls++; return Task.FromResult(HttpProbeResult.Reached(204)); },
             order: Identity);
 
         CheckResult r = await check.RunAsync(CancellationToken.None);
@@ -59,7 +60,7 @@ public class InternetCheckTests
             TwoEndpoints,
             routeAvailable: () => true,
             dnsProbe: (_, _) => { dnsCalls++; return Task.FromResult(dnsCalls != 1); },  // 1st host fails DNS, 2nd resolves
-            httpProbe: (_, _) => { httpCalls++; return Task.FromResult(new HttpProbeResult(true, 204)); },
+            httpProbe: (_, _) => { httpCalls++; return Task.FromResult(HttpProbeResult.Reached(204)); },
             order: Identity);
 
         CheckResult r = await check.RunAsync(CancellationToken.None);
@@ -79,7 +80,7 @@ public class InternetCheckTests
             new[] { "https://a.example/generate_204" },
             routeAvailable: () => true,
             dnsProbe: (_, _) => Task.FromResult(true),
-            httpProbe: (_, _) => Task.FromResult(new HttpProbeResult(true, status)),
+            httpProbe: (_, _) => Task.FromResult(HttpProbeResult.Reached(status)),
             order: Identity);
 
         CheckResult r = await check.RunAsync(CancellationToken.None);
@@ -94,7 +95,7 @@ public class InternetCheckTests
             new[] { "https://a.example/generate_204" },
             routeAvailable: () => true,
             dnsProbe: (_, _) => Task.FromResult(true),
-            httpProbe: (_, _) => Task.FromResult(new HttpProbeResult(true, 204)),
+            httpProbe: (_, _) => Task.FromResult(HttpProbeResult.Reached(204)),
             order: Identity);
 
         CheckResult r = await check.RunAsync(CancellationToken.None);
@@ -112,7 +113,7 @@ public class InternetCheckTests
             TwoEndpoints,
             routeAvailable: () => true,
             dnsProbe: (_, _) => Task.FromResult(true),
-            httpProbe: (_, _) => { httpCalls++; return Task.FromResult(new HttpProbeResult(true, 204)); },
+            httpProbe: (_, _) => { httpCalls++; return Task.FromResult(HttpProbeResult.Reached(204)); },
             order: Identity);
 
         CheckResult r = await check.RunAsync(CancellationToken.None);
@@ -133,7 +134,7 @@ public class InternetCheckTests
             {
                 httpCalls++;
                 // First endpoint connect-fails; second returns 204.
-                return Task.FromResult(httpCalls == 1 ? HttpProbeResult.Unreachable : new HttpProbeResult(true, 204));
+                return Task.FromResult(httpCalls == 1 ? HttpProbeResult.Unreachable : HttpProbeResult.Reached(204));
             },
             order: Identity);
 
@@ -141,5 +142,23 @@ public class InternetCheckTests
 
         Assert.True(r.Ok);
         Assert.Equal(2, httpCalls);
+    }
+
+    [Fact]
+    public async Task Route_query_failure_is_not_online_with_zero_traffic()
+    {
+        int dnsCalls = 0, httpCalls = 0;
+        var check = new InternetCheck(
+            TwoEndpoints,
+            routeAvailable: () => throw new NetworkInformationException(),
+            dnsProbe: (_, _) => { dnsCalls++; return Task.FromResult(true); },
+            httpProbe: (_, _) => { httpCalls++; return Task.FromResult(HttpProbeResult.Reached(204)); },
+            order: Identity);
+
+        CheckResult r = await check.RunAsync(CancellationToken.None);
+
+        Assert.False(r.Ok);          // transient route-query failure → not online, keep waiting (not a 126 crash)
+        Assert.Equal(0, dnsCalls);   // still short-circuits with zero traffic
+        Assert.Equal(0, httpCalls);
     }
 }

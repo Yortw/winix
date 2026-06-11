@@ -58,16 +58,15 @@ public static class Formatting
         string green = AnsiColor.Green(useColor);
         string red = AnsiColor.Red(useColor);
         string reset = AnsiColor.Reset(useColor);
-        long ms = (long)result.Elapsed.TotalMilliseconds;
 
         if (result.Ready)
         {
-            return $"{green}online{reset}: ready after {result.Attempts} attempt(s), {ms}ms";
+            return $"{green}online{reset}: ready after {result.Attempts} attempt(s), {DisplayFormat.FormatDuration(result.Elapsed)}";
         }
         if (result.TimedOut)
         {
             string lastFail = FirstFailureDetail(result.LastChecks);
-            return $"{red}online{reset}: timed out after {ms}ms ({result.Attempts} attempts) — {lastFail}";
+            return $"{red}online{reset}: timed out after {DisplayFormat.FormatDuration(result.Elapsed)} ({result.Attempts} attempts) — {lastFail}";
         }
         // --once miss.
         string detail = FirstFailureDetail(result.LastChecks);

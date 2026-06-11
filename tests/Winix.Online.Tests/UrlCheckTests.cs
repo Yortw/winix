@@ -15,7 +15,7 @@ public class UrlCheckTests
     [Fact]
     public async Task Status_2xx_is_ready()
     {
-        var check = new UrlCheck("https://api/health", StatusSpec.Default, Probe(new HttpProbeResult(true, 200)));
+        var check = new UrlCheck("https://api/health", StatusSpec.Default, Probe(HttpProbeResult.Reached(200)));
         CheckResult r = await check.RunAsync(CancellationToken.None);
         Assert.True(r.Ok);
         Assert.Equal("url", r.Kind);
@@ -31,7 +31,7 @@ public class UrlCheckTests
                         // separately by the AllowAutoRedirect integration test (Task 11, F2).
     public async Task Non_matching_status_is_not_ready(int status)
     {
-        var check = new UrlCheck("https://api/health", StatusSpec.Default, Probe(new HttpProbeResult(true, status)));
+        var check = new UrlCheck("https://api/health", StatusSpec.Default, Probe(HttpProbeResult.Reached(status)));
         CheckResult r = await check.RunAsync(CancellationToken.None);
         Assert.False(r.Ok);
     }
@@ -48,8 +48,8 @@ public class UrlCheckTests
     public async Task Custom_status_matches_exact_set()
     {
         Assert.True(StatusSpec.TryParse("200,204", out StatusSpec spec, out _));
-        var ready = new UrlCheck("https://x", spec, Probe(new HttpProbeResult(true, 204)));
-        var notReady = new UrlCheck("https://x", spec, Probe(new HttpProbeResult(true, 201)));
+        var ready = new UrlCheck("https://x", spec, Probe(HttpProbeResult.Reached(204)));
+        var notReady = new UrlCheck("https://x", spec, Probe(HttpProbeResult.Reached(201)));
         Assert.True((await ready.RunAsync(CancellationToken.None)).Ok);
         Assert.False((await notReady.RunAsync(CancellationToken.None)).Ok);
     }

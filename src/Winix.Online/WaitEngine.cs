@@ -62,16 +62,16 @@ public sealed class WaitEngine
 
             if (allOk)
             {
-                return new WaitResult(true, false, attempts, _now() - start, results);
+                return new WaitResult(WaitOutcome.Ready, attempts, _now() - start, results);
             }
             if (options.Once)
             {
                 // A single-probe miss is a normal negative, NOT a timeout — distinct exit code.
-                return new WaitResult(false, false, attempts, _now() - start, results);
+                return new WaitResult(WaitOutcome.NotReady, attempts, _now() - start, results);
             }
             if (deadline.HasValue && _now() >= deadline.Value)
             {
-                return new WaitResult(false, true, attempts, _now() - start, results);
+                return new WaitResult(WaitOutcome.TimedOut, attempts, _now() - start, results);
             }
 
             await _sleep(options.Interval, cancellationToken);

@@ -157,7 +157,8 @@ public static class Cli
         }
 
         Action<int, IReadOnlyList<CheckResult>>? onAttempt = null;
-        if (options.Verbose && !jsonOutput)
+        // Verbose per-attempt lines go to stderr; safe to emit even in --json mode (JSON is on stdout).
+        if (options.Verbose)
         {
             onAttempt = (attempt, results) => SafeWriteLine(stderr, Formatting.FormatAttempt(attempt, results, useColor));
         }
@@ -174,9 +175,13 @@ public static class Cli
             SafeWriteLine(stderr, Formatting.FormatSummary(waitResult, useColor));
         }
 
-        if (waitResult.Ready) { return ExitReady; }
-        if (waitResult.TimedOut) { return ExitTimedOut; }
-        return ExitNotReadyOnce;
+        return waitResult.Outcome switch
+        {
+            WaitOutcome.Ready => ExitReady,
+            WaitOutcome.TimedOut => ExitTimedOut,
+            WaitOutcome.NotReady => ExitNotReadyOnce,
+            _ => ExitNotReadyOnce,
+        };
     }
 
     /// <summary>Parses and validates raw args into <see cref="OnlineOptions"/>; null + message on error.</summary>
@@ -332,7 +337,7 @@ public static class Cli
             // allocation and the false-negative risk of a byte injected into a 204. Disposing the
             // response aborts the unread connection, which is fine for a probe.
             using HttpResponseMessage response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token);
-            return new HttpProbeResult(true, (int)response.StatusCode);
+            return HttpProbeResult.Reached((int)response.StatusCode);
         }
         // Cancel disambiguation (review F1): only rethrow when the OUTER (user) token is cancelled —
         // in which case exit 130 is correct regardless of which linked token actually fired the OCE.
