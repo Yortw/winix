@@ -87,7 +87,7 @@ online: ready after 3 attempt(s), 4.2s
   "elapsed_ms": 4203,
   "attempts": 3,
   "checks": [
-    { "kind": "internet", "target": "https://www.gstatic.com/generate_204", "ok": true, "detail": "204" }
+    { "kind": "internet", "target": null, "ok": true, "detail": "204 via https://www.gstatic.com/generate_204" }
   ]
 }
 ```

@@ -152,6 +152,18 @@ public class CliRunAsyncTests
         Assert.Equal(0, code);
     }
 
+    // Cross-cutting: -v must NOT pollute the --json stdout stream (onAttempt suppressed in json mode).
+    [Fact]
+    public async Task Verbose_does_not_pollute_json_stdout()
+    {
+        var outW = new StringWriter();
+        var errW = new StringWriter();
+        int code = await Cli.RunAsync(new[] { "-v", "--once", "--json" }, outW, errW, CancellationToken.None, HealthySeams());
+        Assert.Equal(0, code);
+        Assert.Contains("\"ready\":true", outW.ToString(), StringComparison.Ordinal);   // JSON on stdout
+        Assert.DoesNotContain("attempt 1", outW.ToString(), StringComparison.Ordinal);    // no verbose line on stdout (JSON field is "attempts", not "attempt N")
+    }
+
     // Unexpected-error exit code chosen in Cli (see implementation): 126 (NotExecutable-style "tool fault").
     private const int ExitCodeForUnexpected = 126;
 }
