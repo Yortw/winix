@@ -189,9 +189,9 @@ public static class Cli
             // exception handler kicks in and (with <StackTraceSupport>false</StackTraceSupport>)
             // prints a stack-traceless "Unhandled exception" message that's nearly un-diagnosable.
             // Unwrap TypeInitializationException so the user sees the actionable inner cause
-            // (e.g. "Unable to load libX.so") rather than the useless wrapper text. Matches
-            // envvault's Cli.UnwrapTypeInit pattern.
-            Exception surface = UnwrapTypeInit(ex);
+            // (e.g. "Unable to load libX.so") rather than the useless wrapper text, via the
+            // shared ShellKit helper.
+            Exception surface = ExceptionUnwrap.UnwrapTypeInit(ex);
             string msg = string.IsNullOrEmpty(surface.Message)
                 ? $"retry: unexpected error: {surface.GetType().Name}"
                 : $"retry: unexpected error: {surface.GetType().Name}: {surface.Message}";
@@ -422,23 +422,6 @@ public static class Cli
         try { writer.WriteLine(message); }
         catch (IOException) { /* downstream pipe closed */ }
         catch (ObjectDisposedException) { /* writer already disposed */ }
-    }
-
-    /// <summary>
-    /// Peels TypeInitializationException wrappers to reveal the actionable inner exception.
-    /// The wrapper's Message is "The type initializer for X threw an exception." — useless to
-    /// the user. The InnerException carries the real cause (e.g. "Unable to load libsecret-1.so.0").
-    /// Depth cap protects against a pathological self-referencing exception chain. Same pattern
-    /// as envvault's Cli.UnwrapTypeInit — worth lifting to ShellKit at some point.
-    /// </summary>
-    private static Exception UnwrapTypeInit(Exception ex)
-    {
-        Exception current = ex;
-        for (int depth = 0; depth < 32 && current is TypeInitializationException tie && tie.InnerException != null; depth++)
-        {
-            current = tie.InnerException;
-        }
-        return current;
     }
 
     private static string GetVersion()
