@@ -6,7 +6,7 @@
   "architecture": {
     "64bit": {
       "url": "https://github.com/Yortw/winix/releases/download/v0.4.0/mkauth-win-x64.zip",
-      "hash": "PLACEHOLDER",
+      "hash": "e7441b34f57532244a27b02615852d105912dfa51640b48de86e53c661409552",
       "bin": "mkauth.exe"
     }
   },

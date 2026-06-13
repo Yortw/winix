@@ -1,12 +1,12 @@
 {
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Cross-platform desktop notifications + ntfy.sh push.",
   "homepage": "https://github.com/Yortw/winix",
   "license": "MIT",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/Yortw/winix/releases/download/v0.3.0/notify-win-x64.zip",
-      "hash": "3623748d86c3fe8684cef999bc9e566baecd69afc7f28a352ff6801ee1ae8e66",
+      "url": "https://github.com/Yortw/winix/releases/download/v0.4.0/notify-win-x64.zip",
+      "hash": "42749afb3e0ae98d22c537ffa0d0fed8bf273b05bce6be28f4fe42c6fa52323a",
       "bin": "notify.exe"
     }
   },

@@ -6,7 +6,7 @@
   "architecture": {
     "64bit": {
       "url": "https://github.com/Yortw/winix/releases/download/v0.4.0/hcat-win-x64.zip",
-      "hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "hash": "a453d5343304781bc5bab232b63c79414ebc42f62c0af9d93f5e843bd5377336",
       "bin": "hcat.exe"
     }
   },

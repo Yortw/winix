@@ -1,12 +1,12 @@
 {
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Cross-platform clipboard bridge — copy from stdin, paste to stdout, clear.",
   "homepage": "https://github.com/Yortw/winix",
   "license": "MIT",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/Yortw/winix/releases/download/v0.3.0/clip-win-x64.zip",
-      "hash": "054ba8c3705ac99d852ef66c97e66deb8f2ee4ebcda2e0ba5f3fdac3a11afb77",
+      "url": "https://github.com/Yortw/winix/releases/download/v0.4.0/clip-win-x64.zip",
+      "hash": "d58ae6bd802124c3e17720133106d2f4ee89fb675d4906c2edc7916a68899754",
       "bin": "clip.exe"
     }
   },

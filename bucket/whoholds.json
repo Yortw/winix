@@ -1,12 +1,12 @@
 {
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Find which processes are holding a file lock or binding a network port.",
   "homepage": "https://github.com/Yortw/winix",
   "license": "MIT",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/Yortw/winix/releases/download/v0.3.0/whoholds-win-x64.zip",
-      "hash": "059deab567a727eec2b075a9da7d623896827a912ec71ca2dc8cceb8a465903a",
+      "url": "https://github.com/Yortw/winix/releases/download/v0.4.0/whoholds-win-x64.zip",
+      "hash": "266f3a9e43cf2d185b580fafaaa500e948185c8c198afde4d42e987aacd8f402",
       "bin": "whoholds.exe"
     }
   },

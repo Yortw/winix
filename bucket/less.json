@@ -1,12 +1,12 @@
 {
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Native terminal pager with ANSI colour, search, follow mode, and modern defaults.",
   "homepage": "https://github.com/Yortw/winix",
   "license": "MIT",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/Yortw/winix/releases/download/v0.3.0/less-win-x64.zip",
-      "hash": "eb853f62121efb97115716d2d4ca6f31ef5a358ab4885572204163320754400d",
+      "url": "https://github.com/Yortw/winix/releases/download/v0.4.0/less-win-x64.zip",
+      "hash": "d09e39f55b25609d9bf01c0cc83f7f7a3dae3fbe76a7145e0b586c24631bd4f6",
       "bin": "less.exe"
     }
   },

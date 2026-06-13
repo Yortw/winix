@@ -1,12 +1,12 @@
 {
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Cross-platform QR code generator with Wi-Fi, SMS, mailto, geo, and tel helpers.",
   "homepage": "https://github.com/Yortw/winix",
   "license": "MIT",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/Yortw/winix/releases/download/v0.3.0/qr-win-x64.zip",
-      "hash": "4fbfa7df8de851b7bfd00c4e4ca8d510289aa5bd55cc8cb3c7fd7c98fea4140b",
+      "url": "https://github.com/Yortw/winix/releases/download/v0.4.0/qr-win-x64.zip",
+      "hash": "99cd64670845985e5ccbe15c608d8dc05e3922fd8b56e65138589f37c52003d8",
       "bin": "qr.exe"
     }
   },

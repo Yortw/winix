@@ -1,12 +1,12 @@
 {
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Compress and decompress files using gzip, brotli, or zstd.",
   "homepage": "https://github.com/Yortw/winix",
   "license": "MIT",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/Yortw/winix/releases/download/v0.3.0/squeeze-win-x64.zip",
-      "hash": "e148b773130fa737423d463978aae182636dbb0685b2edf6b72ab9f2d47f9480",
+      "url": "https://github.com/Yortw/winix/releases/download/v0.4.0/squeeze-win-x64.zip",
+      "hash": "93a06933e874596a3341e8fc32449ecd6bf04e9bec6e3744dc0000b014782995",
       "bin": "squeeze.exe"
     }
   },

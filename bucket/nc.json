@@ -1,12 +1,12 @@
 {
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Cross-platform netcat replacement — TCP/UDP send/receive, port checks, TLS clients.",
   "homepage": "https://github.com/Yortw/winix",
   "license": "MIT",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/Yortw/winix/releases/download/v0.3.0/nc-win-x64.zip",
-      "hash": "8be0bee04a21504f510b82c492a179786080fc9810d2eb31000b5850af646738",
+      "url": "https://github.com/Yortw/winix/releases/download/v0.4.0/nc-win-x64.zip",
+      "hash": "2b83eebb0382359082309dcd7f12eaa6c8413d9ec51245dab4f066fbd12e7b09",
       "bin": "nc.exe"
     }
   },

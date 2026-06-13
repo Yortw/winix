@@ -1,12 +1,12 @@
 {
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Cross-platform task scheduler with cron expressions.",
   "homepage": "https://github.com/Yortw/winix",
   "license": "MIT",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/Yortw/winix/releases/download/v0.3.0/schedule-win-x64.zip",
-      "hash": "b72b6694075f3cd4beb1b49ebdf6b5f6690b464a510f39d03142b3286be9afe8",
+      "url": "https://github.com/Yortw/winix/releases/download/v0.4.0/schedule-win-x64.zip",
+      "hash": "fe3caaa058441a066166a109fd4753bda68c10b5301e8d96c5b87e89282581a4",
       "bin": "schedule.exe"
     }
   },

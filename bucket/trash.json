@@ -6,7 +6,7 @@
   "architecture": {
     "64bit": {
       "url": "https://github.com/Yortw/winix/releases/download/v0.4.0/trash-win-x64.zip",
-      "hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "hash": "fc4ee5ae5c82c7e8c737331257ca3f873c9c61a4dd413dc958844a22143b4b09",
       "bin": "trash.exe"
     }
   },

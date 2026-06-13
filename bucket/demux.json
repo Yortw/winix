@@ -6,7 +6,7 @@
   "architecture": {
     "64bit": {
       "url": "https://github.com/Yortw/winix/releases/download/v0.4.0/demux-win-x64.zip",
-      "hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "hash": "f2559fb4f40a1b66467ee818ac88e28eb372e488e2348b5cf3ca67641fefe547",
       "bin": "demux.exe"
     }
   },

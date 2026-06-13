@@ -1,12 +1,12 @@
 {
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Convert timestamps between formats, apply time arithmetic, and calculate durations.",
   "homepage": "https://github.com/Yortw/winix",
   "license": "MIT",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/Yortw/winix/releases/download/v0.3.0/when-win-x64.zip",
-      "hash": "50991c9823e9f2233ffa40b0d6a381724607886d9ea4b8d639f82bb100751bf9",
+      "url": "https://github.com/Yortw/winix/releases/download/v0.4.0/when-win-x64.zip",
+      "hash": "d5a2be3f8dbd4b1bbe361f5f39f8c295f6e728d9b736501f9b9889e45a13bd5a",
       "bin": "when.exe"
     }
   },
