@@ -7,7 +7,7 @@
     <PackageId>Winix.QrCode.Library</PackageId>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="QRCoder" Version="1.6.*" />
+    <PackageReference Include="QRCoder" Version="1.8.*" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Winix.QrCode.Tests" />
