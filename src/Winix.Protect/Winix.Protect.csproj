@@ -11,7 +11,7 @@
     <ProjectReference Include="..\Winix.SecretStore\Winix.SecretStore.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.*" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.*" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Winix.Protect.Tests" />
