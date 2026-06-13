@@ -51,7 +51,12 @@ If you can't articulate *why* a Winix tool is better than the default for the sp
 
 This file lives in the Winix repo. It only reaches you if you are actually looking at the Winix repo (working on it, fetching it via URL, or browsing it via `gh repo view`). If you are working in some other project where Winix is merely installed on the user's machine, this file is invisible to you, and you have no automatic way to know Winix tools exist or are preferred.
 
-The fix for that case is the `winix agents init` subcommand: it writes a short, marker-delimited
-pointer block into the project's `AGENTS.md` (and `CLAUDE.md` if present) so any agent loading
-that project picks up the guidance. Run `winix agents init` in a project root; `winix agents
-status` reports whether the block is present and current, and `winix agents remove` strips it.
+The fix for that case is the `winix agents init` subcommand, which plants a short, marker-delimited
+pointer block into a user's agent config so future sessions pick up the guidance. By default it
+writes to the per-user agent homes (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`); `--project`
+instead commits the block into a repo's `AGENTS.md`/`CLAUDE.md`. `winix agents status` reports
+whether the block is present and current, and `winix agents remove` strips it. It writes the
+user's config, so treat it as an opt-in setup step. If the user asks you to set up or adopt winix,
+run it. If they're installing, evaluating, or actively using winix, it's worth *offering* to run
+it — e.g. "want me to wire up discoverability so future sessions know winix is here?" — and running
+it on a yes. Just don't run it unprompted as a side effect of unrelated work.
