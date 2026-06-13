@@ -111,26 +111,64 @@ public class ProcessHelperTests
     }
 
     [Fact]
-    public void IsOnPath_DoesNotSpawnProcess()
+    public void IsOnPath_DoesNotExecuteTheTarget()
     {
-        // Pre-F6 the probe spawned 'command --version' and immediately killed it. The
-        // first invocation of any non-trivial process on Windows costs at least
-        // ~80–150ms (CreateProcess + image-load + close-handle); a PATH walk on a
-        // typical machine completes in single-digit milliseconds. Use the
-        // process-snapshot count as a stronger signal than timing — a regression to
-        // the spawn-and-kill shape would briefly create a child process visible to
-        // Process.GetProcessesByName during the call.
-        int beforeCount = System.Diagnostics.Process.GetProcessesByName("dotnet").Length;
-        bool found = ProcessHelper.IsOnPath("dotnet");
-        int afterCount = System.Diagnostics.Process.GetProcessesByName("dotnet").Length;
+        // The PATH-walk contract: IsOnPath must LOCATE an executable by file existence,
+        // never RUN it. The pre-F6 implementation spawned `command --version` and killed
+        // the child — a regression to that shape would re-execute the probed target.
+        // Prove non-execution DETERMINISTICALLY: drop a script on PATH that writes a
+        // sentinel file *if it runs*, then assert IsOnPath found it (true) yet the
+        // sentinel was never created. Replaces a global process-count proxy that flaked
+        // on CI boxes running parallel dotnet processes (a 13->15 jump tripped its +1
+        // tolerance) and which — by the prior author's own note — a spawn-and-kill
+        // regression could slip past anyway.
+        string tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"winix-noexec-{Guid.NewGuid():N}");
+        System.IO.Directory.CreateDirectory(tempDir);
 
-        Assert.True(found);
-        // Tolerate +1 to avoid flakes from concurrent dotnet processes (test runner,
-        // background restore, IDE). A regression that spawns AND kills the child
-        // before we observe would bypass this — accept that limitation; the no-spawn
-        // contract is also locked by the lack of process-spawn imports in the
-        // implementation, which a code reviewer can verify directly.
-        Assert.True(afterCount <= beforeCount + 1,
-            $"PATH-walk probe should not spawn a child process. Process count went from {beforeCount} to {afterCount}.");
+        string sentinel = System.IO.Path.Combine(tempDir, "executed.sentinel");
+        const string probeName = "winix-noexec-probe";
+
+        if (OperatingSystem.IsWindows())
+        {
+            // PATHEXT walk resolves the .cmd from the bare name. If executed, the
+            // redirect-first form writes "ran" into the sentinel.
+            string cmdPath = System.IO.Path.Combine(tempDir, probeName + ".cmd");
+            System.IO.File.WriteAllText(cmdPath, $"@echo off\r\n> \"{sentinel}\" echo ran\r\n");
+        }
+        else
+        {
+            // Bare-name File.Exists resolves it; the exec bit gives the guard teeth so a
+            // spawn regression would actually run it and create the sentinel.
+            string scriptPath = System.IO.Path.Combine(tempDir, probeName);
+            System.IO.File.WriteAllText(scriptPath, $"#!/bin/sh\necho ran > \"{sentinel}\"\n");
+            System.IO.File.SetUnixFileMode(
+                scriptPath,
+                System.IO.UnixFileMode.UserRead | System.IO.UnixFileMode.UserWrite | System.IO.UnixFileMode.UserExecute);
+        }
+
+        string? originalPath = System.Environment.GetEnvironmentVariable("PATH");
+        try
+        {
+            System.Environment.SetEnvironmentVariable("PATH", tempDir + System.IO.Path.PathSeparator + originalPath);
+
+            bool found = ProcessHelper.IsOnPath(probeName);
+
+            Assert.True(found, "IsOnPath should locate the probe via the PATH walk.");
+            Assert.False(
+                System.IO.File.Exists(sentinel),
+                "IsOnPath must not execute the probed target — the sentinel file proves it was run.");
+        }
+        finally
+        {
+            System.Environment.SetEnvironmentVariable("PATH", originalPath);
+            try
+            {
+                System.IO.Directory.Delete(tempDir, recursive: true);
+            }
+            catch
+            {
+                // Best-effort cleanup.
+            }
+        }
     }
 }
