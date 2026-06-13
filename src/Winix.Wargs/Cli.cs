@@ -84,7 +84,7 @@ public static class Cli
             // diagnostic alongside the envelope (the round-4 implementation) broke strict
             // NDJSON parsers — same defect class as the round-4 input-pipeline catch fix that
             // was missed here.
-            (Exception surface, bool depthCapped) = ExceptionUnwrap.UnwrapTypeInit(ex);
+            (Exception surface, bool depthCapped) = ExceptionUnwrap.UnwrapTypeInitWithDepth(ex);
             if (jsonOutput || ndjsonOutput)
             {
                 SafeWriteLine(stderr,
