@@ -86,7 +86,7 @@ public static class Cli
             // Backend failure (locked Keychain, libsecret daemon down, secret-tool missing) raised
             // from the get/unset/list/exec/multi-key store paths. ex.Message is our project-authored
             // English — safe to print verbatim. MUST precede the broad catch, which would otherwise
-            // route a SecretStoreException through UnwrapTypeInit(ex).Message — fine here (our text),
+            // route a SecretStoreException through ExceptionUnwrap.UnwrapTypeInit(ex).Message — fine here (our text),
             // but framework exceptions hitting the broad catch leak a bare SR key, hence the split below.
             SafeWriteLine(stderr, Formatting.ErrorLine(ex.Message, o.UseColor));
             return ExitCode.NotExecutable;
@@ -96,7 +96,7 @@ public static class Cli
             // TypeInitializationException wraps the actually-useful error (e.g. "Unable to load
             // libsecret-1.so.0") in a "The type initializer for X threw an exception" message
             // with no actionable content. Unwrap it so the user sees the real cause.
-            Exception surface = UnwrapTypeInit(ex);
+            Exception surface = ExceptionUnwrap.UnwrapTypeInit(ex);
             SafeWriteLine(stderr, Formatting.ErrorLine(DescribeSurface(surface), o.UseColor));
             return ExitCode.NotExecutable;
         }
@@ -112,24 +112,6 @@ public static class Cli
     private static void SafeWriteLine(TextWriter writer, string message)
     {
         try { writer.WriteLine(message); } catch { /* diagnostic must never fail the caller */ }
-    }
-
-    /// <summary>
-    /// Walks past <see cref="TypeInitializationException"/> wrappers to the innermost cause. .NET
-    /// raises TypeInit when a static constructor or native P/Invoke cctor fails; the outer message
-    /// ("The type initializer for X threw an exception.") has no diagnostic value — the actionable
-    /// text is in InnerException. Also shared with <c>Program.cs</c>'s bootstrap-catch.
-    /// </summary>
-    internal static Exception UnwrapTypeInit(Exception ex)
-    {
-        Exception current = ex;
-        // Depth cap is belt-and-braces: .NET cannot produce a self-referencing TypeInitializationException
-        // under normal use, but a malicious or corrupt serialized exception could in theory.
-        for (int depth = 0; depth < 32 && current is TypeInitializationException tie && tie.InnerException != null; depth++)
-        {
-            current = tie.InnerException;
-        }
-        return current;
     }
 
     /// <summary>
@@ -200,7 +182,7 @@ public static class Cli
                 // backend message ("secret-tool store failed (exit 1): collection locked") and
                 // native Win32/DPAPI text surface verbatim instead of degrading to a type name.
                 SafeWriteLine(stderr, Formatting.ErrorLine(
-                    $"failed to store {o.Namespaces[0]}.{o.Keys[0]}: {DescribeSurface(UnwrapTypeInit(ex))}", o.UseColor));
+                    $"failed to store {o.Namespaces[0]}.{o.Keys[0]}: {DescribeSurface(ExceptionUnwrap.UnwrapTypeInit(ex))}", o.UseColor));
                 return ExitCode.NotExecutable;
             }
             return 0;
