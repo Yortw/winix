@@ -149,12 +149,12 @@ namespace Yort.ShellKit;
 /// </remarks>
 public static class ExceptionUnwrap
 {
-    /// <summary>
-    /// Maximum unwrap depth before the loop bails out. Pathological cases (cyclic type-init
-    /// or generic-instantiation chains) exceeding this are extremely unlikely; the cap exists
-    /// to guarantee the helper terminates regardless of the input shape.
-    /// </summary>
-    public const int MaxDepth = 32;
+    // Maximum unwrap depth before the loop bails out. Pathological cases (cyclic type-init
+    // or generic-instantiation chains) exceeding this are extremely unlikely; the cap exists
+    // to guarantee the helper terminates regardless of the input shape. Kept private — no
+    // caller references it (the tests assert the cap via behaviour at 31/33), so it is an
+    // implementation detail, not part of ShellKit's public surface (adversarial-review F3).
+    private const int MaxDepth = 32;
 
     /// <summary>
     /// Peels <see cref="System.TypeInitializationException"/> wrappers to reveal the
@@ -255,6 +255,16 @@ Update the first line so it points at the new location:
 ```
 
 (Preserve the remaining lines of the comment unchanged.)
+
+- [ ] **Step 3b: Verify the depth-cap notice consumer (adversarial-review F2)**
+
+This refactor changes only the *producer* method name on the call line (`UnwrapTypeInit` → `UnwrapTypeInitWithDepth`); the `depthCapped` variable and the wargs broad-catch logic that appends the "(unwrap depth limit reached)" notice are **unchanged**, and the migrated ShellKit tests prove the producer still returns `depthCapped` correctly. So no behaviour regresses here. Still, confirm whether the consumer side has any guard, and record the result rather than assuming:
+
+```bash
+grep -rni "depth limit\|depthCapped\|unwrap depth" tests/Winix.Wargs.Tests/
+```
+
+If a test already asserts the rendered notice text, the consumer is pinned — record that in the commit body. If none exists, this is a **pre-existing** coverage gap (the notice fires only on a >32-deep TIE chain, which is infeasible to construct end-to-end through the CLI — the reason it was unit-tested at the helper level in the first place). Do NOT fabricate a deep-TIE-through-CLI test; note in the commit body that the notice consumer remains unguarded end-to-end as it was before this refactor (helper-level coverage now lives in ShellKit.Tests), and that the rename did not alter the consumer logic.
 
 - [ ] **Step 4: Build and run the wargs test project**
 
@@ -374,17 +384,21 @@ Replace with:
         }
 ```
 
-(`ParseResult.GetInt(string, int?)` is defined in `src/Yort.ShellKit/ParseResult.cs:97`. If `CultureInfo` becomes unused after this change, remove its now-orphaned `using System.Globalization;` only if the compiler flags it under warnings-as-errors.)
+**Why this swap is exactly behaviour-neutral (adversarial-review F1, verified against the code):**
+- `ParseResult.GetInt` (`src/Yort.ShellKit/ParseResult.cs:101`) is implemented as `int.Parse(raw, CultureInfo.InvariantCulture)` — the *identical* call the manual line makes. It is not a divergent sibling helper; malformed/overflow throw the same `FormatException`/`OverflowException` from the same parse.
+- `--timeout` is registered as `.IntOption("--timeout", "-w", "SEC", ..., validate: v => v >= 1 && v <= 3600 ...)` (`src/Winix.NetCat/Cli.cs:60-61`), so the value is int-parsed AND range-checked **at parse time**. Malformed (`--timeout=abc`) or overflow input is rejected as a usage error (125) before this code runs — it can never reach either parse line. There is therefore no malformed/overflow input path here to regress.
 
-- [ ] **Step 4: Confirm / add a `--timeout` parse test**
+If `CultureInfo` becomes unused after this change, remove its now-orphaned `using System.Globalization;` only if the compiler flags it under warnings-as-errors.
 
-Search `tests/Winix.NetCat.Tests/` for an existing test that parses `--timeout` into a `TimeSpan`. Run:
+- [ ] **Step 4: Confirm the existing `--timeout` end-to-end coverage**
+
+Because malformed input is unreachable (validated at parse) and `GetInt` is the same `int.Parse`, no new *negative* test is warranted — the only reachable inputs are valid ints in `[1,3600]`, which both forms handle identically. Confirm an existing test exercises the valid `--timeout`/`-w` path end-to-end:
 
 ```bash
-grep -rn "timeout" tests/Winix.NetCat.Tests/
+grep -rn "timeout\|\"-w\"" tests/Winix.NetCat.Tests/
 ```
 
-If a test already asserts `--timeout N` → `TimeSpan.FromSeconds(N)`, no new test is needed (it pins the `GetInt` equivalence). If none exists AND the timeout-resolving method is reachable from a test (public/internal seam), add a minimal one asserting `--timeout=5` resolves to `TimeSpan.FromSeconds(5)`. If the parse is buried in a non-seamed private path, do NOT fabricate a seam for this neutral change — note in the commit body that `GetInt` equivalence is covered by build + the existing nc suite.
+If an existing test drives `-w`/`--timeout` with a valid value (e.g. a `--check` test), the equivalence is pinned — record that in the commit body. If none exists AND the timeout-resolving method is a reachable seam, add a minimal `--timeout=5 → TimeSpan.FromSeconds(5)` test. Do NOT fabricate a seam or a malformed-input test for this provably-neutral, parse-guarded change.
 
 - [ ] **Step 5: Build and run the nc test project**
 
@@ -531,3 +545,12 @@ git commit -m "chore: tidy after ExceptionUnwrap consolidation"
 **Type consistency:** `UnwrapTypeInit(Exception) → Exception` and `UnwrapTypeInitWithDepth(Exception) → (Exception Surface, bool DepthCapped)` are used consistently across Tasks 1-5. wargs is the only `WithDepth` caller; retry/nc/envvault use the bare overload. `MaxDepth = 32` matches the original loop bound.
 
 **Behaviour-neutrality:** the lifted body is verbatim the wargs implementation; the three deleted private copies had identical loop logic (32-cap, same guard) returning only the surface, which `UnwrapTypeInit(ex)` reproduces exactly via `.Surface`.
+
+## Adversarial-plan-review integration (2026-06-13)
+
+A fresh-subagent adversarial review (0 blockers, 2 test gaps, 2 defers) was run on this plan; findings were verified against the code and integrated:
+
+- **F1 (test gap — `--timeout` GetInt swap untested):** Verified against the code and **found moot**. `ParseResult.GetInt` is implemented as `int.Parse(raw, CultureInfo.InvariantCulture)` — the identical call nc makes by hand — and `--timeout` is an `.IntOption(validate: 1..3600)`, so it is int-parsed and range-checked at parse time; malformed/overflow is rejected (125) before this code runs. No malformed-input path exists here to regress. Task 4 Steps 3-4 now record this analysis and require only confirmation of existing valid-path coverage (no fabricated negative test). This is the "verify a reviewer finding against the code before acting" rule in action.
+- **F2 (test gap — wargs notice not re-pinned):** The rename touches only the producer method name; the `depthCapped` consumer logic is unchanged and the producer is covered by the migrated ShellKit tests. Added Task 2 Step 3b to confirm/record whether a consumer-side notice test exists, with explicit instruction not to fabricate an infeasible deep-TIE-through-CLI test — the (pre-existing) end-to-end gap is recorded, not papered over.
+- **F3 (defer — `public const MaxDepth` inlining):** Addressed by encapsulation — `MaxDepth` is now `private const` (no caller references it), removing it from ShellKit's public surface and sidestepping the cross-assembly-inlining concern entirely.
+- **F4 (defer — stray-copy grep can't see stale binaries):** Acknowledged; Task 6's full-solution build + test (Steps 3-4) is the gate that catches any stale reference. No change needed.
