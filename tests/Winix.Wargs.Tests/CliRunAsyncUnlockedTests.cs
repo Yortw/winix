@@ -31,22 +31,23 @@ public class CliRunAsyncUnlockedTests
     /// the temp dir. DECIDED AT PLANNING (adversarial-review F5 — no implementation-time
     /// fork): a generated .cmd beats cmd-parsing cleverness (`&rem` item-swallowing) because
     /// a batch file ignores extra arguments it never references — wargs's appended item is
-    /// harmless by construction, no VERIFY needed. The batch sleeps ~30s via ping.</summary>
+    /// harmless by construction, no VERIFY needed. The batch sleeps ~120s via ping (see
+    /// the MidRunCancel liveness-bound note for why the sleep is long).</summary>
     private static readonly Lazy<string> WindowsSleepCmd = new(() =>
     {
         string path = Path.Combine(Path.GetTempPath(), $"wargs-seam-sleep-{Guid.NewGuid():N}.cmd");
-        File.WriteAllText(path, "@ping -n 30 127.0.0.1 > NUL\r\n");
+        File.WriteAllText(path, "@ping -n 121 127.0.0.1 > NUL\r\n");
         return path;
     });
 
-    /// <summary>Command argv whose appended item is ignored, so the child sleeps ~30s
+    /// <summary>Command argv whose appended item is ignored, so the child sleeps ~120s
     /// regardless of the item (long child is load-bearing — phase-1 lesson: a fast child
     /// can beat the kill and the 130 assert fails loudly, which is the designed protection;
     /// see the F5 analysis in the review-integration record).</summary>
     private static string[] SleepCommand() =>
         OperatingSystem.IsWindows()
             ? new[] { "--", WindowsSleepCmd.Value }
-            : new[] { "--", "/bin/sh", "-c", "sleep 30" };
+            : new[] { "--", "/bin/sh", "-c", "sleep 120" };
 
     private static string[] Concat(string[] head, string[] tail)
     {
@@ -115,8 +116,14 @@ public class CliRunAsyncUnlockedTests
         string[] lines = stderr.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         using var doc = JsonDocument.Parse(lines[lines.Length - 1]);
         Assert.Equal("cancelled", doc.RootElement.GetProperty("exit_reason").GetString());
-        // Coarse LIVENESS bound (not perf): must sit well under the children's ~30s sleep.
-        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(15),
+        // Coarse LIVENESS bound (not perf): the run returns 130 whether the kill was prompt
+        // OR the fan-out is broken and merely waited out the children's ~120s sleep — so this
+        // bound is what actually pins "killed promptly" vs "waited". It must stay well under
+        // the 120s sleep yet well above CI thread-pool-starvation jitter: on windows-latest a
+        // starved pool delays the await-resumption that stops the stopwatch, inflating the
+        // measured wall-clock (~15s in the historic flake) even when the kill itself was fast.
+        // 60s swamps that jitter while still tripping loudly if a real regression waits ~120s.
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(60),
             $"cancel→kill took {sw.Elapsed} — in-flight children were not all killed promptly");
     }
 
