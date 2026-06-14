@@ -32,7 +32,7 @@ All four are built in v0.5.0. Names are final (each dodges a shell/coreutils col
 Internal shared library (ProjectReference, *not* a published NuGet package — like `Winix.FileWalk`/`Winix.SecretStore`). Owns the cross-cutting spine so it is implemented and tested **once**, not four times:
 
 - **Child spawn** via `ProcessStartInfo.ArgumentList` (never string concatenation — suite rule). Default stdio: the child **inherits** the parent's stdin/stdout/stderr so the wrapper is invisible in the pipeline. (`soak --quiet` is the one capture case.)
-- **Process-tree termination** — the hard cross-platform primitive: Unix does SIGTERM → (grace) → SIGKILL to the process group; Windows has no signal model, so `Process.Kill(entireProcessTree: true)`.
+- **Process-tree termination** — the hard cross-platform primitive: Unix does SIGTERM → (grace) → SIGKILL; Windows has no signal model, so `Process.Kill(entireProcessTree: true)`. (v1 signals the **direct child** then SIGKILL-tree backstop, NOT the process group — see **ADR D10**, which supersedes the earlier "process group" wording.)
 - **Exit-code mapping** + the family scheme (below).
 - An **injectable process-runner abstraction** (the seam through which tests feed fake child outcomes + timing).
 

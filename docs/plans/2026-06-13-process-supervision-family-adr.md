@@ -79,6 +79,14 @@
 - **Trade-offs accepted:** Noisy across many iterations unless `--quiet`.
 - **Options considered:** Default-quiet (rejected — hides live progress; passthrough is the more honest default, quiet is opt-in).
 
+## D10 — `runfor` graceful Unix termination signals the direct child, not the process group (v1)
+
+- **Context:** The graceful Unix escalation (SIGTERM → grace → SIGKILL) must target *something*. The design's Architecture section says "SIGKILL to the **process group**"; its runfor section says send SIGTERM to "**the child**" — an internal inconsistency surfaced during the plan-2a adversarial review (finding B2).
+- **Decision:** v1 sends the graceful signal to the **direct child PID only** (libc `kill(childPid, sig)`); if the child ignores it past the grace window, a handle-based `Process.Kill(entireProcessTree: true)` SIGKILL backstop reaps the **whole tree**. No process-group signalling.
+- **Rationale:** Matches coreutils `timeout`'s default and the design's runfor-section wording. Portable with no pre-exec machinery. The handle-based backstop is PID-reuse-safe and tree-wide, so a non-cooperating child and its descendants are always reaped.
+- **Trade-offs accepted:** A child that *handles* SIGTERM and exits itself **within grace** may **orphan grandchildren** it spawned (they are never signalled, and the tree backstop does not fire because the parent exited in time). Acceptable for v1: the common case is a single child or one that manages its own children on SIGTERM. Documented in the `TerminateGracefully` API and `runfor`'s docs. Also: the initial signal is by raw PID (a narrow reuse window, narrowed by a pre-signal `HasExited` re-check; the BCL exposes no signal-by-handle on Unix).
+- **Options considered:** Process-group signalling (`kill(-pgid, …)` — rejected for v1: needs the child to be a session/group leader via `setsid`/`setpgid` pre-exec, which the .NET `Process` API cannot arrange and macOS lacks the `setsid` CLI for; a real cross-platform spike deferred to a future version). This **supersedes the design Architecture section's aspirational "process group" wording**, reconciling it to "direct child".
+
 ---
 
 ## Decisions Explicitly Deferred
