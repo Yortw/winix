@@ -3,6 +3,9 @@
     <TargetFramework>net10.0</TargetFramework>
     <IsTrimmable>true</IsTrimmable>
     <IsAotCompatible>true</IsAotCompatible>
+    <!-- [LibraryImport] with SetLastError generates marshalling code that needs unsafe blocks;
+         mirrors Winix.TimeIt (NativeMetrics) which sets the same flag for its libc P/Invokes. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <IsPackable>false</IsPackable>
     <PackageId>Winix.ProcessSupervision.Library</PackageId>
   </PropertyGroup>
