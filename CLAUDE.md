@@ -146,6 +146,7 @@ src/Winix.Demux/           — class library (router, sinks, summary, arg parsin
 src/demux/                 — console app entry point
 src/Winix.Online/          — class library (StatusSpec, checks, WaitEngine, Formatting, Cli.RunAsync seam)
 src/online/                — console app entry point
+src/Winix.ProcessSupervision/ — shared library (child spawn, process-tree kill-on-cancel, launch classifier, family exit codes; consumed by runfor/lock/soak/attempt)
 src/Winix.Winix/           — class library (PM adapters, manifest, orchestration)
 src/winix/                 — console app entry point (suite installer)
 tests/Yort.ShellKit.Tests/ — xUnit tests for shared library
@@ -180,6 +181,7 @@ tests/Winix.Trash.Tests/   — xUnit tests
 tests/Winix.HCat.Tests/    — xUnit tests
 tests/Winix.Demux.Tests/   — xUnit tests
 tests/Winix.Online.Tests/  — xUnit tests
+tests/Winix.ProcessSupervision.Tests/ — xUnit tests
 tests/Winix.Winix.Tests/   — xUnit tests
 tests/Winix.Contract.Tests/ — suite-wide --describe contract-lock snapshots (schema_version/maturity/prefer_default_when), one per tool surface
 ```
