@@ -27,4 +27,19 @@ internal static class ChildHelpers
             ? ("cmd", new[] { "/c", $"ping -n {seconds + 1} 127.0.0.1 > NUL" })
             : ("/bin/sh", new[] { "-c", $"sleep {seconds}" });
     }
+
+    /// <summary>A Unix child that traps the given signal, exits with <paramref name="exitCode"/> on it,
+    /// and otherwise sleeps. Used to prove graceful termination (the child exits ITSELF on SIGTERM,
+    /// before the SIGKILL backstop). Unix-only — the caller must platform-gate.</summary>
+    public static (string Command, string[] Args) TrapSignalThenSleepUnix(string signalName, int exitCode)
+    {
+        return ("/bin/sh", new[] { "-c", $"trap 'exit {exitCode}' {signalName}; sleep 120" });
+    }
+
+    /// <summary>A Unix child that IGNORES the given signal and keeps sleeping. Used to prove the
+    /// SIGKILL backstop fires after the grace window. Unix-only — the caller must platform-gate.</summary>
+    public static (string Command, string[] Args) IgnoreSignalThenSleepUnix(string signalName)
+    {
+        return ("/bin/sh", new[] { "-c", $"trap '' {signalName}; sleep 120" });
+    }
 }
