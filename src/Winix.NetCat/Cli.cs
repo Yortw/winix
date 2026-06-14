@@ -1,7 +1,6 @@
 #nullable enable
 
 using System;
-using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -144,7 +143,7 @@ public static class Cli
             // default unhandled-exception handler prints a stack trace — and with
             // StackTraceSupport=false in the AOT build the user just sees a cryptic crash.
             // Mirrors retry's Program.Main pattern.
-            Exception surface = UnwrapTypeInit(ex);
+            Exception surface = ExceptionUnwrap.UnwrapTypeInit(ex);
             string msg = string.IsNullOrEmpty(surface.Message)
                 ? $"nc: unexpected error: {surface.GetType().Name}"
                 : $"nc: unexpected error: {surface.GetType().Name}: {surface.Message}";
@@ -156,20 +155,6 @@ public static class Cli
             }
             return ExitCode.NotExecutable;
         }
-    }
-
-    /// <summary>
-    /// Peels TypeInitializationException wrappers to the actionable inner cause. Same pattern
-    /// as retry's Program.cs and envvault's Cli.UnwrapTypeInit.
-    /// </summary>
-    private static Exception UnwrapTypeInit(Exception ex)
-    {
-        Exception current = ex;
-        for (int depth = 0; depth < 32 && current is TypeInitializationException tie && tie.InnerException != null; depth++)
-        {
-            current = tie.InnerException;
-        }
-        return current;
     }
 
     private static NetCatOptions BuildOptions(ParseResult result, string version)
@@ -189,8 +174,9 @@ public static class Cli
         TimeSpan timeout = TimeSpan.Zero;
         if (result.Has("--timeout"))
         {
-            int seconds = int.Parse(result.GetString("--timeout")!, CultureInfo.InvariantCulture);
-            timeout = TimeSpan.FromSeconds(seconds);
+            // --timeout is an .IntOption(validate: 1..3600), so it is int-parsed and
+            // range-checked at parse time; GetInt is the same int.Parse(InvariantCulture).
+            timeout = TimeSpan.FromSeconds(result.GetInt("--timeout"));
         }
 
         // Mode mutual exclusion.

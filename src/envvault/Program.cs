@@ -26,10 +26,10 @@ internal sealed class Program
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
-            // Unwrap TypeInitializationException via the shared Cli helper so the user sees
+            // Unwrap TypeInitializationException via the shared ShellKit helper so the user sees
             // the actionable inner message ("Unable to load libsecret-1.so.0") rather than
             // the .NET wrapper text ("The type initializer for X threw an exception.").
-            Exception surface = Cli.UnwrapTypeInit(ex);
+            Exception surface = ExceptionUnwrap.UnwrapTypeInit(ex);
             // Distinguish "this OS isn't supported at all" from "the OS is supported but the
             // backend is broken". The former is a build/distribution choice, not an availability
             // issue — labelling it 'key store unavailable' misleads the user into checking
@@ -61,7 +61,7 @@ internal sealed class Program
         {
             // Final safety net: same SAFE-class routing as Cli's broad catch so a leaked framework
             // exception here doesn't print a bare SR key (ADR row 1).
-            SafeWriteLine(Console.Error, Formatting.ErrorLine(Cli.DescribeSurface(Cli.UnwrapTypeInit(ex)), useColor));
+            SafeWriteLine(Console.Error, Formatting.ErrorLine(Cli.DescribeSurface(ExceptionUnwrap.UnwrapTypeInit(ex)), useColor));
             return ExitCode.NotExecutable;
         }
     }

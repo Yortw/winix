@@ -643,10 +643,10 @@ public class ProgramMainTests
         Assert.Contains("wargs: job 1:", result.Stderr);
     }
 
-    // SFH I3 / TA I4 (UnwrapTypeInit depth cap) is unit-tested in ExceptionUnwrapTests.cs
-    // — the helper was extracted from the entry point in round 15 specifically to make the
-    // depth-cap notice behaviour directly testable (CLAUDE.md: "Test-infeasible branches →
-    // extract or seam, don't skip").
+    // SFH I3 / TA I4 (UnwrapTypeInit depth cap) is unit-tested in Yort.ShellKit.Tests'
+    // ExceptionUnwrapTests.cs — the helper was consolidated into ShellKit; it was originally
+    // extracted from the entry point in round 15 to make the depth-cap notice behaviour
+    // directly testable (CLAUDE.md: "Test-infeasible branches → extract or seam, don't skip").
 
     // --- Round-16 TA I1: actualFailFastTriggered classifier (Cli.cs RunCoreAsync) ---
     // Library-level tests pin SkipReason classification at the JobRunner layer; these
