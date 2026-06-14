@@ -33,7 +33,13 @@ internal static class ChildHelpers
     /// before the SIGKILL backstop). Unix-only — the caller must platform-gate.</summary>
     public static (string Command, string[] Args) TrapSignalThenSleepUnix(string signalName, int exitCode)
     {
-        return ("/bin/sh", new[] { "-c", $"trap 'exit {exitCode}' {signalName}; sleep 120" });
+        // CRITICAL idiom: `sleep & wait`, NOT a foreground `sleep`. bash/dash defer a trap until the
+        // current FOREGROUND command finishes, so `trap …; sleep 120` would not run the trap until the
+        // (120s) sleep returned — the signal would appear ignored and the SIGKILL backstop would fire
+        // instead (the exact CI failure this idiom fixes). `wait` IS interruptible by traps, so the
+        // signal runs the trap promptly and the shell exits with `exitCode`. This also mirrors the
+        // real-world caveat that a graceful signal to a shell wrapper does not reach its foreground child.
+        return ("/bin/sh", new[] { "-c", $"trap 'exit {exitCode}' {signalName}; sleep 120 & wait" });
     }
 
     /// <summary>A Unix child that IGNORES the given signal and keeps sleeping. Used to prove the
