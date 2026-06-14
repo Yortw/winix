@@ -31,4 +31,31 @@ public class ProcessTreeTerminatorTests
             if (!child.HasExited) { child.Kill(entireProcessTree: true); }
         }
     }
+
+    [Fact]
+    public void KillTree_AlreadyExitedChild_DoesNotThrow()
+    {
+        (string cmd, string[] args) = ChildHelpers.ExitWith(0);
+        var psi = new ProcessStartInfo(cmd) { UseShellExecute = false };
+        foreach (string a in args) { psi.ArgumentList.Add(a); }
+        using Process child = Process.Start(psi)!;
+        child.WaitForExit(); // child has fully exited before we kill it
+
+        // Must hit the HasExited guard / InvalidOperationException arm without throwing.
+        ProcessTreeTerminator.KillTree(child);
+    }
+
+    [Fact]
+    public void KillTree_DisposedProcess_DoesNotThrow()
+    {
+        (string cmd, string[] args) = ChildHelpers.ExitWith(0);
+        var psi = new ProcessStartInfo(cmd) { UseShellExecute = false };
+        foreach (string a in args) { psi.ArgumentList.Add(a); }
+        Process child = Process.Start(psi)!;
+        child.WaitForExit();
+        child.Dispose(); // exercise the ObjectDisposedException arm
+
+        // Must swallow ObjectDisposedException (the catch ordering puts it before InvalidOperationException).
+        ProcessTreeTerminator.KillTree(child);
+    }
 }

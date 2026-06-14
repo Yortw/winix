@@ -46,7 +46,7 @@ internal static partial class NativeProcess
     /// on Unix) has a narrow window where the target could exit and its PID be recycled between the
     /// caller reading the PID and this call. Callers MUST re-check <c>Process.HasExited</c> immediately
     /// before calling to narrow the window; it cannot be eliminated. The handle-based SIGKILL backstop
-    /// (the process-tree terminator) is reuse-safe.
+    /// (<see cref="ProcessTreeTerminator.KillTree"/>) is reuse-safe.
     /// </remarks>
     /// <exception cref="PlatformNotSupportedException">Called on a non-Unix platform.</exception>
     public static int SendSignal(int pid, int signal)

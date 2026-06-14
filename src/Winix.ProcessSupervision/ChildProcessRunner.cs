@@ -59,21 +59,8 @@ public sealed class ChildProcessRunner : IChildProcessRunner
             // returns once the kill terminates the child. The careful catch set mirrors retry/wargs:
             // a CancellationToken callback that throws makes the cancelling Cancel() call throw,
             // which would escape the supervising tool — so the kill is strictly best-effort.
-            using CancellationTokenRegistration killReg = cancellationToken.Register(() =>
-            {
-                try
-                {
-                    if (!process.HasExited)
-                    {
-                        process.Kill(entireProcessTree: true);
-                    }
-                }
-                // ObjectDisposedException FIRST — it derives from InvalidOperationException.
-                catch (ObjectDisposedException) { /* disposed before kill fired */ }
-                catch (InvalidOperationException) { /* already exited — benign */ }
-                catch (Win32Exception) { /* access denied / signal-delivery error — best-effort */ }
-                catch (NotSupportedException) { /* platform cannot kill the tree — best-effort */ }
-            });
+            using CancellationTokenRegistration killReg =
+                cancellationToken.Register(() => ProcessTreeTerminator.KillTree(process));
 
             process.WaitForExit();
             return process.ExitCode;
