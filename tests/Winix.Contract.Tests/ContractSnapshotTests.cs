@@ -94,12 +94,12 @@ public sealed class ContractSnapshotTests
     [Fact]
     public void Every_tool_in_the_suite_is_registered()
     {
-        // Tripwire: 28 is the NuGet-ID canon in CLAUDE.md. A new tool added without a
+        // Tripwire: 29 is the NuGet-ID canon in CLAUDE.md. A new tool added without a
         // registry entry (and snapshot) fails here. The message lists what IS registered
-        // so the gap is self-diagnosing rather than a bare "expected 28, got 27".
+        // so the gap is self-diagnosing rather than a bare "expected 29, got 28".
         var topLevel = DescribeSurfaces.All.Keys.Where(k => !k.Contains('/')).OrderBy(k => k, StringComparer.Ordinal).ToList();
-        Assert.True(topLevel.Count == 29,
-            $"expected 29 top-level surfaces (CLAUDE.md NuGet-ID canon), got {topLevel.Count}. " +
+        Assert.True(topLevel.Count == 30,
+            $"expected 30 top-level surfaces (CLAUDE.md NuGet-ID canon), got {topLevel.Count}. " +
             $"Registered: {string.Join(", ", topLevel)}");
     }
 
@@ -142,7 +142,7 @@ public sealed class ContractSnapshotTests
     public async Task Tier_assignments_match_the_design_table()
     {
         var fresh = new HashSet<string>(StringComparer.Ordinal)
-            { "mksecret", "trash", "hcat", "mkauth", "demux", "online" };
+            { "mksecret", "trash", "hcat", "mkauth", "demux", "online", "runfor" };
         foreach (string key in DescribeSurfaces.All.Keys.Where(k => !k.Contains('/')))
         {
             var (stdout, stderr, exit) = await ConsoleCapture.RunAsync(

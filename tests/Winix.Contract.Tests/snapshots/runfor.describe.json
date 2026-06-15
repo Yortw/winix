@@ -1,0 +1,177 @@
+{
+  "schema_version": 1,
+  "tool": "runfor",
+  "version": "<normalised>",
+  "maturity": "fresh",
+  "description": "Run a command with a time limit — cross-platform timeout(1).",
+  "platform": {
+    "scope": "cross-platform",
+    "replaces": [
+      "timeout"
+    ],
+    "value_on_windows": "Windows timeout.exe only SLEEPS — it does not bound a command; runfor actually enforces a deadline",
+    "value_on_unix": "Same role as coreutils timeout, with a consistent --json envelope and exit-code family across platforms"
+  },
+  "prefer_default_when": [
+    "You only need to sleep for a fixed duration (use timeout.exe or sleep instead — runfor launches a command)",
+    "You are on Unix and the command respects SIGTERM reliably and you have no need for --json or a consistent exit-code family"
+  ],
+  "usage": "runfor [options] [DURATION]",
+  "options": [
+    {
+      "long": "--help",
+      "short": "-h",
+      "type": "flag",
+      "description": "Show help",
+      "repeatable": false
+    },
+    {
+      "long": "--version",
+      "type": "flag",
+      "description": "Show version",
+      "repeatable": false
+    },
+    {
+      "long": "--no-color",
+      "type": "flag",
+      "description": "Disable colored output",
+      "repeatable": false
+    },
+    {
+      "long": "--json",
+      "type": "flag",
+      "description": "JSON output",
+      "repeatable": false
+    },
+    {
+      "long": "--describe",
+      "type": "flag",
+      "description": "Structured JSON metadata for AI agents",
+      "repeatable": false
+    },
+    {
+      "long": "--signal",
+      "short": "-s",
+      "type": "string",
+      "placeholder": "NAME",
+      "description": "Signal sent at the deadline on Unix: TERM (default), HUP, INT, QUIT, KILL. Ignored on Windows.",
+      "repeatable": false
+    },
+    {
+      "long": "--kill-after",
+      "short": "-k",
+      "type": "string",
+      "placeholder": "GRACE",
+      "description": "Unix: after the deadline signal, wait GRACE then SIGKILL the tree. No-op on Windows (kills immediately).",
+      "repeatable": false
+    },
+    {
+      "long": "--color",
+      "type": "optional-value",
+      "allowed_values": [
+        "auto",
+        "always",
+        "never"
+      ],
+      "default_when_bare": "always",
+      "description": "Coloured output: auto (default when omitted), always, or never",
+      "repeatable": false
+    }
+  ],
+  "exit_codes": [
+    {
+      "code": 0,
+      "description": "Child exited 0 before the deadline (or forwarded child code 1–123)"
+    },
+    {
+      "code": 124,
+      "description": "Deadline exceeded — the child was terminated"
+    },
+    {
+      "code": 130,
+      "description": "Interrupted by Ctrl+C"
+    },
+    {
+      "code": 125,
+      "description": "Usage error: missing/invalid DURATION, no command, bad --signal/--kill-after"
+    },
+    {
+      "code": 126,
+      "description": "Command not executable"
+    },
+    {
+      "code": 127,
+      "description": "Command not found on PATH"
+    }
+  ],
+  "io": {
+    "stdin": "Not used (child process inherits stdin)",
+    "stdout": "Child process stdout passes through unmodified",
+    "stderr": "Child stderr passes through; runfor's own notice and --json summary also go here"
+  },
+  "examples": [
+    {
+      "command": "runfor 30s -- curl https://example.com",
+      "description": "Abort a request after 30 seconds"
+    },
+    {
+      "command": "runfor 5m -- dotnet test",
+      "description": "Cap a test run at 5 minutes"
+    },
+    {
+      "command": "runfor --kill-after 3s 10s -- ./server",
+      "description": "SIGTERM at 10s, SIGKILL 3s later if it ignores it (Unix)"
+    },
+    {
+      "command": "runfor --signal INT 1m -- ./job",
+      "description": "Send SIGINT instead of SIGTERM at the deadline (Unix)"
+    }
+  ],
+  "json_output_fields": [
+    {
+      "name": "tool",
+      "type": "string",
+      "description": "Tool name (\"runfor\")"
+    },
+    {
+      "name": "version",
+      "type": "string",
+      "description": "Tool version"
+    },
+    {
+      "name": "exit_code",
+      "type": "int",
+      "description": "runfor's exit code (child's on completion, 124 timeout, 130 interrupt, 126/127 launch)"
+    },
+    {
+      "name": "outcome",
+      "type": "string",
+      "description": "completed | timed_out | interrupted | launch_failed"
+    },
+    {
+      "name": "timed_out",
+      "type": "bool",
+      "description": "True iff the deadline fired"
+    },
+    {
+      "name": "child_exit_code",
+      "type": "int|null",
+      "description": "Child's exit code if it completed, else null"
+    },
+    {
+      "name": "signal",
+      "type": "string",
+      "description": "Signal name configured for the deadline (Unix)"
+    },
+    {
+      "name": "kill_failed",
+      "type": "bool",
+      "description": "True iff a kill was attempted and could not be confirmed"
+    },
+    {
+      "name": "duration_ms",
+      "type": "int",
+      "description": "Wall-clock time from launch to resolution, milliseconds"
+    }
+  ]
+}
