@@ -220,6 +220,9 @@ jobs:
       - name: Pack online
         run: dotnet pack src/online/online.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
 
+      - name: Pack runfor
+        run: dotnet pack src/runfor/runfor.csproj -c Release -o packages -p:Version=${{ needs.resolve-version.outputs.version }}
+
       - name: Upload NuGet packages
         uses: actions/upload-artifact@v7
         with:
@@ -349,6 +352,9 @@ jobs:
       - name: Publish online (${{ matrix.rid }})
         run: dotnet publish src/online/online.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
 
+      - name: Publish runfor (${{ matrix.rid }})
+        run: dotnet publish src/runfor/runfor.csproj -c Release -r ${{ matrix.rid }} -p:Version=${{ needs.resolve-version.outputs.version }}
+
       - name: Bundle man pages alongside man binary
         shell: bash
         run: |
@@ -370,7 +376,7 @@ jobs:
         run: |
           set -euo pipefail
           RID="${{ matrix.rid }}"
-          TOOLS="timeit squeeze peep wargs files treex man less whoholds schedule winix nc retry when clip ids digest notify url qr protect unprotect envvault mksecret mkauth trash hcat demux online"
+          TOOLS="timeit squeeze peep wargs files treex man less whoholds schedule winix nc retry when clip ids digest notify url qr protect unprotect envvault mksecret mkauth trash hcat demux online runfor"
           for t in $TOOLS; do
             pubdir="src/$t/bin/Release/net10.0/$RID/publish"
             main="$GITHUB_WORKSPACE/$t-$RID.zip"
@@ -415,7 +421,7 @@ jobs:
           # Compress-Archive / Remove-Item fails the step instead of silently continuing.
           $ErrorActionPreference = 'Stop'
           $rid = '${{ matrix.rid }}'
-          $tools = @('timeit','squeeze','peep','wargs','files','treex','man','less','whoholds','schedule','winix','nc','retry','when','clip','ids','digest','notify','url','qr','protect','unprotect','envvault','mksecret','mkauth','trash','hcat','demux','online')
+          $tools = @('timeit','squeeze','peep','wargs','files','treex','man','less','whoholds','schedule','winix','nc','retry','when','clip','ids','digest','notify','url','qr','protect','unprotect','envvault','mksecret','mkauth','trash','hcat','demux','online','runfor')
           foreach ($t in $tools) {
             $pub = "src/$t/bin/Release/net10.0/$rid/publish"
             $main = "$t-$rid.zip"
@@ -469,6 +475,7 @@ jobs:
           Copy-Item src/hcat/bin/Release/net10.0/${{ matrix.rid }}/publish/hcat.exe winix-combined/
           Copy-Item src/demux/bin/Release/net10.0/${{ matrix.rid }}/publish/demux.exe winix-combined/
           Copy-Item src/online/bin/Release/net10.0/${{ matrix.rid }}/publish/online.exe winix-combined/
+          Copy-Item src/runfor/bin/Release/net10.0/${{ matrix.rid }}/publish/runfor.exe winix-combined/
           Copy-Item src/man/bin/Release/net10.0/${{ matrix.rid }}/publish/share -Recurse -Destination winix-combined/share
           Compress-Archive -Path winix-combined/* -DestinationPath winix-${{ matrix.rid }}.zip -Force
 
