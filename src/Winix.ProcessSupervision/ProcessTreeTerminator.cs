@@ -107,6 +107,57 @@ public static class ProcessTreeTerminator
         return ConfirmExited(process);
     }
 
+    /// <summary>
+    /// The deadline-termination dispatcher used by <c>runfor</c>. Encapsulates the platform × mode
+    /// matrix so the orchestrator stays platform-agnostic:
+    /// <list type="bullet">
+    /// <item>Windows/unsupported (any mode): no signal model — kill the tree immediately (ADR D7).</item>
+    /// <item>Unix, <paramref name="killAfter"/> set: SIGTERM → grace → SIGKILL-tree backstop
+    ///   (<see cref="TerminateGracefully"/>).</item>
+    /// <item>Unix, <paramref name="killAfter"/> null: coreutils-faithful default — send
+    ///   <paramref name="signal"/> to the direct child ONCE, no backstop. A child that ignores it
+    ///   survives (Troy ratified 2026-06-15).</item>
+    /// </list>
+    /// </summary>
+    /// <param name="process">The child to terminate.</param>
+    /// <param name="signal">The Unix signal to send (ignored on Windows). See <see cref="NativeProcess"/>.</param>
+    /// <param name="killAfter">Grace window before the SIGKILL backstop. <c>null</c> ⇒ coreutils default
+    /// (signal-only, no backstop). A value (incl. <see cref="TimeSpan.Zero"/>) ⇒ escalate to SIGKILL-tree
+    /// if the child has not exited after the grace.</param>
+    /// <returns>A <see cref="TerminationOutcome"/> describing what happened — see that enum's members.</returns>
+    public static TerminationOutcome TerminateAtDeadline(Process process, int signal, TimeSpan? killAfter)
+    {
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS())
+        {
+            // Windows / unsupported: kill the tree immediately — there is no graceful signal model.
+            KillTree(process);
+            return ConfirmExited(process) ? TerminationOutcome.ConfirmedDead : TerminationOutcome.KillFailed;
+        }
+
+        if (killAfter.HasValue)
+        {
+            return TerminateGracefully(process, signal, killAfter.Value)
+                ? TerminationOutcome.ConfirmedDead
+                : TerminationOutcome.KillFailed;
+        }
+
+        // Coreutils default: signal-only, no backstop. Re-check HasExited to narrow the PID-reuse window
+        // (see NativeProcess.SendSignal remarks); if it is already gone, report ConfirmedDead.
+        if (HasExitedSafe(process)) { return TerminationOutcome.ConfirmedDead; }
+
+        int pid;
+        try { pid = process.Id; }
+        catch (InvalidOperationException) { return TerminationOutcome.ConfirmedDead; }
+
+        // errno deliberately NOT surfaced (review F3 — accepted coreutils-parity limitation): in default
+        // signal-only mode, both "child ignored the signal" (benign) AND "kill(2) returned EPERM, child
+        // owned by another user" collapse to SignalSentNoGuarantee → kill_failed:false. coreutils `timeout`
+        // is identical (it exits 124 with the child possibly alive); --kill-after is the escape hatch that
+        // DOES surface a failed kill (KillFailed). Documented in known-issues.
+        NativeProcess.SendSignal(pid, signal);
+        return TerminationOutcome.SignalSentNoGuarantee;
+    }
+
     // Bounded confirm window: Process.Kill is asynchronous (especially on Windows), so a kill that
     // WILL succeed may not have taken effect the instant we check. Wait up to this long for the
     // process to actually die before declaring the kill failed. Returns as soon as it exits, so a
