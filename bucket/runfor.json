@@ -1,0 +1,21 @@
+{
+  "version": "0.4.0",
+  "description": "Run a command with a time limit — cross-platform timeout(1) with a graceful Unix kill window.",
+  "homepage": "https://github.com/Yortw/winix",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/Yortw/winix/releases/download/v0.4.0/runfor-win-x64.zip",
+      "hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "bin": "runfor.exe"
+    }
+  },
+  "checkver": "github",
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/Yortw/winix/releases/download/v$version/runfor-win-x64.zip"
+      }
+    }
+  }
+}
