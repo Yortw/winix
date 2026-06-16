@@ -59,7 +59,7 @@ DURATION accepts a number followed by a unit suffix: `ms` (milliseconds), `s` (s
 
 **Default** (stderr, only when the deadline fires or the child cannot be launched):
 ```
-runfor: curl: timed out after 30s
+runfor: timed out after 30.0s: curl
 ```
 
 **JSON** (`--json`, stderr):
