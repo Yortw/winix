@@ -35,5 +35,16 @@ public class UnixSignalTests
     {
         Assert.Equal("TERM", UnixSignal.ToName(15));
         Assert.Equal("KILL", UnixSignal.ToName(9));
+        Assert.Equal("HUP", UnixSignal.ToName(1));
+        Assert.Equal("INT", UnixSignal.ToName(2));
+        Assert.Equal("QUIT", UnixSignal.ToName(3));
+    }
+
+    [Fact]
+    public void ToName_UnknownNumber_FallsBackToDecimalString()
+    {
+        // The default arm formats the raw number (invariant culture) — pins it so a future change that
+        // returns "" or "unknown" for an out-of-set signal fails loudly.
+        Assert.Equal("99", UnixSignal.ToName(99));
     }
 }

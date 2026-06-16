@@ -36,12 +36,17 @@ internal sealed class ProcessSupervisedChild : ISupervisedChild
             // refactor to `await ...WaitForExitAsync(ct)` (which DOES throw OCE) stays correct.
             return false; // Ctrl+C — caller checks the token to distinguish from a deadline timeout.
         }
-        catch (AggregateException)
+        catch (AggregateException ae) when (ae.InnerException is OperationCanceledException)
         {
-            // .Wait wraps a faulted/cancelled task; treat as "did not exit cleanly" — the caller's
-            // token check decides interrupt vs timeout.
+            // Task.Wait surfaces CANCELLATION as AggregateException(OperationCanceledException) (and
+            // TaskCanceledException derives from it). Treat ONLY cancellation as "did not exit cleanly" —
+            // the caller's token check then decides interrupt vs timeout.
             return false;
         }
+        // A GENUINE WaitForExitAsync fault (not cancellation) is deliberately NOT caught here: it must
+        // propagate to Cli.Run's broad catch and surface as a real error, rather than masquerading as a
+        // 124 deadline timeout (the token isn't cancelled, so the orchestrator would otherwise read
+        // false→TimedOut and hide the fault). Fresh-eyes review CR-1/SFH-1.
     }
 
     /// <inheritdoc />

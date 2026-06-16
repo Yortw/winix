@@ -132,7 +132,9 @@ runfor signals only the **direct child**. A child that handles the signal and ex
 
 **`--signal` and `--kill-after` are no-ops on Windows.** Windows kills the process tree immediately; the signal model does not apply.
 
-**`kill_failed: true` means the child may still be running.** When the deadline fires and the kill cannot be confirmed, runfor still returns 124 and emits the warning. Check this field in `--json` output if you need to detect this condition.
+**The `--json` `signal` field is the *configured* signal, not proof one was sent.** It reflects what `--signal` resolved to (default `TERM`). On Windows the field is still emitted (e.g. `"signal":"TERM"`) even though Windows sends no signal at all — don't read it as evidence SIGTERM was delivered.
+
+**`kill_failed: true` means the child may still be running** — but it is only ever set when a kill was actually *attempted with confirmation*. In the coreutils-faithful default mode (no `--kill-after`), runfor sends the signal once and does **not** confirm the kill, so `kill_failed` is always `false` there even if delivery failed (e.g. the child is owned by another user / EPERM). If you need runfor to *confirm* the child is dead — and to surface `kill_failed: true` when it can't — pass `--kill-after` (which adds the SIGKILL tree-backstop). When the deadline fires under `--kill-after` and the kill cannot be confirmed, runfor still returns 124 and emits the warning.
 
 **Duration format:** a number followed by a unit suffix — `ms` (milliseconds), `s` (seconds), `m` (minutes), `h` (hours). Examples: `500ms`, `30s`, `5m`, `1h`.
 

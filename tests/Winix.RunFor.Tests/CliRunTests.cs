@@ -174,4 +174,81 @@ public class CliRunTests
         Assert.Equal(ExitCode.NotExecutable, code);
         Assert.Contains("InvalidOperationException", err, StringComparison.Ordinal);
     }
+
+    // Launch failure (plain): the not-EXECUTABLE branch of ExitReasonText (126) — the runner-level test
+    // pins the code, this pins the user-facing Cli message text. (Fresh-eyes review TA-C4.)
+    [Fact]
+    public void CommandNotExecutable_Plain_Returns126_ReasonOnStderr()
+    {
+        var starter = new ThrowingChildStarter(new CommandNotExecutableException("x"));
+        int code = Run(new[] { "5s", "--", "x" }, out _, out string err, starter);
+        Assert.Equal(ExitCode.NotExecutable, code);
+        Assert.Contains("not executable", err, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // Ctrl+C at the Cli seam (plain): a pre-cancelled token → 130 + "interrupted" notice on stderr.
+    // The runner/formatter cover the decision + the string; THIS pins the Cli wiring (the "unit-green
+    // but caller-unwired" class). (Fresh-eyes review TA-C1.)
+    [Fact]
+    public void Interrupted_Plain_Returns130_NoticeOnStderr()
+    {
+        var child = new FakeChild { ExitsWithinDeadline = false };
+        var so = new StringWriter();
+        var se = new StringWriter();
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        int code = Cli.Run(new[] { "10s", "--", "x" }, so, se, cts.Token, new FakeChildStarter(child));
+
+        Assert.Equal(SupervisionExitCode.Interrupted, code);
+        Assert.Contains("interrupted", se.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    // Ctrl+C at the Cli seam (--json): pre-cancelled token → 130 + interrupted envelope on STDERR,
+    // stdout stays empty. (Fresh-eyes review TA-C1.)
+    [Fact]
+    public void Interrupted_Json_Returns130_EnvelopeOnStderr_StdoutEmpty()
+    {
+        var child = new FakeChild { ExitsWithinDeadline = false };
+        var so = new StringWriter();
+        var se = new StringWriter();
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        int code = Cli.Run(new[] { "--json", "10s", "--", "x" }, so, se, cts.Token, new FakeChildStarter(child));
+
+        Assert.Equal(SupervisionExitCode.Interrupted, code);
+        Assert.Equal(string.Empty, so.ToString());
+        Assert.Contains("\"outcome\":\"interrupted\"", se.ToString(), StringComparison.Ordinal);
+    }
+
+    // A non-default --signal must be PARSED and THREADED through to the runner (a regression that
+    // dropped the parsed value back to the default would be silent). (Fresh-eyes review TA-C2.)
+    [Fact]
+    public void NonDefaultSignal_ThreadedToRunner()
+    {
+        var child = new FakeChild { ExitsWithinDeadline = false };
+        Run(new[] { "--signal", "INT", "5s", "--", "x" }, out _, out _, new FakeChildStarter(child));
+        Assert.Equal(2, child.LastSignal); // SIGINT, not the default SIGTERM (15)
+    }
+
+    // ...and the parsed signal name is reflected in the --json envelope (not hardcoded TERM).
+    // (Fresh-eyes review TA-I1.)
+    [Fact]
+    public void NonDefaultSignal_ReflectedInJsonEnvelope()
+    {
+        var child = new FakeChild { ExitsWithinDeadline = false };
+        Run(new[] { "--signal", "INT", "--json", "5s", "--", "x" }, out _, out string err, new FakeChildStarter(child));
+        Assert.Contains("\"signal\":\"INT\"", err, StringComparison.Ordinal);
+    }
+
+    // --kill-after with an unparseable duration → usage error 125 mentioning the flag. The --signal
+    // reject path was covered; this completes the arg-validation matrix. (Fresh-eyes review TA-C3.)
+    [Fact]
+    public void BadKillAfter_UsageError()
+    {
+        int code = Run(new[] { "--kill-after", "notaduration", "5s", "--", "x" }, out _, out string err);
+        Assert.Equal(ExitCode.UsageError, code);
+        Assert.Contains("kill-after", err, StringComparison.OrdinalIgnoreCase);
+    }
 }
