@@ -161,7 +161,7 @@
     {
       "name": "signal",
       "type": "string",
-      "description": "Signal name configured for the deadline (Unix)"
+      "description": "Configured deadline signal name; emitted on all platforms (Windows sends no signal)"
     },
     {
       "name": "kill_failed",

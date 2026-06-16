@@ -70,7 +70,7 @@ public static class Cli
             .JsonField("outcome", "string", "completed | timed_out | interrupted | launch_failed")
             .JsonField("timed_out", "bool", "True iff the deadline fired")
             .JsonField("child_exit_code", "int|null", "Child's exit code if it completed, else null")
-            .JsonField("signal", "string", "Signal name configured for the deadline (Unix)")
+            .JsonField("signal", "string", "Configured deadline signal name; emitted on all platforms (Windows sends no signal)")
             .JsonField("kill_failed", "bool", "True iff a kill was attempted and could not be confirmed")
             .JsonField("duration_ms", "int", "Wall-clock time from launch to resolution, milliseconds");
 

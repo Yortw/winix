@@ -186,6 +186,18 @@ public class CliRunTests
         Assert.Contains("not executable", err, StringComparison.OrdinalIgnoreCase);
     }
 
+    // Launch failure (--json), not-executable arm: completes the launch-fail JSON matrix alongside the
+    // not-found case (both 126/127 route through the same envelope path; symmetry guard).
+    [Fact]
+    public void CommandNotExecutable_Json_LaunchFailedEnvelopeOnStderr()
+    {
+        var starter = new ThrowingChildStarter(new CommandNotExecutableException("x"));
+        int code = Run(new[] { "--json", "5s", "--", "x" }, out string outText, out string err, starter);
+        Assert.Equal(ExitCode.NotExecutable, code);
+        Assert.Equal(string.Empty, outText);
+        Assert.Contains("\"outcome\":\"launch_failed\"", err, StringComparison.Ordinal);
+    }
+
     // Ctrl+C at the Cli seam (plain): a pre-cancelled token → 130 + "interrupted" notice on stderr.
     // The runner/formatter cover the decision + the string; THIS pins the Cli wiring (the "unit-green
     // but caller-unwired" class). (Fresh-eyes review TA-C1.)
