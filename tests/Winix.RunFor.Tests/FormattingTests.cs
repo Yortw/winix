@@ -34,6 +34,29 @@ public class FormattingTests
     }
 
     [Fact]
+    public void FormatJson_Interrupted_OutcomeInterrupted_TimedOutFalse_NullChild()
+    {
+        // Pins the Interrupted JSON path: it is NOT a timeout (timed_out:false) and has no child code.
+        RunForResult r = RunForResult.Interrupted(TimeSpan.FromSeconds(2), killFailed: false);
+        string json = Formatting.FormatJson(r, "runfor", "1.2.3", signalName: "TERM");
+
+        Assert.Contains("\"outcome\":\"interrupted\"", json);
+        Assert.Contains("\"timed_out\":false", json);
+        Assert.Contains("\"child_exit_code\":null", json);
+    }
+
+    [Fact]
+    public void FormatJson_LaunchFailed_OutcomeLaunchFailed_TimedOutFalse_NullChild()
+    {
+        RunForResult r = RunForResult.LaunchFailed(127, TimeSpan.Zero);
+        string json = Formatting.FormatJson(r, "runfor", "1.2.3", signalName: "TERM");
+
+        Assert.Contains("\"outcome\":\"launch_failed\"", json);
+        Assert.Contains("\"timed_out\":false", json);
+        Assert.Contains("\"child_exit_code\":null", json);
+    }
+
+    [Fact]
     public void FormatNotice_TimedOut_MentionsDeadline()
     {
         string notice = Formatting.FormatNotice(
